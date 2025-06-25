@@ -34,8 +34,7 @@
 namespace doris {
 
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
-                               bool partial_update,
-                               PartialUpdateNewRowPolicyPB policy,
+                               bool partial_update, PartialUpdateNewRowPolicyPB policy,
                                const std::set<std::string>& partial_update_cols,
                                bool is_strict_mode, int64_t timestamp_ms, int32_t nano_seconds,
                                const std::string& timezone,
@@ -160,11 +159,10 @@ std::string PartialUpdateInfo::summary() const {
 }
 
 Status PartialUpdateInfo::handle_new_key(const TabletSchema& tablet_schema,
-                                         const std::function<std::string()>& line,
-                                         BitmapValue* skip_bitmap) {
+                                         const std::function<std::string()>& line) {
     switch (partial_update_new_key_policy) {
     case doris::PartialUpdateNewRowPolicyPB::APPEND: {
-        if (_is_partial_update) {
+        if (is_partial_update) {
             if (!can_insert_new_rows_in_partial_update) {
                 std::string error_column;
                 for (auto cid : missing_cids) {
@@ -180,7 +178,7 @@ Status PartialUpdateInfo::handle_new_key(const TabletSchema& tablet_schema,
                         "for newly inserted rows in non-strict mode partial update",
                         error_column);
             }
-        } 
+        }
     } break;
     case doris::PartialUpdateNewRowPolicyPB::ERROR: {
         return Status::Error<ErrorCode::NEW_ROWS_IN_PARTIAL_UPDATE, false>(

@@ -489,7 +489,7 @@ Status SegmentWriter::probe_key_for_mow(
         PartialUpdateReadPlan& read_plan, const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-        PartialUpdateStats& stats) {
+        const std::function<Status()>& not_found_cb, PartialUpdateStats& stats) {
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
@@ -677,9 +677,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     });
         };
         RETURN_IF_ERROR(probe_key_for_mow(std::move(key), segment_pos, have_input_seq_column,
-                                          have_delete_sign, specified_rowsets, segment_caches,
-                                          has_default_or_nullable, use_default_or_null_flag,
-                                          stats));
+                                          have_delete_sign, read_plan, specified_rowsets,
+                                          segment_caches, has_default_or_nullable,
+                                          use_default_or_null_flag, not_found_cb, stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 

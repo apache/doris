@@ -54,7 +54,6 @@ import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TQueryGlobals;
@@ -283,7 +282,7 @@ public class StreamLoadPlanner {
         // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
                 fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
-                isPartialUpdate, partialUpdateNewRowPolicy);
+                isPartialUpdate);
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);
@@ -310,6 +309,9 @@ public class StreamLoadPlanner {
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
                 taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), txnTimeout);
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
+        if (isPartialUpdate) {
+            olapTableSink.setPartialUpdateNewRowPolicy(taskInfo.getPartialUpdateNewRowPolicy());
+        }
         olapTableSink.complete(analyzer);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.

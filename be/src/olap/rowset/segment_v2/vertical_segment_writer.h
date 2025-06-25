@@ -172,6 +172,7 @@ private:
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                               bool& has_default_or_nullable,
                               std::vector<bool>& use_default_or_null_flag,
+                              const std::function<Status()>& not_found_cb,
                               PartialUpdateStats& stats);
     Status _partial_update_preconditions_check(size_t row_pos);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);

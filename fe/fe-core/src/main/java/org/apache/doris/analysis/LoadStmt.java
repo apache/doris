@@ -38,7 +38,6 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Function;

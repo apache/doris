@@ -130,7 +130,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         }
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
     }
-    if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT) {
+    if (_is_partial_update) {
         if (pschema.has_partial_update_new_key_policy()) {
             _partial_update_new_row_policy = pschema.partial_update_new_key_policy();
         }
@@ -226,7 +226,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _auto_increment_column_unique_id = tschema.auto_increment_column_unique_id;
     }
 
-    if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT) {
+    if (_is_partial_update) {
         if (tschema.__isset.partial_update_new_key_policy) {
             switch (tschema.partial_update_new_key_policy) {
             case doris::TPartialUpdateNewRowPolicy::APPEND: {

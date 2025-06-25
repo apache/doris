@@ -344,96 +344,13 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
-<<<<<<< HEAD
         schemaParam.setIsPartialUpdate(isPartialUpdate);
         if (isPartialUpdate) {
-=======
-        setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
-        schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
-        return schemaParam;
-    }
-
-    private TOlapTableSchemaParam createSchema(long dbId, OlapTable table) throws AnalysisException {
-        TOlapTableSchemaParam schemaParam = new TOlapTableSchemaParam();
-        schemaParam.setDbId(dbId);
-        schemaParam.setTableId(table.getId());
-        schemaParam.setVersion(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
-        schemaParam.setIsStrictMode(isStrictMode);
-
-        schemaParam.tuple_desc = tupleDescriptor.toThrift();
-        for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {
-            schemaParam.addToSlotDescs(slotDesc.toThrift());
-        }
-
-        for (Map.Entry<Long, MaterializedIndexMeta> pair : table.getIndexIdToMeta().entrySet()) {
-            MaterializedIndexMeta indexMeta = pair.getValue();
-            List<String> columns = Lists.newArrayList();
-            List<TColumn> columnsDesc = Lists.newArrayList();
-            List<TOlapTableIndex> indexDesc = Lists.newArrayList();
-            columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
-            for (Column column : indexMeta.getSchema()) {
-                TColumn tColumn = column.toThrift();
-                // When schema change is doing, some modified column has prefix in name. Columns here
-                // is for the schema in rowset meta, which should be no column with shadow prefix.
-                // So we should remove the shadow prefix here.
-                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-                    tColumn.setColumnName(column.getNonShadowName());
-                }
-                column.setIndexFlag(tColumn, table);
-                columnsDesc.add(tColumn);
-            }
-            List<Index> indexes = indexMeta.getIndexes();
-            if (indexes.size() == 0 && pair.getKey() == table.getBaseIndexId()) {
-                // for compatible with old version befor 2.0-beta
-                // if indexMeta.getIndexes() is empty, use table.getIndexes()
-                indexes = table.getIndexes();
-            }
-            for (Index index : indexes) {
-                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(table.getBaseSchema()));
-                indexDesc.add(tIndex);
-            }
-            TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
-                    indexMeta.getSchemaHash());
-            Expr whereClause = indexMeta.getWhereClause();
-            if (whereClause != null) {
-                Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
-                if (expr == null) {
-                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSqlWithoutTbl()));
-                }
-                indexSchema.setWhereClause(expr.treeToThrift());
-            }
-            indexSchema.setColumnsDesc(columnsDesc);
-            indexSchema.setIndexesDesc(indexDesc);
-            schemaParam.addToIndexes(indexSchema);
-        }
-        setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
-        schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
-        return schemaParam;
-    }
-
-    private void setPartialUpdateInfoForParam(TOlapTableSchemaParam schemaParam, OlapTable table,
-            TUniqueKeyUpdateMode uniqueKeyUpdateMode) throws AnalysisException {
-        // for backward compatibility
-        schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
-        schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
-        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
->>>>>>> 6f00a7cb19 ([opt](partial update) use a separate config to control the behavior of newly inserted rows in partial update (#41232))
+            schemaParam.setPartialUpdateNewKeyPolicy(partialUpdateNewKeyPolicy);
             if (table.getState() == OlapTable.OlapTableState.ROLLUP
                     || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
                 throw new AnalysisException("Can't do partial update when table is doing schema change.");
             }
-<<<<<<< HEAD
-=======
-            schemaParam.setPartialUpdateNewKeyPolicy(partialUpdateNewKeyPolicy);
-        }
-        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && table.getSequenceMapCol() != null) {
-            Column seqMapCol = table.getFullSchema().stream()
-                    .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
-                    .findFirst().get();
-            schemaParam.setSequenceMapColUniqueId(seqMapCol.getUniqueId());
-        }
-        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
->>>>>>> 6f00a7cb19 ([opt](partial update) use a separate config to control the behavior of newly inserted rows in partial update (#41232))
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
             }
@@ -444,6 +361,8 @@ public class OlapTableSink extends DataSink {
                 }
             }
         }
+        schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
+        return schemaParam;
     }
 
     private List<String> getDistColumns(DistributionInfo distInfo) throws UserException {
