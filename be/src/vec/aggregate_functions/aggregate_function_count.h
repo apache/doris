@@ -174,6 +174,23 @@ public:
     DataTypePtr get_serialized_type() const override {
         return std::make_shared<DataTypeFixedLengthObject>();
     }
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena, UInt8* current_window_empty,
+                                UInt8* current_window_has_inited) const override {
+        frame_start = std::max<int64_t>(frame_start, partition_start);
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+        if (frame_start >= frame_end) {
+            if (!*current_window_has_inited) {
+                *current_window_empty = true;
+            }
+        } else {
+            AggregateFunctionCount::data(place).count = frame_end - frame_start;
+            *current_window_empty = false;
+            *current_window_has_inited = true;
+        }
+    }
 };
 
 // TODO: Maybe AggregateFunctionCountNotNullUnary should be a subclass of AggregateFunctionCount
@@ -312,6 +329,35 @@ public:
 
     DataTypePtr get_serialized_type() const override {
         return std::make_shared<DataTypeFixedLengthObject>();
+    }
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena, UInt8* current_window_empty,
+                                UInt8* current_window_has_inited) const override {
+        frame_start = std::max<int64_t>(frame_start, partition_start);
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+        if (frame_start >= frame_end) {
+            if (!*current_window_has_inited) {
+                *current_window_empty = true;
+            }
+        } else {
+            const auto& nullable_column =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            size_t count = 0;
+            if (nullable_column.has_null()) {
+                for (int64_t i = frame_start; i < frame_end; ++i) {
+                    if (!nullable_column.is_null_at(i)) {
+                        ++count;
+                    }
+                }
+            } else {
+                count = frame_end - frame_start;
+            }
+            *current_window_empty = false;
+            *current_window_has_inited = true;
+            AggregateFunctionCountNotNullUnary::data(place).count = count;
+        }
     }
 };
 
