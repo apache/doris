@@ -20,8 +20,6 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -56,8 +54,7 @@ public class MTMVRewriteUtil {
             return res;
         }
         // check mv is normal
-        MTMVStatus mtmvStatus = mtmv.getStatus();
-        if (mtmvStatus.getState() != MTMVState.NORMAL || mtmvStatus.getRefreshState() == MTMVRefreshState.INIT) {
+        if (!mtmv.canBeCandidate()) {
             return res;
         }
         // if relatedPartitions is empty but not null, which means query no partitions

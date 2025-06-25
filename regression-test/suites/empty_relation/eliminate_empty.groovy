@@ -26,6 +26,8 @@ suite("eliminate_empty") {
         set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
         set forbid_unknown_col_stats=false;
         set enable_parallel_result_sink=false;
+        set runtime_filter_type=2;
+        set enable_runtime_filter_prune=false;
     """
     qt_onerow_union """
         select * from (select 1, 2 union select 3, 4) T order by 1, 2

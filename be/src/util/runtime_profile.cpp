@@ -580,12 +580,12 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix,
     }
 }
 
-void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree, int64 profile_level) {
+void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree, int64_t profile_level) {
     tree->nodes.clear();
     to_thrift(&tree->nodes, profile_level);
 }
 
-void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64 profile_level) {
+void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64_t profile_level) {
     int index = nodes->size();
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
