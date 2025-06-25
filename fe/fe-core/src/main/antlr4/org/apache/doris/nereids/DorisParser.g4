@@ -1897,6 +1897,7 @@ nonReserved
     | DYNAMIC
     | E
     | ENABLE
+    | ENCODING
     | ENCRYPTKEY
     | ENCRYPTKEYS
     | END
