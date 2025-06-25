@@ -112,4 +112,31 @@ suite("insert") {
           b as (select * from a)
         select id from a;
         """
+    sql """
+    DROP TABLE IF EXISTS source;
+    CREATE TABLE source (
+                l_shipdate    DATE NOT NULL,
+                        l_orderkey    bigint NOT NULL,
+                l_linenumber  int not null
+        )ENGINE=OLAP
+        DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+        PROPERTIES (
+                "replication_num" = "1"
+        );
+
+    insert into source values('1994-12-08', 1,1) , ('1994-12-14',1,1), ('1994-12-14',2,1);
+
+
+    """
+
+    try {
+        sql """ insert into source values('2000-12-08', 1, 1);
+            insert into source values('2000-12-09', 1, 1, 100);
+            insert into source values('2000-12-10', 1, 1); """
+    } catch (Exception e) {
+        logger.info("exception: " + e.getMessage())
+    }
+    order_qt_select1 """ select * from source; """
 }
