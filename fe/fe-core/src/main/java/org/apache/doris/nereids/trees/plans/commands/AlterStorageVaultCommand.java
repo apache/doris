@@ -62,10 +62,13 @@ public class AlterStorageVaultCommand extends Command implements ForwardWithSync
 
         FeNameFormat.checkStorageVaultName(name);
         if (properties.containsKey(StorageVault.PropertyKey.VAULT_NAME)) {
+            String newVaultName = properties.get(StorageVault.PropertyKey.VAULT_NAME);
             Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
             if (info != null && name.equalsIgnoreCase(info.first)) {
                 throw new AnalysisException("Cannot rename default storage vault. Before rename it, you should execute"
-                        + " `UNSET DEFAULT STORAGE VAULT` sql to unset default storage vault.");
+                        + " `UNSET DEFAULT STORAGE VAULT` sql to unset default storage vault. After rename it, you can"
+                        + " execute `SET " + newVaultName + " AS DEFAULT STORAGE VAULT` sql to set it as default"
+                        + " storage vault.");
             }
             String newName = properties.get(StorageVault.PropertyKey.VAULT_NAME);
             FeNameFormat.checkStorageVaultName(newName);
