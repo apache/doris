@@ -78,6 +78,10 @@ class OutputUtils {
 
                 double realRelativeError = Math.abs(expectDouble - realDouble) / Math.abs(realDouble)
                 double expectRelativeError = 1e-8
+                if (dataType == "FLOAT") {
+                    // For FLOAT, we use 1e-6 as the relative error
+                    expectRelativeError = 1e-6
+                }
 
                 if (expectRelativeError < realRelativeError) {
                     // Keep the scale of low precision data to solve TPCH cases like:
