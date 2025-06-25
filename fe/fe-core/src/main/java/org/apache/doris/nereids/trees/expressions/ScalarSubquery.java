@@ -91,9 +91,6 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
 
     @Override
     public Expression getSubqueryOutput() {
-        // `t1.a  > (select t2.x from t2 limit 1)`,
-        // the output is t2.x, even if t2.x is not null, when t2 output 0 line, t2.x still be null.
-        // make the output nullable
         return typeCoercionExpr.orElseGet(this::getOutputSlotAdjustNullable);
     }
 
@@ -133,8 +130,11 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
 
     /**
      *  get query plan output slot, adjust it to
-     *  1. true when it has top agg, and the agg function is NotNullableAggregateFunction
-     *  2. false otherwise.
+     *  1. true(no adjust), when it has top agg, and the agg function is NotNullableAggregateFunction
+     *     for example: `t1.a = (select count(t2.x) from t2)`,  count(t2.x) is always not null, even if t2 contain 0 row
+     *  2. false, otherwise.
+     *     for example: `t1.a = (select t2.y from t2 limit 1)`, even if t2.y is not nullable, but if t2 contain 0 row,
+     *     the sub query t2 output is still null.
      */
     public Slot getOutputSlotAdjustNullable() {
         Slot output = queryPlan.getOutput().get(0);
