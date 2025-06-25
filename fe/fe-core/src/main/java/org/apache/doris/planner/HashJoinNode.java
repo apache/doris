@@ -823,10 +823,6 @@ public class HashJoinNode extends JoinNodeBase {
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(
                     String.format("cardinality=%,d", cardinality)).append("\n");
-            if (!runtimeFilters.isEmpty()) {
-                output.append(detailPrefix).append("runtime filters: ");
-                output.append(getRuntimeFilterExplainString(true, true));
-            }
             return output.toString();
         }
 
@@ -844,10 +840,7 @@ public class HashJoinNode extends JoinNodeBase {
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
-        if (!runtimeFilters.isEmpty()) {
-            output.append(detailPrefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(true));
-        }
+
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         if (outputTupleDesc != null) {
             output.append(detailPrefix).append("vec output tuple id: ").append(outputTupleDesc.getId()).append("\n");
