@@ -228,12 +228,12 @@ public:
         memcpy(data.data() + old_size, data_ptr, num * sizeof(value_type));
     }
 
-    void insert_default() override { data.push_back(value_type()); }
+    void insert_default() override { data.push_back(default_value()); }
 
     void insert_many_defaults(size_t length) override {
         size_t old_size = data.size();
         data.resize(old_size + length);
-        memset(data.data() + old_size, 0, length * sizeof(data[0]));
+        std::fill(data.data() + old_size, data.data() + old_size + length, default_value());
     }
 
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
@@ -412,6 +412,16 @@ public:
     }
 
 protected:
+    static value_type default_value() {
+        if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2) {
+            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY.to_date_int_val();
+        } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
+            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY;
+        } else {
+            return value_type();
+        }
+    }
+
     Container data;
 };
 
