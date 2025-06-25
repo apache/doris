@@ -130,6 +130,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         }
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
     }
+    if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT) {
+        if (pschema.has_partial_update_new_key_policy()) {
+            _partial_update_new_row_policy = pschema.partial_update_new_key_policy();
+        }
+    }
     _timestamp_ms = pschema.timestamp_ms();
     if (pschema.has_nano_seconds()) {
         _nano_seconds = pschema.nano_seconds();
@@ -221,6 +226,27 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _auto_increment_column_unique_id = tschema.auto_increment_column_unique_id;
     }
 
+    if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT) {
+        if (tschema.__isset.partial_update_new_key_policy) {
+            switch (tschema.partial_update_new_key_policy) {
+            case doris::TPartialUpdateNewRowPolicy::APPEND: {
+                _partial_update_new_row_policy = PartialUpdateNewRowPolicyPB::APPEND;
+                break;
+            }
+            case doris::TPartialUpdateNewRowPolicy::ERROR: {
+                _partial_update_new_row_policy = PartialUpdateNewRowPolicyPB::ERROR;
+                break;
+            }
+            default: {
+                return Status::InvalidArgument(
+                        "Unknown partial_update_new_key_behavior: {}, should be one of "
+                        "'APPEND' or 'ERROR'",
+                        tschema.partial_update_new_key_policy);
+            }
+            }
+        }
+    }
+
     for (const auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
     }
@@ -305,6 +331,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_table_id(_table_id);
     pschema->set_version(_version);
     pschema->set_partial_update(_is_partial_update);
+    pschema->set_partial_update_new_key_policy(_partial_update_new_row_policy);
     pschema->set_is_strict_mode(_is_strict_mode);
     pschema->set_auto_increment_column(_auto_increment_column);
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);

@@ -25,6 +25,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -109,6 +110,10 @@ public interface LoadTaskInfo {
     List<String> getHiddenColumns();
 
     boolean isPartialUpdate();
+
+    default TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return TPartialUpdateNewRowPolicy.APPEND;
+    }
 
     default boolean getTrimDoubleQuotes() {
         return false;

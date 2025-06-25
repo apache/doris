@@ -17,6 +17,7 @@
 
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -38,13 +39,15 @@ struct RowsetId;
 
 struct PartialUpdateInfo {
     Status init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
-                bool partial_update, const std::set<std::string>& partial_update_cols,
-                bool is_strict_mode, int64_t timestamp_ms, int32_t nano_seconds,
-                const std::string& timezone, const std::string& auto_increment_column,
+                bool partial_update, PartialUpdateNewRowPolicyPB policy,
+                const std::set<std::string>& partial_update_cols, bool is_strict_mode,
+                int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
+                const std::string& auto_increment_column,
                 int64_t cur_max_version = -1);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
-    Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema);
+    Status handle_new_key(const TabletSchema& tablet_schema,
+                          const std::function<std::string()>& line);
     std::string summary() const;
 
 private:
@@ -52,6 +55,7 @@ private:
 
 public:
     bool is_partial_update {false};
+    PartialUpdateNewRowPolicyPB partial_update_new_key_policy {PartialUpdateNewRowPolicyPB::APPEND};
     int64_t max_version_in_flush_phase {-1};
     std::set<std::string> partial_update_input_columns;
     std::vector<uint32_t> missing_cids;
