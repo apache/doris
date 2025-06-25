@@ -295,19 +295,22 @@ public:
 
     bool supported_incremental_mode() const override { return true; }
 
-    void execute_function_with_incremental(AggregateDataPtr place, const IColumn** columns,
-                                           Arena* arena, int64_t current_row_position,
-                                           int64_t rows_start_offset, int64_t rows_end_offset,
-                                           int64_t partition_start, int64_t partition_end,
-                                           bool ignore_subtraction, bool ignore_addition,
-                                           bool has_null, UInt8* current_window_empty,
+    void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
+                                           int64_t frame_start, int64_t frame_end,
+                                           AggregateDataPtr place, const IColumn** columns,
+                                           Arena* arena, bool ignore_subtraction,
+                                           bool ignore_addition, bool has_null,
+                                           UInt8* current_window_empty,
                                            UInt8* current_window_has_inited) const override {
-        int64_t current_frame_start = current_row_position + rows_start_offset;
-        int64_t current_frame_end = current_row_position + rows_end_offset + 1;
-
+        int64_t current_frame_start = std::max<int64_t>(frame_start, partition_start);
+        int64_t current_frame_end = std::min<int64_t>(frame_end, partition_end);
+        if (current_frame_start >= current_frame_end) {
+            *current_window_empty = true;
+            return;
+        }
         if (*current_window_has_inited) {
-            auto outcoming_pos = current_frame_start - 1;
-            auto incoming_pos = current_frame_end - 1;
+            auto outcoming_pos = frame_start - 1;
+            auto incoming_pos = frame_end - 1;
             if (!ignore_subtraction && outcoming_pos >= partition_start &&
                 outcoming_pos < partition_end) {
                 update_value<false>(place, columns, outcoming_pos);
@@ -317,12 +320,9 @@ public:
                 update_value<true>(place, columns, incoming_pos);
             }
         } else {
-            this->add_range_single_place(partition_start, partition_end, current_frame_start,
-                                         current_frame_end, place, columns, arena,
-                                         current_window_empty);
-            if (!*current_window_empty) {
-                *current_window_has_inited = true;
-            }
+            this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
+                                         place, columns, arena, current_window_empty,
+                                         current_window_has_inited);
         }
     }
 

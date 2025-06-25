@@ -88,12 +88,9 @@ private:
     bool _get_next_for_sliding_rows(int64_t current_block_rows, int64_t current_block_base_pos);
 
     void _init_result_columns();
+    template <bool incremental = false>
     void _execute_for_function(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                int64_t frame_end);
-    void _execute_for_support_incremental_function(int64_t current_row_position,
-                                                   int64_t rows_start_offset,
-                                                   int64_t rows_end_offset, int64_t partition_start,
-                                                   int64_t partition_end);
     void _insert_result_info(int64_t start, int64_t end);
     int64_t current_pos_in_block() {
         return _current_row_position + _have_removed_rows -
