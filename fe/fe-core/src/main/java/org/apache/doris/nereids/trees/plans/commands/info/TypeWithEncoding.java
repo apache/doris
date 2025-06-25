@@ -67,7 +67,7 @@ import java.util.stream.Collectors;
 /**
  * Used to store the type and encoding of a column.
  */
-public class TypeAndEncoding {
+public class TypeWithEncoding {
     private static final Map<String, EncodingTypePB> encodingMap = new HashMap<>();
     private static final Map<Class<? extends DataType>, Set<Integer>> supportedEncodingMap = new HashMap<>();
 
@@ -159,20 +159,20 @@ public class TypeAndEncoding {
 
     public final SegmentV2.EncodingTypePB encoding;
 
-    public List<TypeAndEncoding> children;
+    public List<TypeWithEncoding> children;
     private DataType dataType;
 
-    public TypeAndEncoding(DataType dataType, SegmentV2.EncodingTypePB encoding, List<TypeAndEncoding> children) {
+    public TypeWithEncoding(DataType dataType, SegmentV2.EncodingTypePB encoding, List<TypeWithEncoding> children) {
         this.dataType = dataType;
         this.encoding = encoding;
         this.children = children;
     }
 
-    public List<TypeAndEncoding> getChildren() {
+    public List<TypeWithEncoding> getChildren() {
         return children;
     }
 
-    public void setChildren(List<TypeAndEncoding> children) {
+    public void setChildren(List<TypeWithEncoding> children) {
         this.children = children;
     }
 
@@ -187,15 +187,15 @@ public class TypeAndEncoding {
     /**
      * DataType conversion. For example DecimalV2Type to DecimalV3Type.
      */
-    public TypeAndEncoding conversion() {
+    public TypeWithEncoding conversion() {
         if (dataType instanceof ComplexDataType) {
-            List<TypeAndEncoding> newChildren = new ArrayList<>();
-            for (TypeAndEncoding child : children) {
+            List<TypeWithEncoding> newChildren = new ArrayList<>();
+            for (TypeWithEncoding child : children) {
                 newChildren.add(child.conversion());
             }
             if (dataType.isArrayType()) {
                 DataType newItemType = newChildren.get(0).getDataType();
-                return new TypeAndEncoding(ArrayType.of(newItemType, dataType.isNullType()), encoding, newChildren);
+                return new TypeWithEncoding(ArrayType.of(newItemType, dataType.isNullType()), encoding, newChildren);
             }
             if (dataType.isStructType()) {
                 List<StructField> newFields = new ArrayList<>();
@@ -205,10 +205,10 @@ public class TypeAndEncoding {
                     DataType newChildType = newChildren.get(i).getDataType();
                     newFields.add(oldChildField.withDataType(newChildType));
                 }
-                return new TypeAndEncoding(new StructType(newFields), encoding, newChildren);
+                return new TypeWithEncoding(new StructType(newFields), encoding, newChildren);
             }
             if (dataType.isMapType()) {
-                return new TypeAndEncoding(
+                return new TypeWithEncoding(
                         MapType.of(newChildren.get(0).getDataType(), newChildren.get(1).getDataType()), encoding,
                         newChildren);
             }
@@ -217,25 +217,25 @@ public class TypeAndEncoding {
         if (children != null && !children.isEmpty()) {
             throw new IllegalArgumentException(dataType.toSql() + " has children encoding");
         }
-        return new TypeAndEncoding(dataType.conversion(), encoding, children);
+        return new TypeWithEncoding(dataType.conversion(), encoding, children);
     }
 
     /**
      * Get and check encoding.
      */
-    public static TypeAndEncoding wrap(DataType dataType, String encoding, List<TypeAndEncoding> children) {
+    public static TypeWithEncoding wrap(DataType dataType, String encoding, List<TypeWithEncoding> children) {
         if (Strings.isNullOrEmpty(encoding) || encoding.equalsIgnoreCase("DEFAULT")) {
-            return new TypeAndEncoding(dataType, EncodingTypePB.DEFAULT_ENCODING, children);
+            return new TypeWithEncoding(dataType, EncodingTypePB.DEFAULT_ENCODING, children);
         }
         if (dataType instanceof ComplexDataType) {
-            return new TypeAndEncoding(dataType, EncodingTypePB.DEFAULT_ENCODING, children);
+            return new TypeWithEncoding(dataType, EncodingTypePB.DEFAULT_ENCODING, children);
         }
         Integer encodingNumber = EncodingInfo.getEncodingNumber(encoding);
         if (encodingNumber == null) {
             throw new IllegalArgumentException("Unsupported encoding: " + encoding);
         } else if (supportedEncodingMap.containsKey(dataType.getClass())
                 && supportedEncodingMap.get(dataType.getClass()).contains(encodingNumber)) {
-            return new TypeAndEncoding(dataType, EncodingTypePB.forNumber(encodingNumber), children);
+            return new TypeWithEncoding(dataType, EncodingTypePB.forNumber(encodingNumber), children);
         } else {
             throw new IllegalArgumentException("Unsupported encoding: " + encoding + ", type: " + dataType.toSql());
         }
@@ -244,9 +244,9 @@ public class TypeAndEncoding {
     /**
      * wrap a data type with default encoding.
      */
-    public static TypeAndEncoding forDefaultEncoding(DataType dataType) {
+    public static TypeWithEncoding forDefaultEncoding(DataType dataType) {
         if (dataType instanceof ComplexDataType) {
-            List<TypeAndEncoding> children = Lists.newArrayList();
+            List<TypeWithEncoding> children = Lists.newArrayList();
             if (dataType.isArrayType()) {
                 ArrayType arrayType = (ArrayType) dataType;
                 children.add(forDefaultEncoding(arrayType.getItemType()));
@@ -261,14 +261,14 @@ public class TypeAndEncoding {
             } else {
                 throw new IllegalArgumentException("Unsupported complex data type: " + dataType.toSql());
             }
-            return TypeAndEncoding.wrap(dataType, null, children);
+            return TypeWithEncoding.wrap(dataType, null, children);
         }
-        return TypeAndEncoding.wrap(dataType, null, null);
+        return TypeWithEncoding.wrap(dataType, null, null);
     }
 
     public EncodingTree toEncodingTree() {
         List<EncodingTree> childrenTree = children == null ? null :
-                children.stream().map(TypeAndEncoding::toEncodingTree).collect(Collectors.toList());
+                children.stream().map(TypeWithEncoding::toEncodingTree).collect(Collectors.toList());
         return new EncodingTree(encoding.getNumber(), childrenTree);
     }
 }
