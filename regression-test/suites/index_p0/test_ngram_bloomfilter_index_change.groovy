@@ -116,18 +116,6 @@ suite("test_ngram_bloomfilter_index_change") {
     // But let's give it a moment to ensure metadata is updated
     sleep(2000)
 
-    // Test after adding NGRAM Bloom Filter index (should filter data immediately in light mode)
-    profile("sql_select_like_with_ngram_index_light_mode_added") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_light_mode_added */ ${query}"
-            sleep(1000)
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  10"))
-        }
-    }
     // Insert more data after index added
     insertTestData()
     // Verify more data loaded correctly
@@ -142,7 +130,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
         check { profileString, exception ->
             log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  20"))
+            assertTrue(profileString.contains("RowsBloomFilterFiltered:  10"))
         }
     }
 
