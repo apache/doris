@@ -66,10 +66,7 @@ import com.google.common.collect.Maps;
 import jline.internal.Log;
 import lombok.Setter;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.ObjectOutputStream;
-import java.io.Serializable;
+import java.io.*;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -658,10 +655,11 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     private static String serializeSession(Serializable object) throws IOException {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
-        objectOutputStream.writeObject(object);
-        byte[] serializedBytes = byteArrayOutputStream.toByteArray();
-        return Base64.getEncoder().encodeToString(serializedBytes);
+        try (ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+             ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
+            objectOutputStream.writeObject(object);
+            byte[] serializedBytes = byteArrayOutputStream.toByteArray();
+            return Base64.getEncoder().encodeToString(serializedBytes);
+        }
     }
 }
