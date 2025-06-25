@@ -224,8 +224,8 @@ TEST_F(PhrasePrefixQueryTest, test_single_term_prefix_query) {
     PhrasePrefixQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";         // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("app"); // Should match words starting with "app"
+    query_info.field_name = L"1";                 // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("app", 0); // Should match words starting with "app"
 
     query.add(query_info);
 
@@ -282,10 +282,11 @@ TEST_F(PhrasePrefixQueryTest, test_multi_term_phrase_prefix_query) {
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // Phrase: "big red app*" - first two terms exact match, last term prefix match
-    query_info.terms.emplace_back("big"); // exact match
-    query_info.terms.emplace_back("red"); // exact match
-    query_info.terms.emplace_back(
-            "app"); // prefix match - should match "apple", "application", "approach", "appreciate"
+    query_info.term_infos.emplace_back("big", 0); // exact match
+    query_info.term_infos.emplace_back("red", 1); // exact match
+    query_info.term_infos.emplace_back(
+            "app",
+            2); // prefix match - should match "apple", "application", "approach", "appreciate"
 
     query.add(query_info);
 
@@ -331,7 +332,7 @@ TEST_F(PhrasePrefixQueryTest, test_empty_terms_exception) {
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // terms is empty
 
-    EXPECT_THROW(query.add(query_info), CLuceneError);
+    EXPECT_THROW(query.add(query_info), Exception);
 }
 
 TEST_F(PhrasePrefixQueryTest, test_max_expansions_limit) {
@@ -375,8 +376,8 @@ TEST_F(PhrasePrefixQueryTest, test_max_expansions_limit) {
     PhrasePrefixQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";         // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("app"); // Should match many terms but limited to 3
+    query_info.field_name = L"1";                 // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("app", 0); // Should match many terms but limited to 3
 
     query.add(query_info);
 
@@ -418,8 +419,8 @@ TEST_F(PhrasePrefixQueryTest, test_no_prefix_matches) {
     PhrasePrefixQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";         // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("xyz"); // Should not match any prefix
+    query_info.field_name = L"1";                 // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("xyz", 0); // Should not match any prefix
 
     query.add(query_info);
 
@@ -468,9 +469,9 @@ TEST_F(PhrasePrefixQueryTest, test_phrase_with_no_prefix_expansion) {
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // Phrase: "big red car" - no prefix expansion for "car"
-    query_info.terms.emplace_back("big");
-    query_info.terms.emplace_back("red");
-    query_info.terms.emplace_back("car"); // exact term, no prefix matches
+    query_info.term_infos.emplace_back("big", 0);
+    query_info.term_infos.emplace_back("red", 1);
+    query_info.term_infos.emplace_back("car", 2); // exact term, no prefix matches
 
     query.add(query_info);
 

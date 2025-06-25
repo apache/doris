@@ -28,7 +28,6 @@
 #include "arrow/status.h"
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_buffer.hpp"
@@ -101,8 +100,15 @@ struct ColumnVectorBatch;
 
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
+class JsonbOutStream;
 class SlotDescriptor;
+
+template <class OS_TYPE>
+class JsonbWriterT;
+
+using JsonbWriter = JsonbWriterT<JsonbOutStream>;
+
 #include "common/compile_check_begin.h"
 namespace vectorized {
 class IColumn;

@@ -1,0 +1,84 @@
+{
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "c1",
+    "type" : "TINYINT"
+  }, {
+    "id" : 1,
+    "name" : "c2",
+    "type" : "TINYINT"
+  }, {
+    "id" : 2,
+    "name" : "c3",
+    "type" : "SMALLINT"
+  }, {
+    "id" : 3,
+    "name" : "c4",
+    "type" : "SMALLINT"
+  }, {
+    "id" : 4,
+    "name" : "c5",
+    "type" : "INT"
+  }, {
+    "id" : 5,
+    "name" : "c6",
+    "type" : "INT"
+  }, {
+    "id" : 6,
+    "name" : "c7",
+    "type" : "BIGINT"
+  }, {
+    "id" : 7,
+    "name" : "c8",
+    "type" : "BIGINT"
+  }, {
+    "id" : 8,
+    "name" : "c9",
+    "type" : "FLOAT"
+  }, {
+    "id" : 9,
+    "name" : "c10",
+    "type" : "DOUBLE"
+  }, {
+    "id" : 10,
+    "name" : "c11",
+    "type" : "DECIMAL(10, 2)"
+  }, {
+    "id" : 11,
+    "name" : "c12",
+    "type" : "DATE"
+  }, {
+    "id" : 12,
+    "name" : "c13",
+    "type" : "STRING"
+  }, {
+    "id" : 13,
+    "name" : "c14",
+    "type" : "VARCHAR(10)"
+  }, {
+    "id" : 14,
+    "name" : "c15",
+    "type" : "CHAR(2)"
+  }, {
+    "id" : 15,
+    "name" : "c16",
+    "type" : "BOOLEAN"
+  }, {
+    "id" : 16,
+    "name" : "c17",
+    "type" : "BYTES"
+  }, {
+    "id" : 17,
+    "name" : "c18",
+    "type" : "TIMESTAMP(6)"
+  } ],
+  "highestFieldId" : 17,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "file.format" : "parquet"
+  },
+  "comment" : "",
+  "timeMillis" : 1714239343424
+}

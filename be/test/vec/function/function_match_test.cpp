@@ -30,7 +30,7 @@ TEST(FunctionMatchTest, analyse_query_str) {
 
     {
         auto inverted_index_ctx = nullptr;
-        std::vector<std::string> query_tokens =
+        auto query_tokens =
                 func_match_phrase.analyse_query_str_token(inverted_index_ctx, "a b c", "name");
         ASSERT_EQ(query_tokens.size(), 0);
     }
@@ -38,8 +38,8 @@ TEST(FunctionMatchTest, analyse_query_str) {
     {
         auto inverted_index_ctx = std::make_unique<InvertedIndexCtx>();
         inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
-        std::vector<std::string> query_tokens = func_match_phrase.analyse_query_str_token(
-                inverted_index_ctx.get(), "a b c", "name");
+        auto query_tokens = func_match_phrase.analyse_query_str_token(inverted_index_ctx.get(),
+                                                                      "a b c", "name");
         ASSERT_EQ(query_tokens.size(), 1);
     }
 
@@ -49,8 +49,8 @@ TEST(FunctionMatchTest, analyse_query_str) {
         auto analyzer = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
                 inverted_index_ctx.get());
         inverted_index_ctx->analyzer = analyzer.get();
-        std::vector<std::string> query_tokens = func_match_phrase.analyse_query_str_token(
-                inverted_index_ctx.get(), "a b c", "name");
+        auto query_tokens = func_match_phrase.analyse_query_str_token(inverted_index_ctx.get(),
+                                                                      "a b c", "name");
         ASSERT_EQ(query_tokens.size(), 3);
     }
 }

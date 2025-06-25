@@ -51,13 +51,6 @@ bool is_valid_storage_vault_name(const std::string& str) {
 
 namespace doris::cloud {
 
-static void* run_bthread_work(void* arg) {
-    auto f = reinterpret_cast<std::function<void()>*>(arg);
-    (*f)();
-    delete f;
-    return nullptr;
-}
-
 static std::string_view print_cluster_status(const ClusterStatus& status) {
     switch (status) {
     case ClusterStatus::UNKNOWN:
@@ -1787,17 +1780,16 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     std::string msg = "OK";
     [[maybe_unused]] std::stringstream ss;
     std::string instance_id = request->has_instance_id() ? request->instance_id() : "";
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&code, &msg, &response, &ctrl, &closure_guard, &sw, &instance_id](int*) {
-                response->mutable_status()->set_code(code);
-                response->mutable_status()->set_msg(msg);
-                LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
-                          << __PRETTY_FUNCTION__ << " " << ctrl->remote_side() << " " << msg;
-                closure_guard.reset(nullptr);
-                if (config::use_detailed_metrics && !instance_id.empty()) {
-                    g_bvar_ms_alter_instance.put(instance_id, sw.elapsed_us());
-                }
-            });
+    DORIS_CLOUD_DEFER {
+        response->mutable_status()->set_code(code);
+        response->mutable_status()->set_msg(msg);
+        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
+                  << __PRETTY_FUNCTION__ << " " << ctrl->remote_side() << " " << msg;
+        closure_guard.reset(nullptr);
+        if (config::use_detailed_metrics && !instance_id.empty()) {
+            g_bvar_ms_alter_instance.put(instance_id, sw.elapsed_us());
+        }
+    };
 
     std::pair<MetaServiceCode, std::string> ret;
     switch (request->op()) {
@@ -3046,18 +3038,16 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
     std::string msg = "OK";
     std::string instance_id;
     bool drop_request = false;
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&ret, &code, &msg, &response, &ctrl, &closure_guard, &sw, &instance_id,
-                         &drop_request](int*) {
-                response->mutable_status()->set_code(code);
-                response->mutable_status()->set_msg(msg);
-                LOG(INFO) << (ret == 0 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
-                          << ctrl->remote_side() << " " << msg;
-                closure_guard.reset(nullptr);
-                if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {
-                    g_bvar_ms_drop_stage.put(instance_id, sw.elapsed_us());
-                }
-            });
+    DORIS_CLOUD_DEFER {
+        response->mutable_status()->set_code(code);
+        response->mutable_status()->set_msg(msg);
+        LOG(INFO) << (ret == 0 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
+                  << ctrl->remote_side() << " " << msg;
+        closure_guard.reset(nullptr);
+        if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {
+            g_bvar_ms_drop_stage.put(instance_id, sw.elapsed_us());
+        }
+    };
 
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
