@@ -61,9 +61,9 @@ VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* lo
           _user_identity(user_identity),
           _scan_range(scan_range.scan_range) {}
 
-Status MetaScanner::open(RuntimeState* state) {
-    VLOG_CRITICAL << "MetaScanner::open";
-    RETURN_IF_ERROR(Scanner::open(state));
+Status VMetaScanner::open(RuntimeState* state) {
+    VLOG_CRITICAL << "VMetaScanner::open";
+    RETURN_IF_ERROR(VScanner::open(state));
     if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
         // TODO: refactor this code
         auto reader = IcebergSysTableJniReader::create_unique(
@@ -542,12 +542,12 @@ Status VMetaScanner::_build_partition_values_metadata_request(
     return Status::OK();
 }
 
-Status MetaScanner::close(RuntimeState* state) {
-    VLOG_CRITICAL << "MetaScanner::close";
+Status VMetaScanner::close(RuntimeState* state) {
+    VLOG_CRITICAL << "VMetaScanner::close";
     if (_reader) {
         RETURN_IF_ERROR(_reader->close());
     }
-    RETURN_IF_ERROR(Scanner::close(state));
+    RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
 

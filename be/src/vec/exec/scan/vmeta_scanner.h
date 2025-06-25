@@ -27,7 +27,7 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/exec/scan/scanner.h"
+#include "vec/exec/scan/vscanner.h"
 
 namespace doris {
 class RuntimeProfile;

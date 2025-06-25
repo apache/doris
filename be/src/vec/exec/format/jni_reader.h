@@ -50,7 +50,7 @@ public:
 
     ~JniReader() override = default;
 
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override {
         for (const auto& desc : _file_slot_descs) {
             name_to_type->emplace(desc->col_name(), desc->type());
