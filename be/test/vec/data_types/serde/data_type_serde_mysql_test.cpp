@@ -140,7 +140,7 @@ void serialize_and_deserialize_mysql_test() {
                             vectorized::make_nullable(std::move(column_vector_int32));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
                     for (int i = 0; i < row_num; i++) {
-                        mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(int32(i)));
+                        mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(int32_t(i)));
                     }
                     auto data_type = vectorized::make_nullable(
                             std::make_shared<vectorized::DataTypeInt32>());
