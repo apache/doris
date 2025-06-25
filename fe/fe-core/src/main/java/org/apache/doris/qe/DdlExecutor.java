@@ -259,8 +259,6 @@ public class DdlExecutor {
             env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterPolicyStmt) {
-            env.getPolicyMgr().alterPolicy((AlterPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateIndexPolicyStmt) {
             env.getIndexPolicyMgr().createIndexPolicy((CreateIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropIndexPolicyStmt) {
@@ -398,8 +396,7 @@ public class DdlExecutor {
         if (ddlStmt instanceof BackupStmt
                 || ddlStmt instanceof RestoreStmt
                 || ddlStmt instanceof CreateRepositoryStmt
-                || ddlStmt instanceof DropRepositoryStmt
-                || ddlStmt instanceof CancelAlterSystemStmt) {
+                || ddlStmt instanceof DropRepositoryStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
             throw new DdlException("Unsupported operation");
         }
