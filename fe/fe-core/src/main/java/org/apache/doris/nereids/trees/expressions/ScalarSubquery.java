@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -93,7 +94,7 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
         // `t1.a  > (select t2.x from t2 limit 1)`,
         // the output is t2.x, even if t2.x is not null, when t2 output 0 line, t2.x still be null.
         // make the output nullable
-        return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0).withNullable(true));
+        return typeCoercionExpr.orElseGet(this::getOutputSlotAdjustNullable);
     }
 
     @Override
@@ -131,13 +132,35 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     }
 
     /**
-     * for correlated subquery, we define top level scalar agg as if it meets the both 2 conditions:
-     * 1. The agg or its child contains correlated slots
+     *  get query plan output slot, adjust it to
+     *  1. true when it has top agg, and the agg function is NotNullableAggregateFunction
+     *  2. false otherwise.
+     */
+    public Slot getOutputSlotAdjustNullable() {
+        Slot output = queryPlan.getOutput().get(0);
+        boolean nullable = true;
+        Optional<NamedExpression> aggOpt = getTopLevelScalarAggFunction();
+        if (aggOpt.isPresent()) {
+            NamedExpression agg = aggOpt.get();
+            if (agg.getExprId().equals(output.getExprId())
+                    && agg instanceof Alias
+                    && ((Alias) agg).child() instanceof NotNullableAggregateFunction) {
+                nullable = false;
+            }
+        }
+
+        return output.withNullable(nullable);
+    }
+
+    /**
+     * for subquery, we define top level scalar agg as if it meets the both 2 conditions:
+     * 1. The agg or its child contains correlated slots(un-correlated sub query's correlated slot is empty)
      * 2. only project, sort and subquery alias node can be agg's parent
      */
     public static Plan findTopLevelScalarAgg(Plan plan, ImmutableSet<Slot> slots) {
         if (plan instanceof LogicalAggregate) {
-            if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty() && plan.containsSlots(slots)) {
+            if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty()
+                    && (plan.containsSlots(slots) || slots.isEmpty())) {
                 return plan;
             } else {
                 return null;

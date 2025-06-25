@@ -71,6 +71,22 @@ suite('test_subquery_nullable') {
         with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000 and test_subquery_nullable_t1.b = test_subquery_nullable_t2.y) as x from test_subquery_nullable_t1)
         select a, x > 10 and x < 1 from cte1;
     '''
+    order_qt_uncorrelate_notop_notnullable_agg_scalar_subquery '''
+        with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000 group by x) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1;
+    '''
+    qt_uncorrelate_notop_notnullable_agg_scalar_subquery_shape '''explain shape plan
+        with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000 group by x) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1;
+    '''
+    order_qt_correlate_notop_notnullable_agg_scalar_subquery '''
+        with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000 group by x having test_subquery_nullable_t1.a + test_subquery_nullable_t1.b = test_subquery_nullable_t2.x) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1;
+    '''
+    qt_correlate_top_nonotnullable_agg_scalar_subquery_shape '''explain shape plan
+        with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000 group by x having test_subquery_nullable_t1.a + test_subquery_nullable_t1.b = test_subquery_nullable_t2.x) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1;
+    '''
     sql 'DROP TABLE IF EXISTS test_subquery_nullable_t1 FORCE'
     sql 'DROP TABLE IF EXISTS test_subquery_nullable_t2 FORCE'
 }

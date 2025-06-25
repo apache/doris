@@ -410,7 +410,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         // When given a slot reference S, we don't know S is t2.x or count(t2.x),
         // For safety reason, we treat S as nullable. even S is count(t2.x),
         // we may have performance downgrade, but the execute result still be right.
-        NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0).withNullable(true);
+        NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0);
+        if (subquery instanceof ScalarSubquery) {
+            oldSubqueryOutput = ((ScalarSubquery) subquery).getOutputSlotAdjustNullable();
+        }
         Slot countSlot = null;
         Slot anyValueSlot = null;
         Optional<Expression> newConjunct = conjunct;
