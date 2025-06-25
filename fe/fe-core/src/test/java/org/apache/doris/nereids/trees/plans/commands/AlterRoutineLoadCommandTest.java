@@ -43,7 +43,7 @@ public class AlterRoutineLoadCommandTest {
         Env.getCurrentInternalCatalog().unprotectCreateDb(dataBase);
         new Expectations() {
             {
-                Env.getCurrentEnv().getRoutineLoadManager().getJob("db1", "label1");
+                Env.getCurrentEnv().getRoutineLoadManager().getJob(anyString, anyString);
                 minTimes = 0;
                 result = new KafkaRoutineLoadJob();
             }
