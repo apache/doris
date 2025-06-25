@@ -19,12 +19,29 @@ suite("test_nereids_show_create_user") {
     sql "DROP USER IF EXISTS 'xxxxxxx'"
     sql "CREATE USER IF NOT EXISTS 'xxxxxxx' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;"
 
-    checkNereidsExecute("SHOW ALL CREATE USER")
-    checkNereidsExecute("SHOW CREATE USER xxxxxxx")
+    sql "DROP USER IF EXISTS 'yyyyyy'@'192.168.%'"
+    sql "CREATE USER IF NOT EXISTS 'yyyyyy'@'192.168.%' IDENTIFIED BY '123456' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;"
 
-    def res1 = sql """SHOW ALL CREATE USER"""
-    assertEquals(true, res1.size() > 1)
+    sql "DROP USER IF EXISTS 'xyxyxy_abc'@'192.168.%'"
+
+    checkNereidsExecute("SHOW CREATE USER xxxxxxx")
+    checkNereidsExecute("SHOW CREATE USER 'xxxxxxx'")
+    checkNereidsExecute("SHOW CREATE USER 'yyyyyy'@'192.168.%'")
+    checkNereidsExecute("SHOW CREATE USER 'yyyyyy'@'192.168.%'")
 
     def res2 = sql """SHOW CREATE USER xxxxxxx"""
     assertEquals('xxxxxxx', res2.get(0).get(0))
+
+    // test create stmt can be reused
+    def res3 = sql """SHOW CREATE USER 'yyyyyy'@'192.168.%'"""
+    def createStmt = res3.get(0).get(1)
+    def reusedStmt = createStmt.toString().replace("***", "'654321'").replace("yyyyyy", "xyxyxy_abc")
+    sql "${reusedStmt}"
+    def res4 = sql """SHOW CREATE USER 'xyxyxy_abc'@'192.168.%'"""
+    assertEquals(true, res4.size() > 0)
+    assertEquals("xyxyxy_abc", res4.get(0).get(0))
+
+    sql "DROP USER IF EXISTS 'xxxxxxx'"
+    sql "DROP USER IF EXISTS 'yyyyyy'@'192.168.%'"
+    sql "DROP USER IF EXISTS 'xyxyxy_abc'@'192.168.%'"
 }

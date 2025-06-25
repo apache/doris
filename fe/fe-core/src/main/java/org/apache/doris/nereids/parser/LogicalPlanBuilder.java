@@ -4973,12 +4973,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowCreateUser(DorisParser.ShowCreateUserContext ctx) {
-        boolean all = (ctx.ALL() != null) ? true : false;
         UserIdentity userIdent = null;
         if (ctx.userIdentify() != null) {
             userIdent = visitUserIdentify(ctx.userIdentify());
         }
-        return new ShowCreateUserCommand(userIdent, all);
+        return new ShowCreateUserCommand(userIdent);
     }
 
     @Override

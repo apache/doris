@@ -25,7 +25,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -39,8 +38,6 @@ import com.google.common.base.Preconditions;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * show create user command
@@ -52,35 +49,28 @@ public class ShowCreateUserCommand extends ShowCommand {
                 .addColumn(new Column("Create Stmt", ScalarType.createVarchar(1024)))
                 .build();
     private UserIdentity userIdent;
-    private final boolean showAllUser;
 
     /**
      * constructor for show create user
      */
-    public ShowCreateUserCommand(UserIdentity userIdent, boolean showAllUser) {
+    public ShowCreateUserCommand(UserIdentity userIdent) {
         super(PlanType.SHOW_CREATE_USER_COMMAND);
         this.userIdent = userIdent;
-        this.showAllUser = showAllUser;
     }
 
     @VisibleForTesting
     protected ShowResultSet handleShowCreateUser(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (userIdent != null) {
-            if (showAllUser) {
-                throw new AnalysisException("Can not specified keyword ALL when specified user");
-            }
-            userIdent.analyze();
-        } else {
-            if (!showAllUser) {
-                // self
-                userIdent = ConnectContext.get().getCurrentUserIdentity();
-            }
+        if (userIdent == null) {
+            userIdent = ConnectContext.get().getCurrentUserIdentity();
         }
-        Preconditions.checkState(showAllUser || userIdent != null);
+        if (userIdent != null) {
+            userIdent.analyze();
+        }
+        Preconditions.checkState(userIdent != null);
         UserIdentity self = ConnectContext.get().getCurrentUserIdentity();
 
-        // if show all grants, or show other user's grants, need global GRANT priv.
-        if (showAllUser || !self.equals(userIdent)) {
+        // need global GRANT priv.
+        if (!self.equals(userIdent)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
@@ -91,35 +81,12 @@ public class ShowCreateUserCommand extends ShowCommand {
 
         // get all user identity
         List<List<String>> infos = new ArrayList<>();
-        List<UserIdentity> userList = new ArrayList<>();
-        if (!showAllUser) {
-            if (userIdent != null) {
-                userList.add(userIdent);
-            }
-        } else {
-            if (Env.getCurrentEnv().getAuth().getUserManager() != null) {
-                Map<String, List<User>> usersMap = Env.getCurrentEnv().getAuth().getUserManager().getNameToUsers();
-                for (List<User> users : usersMap.values()) {
-                    for (User user : users) {
-                        if (user == null) {
-                            continue;
-                        }
-                        userList.add(user.getUserIdentity());
-                    }
-                }
-            }
-        }
 
-        // get all user's create stmt
-        for (UserIdentity identity : userList) {
-            if (identity == null) {
-                continue;
-            }
-            List<String> userInfo = new ArrayList<>();
-            userInfo.add(identity.getQualifiedUser());
-            userInfo.add(toSql(identity));
-            infos.add(userInfo);
-        }
+        // get user's create stmt
+        List<String> userInfo = new ArrayList<>();
+        userInfo.add(userIdent.getQualifiedUser());
+        userInfo.add(toSql(userIdent));
+        infos.add(userInfo);
 
         // order by UserIdentity
         infos.sort(Comparator.comparing(list -> list.isEmpty() ? "" : list.get(0)));
@@ -139,30 +106,49 @@ public class ShowCreateUserCommand extends ShowCommand {
         // user password
         sb.append(" IDENTIFIED BY *** ");
 
-        // default role
-        Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(user, true);
-        if (roles != null && !roles.isEmpty()) {
-            sb.append(" DEFAULT ROLE '").append(String.join(",", roles)).append("' ");
-        }
-
         // password policy
         if (Env.getCurrentEnv().getAuth().getPasswdPolicyManager() != null) {
+            // policies are : <expirePolicy, historyPolicy, failedLoginPolicy>
+            // expirePolicy has two lists: <EXPIRATION_SECONDS>, <PASSWORD_CREATION_TIME>
+            // historyPolicy has two lists: <HISTORY_NUM>, <HISTORY_PASSWORDS>
+            // failedLoginPolicy has four lists :
+            // <NUM_FAILED_LOGIN>, <PASSWORD_LOCK_SECONDS>, <FAILED_LOGIN_COUNTER>, <LOCK_TIME>
             List<List<String>> policies = Env.getCurrentEnv().getAuth().getPasswdPolicyManager().getPolicyInfo(user);
             if (policies != null) {
-                if (policies.size() > 1) {
-                    List<String> expire = policies.get(0);
-                    sb.append(" PASSWORD_EXPIRE ").append(expire.get(1));
-                }
+                // historyPolicy: <HISTORY_NUM>, <HISTORY_PASSWORDS>; use HISTORY_NUM only
                 if (policies.size() > 3) {
                     List<String> history = policies.get(2);
-                    sb.append(" PASSWORD_HISTORY ").append(history.get(1));
+                    String historyValue = history.get(1).equalsIgnoreCase("DEFAULT")
+                            || history.get(1).equalsIgnoreCase("NO_RESTRICTION") ? "DEFAULT" : history.get(1);
+                    sb.append(" PASSWORD_HISTORY ").append(historyValue);
                 }
+
+                // expirePolicy: <EXPIRATION_SECONDS>, <PASSWORD_CREATION_TIME>; use EXPIRATION_SECONDS only
+                if (policies.size() > 1) {
+                    List<String> expire = policies.get(0);
+                    String expireValue = expire.get(1);
+                    if (expireValue.equalsIgnoreCase("DEFAULT") || expireValue.equalsIgnoreCase("NEVER")) {
+                        sb.append(" PASSWORD_EXPIRE ").append(expireValue);
+                    } else {
+                        sb.append(" PASSWORD_EXPIRE INTERVAL ").append(expireValue).append(" SECOND");
+                    }
+                }
+
+                // failedLoginPolicy: <NUM_FAILED_LOGIN>, <PASSWORD_LOCK_SECONDS>, <FAILED_LOGIN_COUNTER>, <LOCK_TIME>
+                // use NUM_FAILED_LOGIN and PASSWORD_LOCK_SECONDS only
                 if (policies.size() > 7) {
                     List<String> failedAttempts = policies.get(4);
+                    String attemptValue = failedAttempts.get(1).equalsIgnoreCase("DISABLED") ? "0"
+                            : failedAttempts.get(1);
+                    sb.append(" FAILED_LOGIN_ATTEMPTS ").append(attemptValue);
+
                     List<String> lockTime = policies.get(5);
-                    sb.append(" FAILED_LOGIN_ATTEMPTS ").append(failedAttempts.get(1))
-                            .append(" PASSWORD_LOCK_TIME ").append(lockTime.get(1))
-                            .append(" ");
+                    String lockValue = lockTime.get(1).equalsIgnoreCase("DISABLED") ? "UNBOUNDED" : lockTime.get(1);
+                    if (lockValue.equalsIgnoreCase("DISABLED") || lockValue.equalsIgnoreCase("UNBOUNDED")) {
+                        sb.append(" PASSWORD_LOCK_TIME UNBOUNDED");
+                    } else {
+                        sb.append(" PASSWORD_LOCK_TIME ").append(lockValue).append(" SECOND");
+                    }
                 }
             }
         }
