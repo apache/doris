@@ -17,7 +17,7 @@
 
 suite("cast_to_time") {
     sql "set debug_skip_fold_constant = true"
-
+//TODO: after we finished cast refactor, we can parse microseconds
 qt_sql """ select cast("1" as time(6)) """
 qt_sql """ select cast("123" as time(6)) """
 qt_sql """ select cast("2005959.12" as time(6)) """
@@ -119,4 +119,15 @@ qt_sql """ select cast(cast(67 as double) as time(3)) """
 // qt_sql """ select cast(cast(67 as decimal(27, 9)) as time(3)) """
 
 // qt_sql """ select cast(cast("2012-02-05 12:12:12.123456" as datetime(6)) as time(4)) """
+
+qt_sql "select cast('11:12:13.123456' as time) = cast('11:12:13.12' as time)"
+
+    sql "set debug_skip_fold_constant = false"
+qt_sql """ select cast("100:10:10.123456" as time(3)) """
+qt_sql """ select cast("-100:10:10.123456" as time(3)) """
+qt_sql """ select cast("100:10:10.12345699999" as time(3)) """
+qt_sql """ select cast("100:10:10.12345699999" as time(6)) """
+qt_sql """ select cast("100:10:10.9999999999" as time(6)) """
+qt_sql """ select cast("x:10:10.123456" as time(3)) """
+qt_sql """ select cast("-900:10:10.123456" as time(3)) """
 }

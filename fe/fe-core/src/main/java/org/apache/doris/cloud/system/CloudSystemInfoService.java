@@ -57,6 +57,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -1035,9 +1036,11 @@ public class CloudSystemInfoService extends SystemInfoService {
         LOG.debug("auto start wait cluster {} status {}", clusterName, clusterStatus);
         if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
             // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
-            // root ? see StatisticsUtil.buildConnectContext
-            if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity().isRootUser()) {
-                LOG.warn("auto start daemon thread run in root, not resume cluster {}-{}", clusterName, clusterStatus);
+            // FeConstants.INTERNAL_DB_NAME ? see StatisticsUtil.buildConnectContext
+            List<String> ignoreDbNameList = Arrays.asList(Config.auto_start_ignore_resume_db_names);
+            if (ConnectContext.get() != null && ignoreDbNameList.contains(ConnectContext.get().getDatabase())) {
+                LOG.warn("auto start daemon thread db {}, not resume cluster {}-{}",
+                        ConnectContext.get().getDatabase(), clusterName, clusterStatus);
                 return null;
             }
             Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
