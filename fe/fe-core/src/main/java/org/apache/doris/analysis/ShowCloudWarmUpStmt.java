@@ -44,6 +44,7 @@ public class ShowCloudWarmUpStmt extends ShowStmt implements NotFallbackInParser
             .add("AllBatch")
             .add("FinishTime")
             .add("ErrMsg")
+            .add("Tables")
             .build();
 
     public ShowCloudWarmUpStmt(Expr whereClause) {
