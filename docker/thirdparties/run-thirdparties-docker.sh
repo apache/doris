@@ -739,7 +739,7 @@ if [[ "${RUN_SPARK}" -eq 1 ]]; then
 fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
-    start_iceberg > start_icerberg.log 2>&1 &
+    start_iceberg > start_iceberg.log 2>&1 &
     pids["iceberg"]=$!
 fi
 

@@ -55,6 +55,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
+import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -266,6 +267,7 @@ terminal String
     KW_ALTER,
     KW_ALWAYS,
     KW_ANALYZE,
+    KW_ANALYZER,
     KW_AND,
     KW_ANTI,
     KW_APPEND,
@@ -643,6 +645,8 @@ terminal String
     KW_TIMESTAMP,
     KW_TINYINT,
     KW_TO,
+    KW_TOKENIZER,
+    KW_TOKEN_FILTER,
     KW_TRANSACTION,
     KW_TRASH,
     KW_TREE,
@@ -1429,52 +1433,6 @@ alter_stmt ::=
     :}
     ;
 
-warm_up_stmt ::=
-    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
-    :}
-    | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
-    :}
-    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
-    :}
-    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
-    :}
-    ;
-
-warm_up_item ::=
-    KW_TABLE table_name:tbl
-    {:
-        Map<TableName, String> map = new HashMap<TableName, String>();
-        map.put(tbl, "");
-        RESULT = map;
-    :}
-    | KW_TABLE table_name:tbl KW_PARTITION ident:partitonName
-    {:
-        Map<TableName, String> map = new HashMap<TableName, String>();
-        map.put(tbl, partitonName);
-        RESULT = map;
-    :}
-    ;
-
-warm_up_list ::=
-    warm_up_item:map
-    {:
-        RESULT = Lists.newArrayList(map);
-    :}
-    | warm_up_list:list KW_AND warm_up_item:map
-    {:
-        list.add(map);
-        RESULT = list;
-    :}
-    ;
-
 opt_datasource_properties ::=
     // empty
     {:
@@ -1987,6 +1945,18 @@ create_stmt ::=
     | KW_CREATE KW_SQL_BLOCK_RULE opt_if_not_exists:ifNotExists ident:ruleName opt_properties:properties
     {:
         RESULT = new CreateSqlBlockRuleStmt(ifNotExists, ruleName, properties);
+    :}
+    | KW_CREATE KW_INVERTED KW_INDEX KW_ANALYZER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.ANALYZER, properties);
+    :}
+    | KW_CREATE KW_INVERTED KW_INDEX KW_TOKENIZER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.TOKENIZER, properties);
+    :}
+    | KW_CREATE KW_INVERTED KW_INDEX KW_TOKEN_FILTER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.TOKEN_FILTER, properties);
     :}
     | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
     {:
@@ -2768,17 +2738,6 @@ load_property ::=
     :}
     ;
 
-pause_routine_load_stmt ::=
-    KW_PAUSE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new PauseRoutineLoadStmt(jobLabel);
-    :}
-    | KW_PAUSE KW_ALL KW_ROUTINE KW_LOAD
-    {:
-        RESULT = new PauseRoutineLoadStmt(null);
-    :}
-    ;
-
 show_create_load_stmt ::=
     KW_SHOW KW_CREATE KW_LOAD KW_FOR job_label:jobLabel
     {:
@@ -2905,6 +2864,18 @@ drop_stmt ::=
     | KW_DROP KW_SQL_BLOCK_RULE opt_if_exists:ifExists ident_list:ruleNames
     {:
         RESULT = new DropSqlBlockRuleStmt(ifExists, ruleNames);
+    :}
+    | KW_DROP KW_INVERTED KW_INDEX KW_ANALYZER opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.ANALYZER, policyName);
+    :}
+    | KW_DROP KW_INVERTED KW_INDEX KW_TOKENIZER opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKENIZER, policyName);
+    :}
+    | KW_DROP KW_INVERTED KW_INDEX KW_TOKEN_FILTER opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKEN_FILTER, policyName);
     :}
     /* statistics */
     | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
@@ -3784,6 +3755,18 @@ show_stmt ::=
     {:
         RESULT = stmt;
     :}
+    | KW_SHOW KW_INVERTED KW_INDEX KW_ANALYZER
+    {:
+        RESULT = new ShowIndexPolicyStmt(IndexPolicyTypeEnum.ANALYZER);
+    :}
+    | KW_SHOW KW_INVERTED KW_INDEX KW_TOKENIZER
+    {:
+        RESULT = new ShowIndexPolicyStmt(IndexPolicyTypeEnum.TOKENIZER);
+    :}
+    | KW_SHOW KW_INVERTED KW_INDEX KW_TOKEN_FILTER
+    {:
+        RESULT = new ShowIndexPolicyStmt(IndexPolicyTypeEnum.TOKEN_FILTER);
+    :}
     ;
 
 show_param ::=
@@ -4076,26 +4059,6 @@ cancel_param ::=
     | KW_EXPORT opt_db:db opt_wild_where
     {:
         RESULT = new CancelExportStmt(db, parser.where);
-    :}
-    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table job_id_list:list
-    {:
-        RESULT = new CancelAlterTableStmt(type, table, list);
-    :}
-    | KW_BUILD KW_INDEX KW_ON table_name:table job_id_list:list
-    {:
-        RESULT = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, table, list);
-    :}
-    | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
-    {:
-        RESULT = new CancelAlterSystemStmt(hostPorts);
-    :}
-    | KW_BACKUP opt_db:db
-    {:
-        RESULT = new CancelBackupStmt(db, false);
-    :}
-    | KW_RESTORE opt_db:db
-    {:
-        RESULT = new CancelBackupStmt(db, true);
     :}
     ;
 
@@ -6883,27 +6846,7 @@ integer_list ::=
     ;
 
 admin_stmt ::=
-    KW_ADMIN KW_SET KW_REPLICA KW_STATUS KW_PROPERTIES LPAREN key_value_map:prop RPAREN
-    {:
-        RESULT = new AdminSetReplicaStatusStmt(prop);
-    :}
-    | KW_ADMIN KW_SET KW_REPLICA KW_VERSION KW_PROPERTIES LPAREN key_value_map:prop RPAREN
-    {:
-        RESULT = new AdminSetReplicaVersionStmt(prop);
-    :}
-    | KW_ADMIN KW_REPAIR KW_TABLE base_table_ref:table_ref
-    {:
-        RESULT = new AdminRepairTableStmt(table_ref);
-    :}
-    | KW_ADMIN KW_CANCEL KW_REPAIR KW_TABLE base_table_ref:table_ref
-    {:
-        RESULT = new AdminCancelRepairTableStmt(table_ref);
-    :}
-    | KW_ADMIN KW_COMPACT KW_TABLE base_table_ref:table_ref opt_wild_where
-    {:
-        RESULT = new AdminCompactTableStmt(table_ref, parser.where);
-    :}
-    | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
+    KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
     {:
         RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, false);
     :}
@@ -6915,34 +6858,6 @@ admin_stmt ::=
     {:
         RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
     :}
-    | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
-    {:
-        RESULT = new AdminCheckTabletsStmt(tabletIds, properties);
-    :}
-    | KW_ADMIN KW_REBALANCE KW_DISK KW_ON LPAREN string_list:backends RPAREN
-    {:
-        RESULT = new AdminRebalanceDiskStmt(backends);
-    :}
-    | KW_ADMIN KW_REBALANCE KW_DISK
-    {:
-        RESULT = new AdminRebalanceDiskStmt(null);
-    :}
-    | KW_ADMIN KW_CANCEL KW_REBALANCE KW_DISK KW_ON LPAREN string_list:backends RPAREN
-    {:
-        RESULT = new AdminCancelRebalanceDiskStmt(backends);
-    :}
-    | KW_ADMIN KW_CANCEL KW_REBALANCE KW_DISK
-    {:
-        RESULT = new AdminCancelRebalanceDiskStmt(null);
-    :}
-    | KW_ADMIN KW_CLEAN KW_TRASH KW_ON LPAREN string_list:backends RPAREN
-    {:
-        RESULT = new AdminCleanTrashStmt(backends);
-    :}
-    | KW_ADMIN KW_CLEAN KW_TRASH
-    {:
-        RESULT = new AdminCleanTrashStmt(null);
-    :}
     | KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
     {:
         RESULT = new AdminSetPartitionVersionStmt(name, properties);
@@ -6952,39 +6867,12 @@ admin_stmt ::=
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
     :}
-    | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
-    {:
-        RESULT = new AdminCopyTabletStmt(tabletId, properties);
-    :}
-    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_STATUS opt_properties:properties
-    {:
-        RESULT = new AdminSetTableStatusStmt(name, properties);
-    :}
     ;
 
 truncate_stmt ::=
     KW_TRUNCATE KW_TABLE base_table_ref:tblRef opt_force:force
     {:
         RESULT = new TruncateTableStmt(tblRef, force);
-    :}
-    ;
-
-transaction_stmt ::=
-    KW_BEGIN
-    {:
-        RESULT = new TransactionBeginStmt();
-    :}
-    | KW_BEGIN KW_WITH KW_LABEL transaction_label:label
-    {:
-        RESULT = new TransactionBeginStmt(label);
-    :}
-    | KW_COMMIT opt_work opt_chain opt_release
-    {:
-        RESULT = new TransactionCommitStmt();
-    :}
-    | KW_ROLLBACK opt_work opt_chain opt_release
-    {:
-        RESULT = new TransactionRollbackStmt();
     :}
     ;
 
@@ -7607,6 +7495,12 @@ keyword ::=
     | KW_UP:id
     {: RESULT = id; :}
     | KW_CONVERT_LSC:id
+    {: RESULT = id; :}
+    | KW_ANALYZER:id
+    {: RESULT = id; :}
+    | KW_TOKENIZER:id
+    {: RESULT = id; :}
+    | KW_TOKEN_FILTER:id
     {: RESULT = id; :}
     ;
 

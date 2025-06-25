@@ -156,8 +156,8 @@ void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 template <PrimitiveType T>
 void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                        int nan_direction_hint, int direction,
-                                       std::vector<uint8>& cmp_res,
-                                       uint8* __restrict filter) const {
+                                       std::vector<uint8_t>& cmp_res,
+                                       uint8_t* __restrict filter) const {
     const auto sz = data.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(rhs)

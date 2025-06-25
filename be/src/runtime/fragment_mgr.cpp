@@ -135,7 +135,7 @@ static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
     TFetchRunningQueriesRequest rpc_request;
 
     Status client_status;
-    const int32 timeout_ms = 3 * 1000;
+    const int32_t timeout_ms = 3 * 1000;
     FrontendServiceConnection rpc_client(ExecEnv::GetInstance()->frontend_client_cache(),
                                          fe_info.info.coordinator_address, timeout_ms,
                                          &client_status);
@@ -654,9 +654,9 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 }
 
 void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
-    int64 now = duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
+    int64_t now = duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
     g_fragment_executing_count << -1;
     g_fragment_last_active_time.set_value(now);
 
@@ -858,9 +858,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     {
-        int64 now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
+        int64_t now = duration_cast<std::chrono::milliseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
         g_fragment_executing_count << 1;
         g_fragment_last_active_time.set_value(now);
 

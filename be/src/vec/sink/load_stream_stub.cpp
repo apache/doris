@@ -464,7 +464,7 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
         int ret;
         {
             DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.delay_before_send", {
-                int64_t delay_ms = dp->param<int64>("delay_ms", 1000);
+                int64_t delay_ms = dp->param<int64_t>("delay_ms", 1000);
                 bthread_usleep(delay_ms * 1000);
             });
             brpc::StreamWriteOptions options;

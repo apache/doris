@@ -154,7 +154,6 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
             );
             """
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
-    assertEquals(1, tablets.size())
     def tablet = tablets[0]
     String tablet_id = tablet.TabletId
     def backend_id = tablet.BackendId

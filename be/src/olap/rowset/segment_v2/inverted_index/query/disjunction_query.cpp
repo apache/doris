@@ -24,23 +24,21 @@ DisjunctionQuery::DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSe
         : _searcher(searcher), _io_ctx(io_ctx) {}
 
 void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.empty()) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "DisjunctionQuery::add: terms empty");
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
     _field_name = query_info.field_name;
-    _terms = query_info.terms;
+    _term_infos = query_info.term_infos;
 }
 
 void DisjunctionQuery::search(roaring::Roaring& roaring) {
     auto func = [this, &roaring](const std::string& term, bool first) {
-        auto* term_doc =
-                TermIterator::ensure_term_doc(_io_ctx, _searcher->getReader(), _field_name, term);
-        TermIterator iterator(term_doc);
+        auto iter = TermIterator::create(_io_ctx, _searcher->getReader(), _field_name, term);
 
         DocRange doc_range;
         roaring::Roaring result;
-        while (iterator.read_range(&doc_range)) {
+        while (iter->read_range(&doc_range)) {
             if (doc_range.type_ == DocRangeType::kMany) {
                 result.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
             } else {
@@ -54,8 +52,16 @@ void DisjunctionQuery::search(roaring::Roaring& roaring) {
             roaring |= result;
         }
     };
-    for (int i = 0; i < _terms.size(); i++) {
-        func(_terms[i], i == 0);
+    for (size_t i = 0; i < _term_infos.size(); i++) {
+        const auto& term_info = _term_infos[i];
+        if (term_info.is_single_term()) {
+            func(term_info.get_single_term(), i == 0);
+        } else {
+            const auto& terms = term_info.get_multi_terms();
+            for (size_t j = 0; j < terms.size(); j++) {
+                func(terms[j], (i == 0 && j == 0));
+            }
+        }
     }
 }
 

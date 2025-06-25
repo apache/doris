@@ -349,7 +349,7 @@ private:
             }
 
             assert(column_data);
-            values_ = (const uint32*)(column_data->get_data().data()) + _row_pos;
+            values_ = (const uint32_t*)(column_data->get_data().data()) + _row_pos;
             return Status::OK();
         }
 
