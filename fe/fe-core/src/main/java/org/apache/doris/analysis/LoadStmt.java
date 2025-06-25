@@ -36,6 +36,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -135,6 +136,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     public static final String KEY_SKIP_LINES = "skip_lines";
     public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     public static final String PARTIAL_COLUMNS = "partial_columns";
+    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_behavior";
 
     public static final String KEY_COMMENT = "comment";
 
@@ -186,6 +188,12 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);
+                }
+            })
+            .put(PARTIAL_UPDATE_NEW_KEY_POLICY, new Function<String, TPartialUpdateNewRowPolicy>() {
+                @Override
+                public @Nullable TPartialUpdateNewRowPolicy apply(@Nullable String s) {
+                    return TPartialUpdateNewRowPolicy.valueOf(s.toUpperCase());
                 }
             })
             .put(TIMEZONE, new Function<String, String>() {
@@ -378,6 +386,16 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             if (!partialColumnsProperty.equalsIgnoreCase("true")
                     && !partialColumnsProperty.equalsIgnoreCase("false")) {
                 throw new DdlException(PARTIAL_COLUMNS + " is not a boolean");
+            }
+        }
+
+        // partial update new key policy
+        final String partialUpdateNewKeyPolicyProperty = properties.get(PARTIAL_UPDATE_NEW_KEY_POLICY);
+        if (partialUpdateNewKeyPolicyProperty != null) {
+            if (!partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("append")
+                    && !partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("error")) {
+                throw new DdlException(PARTIAL_UPDATE_NEW_KEY_POLICY + " should be one of [append, error], but found "
+                        + partialUpdateNewKeyPolicyProperty);
             }
         }
 
