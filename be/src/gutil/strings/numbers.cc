@@ -11,10 +11,9 @@
 
 #include <cfloat>
 
+#include "absl/strings/ascii.h"
+#include "butil/macros.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
-#include "gutil/strings/ascii_ctype.h"
-#include "gutil/strtoint.h"
 
 bool safe_strtof(const char* str, float* value) {
     char* endptr;
@@ -24,7 +23,7 @@ bool safe_strtof(const char* str, float* value) {
     *value = strtof(str, &endptr);
 #endif
     if (endptr != str) {
-        while (ascii_isspace(*endptr)) ++endptr;
+        while (absl::ascii_isspace(*endptr)) ++endptr;
     }
     // Ignore range errors from strtod/strtof.
     // The values it returns on underflow and
@@ -37,7 +36,7 @@ bool safe_strtod(const char* str, double* value) {
     char* endptr;
     *value = strtod(str, &endptr);
     if (endptr != str) {
-        while (ascii_isspace(*endptr)) ++endptr;
+        while (absl::ascii_isspace(*endptr)) ++endptr;
     }
     // Ignore range errors from strtod.  The values it
     // returns on underflow and overflow are the right
@@ -45,11 +44,11 @@ bool safe_strtod(const char* str, double* value) {
     return *str != '\0' && *endptr == '\0';
 }
 
-bool safe_strtof(const string& str, float* value) {
+bool safe_strtof(const std::string& str, float* value) {
     return safe_strtof(str.c_str(), value);
 }
 
-bool safe_strtod(const string& str, double* value) {
+bool safe_strtod(const std::string& str, double* value) {
     return safe_strtod(str.c_str(), value);
 }
 
@@ -150,67 +149,4 @@ int FastFloatToBuffer(float value, char* buffer) {
     auto* end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
     *end = '\0';
     return end - buffer;
-}
-
-// ----------------------------------------------------------------------
-// SimpleItoaWithCommas()
-//    Description: converts an integer to a string.
-//    Puts commas every 3 spaces.
-//    Faster than printf("%d")?
-//
-//    Return value: string
-// ----------------------------------------------------------------------
-
-char* SimpleItoaWithCommas(int64_t i, char* buffer, int32_t buffer_size) {
-    // 19 digits, 6 commas, and sign are good for 64-bit or smaller ints.
-    char* p = buffer + buffer_size;
-    // Need to use uint64 instead of int64 to correctly handle
-    // -9,223,372,036,854,775,808.
-    uint64 n = i;
-    if (i < 0) n = 0 - n;
-    *--p = '0' + n % 10; // this case deals with the number "0"
-    n /= 10;
-    while (n) {
-        *--p = '0' + n % 10;
-        n /= 10;
-        if (n == 0) break;
-
-        *--p = '0' + n % 10;
-        n /= 10;
-        if (n == 0) break;
-
-        *--p = ',';
-        *--p = '0' + n % 10;
-        n /= 10;
-        // For this unrolling, we check if n == 0 in the main while loop
-    }
-    if (i < 0) *--p = '-';
-    return p;
-}
-
-char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size) {
-    // 39 digits, 12 commas, and sign are good for 128-bit or smaller ints.
-    char* p = buffer + buffer_size;
-    // Need to use uint128 instead of int128 to correctly handle
-    // -170,141,183,460,469,231,731,687,303,715,884,105,728.
-    __uint128_t n = i;
-    if (i < 0) n = 0 - n;
-    *--p = '0' + n % 10; // this case deals with the number "0"
-    n /= 10;
-    while (n) {
-        *--p = '0' + n % 10;
-        n /= 10;
-        if (n == 0) break;
-
-        *--p = '0' + n % 10;
-        n /= 10;
-        if (n == 0) break;
-
-        *--p = ',';
-        *--p = '0' + n % 10;
-        n /= 10;
-        // For this unrolling, we check if n == 0 in the main while loop
-    }
-    if (i < 0) *--p = '-';
-    return p;
 }

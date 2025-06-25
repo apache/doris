@@ -290,8 +290,8 @@ public:
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                          int direction, std::vector<uint8>& cmp_res,
-                          uint8* __restrict filter) const override;
+                          int direction, std::vector<uint8_t>& cmp_res,
+                          uint8_t* __restrict filter) const override;
     void get_permutation(bool reverse, size_t limit, int null_direction_hint,
                          Permutation& res) const override;
     void reserve(size_t n) override;
