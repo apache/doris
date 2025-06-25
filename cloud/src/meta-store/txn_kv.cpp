@@ -447,6 +447,15 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     return TxnErrorCode::TXN_OK;
 }
 
+std::unique_ptr<cloud::FullRangeGetIterator> Transaction::full_range_get(std::string_view begin,
+                                                                         std::string_view end,
+                                                                         FullRangeGetOptions opts) {
+    // We don't need to hold a reference to the TxnKv here, since there is a txn full range iterator.
+    opts.txn = this;
+    opts.txn_kv.reset();
+    return std::make_unique<FullRangeGetIterator>(std::string(begin), std::string(end), opts);
+}
+
 void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_view val) {
     StopWatch sw;
     std::unique_ptr<std::string> key(new std::string(key_prefix));
