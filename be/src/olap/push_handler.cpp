@@ -516,7 +516,9 @@ Status PushBrokerReader::_cast_to_input_block() {
                     {vectorized::DataTypeString().create_column_const(
                              arg.column->size(),
                              vectorized::Field::create_field<TYPE_STRING>(
-                                     remove_nullable(return_type)->get_family_name())),
+                                     is_decimal(return_type->get_primitive_type())
+                                             ? "Decimal"
+                                             : remove_nullable(return_type)->get_family_name())),
                      std::make_shared<vectorized::DataTypeString>(), ""}};
             auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
                     "CAST", arguments, return_type);

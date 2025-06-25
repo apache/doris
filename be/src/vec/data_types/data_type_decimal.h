@@ -61,6 +61,15 @@ class ReadBuffer;
 
 namespace doris::vectorized {
 
+template <PrimitiveType T>
+constexpr size_t default_decimal_scale() {
+    return 0;
+}
+template <>
+constexpr size_t default_decimal_scale<TYPE_DECIMALV2>() {
+    return BeConsts::MAX_DECIMALV2_SCALE;
+}
+
 constexpr size_t min_decimal_precision() {
     return 1;
 }
@@ -115,7 +124,8 @@ public:
 
     static constexpr size_t max_precision() { return max_decimal_precision<T>(); }
 
-    DataTypeDecimal(UInt32 precision = 27, UInt32 scale = 9,
+    DataTypeDecimal(UInt32 precision = max_decimal_precision<T>(),
+                    UInt32 scale = default_decimal_scale<T>(),
                     UInt32 arg_original_precision = UINT32_MAX,
                     UInt32 arg_original_scale = UINT32_MAX)
             : precision(precision),
@@ -149,7 +159,7 @@ public:
               original_precision(rhs.original_precision),
               original_scale(rhs.original_scale) {}
 
-    const std::string get_family_name() const override { return "Decimal"; }
+    const std::string get_family_name() const override { return type_to_string(T); }
     std::string do_get_name() const override;
     PrimitiveType get_primitive_type() const override { return T; }
 

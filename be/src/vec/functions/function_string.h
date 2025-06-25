@@ -3211,9 +3211,10 @@ struct MoneyFormatInt128Impl {
     }
 };
 
+template <PrimitiveType Type>
 struct MoneyFormatDecimalImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeDecimalV2>(27, 9)};
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
     static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
@@ -3382,9 +3383,10 @@ struct FormatRoundInt128Impl {
     }
 };
 
+template <PrimitiveType Type>
 struct FormatRoundDecimalImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeDecimalV2>(27, 9),
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
                 std::make_shared<vectorized::DataTypeInt32>()};
     }
 
