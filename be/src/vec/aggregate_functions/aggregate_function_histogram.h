@@ -17,14 +17,9 @@
 
 #pragma once
 
-#include <rapidjson/stringbuffer.h>
-#include <stddef.h>
-
-#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -44,13 +39,6 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
-class Arena;
-class BufferReadable;
-class BufferWritable;
-template <PrimitiveType T>
-class ColumnVector;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
@@ -106,7 +94,7 @@ struct AggregateFunctionHistogramData {
 
     void write(BufferWritable& buf) const {
         write_binary(max_num_buckets, buf);
-        size_t element_number = (size_t)ordered_map.size();
+        auto element_number = (size_t)ordered_map.size();
         write_binary(element_number, buf);
 
         auto pair_vector = map_to_vector();
@@ -157,7 +145,7 @@ struct AggregateFunctionHistogramData {
                 buckets, ordered_map,
                 max_num_buckets == BUCKET_NUM_INIT_VALUE ? DEFAULT_BUCKET_NUM : max_num_buckets);
         histogram_to_json(buffer, buckets, data_type);
-        return std::string(buffer.GetString());
+        return {buffer.GetString()};
     }
 
     std::vector<std::pair<size_t, typename PrimitiveTypeTraits<T>::ColumnItemType>> map_to_vector()
