@@ -700,6 +700,7 @@ Status RowIdStorageReader::read_batch_external_row(
         runtime_state = RuntimeState::create_shared(
                 query_id, -1, query_options, query_globals, ExecEnv::GetInstance(),
                 ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+
         max_file_scanners = id_file_map->get_max_file_scanners();
     }
 
@@ -815,11 +816,12 @@ Status RowIdStorageReader::read_batch_external_row(
                                 scan_range_desc, read_ids, &scan_blocks[idx], external_info,
                                 &init_reader_ms[idx], &get_block_ms[idx]));
                     }
+                    semaphore.release();
+
                     if (++producer_count == scan_rows.size()) {
                         std::lock_guard<std::mutex> lock(mtx);
                         cv.notify_one();
                     }
-                    semaphore.release();
                     return Status::OK();
                 },
                 nullptr)));
