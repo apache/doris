@@ -104,6 +104,9 @@ public:
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
+    PartialUpdateNewRowPolicyPB partial_update_new_key_policy() const {
+        return _partial_update_new_row_policy;
+    }
     std::string auto_increment_coulumn() const { return _auto_increment_column; }
     int32_t auto_increment_column_unique_id() const { return _auto_increment_column_unique_id; }
     void set_timestamp_ms(int64_t timestamp_ms) { _timestamp_ms = timestamp_ms; }
@@ -128,6 +131,8 @@ private:
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
     UniqueKeyUpdateModePB _unique_key_update_mode {UniqueKeyUpdateModePB::UPSERT};
+    PartialUpdateNewRowPolicyPB _partial_update_new_row_policy {
+            PartialUpdateNewRowPolicyPB::APPEND};
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
     std::string _auto_increment_column;
