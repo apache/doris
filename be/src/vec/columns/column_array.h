@@ -111,6 +111,11 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    void sanity_check() const override {
+        data->sanity_check();
+        offsets->sanity_check();
+    }
+
     void shrink_padding_chars() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */

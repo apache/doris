@@ -109,8 +109,8 @@ private:
 
 public:
     bool is_variable_length() const override { return true; }
-    // used in string ut testd
-    void sanity_check() const;
+
+    void sanity_check() const override;
     void sanity_check_simple() const;
 
     std::string get_name() const override { return "String"; }
