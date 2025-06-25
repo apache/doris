@@ -33,7 +33,6 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -161,25 +160,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         initPreExecutionAuthenticator();
-        HiveConf hiveConf = null;
-        JdbcClientConfig jdbcClientConfig = null;
-        String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");
-        if (hiveMetastoreType.equalsIgnoreCase("jdbc")) {
-            jdbcClientConfig = new JdbcClientConfig();
-            jdbcClientConfig.setUser(catalogProperty.getOrDefault("user", ""));
-            jdbcClientConfig.setPassword(catalogProperty.getOrDefault("password", ""));
-            jdbcClientConfig.setJdbcUrl(catalogProperty.getOrDefault("jdbc_url", ""));
-            jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
-            jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
-        } else {
-            hiveConf = new HiveConf();
-            for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
-                hiveConf.set(kv.getKey(), kv.getValue());
-            }
-            HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
-                    String.valueOf(Config.hive_metastore_client_timeout_second));
+        HiveConf hiveConf = new HiveConf();
+        for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
+            hiveConf.set(kv.getKey(), kv.getValue());
         }
-        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
+        HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
+                String.valueOf(Config.hive_metastore_client_timeout_second));
+        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
             ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
             Integer.MAX_VALUE,

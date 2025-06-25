@@ -23,7 +23,6 @@ import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -34,8 +33,6 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
-import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
@@ -70,10 +67,9 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private final HMSExternalCatalog catalog;
     private HadoopAuthenticator hadoopAuthenticator;
 
-    public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
+    public HiveMetadataOps(HiveConf hiveConf, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
-                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
-                jdbcClientConfig));
+                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size)));
         hadoopAuthenticator = catalog.getPreExecutionAuthenticator().getHadoopAuthenticator();
         client.setHadoopAuthenticator(hadoopAuthenticator);
     }
@@ -92,20 +88,9 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
-    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
-            JdbcClientConfig jdbcClientConfig) {
-        if (hiveConf != null) {
-            ThriftHMSCachedClient client = new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
-            return client;
-        }
-        Preconditions.checkNotNull(jdbcClientConfig, "hiveConf and jdbcClientConfig are both null");
-        String dbType = JdbcClient.parseDbType(jdbcClientConfig.getJdbcUrl());
-        switch (dbType) {
-            case JdbcResource.POSTGRESQL:
-                return new PostgreSQLJdbcHMSCachedClient(jdbcClientConfig);
-            default:
-                throw new IllegalArgumentException("Unsupported DB type: " + dbType);
-        }
+    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize) {
+        Preconditions.checkNotNull(hiveConf, "HiveConf cannot be null");
+        return  new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
     }
 
     @Override
