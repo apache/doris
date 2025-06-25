@@ -21,7 +21,6 @@
 #include <glog/logging.h>
 
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -99,21 +98,12 @@ AggregateFunctionPtr create_topn_array(const DataTypes& argument_types,
                 AggregateFunctionTemplate<TYPE_DECIMAL256, has_default_param>, TYPE_DECIMAL256,
                 is_weighted>>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_STRING:
-        return creator_without_type::create<AggregateFunctionTopNArray<
-                AggregateFunctionTemplate<TYPE_STRING, has_default_param>, TYPE_STRING,
-                is_weighted>>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_CHAR:
-        return creator_without_type::create<AggregateFunctionTopNArray<
-                AggregateFunctionTemplate<TYPE_CHAR, has_default_param>, TYPE_CHAR, is_weighted>>(
-                argument_types, result_is_nullable);
     case PrimitiveType::TYPE_VARCHAR:
         return creator_without_type::create<AggregateFunctionTopNArray<
                 AggregateFunctionTemplate<TYPE_VARCHAR, has_default_param>, TYPE_VARCHAR,
                 is_weighted>>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATE:
-        return creator_without_type::create<AggregateFunctionTopNArray<
-                AggregateFunctionTemplate<TYPE_DATE, has_default_param>, TYPE_DATE, is_weighted>>(
-                argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIME:
         return creator_without_type::create<AggregateFunctionTopNArray<
                 AggregateFunctionTemplate<TYPE_DATETIME, has_default_param>, TYPE_DATETIME,
@@ -127,10 +117,9 @@ AggregateFunctionPtr create_topn_array(const DataTypes& argument_types,
                 AggregateFunctionTemplate<TYPE_DATETIMEV2, has_default_param>, TYPE_DATETIMEV2,
                 is_weighted>>(argument_types, result_is_nullable);
     default:
-        LOG(WARNING) << fmt::format(
-                "Illegal argument  type for aggregate function topn_array is: {}",
-                remove_nullable(argument_types[0])->get_name());
-        return nullptr;
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Aggregate function topn_array does not support type {}",
+                        argument_types[0]->get_primitive_type());
     }
 }
 
