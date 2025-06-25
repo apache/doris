@@ -50,4 +50,7 @@ suite("test_json_type_cast", "p0") {
     qt_sql24 "SELECT CAST(CAST(CAST('[1, 2, 3]' AS TEXT) AS JSON) as TEXT)"
     qt_sql25 "SELECT CAST(CAST(CAST('[1, 2, 3]' AS TEXT) AS JSON) as TEXT)"
     qt_sql26 """SELECT CAST(CAST(CAST('["2020-01-01"]' AS TEXT) AS JSON) as TEXT)"""
+
+    testFoldConst("select cast('18446744073709551616' as json)")
+    testFoldConst("select cast('[1323132,3.13,18446744073709551616]' as json)")
 }
