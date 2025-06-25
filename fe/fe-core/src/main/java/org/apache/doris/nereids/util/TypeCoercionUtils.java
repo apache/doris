@@ -401,7 +401,7 @@ public class TypeCoercionUtils {
         if (type.isDateLikeType()) {
             return BigIntType.INSTANCE;
         }
-        if (type.isStringLikeType() || type.isHllType() || type.isTimeType() || type.isTimeV2Type()) {
+        if (type.isStringLikeType() || type.isHllType() || type.isTimeType()) {
             return DoubleType.INSTANCE;
         }
         throw new AnalysisException("Cannot cast from " + type + " to numeric type.");
@@ -1240,8 +1240,8 @@ public class TypeCoercionUtils {
     }
 
     private static boolean maybeCastToVarchar(DataType t) {
-        return t.isVarcharType() || t.isCharType() || t.isTimeType() || t.isTimeV2Type() || t.isJsonType()
-                || t.isHllType() || t.isBitmapType() || t.isQuantileStateType() || t.isAggStateType();
+        return t.isVarcharType() || t.isCharType() || t.isTimeType() || t.isJsonType() || t.isHllType()
+                || t.isBitmapType() || t.isQuantileStateType() || t.isAggStateType();
     }
 
     public static Optional<DataType> findWiderCommonTypeForComparison(List<DataType> dataTypes) {
@@ -1688,10 +1688,10 @@ public class TypeCoercionUtils {
         }
 
         // time-like vs all other type
-        if (t1.isTimeLikeType() && t2.isTimeLikeType()) {
+        if (t1.isTimeType() && t2.isTimeType()) {
             return Optional.of(TimeV2Type.INSTANCE);
         }
-        if (t1.isTimeLikeType() || t2.isTimeLikeType()) {
+        if (t1.isTimeType() || t2.isTimeType()) {
             if (t1.isNumericType() || t2.isNumericType() || t1.isBooleanType() || t2.isBooleanType()) {
                 return Optional.of(DoubleType.INSTANCE);
             }

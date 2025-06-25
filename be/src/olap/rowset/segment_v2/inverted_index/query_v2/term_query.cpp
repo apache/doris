@@ -29,11 +29,8 @@ TermQuery::~TermQuery() {
 
 TermQuery::TermQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                      const TQueryOptions& query_options, QueryInfo query_info) {
-    std::wstring ws_term = StringUtil::string_to_wstring(query_info.terms[0]);
-    auto* t = _CLNEW Term(query_info.field_name.c_str(), ws_term.c_str());
-    _term_docs = searcher->getReader()->termDocs(t);
-    _iter = TermIterator(_term_docs);
-    _CLDECDELETE(t);
+    _iter = TermIterator::create(nullptr, searcher->getReader(), query_info.field_name,
+                                 query_info.terms[0]);
 }
 
 } // namespace doris::segment_v2::idx_query_v2

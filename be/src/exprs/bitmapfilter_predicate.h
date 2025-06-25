@@ -30,10 +30,10 @@ namespace doris {
 class BitmapFilterFuncBase {
 public:
     virtual void insert_many(const std::vector<const BitmapValue*>& bitmaps) = 0;
-    virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
+    virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap,
                                                 uint16_t* offsets, int number) = 0;
-    virtual void find_batch(const char* data, const uint8* nullmap, size_t number,
-                            uint8* results) const = 0;
+    virtual void find_batch(const char* data, const uint8_t* nullmap, size_t number,
+                            uint8_t* results) const = 0;
     virtual size_t size() const = 0;
     bool is_not_in() const { return _not_in; }
     void set_not_in(bool not_in) { _not_in = not_in; }
@@ -55,11 +55,11 @@ public:
 
     void insert_many(const std::vector<const BitmapValue*>& bitmaps) override;
 
-    uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
+    uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap, uint16_t* offsets,
                                         int number) override;
 
-    void find_batch(const char* data, const uint8* nullmap, size_t number,
-                    uint8* results) const override;
+    void find_batch(const char* data, const uint8_t* nullmap, size_t number,
+                    uint8_t* results) const override;
 
     size_t size() const override { return _bitmap_value->cardinality(); }
 
@@ -85,7 +85,8 @@ void BitmapFilterFunc<type>::insert_many(const std::vector<const BitmapValue*>& 
 }
 
 template <PrimitiveType type>
-uint16_t BitmapFilterFunc<type>::find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
+uint16_t BitmapFilterFunc<type>::find_fixed_len_olap_engine(const char* data,
+                                                            const uint8_t* nullmap,
                                                             uint16_t* offsets, int number) {
     uint16_t new_size = 0;
     for (int i = 0; i < number; i++) {
@@ -102,8 +103,8 @@ uint16_t BitmapFilterFunc<type>::find_fixed_len_olap_engine(const char* data, co
 }
 
 template <PrimitiveType type>
-void BitmapFilterFunc<type>::find_batch(const char* data, const uint8* nullmap, size_t number,
-                                        uint8* results) const {
+void BitmapFilterFunc<type>::find_batch(const char* data, const uint8_t* nullmap, size_t number,
+                                        uint8_t* results) const {
     for (size_t i = 0; i < number; i++) {
         results[i] = false;
         if (nullmap != nullptr && nullmap[i]) {

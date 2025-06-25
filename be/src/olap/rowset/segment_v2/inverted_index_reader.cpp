@@ -35,6 +35,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "inverted_index_query_type.h"
@@ -291,6 +292,9 @@ Status InvertedIndexReader::match_index_search(
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
                                                                       e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("Exception occured: {}",
+                                                                      e.what());
     }
     return Status::OK();
 }
@@ -321,16 +325,15 @@ Status FullTextIndexReader::query(const io::IOContext* io_ctx, OlapReaderStatist
 
         // terms
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
-            query_info.terms.emplace_back(search_str);
+            query_info.term_infos.emplace_back(search_str, 0);
         } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-            PhraseQuery::parser_info(search_str, column_name, query_type, _index_meta.properties(),
-                                     query_info, queryOptions.enable_phrase_query_sequential_opt);
+            PhraseQuery::parser_info(search_str, _index_meta.properties(), query_info);
         } else {
-            query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    search_str, column_name, query_type, _index_meta.properties());
+            query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    search_str, _index_meta.properties());
         }
 
-        if (query_info.terms.empty()) {
+        if (query_info.term_infos.empty()) {
             auto msg = fmt::format(
                     "token parser result is empty for query, "
                     "please check your query: '{}' and index parser: '{}'",
@@ -347,7 +350,7 @@ Status FullTextIndexReader::query(const io::IOContext* io_ctx, OlapReaderStatist
         query_info.field_name = StringUtil::string_to_wstring(column_name);
 
         // cache_key
-        std::string str_tokens = join(query_info.terms, " ");
+        std::string str_tokens = query_info.generate_tokens_key();
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
             str_tokens += " " + std::to_string(query_info.slop);
             str_tokens += " " + std::to_string(query_info.ordered);
@@ -440,7 +443,7 @@ Status StringTypeInvertedIndexReader::query(const io::IOContext* io_ctx,
 
         InvertedIndexQueryInfo query_info;
         query_info.field_name = column_name_ws;
-        query_info.terms.emplace_back(search_str);
+        query_info.term_infos.emplace_back(search_str, 0);
 
         auto result = std::make_shared<roaring::Roaring>();
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
