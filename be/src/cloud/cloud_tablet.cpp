@@ -79,9 +79,6 @@ bool CloudTablet::exceed_version_limit(int32_t limit) {
 }
 
 std::string CloudTablet::tablet_path() const {
-    if (auto rowset = get_rowset_with_max_version(); rowset != nullptr) {
-        return rowset->tablet_path();
-    }
     return "";
 }
 
