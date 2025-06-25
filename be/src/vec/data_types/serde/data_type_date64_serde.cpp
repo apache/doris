@@ -25,6 +25,44 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+static_assert(std::is_same_v<PrimitiveTypeTraits<TYPE_DATE>::ColumnItemType,
+                             PrimitiveTypeTraits<TYPE_DATETIME>::ColumnItemType>);
+static_assert(std::is_same_v<PrimitiveTypeTraits<TYPE_DATE>::ColumnItemType, Int64>);
+
+void write_date_or_datetime(const Int64& int_val, BufferWritable& bw) {
+    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
+    char buf[64];
+    char* pos = value.to_string(buf);
+    bw.write(buf, pos - buf - 1);
+}
+
+template <PrimitiveType T>
+Status DataTypeDate64SerDe<T>::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                        BufferWritable& bw) const {
+    DataTypeSerDe::write_left_quotation(bw);
+    Int64 int_val = assert_cast<const ColumnVector<T>&>(column).get_element(row_num);
+    write_date_or_datetime(int_val, bw);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Result<ColumnString::Ptr> DataTypeDate64SerDe<T>::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    constexpr size_t output_length =
+            T == PrimitiveType::TYPE_DATE ? sizeof("YYYY-MM-DD") : sizeof("YYYY-MM-DD HH:MM:SS");
+    column_to->reserve(size * output_length);
+    BufferWritable write_buffer(*column_to);
+    const auto& col = assert_cast<const ColumnVector<T>&>(column);
+    for (size_t i = 0; i < size; ++i) {
+        write_date_or_datetime(col.get_element(i), write_buffer);
+        write_buffer.commit();
+    }
+    return column_to;
+}
+
 template <PrimitiveType T>
 Status DataTypeDate64SerDe<T>::serialize_column_to_json(
         const IColumn& column, int64_t start_idx, int64_t end_idx, BufferWritable& bw,

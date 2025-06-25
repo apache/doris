@@ -68,6 +68,55 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 void // Add this line to represent the end of the TypeMap
                 >;
 
+template <PrimitiveType PT>
+void write_number(const typename PrimitiveTypeTraits<PT>::ColumnItemType& value,
+                  BufferWritable& bw) {
+    static_assert(is_int_or_bool(PT) || is_float_or_double(PT));
+    bw.write_number(value);
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                        BufferWritable& bw) const {
+    auto data = assert_cast<const ColumnType&>(column).get_element(row_num);
+    if constexpr (is_int_or_bool(T) || is_float_or_double(T)) {
+        write_number<T>(data, bw);
+    } else {
+        return Status::InternalError("serialize_column_to_text not support");
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Result<ColumnString::Ptr> DataTypeNumberSerDe<T>::serialize_column_to_column_string(
+        const IColumn& column) const {
+    if constexpr (is_int_or_bool(T) || is_float_or_double(T)) {
+        auto number_length = []() {
+            // The maximum number of decimal digits for an integer represented by n bytes:
+            // 1. Each byte = 8 bits, so n bytes = 8n bits.
+            // 2. Maximum value of an 8n-bit integer = 2^(8n) - 1.
+            // 3. Number of decimal digits d = floor(log10(2^(8n) - 1)) + 1.
+            // 4. Approximation: log10(2^(8n)) ≈ 8n * log10(2).
+            // 5. log10(2) ≈ 0.30103, so 8n * log10(2) ≈ 2.40824n.
+            // 6. Therefore, d ≈ floor(2.408 * n) + 1.
+            return size_t(2.408 * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType)) + 1;
+        };
+
+        const auto size = column.size();
+        auto column_to = ColumnString::create();
+        column_to->reserve(size * number_length());
+        BufferWritable write_buffer(*column_to);
+        const auto& col = assert_cast<const ColumnType&>(column);
+        for (size_t i = 0; i < size; ++i) {
+            write_number<T>(col.get_element(i), write_buffer);
+            write_buffer.commit();
+        }
+        return column_to;
+    } else {
+        return ResultError(Status::InternalError("serialize_column_to_text not support"));
+    }
+}
+
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                      arrow::ArrayBuilder* array_builder,
