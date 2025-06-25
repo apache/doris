@@ -55,8 +55,8 @@ struct MultiplyImpl {
     static void vector_vector(const ColumnDecimal128V2::Container::value_type* __restrict a,
                               const ColumnDecimal128V2::Container::value_type* __restrict b,
                               ColumnDecimal128V2::Container::value_type* c, size_t size) {
-        auto sng_uptr = std::unique_ptr<int8[]>(new int8[size]);
-        int8* sgn = sng_uptr.get();
+        auto sng_uptr = std::unique_ptr<int8_t[]>(new int8_t[size]);
+        int8_t* sgn = sng_uptr.get();
         auto max = DecimalV2Value::get_max_decimal();
         auto min = DecimalV2Value::get_min_decimal();
 

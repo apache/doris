@@ -71,20 +71,3 @@ int FloatToBuffer(float i, int width, char* buffer);
 
 int FastDoubleToBuffer(double i, char* buffer);
 int FastFloatToBuffer(float i, char* buffer);
-// In practice, doubles should never need more than 24 bytes and floats
-// should never need more than 14 (including null terminators), but we
-// overestimate to be safe.
-static const int kDoubleToBufferSize = 32;
-static const int kFloatToBufferSize = 24;
-
-// ----------------------------------------------------------------------
-// SimpleItoaWithCommas()
-//    Description: converts an integer to a string.
-//    Puts commas every 3 spaces.
-//    Faster than printf("%d")?
-//
-//    Return value: string
-// ----------------------------------------------------------------------
-
-char* SimpleItoaWithCommas(int64_t i, char* buffer, int32_t buffer_size);
-char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size);

@@ -151,7 +151,7 @@ template <FieldType item_type>
 void common_test_array(CollectionValue src_val) {
     TabletColumn list_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
                              FieldType::OLAP_FIELD_TYPE_ARRAY);
-    int32 item_length = 0;
+    int32_t item_length = 0;
     if (item_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
         item_type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         item_length = 10;
