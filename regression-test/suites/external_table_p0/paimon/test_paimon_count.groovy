@@ -50,11 +50,11 @@ suite("test_paimon_count", "p0,external,doris,external_docker,external_docker_do
             sql """ set force_jni_scanner=${force} """
             explain {
                 sql("select count(*) from append_table;")
-                contains "pushdown agg=COUNT (-1)"
+                contains "pushdown agg=COUNT (12)"
             }
             explain {
                 sql("select count(*) from merge_on_read_table;")
-                contains "pushdown agg=COUNT (-1)"
+                contains "pushdown agg=COUNT (8)"
             }
             explain {
                 sql("select count(*) from deletion_vector_parquet;")
