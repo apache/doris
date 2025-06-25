@@ -172,9 +172,6 @@ Status VariantColumnWriterImpl::init() {
     }
     auto col = vectorized::ColumnObject::create(count);
     _column = std::move(col);
-    if (_tablet_column->is_nullable()) {
-        _null_column = vectorized::ColumnUInt8::create(0);
-    }
     return Status::OK();
 }
 
@@ -195,19 +192,28 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnObject* p
 
     DCHECK_EQ(ptr->get_root()->get_ptr()->size(), num_rows);
     converter->add_column_data_convertor(*_tablet_column);
-    DCHECK_EQ(ptr->get_root()->get_ptr()->size(), num_rows);
+    const uint8_t* nullmap = nullptr;
+    auto& nullable_column =
+            assert_cast<vectorized::ColumnNullable&>(*ptr->get_root()->assume_mutable());
+    auto root_column = nullable_column.get_nested_column_ptr();
+    // If the root variant is nullable, then update the root column null column with the outer null column.
+    if (_tablet_column->is_nullable()) {
+        // use outer null column as final null column
+        root_column = vectorized::ColumnNullable::create(
+                root_column->get_ptr(), vectorized::ColumnUInt8::create(_null_column));
+        nullmap = _null_column.get_data().data();
+    } else {
+        // Otherwise setting to all not null.
+        root_column = vectorized::ColumnNullable::create(
+                root_column->get_ptr(), vectorized::ColumnUInt8::create(root_column->size(), 0));
+    }
+    // make sure the root_column is nullable
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
-            {ptr->get_root()->get_ptr(), nullptr, ""}, 0, num_rows, column_id));
+            {root_column->get_ptr(), nullptr, ""}, 0, num_rows, column_id));
     auto [status, column] = converter->convert_column_data(column_id);
     if (!status.ok()) {
         return status;
     }
-    const uint8_t* nullmap =
-            _null_column
-                    ? vectorized::check_and_get_column<vectorized::ColumnUInt8>(_null_column.get())
-                              ->get_data()
-                              .data()
-                    : nullptr;
     RETURN_IF_ERROR(_root_writer->append(nullmap, column->get_data(), num_rows));
     converter->clear_source_content(column_id);
     ++column_id;
@@ -332,10 +338,6 @@ Status VariantColumnWriterImpl::_process_sparse_column(
     if (!status.ok()) {
         return status;
     }
-    VLOG_DEBUG << "dump sparse "
-               << vectorized::Block::dump_column(
-                          ptr->get_sparse_column(),
-                          vectorized::ColumnObject::get_sparse_column_type());
     RETURN_IF_ERROR(
             _sparse_column_writer->append(column->get_nullmap(), column->get_data(), num_rows));
     converter->clear_source_content(column_id);
@@ -362,6 +364,11 @@ Status VariantColumnWriterImpl::_process_sparse_column(
     }
     // set statistics info
     _statistics.to_pb(sparse_writer_opts.meta->mutable_variant_statistics());
+    LOG(INFO) << "num subcolumns : " << _subcolumn_writers.size()
+              << ", num sparse columns in stats : "
+              << _statistics.sparse_column_non_null_size.size()
+              << ", variant_max_subcolumns_count : "
+              << _tablet_column->variant_max_subcolumns_count();
     sparse_writer_opts.meta->set_num_rows(num_rows);
     return Status::OK();
 }
@@ -528,7 +535,7 @@ Status VariantColumnWriterImpl::write_bloom_filter_index() {
 Status VariantColumnWriterImpl::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                                 size_t num_rows) {
     if (null_map != nullptr) {
-        _null_column->insert_many_raw_data((const char*)null_map, num_rows);
+        _null_column.insert_many_fix_len_data((const char*)null_map, num_rows);
     }
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     return Status::OK();

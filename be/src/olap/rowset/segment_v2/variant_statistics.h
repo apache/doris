@@ -32,8 +32,6 @@ struct VariantStatistics {
         for (const auto& [path, value] : sparse_column_non_null_size) {
             stats->mutable_sparse_column_non_null_size()->emplace(path, value);
         }
-        LOG(INFO) << "num subcolumns " << subcolumns_non_null_size.size() << ", num sparse columns "
-                  << sparse_column_non_null_size.size();
     }
 
     void from_pb(const VariantStatisticsPB& stats) {

@@ -70,9 +70,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"
-    // int rand_subcolumns_count = Math.floor(Math.random() * (611 - 511 + 1)) + 511
-    int rand_subcolumns_count = 177
-    // int rand_subcolumns_count = 0;
+    int rand_subcolumns_count = Math.floor(Math.random() * (611 - 511 + 1)) + 511
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
