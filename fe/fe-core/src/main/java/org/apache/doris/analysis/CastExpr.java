@@ -27,6 +27,8 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
@@ -215,13 +217,24 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (needExternalSql) {
-            return getChild(0).toSql();
-        }
         if (isAnalyzed) {
             return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
         } else {
             return "CAST(" + getChild(0).toSql() + " AS "
+                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
+        }
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
+        if (needExternalSql) {
+            return getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
+        }
+        if (isAnalyzed) {
+            return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
+                    + type.toSql() + ")";
+        } else {
+            return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
                     + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
         }
     }
