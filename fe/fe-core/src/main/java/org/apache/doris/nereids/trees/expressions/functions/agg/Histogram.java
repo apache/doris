@@ -43,9 +43,7 @@ public class Histogram extends NotNullableAggregateFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(AnyDataType.INSTANCE_WITHOUT_INDEX),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(AnyDataType.INSTANCE_WITHOUT_INDEX, IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(AnyDataType.INSTANCE_WITHOUT_INDEX, DoubleType.INSTANCE, IntegerType.INSTANCE)
+                    .args(AnyDataType.INSTANCE_WITHOUT_INDEX, IntegerType.INSTANCE)
     );
 
     private Histogram(boolean distinct, List<Expression> args) {

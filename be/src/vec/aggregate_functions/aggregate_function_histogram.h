@@ -45,6 +45,7 @@ namespace doris::vectorized {
 
 template <PrimitiveType T>
 struct AggregateFunctionHistogramData {
+    static constexpr auto Ptype = T;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     const static size_t DEFAULT_BUCKET_NUM = 128;
     const static size_t BUCKET_NUM_INIT_VALUE = 0;
@@ -162,17 +163,14 @@ private:
     std::map<typename PrimitiveTypeTraits<T>::ColumnItemType, size_t> ordered_map;
 };
 
-template <typename Data, PrimitiveType T, bool has_input_param>
+template <typename Data, bool has_input_param>
 class AggregateFunctionHistogram final
-        : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionHistogram<Data, T, has_input_param>> {
+        : public IAggregateFunctionDataHelper<Data,
+                                              AggregateFunctionHistogram<Data, has_input_param>> {
 public:
-    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
-
     AggregateFunctionHistogram() = default;
     AggregateFunctionHistogram(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data,
-                                           AggregateFunctionHistogram<Data, T, has_input_param>>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionHistogram<Data, has_input_param>>(
                       argument_types_),
               _argument_type(argument_types_[0]) {}
 
@@ -195,13 +193,14 @@ public:
             this->data(place).set_parameters(Data::DEFAULT_BUCKET_NUM);
         }
 
-        if constexpr (is_string_type(T)) {
+        if constexpr (is_string_type(Data::Ptype)) {
             this->data(place).add(
                     assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data_at(row_num));
         } else {
             this->data(place).add(
-                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                    assert_cast<const typename Data::ColVecType&, TypeCheckOnRelease::DISABLE>(
+                            *columns[0])
                             .get_data()[row_num]);
         }
     }

@@ -185,7 +185,8 @@ struct CurryDirectAndData {
     using T = AggregateFunctionTemplate<Type, Data<Type>>;
 };
 
-template <bool allow_integer, bool allow_float, bool allow_decimal, int define_index = 0>
+template <bool allow_integer, bool allow_float, bool allow_decimal, bool allow_stringlike,
+          bool allow_datelike, int define_index = 0>
 struct creator_with_type_base {
     template <typename Class, typename... TArgs>
     static AggregateFunctionPtr create_base(const DataTypes& argument_types,
@@ -247,6 +248,36 @@ struct creator_with_type_base {
                 break;
             }
         }
+
+        if constexpr (allow_stringlike) {
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_CHAR:
+            case PrimitiveType::TYPE_VARCHAR:
+            case PrimitiveType::TYPE_STRING:
+                return creator_without_type::create<typename Class::template T<TYPE_STRING>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            default:
+                break;
+            }
+        }
+
+        if constexpr (allow_datelike) {
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_DATE:
+            case PrimitiveType::TYPE_DATETIME:
+                return creator_without_type::create<typename Class::template T<TYPE_DATETIME>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_DATEV2:
+                return creator_without_type::create<typename Class::template T<TYPE_DATEV2>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_DATETIMEV2:
+                return creator_without_type::create<typename Class::template T<TYPE_DATETIMEV2>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            default:
+                break;
+            }
+        }
+
         return nullptr;
     }
 
@@ -312,10 +343,11 @@ struct creator_with_type_base {
     }
 };
 
-using creator_with_integer_type = creator_with_type_base<true, false, false>;
-using creator_with_numeric_type = creator_with_type_base<true, true, false>;
-using creator_with_decimal_type = creator_with_type_base<false, false, true>;
-using creator_with_type = creator_with_type_base<true, true, true>;
+using creator_with_integer_type = creator_with_type_base<true, false, false, false, false>;
+using creator_with_numeric_type = creator_with_type_base<true, true, false, false, false>;
+using creator_with_decimal_type = creator_with_type_base<false, false, true, false, false>;
+using creator_with_type = creator_with_type_base<true, true, true, false, false>;
+using creator_with_any = creator_with_type_base<true, true, true, true, true>;
 
 } // namespace  doris::vectorized
 
