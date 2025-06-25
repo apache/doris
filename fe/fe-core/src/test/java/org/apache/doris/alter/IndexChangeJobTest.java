@@ -664,7 +664,7 @@ public class IndexChangeJobTest {
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
         Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
+        Assert.assertEquals("ngram_bf_index2", table.getIndexes().get(0).getIndexName());
     }
 
     @Test
