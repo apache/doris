@@ -1101,7 +1101,6 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     // If any of the above conditions are met, log a debug message indicating that there's no need to read data for the indexed column.
     // Then, return false.
     int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-    LOG_INFO("Output columns contains {} is {}", cid, _output_columns.contains(unique_id));
     if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
