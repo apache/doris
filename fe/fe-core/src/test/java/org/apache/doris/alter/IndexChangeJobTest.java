@@ -44,6 +44,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -709,9 +711,12 @@ public class IndexChangeJobTest {
         Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
         Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
 
-        cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.COLUMN, tableName);
-        cancelAlterTableStmt.analyze(analyzer);
-        schemaChangeHandler.cancel(cancelAlterTableStmt);
+        TableNameInfo tableNameInfo = new TableNameInfo(db.getName(), table.getName());
+        CancelAlterTableCommand cancelAlterTableCommand = new CancelAlterTableCommand(
+                tableNameInfo,
+                CancelAlterTableCommand.AlterType.COLUMN,
+                Lists.newArrayList());
+        schemaChangeHandler.cancel(cancelAlterTableCommand);
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.CANCELLED, jobV2.getJobState());
