@@ -1,0 +1,286 @@
+suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
+    String suiteName = "mtmv_up_down_olap_hive"
+    String ctlName = "${suiteName}_ctl"
+    String dbName = context.config.getDbNameByFile(context.file)
+    sql """create catalog if not exists ${ctlName} properties (
+        "type"="hms",
+        'hive.metastore.uris' = 'thrift://172.20.48.119:9383',
+        'fs.defaultFS' = 'hdfs://172.20.48.119:8320',
+        'hadoop.username' = 'hadoop',
+        'enable.auto.analyze' = 'false'
+        );"""
+    sql """switch ${ctlName}"""
+    sql """create database if not exists ${dbName}"""
+    sql """use ${dbName}"""
+
+    String tableName1 = """${suiteName}_tb1"""
+    String tableName2 = """${suiteName}_tb2"""
+    String tableName3 = """${suiteName}_tb3"""
+    String tableName4 = """${suiteName}_tb4"""
+    String tableName4_rn = """${suiteName}_tb4_rn"""
+    String tableName5 = """${suiteName}_tb5"""
+    String tableName6 = """${suiteName}_tb6"""
+    String tableName7 = """${suiteName}_tb7"""
+    String tableName8 = """${suiteName}_tb8"""
+    String tableName9 = """${suiteName}_tb9"""
+    String tableName10 = """${suiteName}_tb10"""
+    String mtmvName1 = """${suiteName}_mtmv1"""
+    String mtmvName2 = """${suiteName}_mtmv2"""
+    String mtmvName3 = """${suiteName}_mtmv3"""
+    String mtmvName4 = """${suiteName}_mtmv4"""
+    String mtmvName5 = """${suiteName}_mtmv5"""
+    String mtmvName6 = """${suiteName}_mtmv6"""
+
+    sql """drop table if exists `${tableName1}`"""
+    sql """drop table if exists `${tableName2}`"""
+    sql """drop table if exists `${tableName3}`"""
+    sql """drop table if exists `${tableName4}`"""
+    sql """drop table if exists `${tableName4_rn}`"""
+    sql """drop table if exists `${tableName5}`"""
+    sql """drop table if exists `${tableName6}`"""
+    sql """drop table if exists `${tableName7}`"""
+    sql """drop table if exists `${tableName8}`"""
+    sql """drop table if exists `${tableName9}`"""
+    sql """drop table if exists `${tableName10}`"""
+
+    sql """
+        CREATE TABLE `${tableName1}` (
+          `user_id` INT COMMENT '用户id',
+          `num` INT COMMENT '数量',
+          `date` DATE COMMENT '数据灌入日期时间'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName1} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
+        """
+
+    sql """
+        CREATE TABLE `${tableName2}` (
+          `user_id` INT COMMENT '用户id',
+          `num` INT COMMENT '数量',
+          `date` DATE COMMENT '数据灌入日期时间'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName2} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
+        """
+
+    sql """
+        CREATE TABLE `${tableName3}` (
+          `user_id` INT COMMENT '用户id',
+          `num` INT COMMENT '数量',
+          `date` DATE COMMENT '数据灌入日期时间'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName3} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
+        """
+
+    sql """
+        CREATE TABLE `${tableName4}` (
+          `user_id` INT COMMENT '用户id',
+          `age` INT COMMENT '年龄'
+        ) ENGINE=hive
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName4} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
+
+    sql """
+        CREATE TABLE `${tableName5}` (
+          `user_id` INT COMMENT '用户id',
+          `num` INT COMMENT '数量',
+          `date` DATE COMMENT '数据灌入日期时间'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName5} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
+        """
+
+    sql """
+        CREATE TABLE `${tableName6}` (
+          `user_id` INT COMMENT '用户id',
+          `num` INT COMMENT '数量',
+          `date` DATE COMMENT '数据灌入日期时间'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName6} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
+        """
+    sql """
+        CREATE TABLE `${tableName7}` (
+          `user_id` INT COMMENT '用户id',
+          `age` INT COMMENT '年龄'
+        ) ENGINE=hive
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName7} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
+    sql """
+        CREATE TABLE `${tableName8}` (
+          `user_id` INT COMMENT '用户id',
+          `age` INT COMMENT '年龄'
+        ) ENGINE=hive
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName8} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
+    sql """
+        CREATE TABLE `${tableName9}` (
+          `user_id` INT COMMENT '用户id',
+          `num` INT COMMENT '数量',
+          `date` DATE COMMENT '数据灌入日期时间'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName9} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
+        """
+    sql """
+        CREATE TABLE `${tableName10}` (
+          `user_id` INT COMMENT '用户id',
+          `age` INT COMMENT '年龄'
+        ) ENGINE=hive
+        PROPERTIES (
+            'file_format'='parquet'
+        );
+        """
+    sql """
+        insert into ${tableName10} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
+
+
+    sql """switch internal;"""
+    sql """use ${dbName}"""
+    sql """drop materialized view if exists ${mtmvName1};"""
+    sql """drop materialized view if exists ${mtmvName2};"""
+    sql """drop materialized view if exists ${mtmvName3};"""
+    sql """drop materialized view if exists ${mtmvName4};"""
+    sql """drop materialized view if exists ${mtmvName5};"""
+    sql """drop materialized view if exists ${mtmvName6};"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mtmvName1}
+            REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName1} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id;
+        """
+    waitingMTMVTaskFinishedByMvName(mtmvName1)
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mtmvName2}
+            REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id;
+        """
+    waitingMTMVTaskFinishedByMvName(mtmvName2)
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mtmvName3}
+            REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName3} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id;
+        """
+    waitingMTMVTaskFinishedByMvName(mtmvName3)
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mtmvName4}
+            REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName9} a inner join ${ctlName}.${dbName}.${tableName4} b on a.user_id=b.user_id;
+        """
+    waitingMTMVTaskFinishedByMvName(mtmvName4)
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mtmvName5}
+            REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName5} a inner join ${ctlName}.${dbName}.${tableName8} b on a.user_id=b.user_id;
+        """
+    waitingMTMVTaskFinishedByMvName(mtmvName5)
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mtmvName6}
+            REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName6} a inner join ${ctlName}.${dbName}.${tableName7} b on a.user_id=b.user_id;
+        """
+    waitingMTMVTaskFinishedByMvName(mtmvName6)
+
+
+    def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
+    assertTrue(state_mtmv1[0][0] == "NORMAL")
+    assertTrue(state_mtmv1[0][1] == "SUCCESS")
+    assertTrue(state_mtmv1[0][2] == true)
+    def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+    assertTrue(state_mtmv2[0][0] == "NORMAL")
+    assertTrue(state_mtmv2[0][1] == "SUCCESS")
+    assertTrue(state_mtmv2[0][2] == true)
+    def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+    assertTrue(state_mtmv3[0][0] == "NORMAL")
+    assertTrue(state_mtmv3[0][1] == "SUCCESS")
+    assertTrue(state_mtmv3[0][2] == true)
+    def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+    assertTrue(state_mtmv4[0][0] == "NORMAL")
+    assertTrue(state_mtmv4[0][1] == "SUCCESS")
+    assertTrue(state_mtmv4[0][2] == true)
+    def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+    assertTrue(state_mtmv5[0][0] == "NORMAL")
+    assertTrue(state_mtmv5[0][1] == "SUCCESS")
+    assertTrue(state_mtmv5[0][2] == true)
+    def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+    assertTrue(state_mtmv6[0][0] == "NORMAL")
+    assertTrue(state_mtmv6[0][1] == "SUCCESS")
+    assertTrue(state_mtmv6[0][2] == true)
+
+}
+

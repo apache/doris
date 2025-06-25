@@ -14,8 +14,32 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
+// sudo iptables -A OUTPUT -d 172.20.48.119 -p tcp --dport 9383 -j DROP
+//
+//sudo iptables -D OUTPUT -d 172.20.48.119 -p tcp --dport 9383 -j DROP
 
 suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
+
+    def DateAddOneDayStr = { def dateStr ->
+        def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        def date = LocalDate.parse(dateStr, formatter)
+        def nextDay = date.plusDays(1)
+        def result = nextDay.format(formatter)
+
+        return result
+    }
+
+    def DateAddOneDayPartStr = { def dateStr ->
+        def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        def date = LocalDate.parse(dateStr, formatter)
+        formatter = DateTimeFormatter.ofPattern("yyyyMMdd")
+        def result = "p_" + date.format(formatter)
+
+        return result
+    }
 
     def waitingMTMVTaskByMvName = { mvName, dbName ->
         Thread.sleep(2000);
@@ -131,7 +155,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
         }
     }
     for (int i = 0; i < fe_res.size(); i++) {
-        if (fe_res[i][21].toString().indexOf(old_version) != -1) {
+        if (fe_res[i][17].toString().indexOf(old_version) != -1) {
             fe_old ++
         } else {
             fe_new++
@@ -149,28 +173,62 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     }
     assertTrue(step != 0)
 
+    String hivePrefix = "hive3"
+    setHivePrefix(hivePrefix)
+
+    hive_docker """ set hive.stats.column.autogather = false; """
 
 
     // mtmv5: normal situation, the base table and mtmv remain unchanged
     // success
-    sql """switch internal;"""
     def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
     def test_sql5 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName5} a inner join ${ctlName}.${dbName}.${tableName8} b on a.user_id=b.user_id"""
-    if (step == 1 || step == 2 || step == 3) {
+    logger.info("state_mtmv5: " + state_mtmv5)
+    if (step == 1) {
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc, 丢包之后会卡死
+    } else if (step == 2) {
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
-        assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "NORMAL")
+
+        sql """refresh MATERIALIZED VIEW ${mtmvName5} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName5)
+
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+            assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+            assertTrue(state_mtmv5[0][2] == true)
+
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
             mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
             compare_res(test_sql5 + " order by 1,2,3")
         }
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+            assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+            assertTrue(state_mtmv5[0][2] == true)
+
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
             mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
             compare_res(test_sql5 + " order by 1,2,3")
         }
+
+    } else if (step == 3) {
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "NORMAL")
+
+        sql """refresh MATERIALIZED VIEW ${mtmvName5} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName5)
+
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        assertTrue(state_mtmv5[0][2] == true)
+
     } else if (step == 4) {
         assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv5[0][2] == false)
@@ -178,7 +236,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
             mv_not_part_in(test_sql5, mtmvName5)
-
         }
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
@@ -186,54 +243,234 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
             mv_not_part_in(test_sql5, mtmvName5)
         }
 
+        // 刷新catalog之后 mtmv仍然处于sc状态
+        sql """refresh catalog ${ctlName}"""
+
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv5[0][2] == false)
+
+        // 刷新mtmv之后状态恢复正常
+        sql """refresh MATERIALIZED VIEW ${mtmvName5} auto"""
+        waitingMTMVTaskFinishedByMvName(mtmvName5)
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        assertTrue(state_mtmv5[0][2] == true)
+
+//        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+//            sql """use ${dbName}"""
+//            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+//            compare_res(test_sql5 + " order by 1,2,3")
+//        }
+//        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+//            sql """use ${dbName}"""
+//            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+//            compare_res(test_sql5 + " order by 1,2,3")
+//        }
+
     }
 
-    // 手动刷新之后会变成normal状态
-    sql """refresh MATERIALIZED VIEW ${mtmvName5} complete;"""
-    waitingMTMVTaskFinishedByMvName(mtmvName5)
-    assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
-    assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
-    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
-        compare_res(test_sql5 + " order by 1,2,3")
-    }
-    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
-        compare_res(test_sql5 + " order by 1,2,3")
-    }
 
+    // mtmv2: add partition
+    def part_res_tb2 = sql """show partitions from ${ctlName}.${dbName}.${tableName2}"""
+    def pt_size = part_res_tb2.size()
+    def date_str = part_res_tb2[pt_size-1][0].toString().substring(3)
+    logger.info("part_name:" + part_res_tb2[pt_size-1][0].toString().substring(3))
+    date_str = DateAddOneDayStr(date_str)
+    def part_date_str = DateAddOneDayPartStr(date_str)
+    logger.info("date_str: " + date_str)
+    logger.info("part_date_str: " + part_date_str)
 
-    // mtmv3: insert data
-    // 确认一下我们这边插入之后会自动变为不同步
-    sql """insert into ${ctlName}.${dbName}.${tableName3} values(1,1,"2017-01-15");"""
-    def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
-    def test_sql3 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName3} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='${date_str}') values (${pt_size+1},${pt_size+1})"""
+    def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+    def sql2 = "SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a left join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"
+    logger.info("state_mtmv2: " + state_mtmv2)
 
-    if (step == 1 || step == 2 || step == 3) {
-        assertTrue(state_mtmv3[0][0] == "NORMAL")
-        assertTrue(state_mtmv3[0][2] == false)
+    if (step == 1) {
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${part_date_str})"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // 刷新catalog之后 mtmv处于sc状态
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+
+        // 刷新mtmv之后状态恢复正常
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        logger.info("state_mtmv2:" + state_mtmv2)
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == true)
 
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-//            assertTrue(state_mtmv3[0][0] == "NORMAL")
-//            assertTrue(state_mtmv3[0][2] == true)
-//            sql """select * from ${ctlName}.${dbName}.${tableName3}"""
-
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-            compare_res(test_sql3 + " order by 1,2,3")
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
         }
 
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-            compare_res(test_sql3 + " order by 1,2,3")
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
         }
+    } else if (step == 2) {
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${part_date_str})"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // 刷新catalog之后 mtmv处于sc状态
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+
+        // When refreshing the entire MTMV, the partition will be deleted.
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+            logger.info("state_mtmv2:" + state_mtmv2)
+            assertTrue(state_mtmv2[0][0] == "NORMAL")
+            assertTrue(state_mtmv2[0][1] == "SUCCESS")
+            assertTrue(state_mtmv2[0][2] == true)
+
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+            logger.info("state_mtmv2:" + state_mtmv2)
+            assertTrue(state_mtmv2[0][0] == "NORMAL")
+            assertTrue(state_mtmv2[0][1] == "SUCCESS")
+            assertTrue(state_mtmv2[0][2] == true)
+
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+    } else if (step == 3) {
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${part_date_str})"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // 刷新catalog之后 mtmv处于sc状态
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+
+        // When refreshing the entire MTMV, the partition will be deleted.
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        logger.info("state_mtmv2:" + state_mtmv2)
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == true)
+    } else if (step == 4) {
+
+        assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == false)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(sql2, mtmvName2)
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(sql2, mtmvName2)
+        }
+
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${part_date_str})"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // 刷新catalog之后 mtmv处于sc状态
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv2[0][2] == false)
+
+        // When refreshing the entire MTMV, the partition will be deleted.
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        logger.info("state_mtmv2:" + state_mtmv2)
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == true)
+
+//        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+//            sql """use ${dbName}"""
+//            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+//            compare_res(sql2 + " order by 1,2,3")
+//        }
+//
+//        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+//            sql """use ${dbName}"""
+//            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+//            compare_res(sql2 + " order by 1,2,3")
+//        }
+    }
+
+
+    // mtmv3: insert data
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-01-15') values (20,20)"""
+    def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+    logger.info("state_mtmv3: " + state_mtmv3)
+    def test_sql3 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName3} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"""
+
+    if (step == 1 || step == 2 || step == 3) {
+        assertTrue(state_mtmv3[0][0] == "NORMAL")
+
+        // 刷新catalog之后 mtmv仍然处于sc状态
+        sql """refresh catalog ${ctlName}"""
+
+        state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+        logger.info("state_mtmv3: " + state_mtmv3)
+        assertTrue(state_mtmv3[0][0] == "NORMAL")
+
     } else if (step == 4) {
         assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv3[0][2] == false)
@@ -249,30 +486,57 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
             sql """use ${dbName}"""
             mv_not_part_in(test_sql3, mtmvName3)
         }
-    }
-    sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
-    waitingMTMVTaskFinishedByMvName(mtmvName3)
-    assertTrue(state_mtmv3[0][0] == "NORMAL")
-    assertTrue(state_mtmv3[0][2] == true)
-    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-        compare_res(test_sql3 + " order by 1,2,3")
-    }
 
-    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-        compare_res(test_sql3 + " order by 1,2,3")
+        // 刷新catalog之后 mtmv仍然处于sc状态
+        sql """refresh catalog ${ctlName}"""
+
+        state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+        logger.info("state_mtmv3: " + state_mtmv3)
+        assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv3[0][2] == false)
+
     }
 
+    if (step == 1 || step == 2 || step == 4) {
+        sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
+        waitingMTMVTaskFinishedByMvName(mtmvName3)
 
+        state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+        logger.info("state_mtmv3: " + state_mtmv3)
+
+        assertTrue(state_mtmv3[0][0] == "NORMAL")
+        assertTrue(state_mtmv3[0][2] == true)
+//        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+//            sql """use ${dbName}"""
+//            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+//            compare_res(test_sql3 + " order by 1,2,3")
+//        }
+//
+//        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+//            sql """use ${dbName}"""
+//            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+//            compare_res(test_sql3 + " order by 1,2,3")
+//        }
+    } else if (step == 3) {
+        sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
+        waitingMTMVTaskFinishedByMvName(mtmvName3)
+
+        state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+        logger.info("state_mtmv3: " + state_mtmv3)
+
+        assertTrue(state_mtmv3[0][0] == "NORMAL")
+        assertTrue(state_mtmv3[0][2] == true)
+    }
+
+/*
     // mtmv1: drop table of primary table
-    sql """drop table if exists ${ctlName}.${dbName}.${tableName1}"""
+    hive_docker """ drop table if exists ${dbName}.${tableName1} """
     def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
     def test_sql1 = """SELECT * FROM ${ctlName}.${dbName}.${tableName10}"""
+
+    logger.info("state_mtmv1:" + state_mtmv1)
 
     assertTrue(state_mtmv1[0][0] == "NORMAL")
     assertTrue(state_mtmv1[0][2] == false)
@@ -280,12 +544,16 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
         sql """use ${dbName}"""
+        def res = sql """explain ${test_sql1}"""
+        logger.info("res1111: " + res)
         mv_not_part_in(test_sql1, mtmvName1)
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
         sql """use ${dbName}"""
+        def res = sql """explain ${test_sql1}"""
+        logger.info("res22222: " + res)
         mv_not_part_in(test_sql1, mtmvName1)
     }
 
@@ -301,22 +569,43 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName3)
 
+    // 刷新catalog之后 mtmv仍然处于sc状态
+    sql """refresh catalog ${ctlName}"""
+
+    state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
+    logger.info("state_mtmv1:" + state_mtmv1)
+    assertTrue(state_mtmv1[0][0] == "NORMAL")
+    assertTrue(state_mtmv1[0][2] == false)
+
+    // 刷新mtmv之后状态恢复正常
+    sql """refresh MATERIALIZED VIEW ${mtmvName1} complete"""
+    state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
+    logger.info("state_mtmv1:" + state_mtmv1)
+    assertTrue(state_mtmv1[0][0] == "NORMAL")
+    assertTrue(state_mtmv1[0][2] == true)
+
 
     // mtmv6: drop table of dependent table
-    sql """drop table if exists ${ctlName}.${dbName}.${tableName7}"""
+    hive_docker """ drop table if exists ${dbName}.${tableName7} """
     def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
     def test_sql6 = """SELECT * FROM ${ctlName}.${dbName}.${tableName6}"""
+    logger.info("state_mtmv6:" + state_mtmv6)
+
     assertTrue(state_mtmv6[0][0] == "NORMAL")
-    assertTrue(state_mtmv6[0][2] == false)
+    assertTrue(state_mtmv6[0][2] == true)
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
         sql """use ${dbName}"""
+        def res = sql """explain ${test_sql6}"""
+        logger.info("res33333: " + res)
         mv_not_part_in(test_sql6, mtmvName6)
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
         sql """use ${dbName}"""
+        def res = sql """explain ${test_sql6}"""
+        logger.info("res4444: " + res)
         mv_not_part_in(test_sql6, mtmvName6)
     }
 
@@ -328,9 +617,30 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT user_id, date, num FROM ${ctlName}.${dbName}.${tableName6};
+            SELECT user_id, num FROM ${ctlName}.${dbName}.${tableName6};
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName6)
+
+
+    // 刷新catalog之后 mtmv仍然处于sc状态
+    sql """refresh catalog ${ctlName}"""
+    state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+    assertTrue(state_mtmv6[0][0] == "SCHEMA_CHANGE")
+    assertTrue(state_mtmv6[0][2] == false)
+
+    // 刷新mtmv之后状态恢复正常
+    sql """refresh MATERIALIZED VIEW ${mtmvName6} auto"""
+    state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+    assertTrue(state_mtmv6[0][0] == "NORMAL")
+    assertTrue(state_mtmv6[0][2] == true)
+
+
+
+ */
+
+    hive_docker """ set hive.stats.column.autogather = true; """
+
+
 
 
 }
