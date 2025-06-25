@@ -511,7 +511,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // Rule 2: The two groups are mutually exclusive
         if (hasSnapshotParams && hasTimestampParams) {
             throw new UserException(
-                    "Cannot specify both snapshot-based parameters (startSnapshotId, endSnapshotId, incrementalBetweenScanMode) "
+                    "Cannot specify both snapshot-based parameters"
+                            + "(startSnapshotId, endSnapshotId, incrementalBetweenScanMode) "
                             + "and timestamp-based parameters (startTimestamp, endTimestamp) at the same time");
         }
 
@@ -522,10 +523,12 @@ public class PaimonScanNode extends FileQueryScanNode {
                 throw new UserException("startSnapshotId is required when using snapshot-based incremental read");
             }
 
-            // Rule 3.3: DORIS_INCREMENTAL_BETWEEN_SCAN_MODE can only appear when both start and end snapshot IDs are specified
+            // Rule 3.3: DORIS_INCREMENTAL_BETWEEN_SCAN_MODE can only appear
+            // when both start and end snapshot IDs are specified
             if (hasIncrementalBetweenScanMode && (!hasStartSnapshotId || !hasEndSnapshotId)) {
                 throw new UserException(
-                        "incrementalBetweenScanMode can only be specified when both startSnapshotId and endSnapshotId are provided");
+                        "incrementalBetweenScanMode can only be specified when"
+                                + " both startSnapshotId and endSnapshotId are provided");
             }
 
             // Validate snapshot ID values

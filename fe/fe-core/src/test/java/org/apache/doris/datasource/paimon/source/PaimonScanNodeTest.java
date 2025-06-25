@@ -31,7 +31,7 @@ import org.apache.paimon.table.source.DataSplit;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import static org.mockito.ArgumentMatchers.any;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
@@ -84,10 +84,12 @@ public class PaimonScanNodeTest {
 
         // Mock PaimonScanNode to return test data splits
         PaimonScanNode spyPaimonScanNode = Mockito.spy(paimonScanNode);
-        Mockito.doReturn(new ArrayList<org.apache.paimon.table.source.Split>() {{
-            add(ds1);
-            add(ds2);
-        }}).when(spyPaimonScanNode).getPaimonSplitFromAPI();
+        Mockito.doReturn(new ArrayList<org.apache.paimon.table.source.Split>() {
+            {
+                add(ds1);
+                add(ds2);
+            }
+        }).when(spyPaimonScanNode).getPaimonSplitFromAPI();
 
         // Mock PaimonSource to return catalog
         PaimonSource mockPaimonSource = Mockito.mock(PaimonSource.class);
@@ -371,10 +373,10 @@ public class PaimonScanNodeTest {
     }
 
     private void mockJniReader(PaimonScanNode spyNode) {
-        Mockito.doReturn(false).when(spyNode).supportNativeReader(any(Optional.class));
+        Mockito.doReturn(false).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }
 
     private void mockNativeReader(PaimonScanNode spyNode) {
-        Mockito.doReturn(true).when(spyNode).supportNativeReader(any(Optional.class));
+        Mockito.doReturn(true).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }
 }
