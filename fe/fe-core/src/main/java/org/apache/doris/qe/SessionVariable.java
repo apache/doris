@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -535,6 +536,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOAD_STREAM_PER_NODE = "load_stream_per_node";
 
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
+
+    public static final String PARTIAL_UPDATE_NEW_KEY_BEHAVIOR = "partial_update_new_key_behavior";
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
@@ -1313,6 +1316,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true, fuzzy = true)
     private boolean enableSyncRuntimeFilterSize = true;
 
+    @VariableMgr.VarAttr(name = "runtime_filter_max_build_row_count", needForward = true, fuzzy = false)
+    public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
+
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = false;
 
@@ -2067,6 +2073,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
+
+    @VariableMgr.VarAttr(name = PARTIAL_UPDATE_NEW_KEY_BEHAVIOR, needForward = true, description = {
+            "用于设置部分列更新中对于新插入的行的行为",
+            "Used to set the behavior for newly inserted rows in partial update."
+            }, checker = "checkPartialUpdateNewKeyBehavior", options = {"APPEND", "ERROR"})
+    public String partialUpdateNewKeyPolicy = "APPEND";
 
     @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
             "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
@@ -4047,6 +4059,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
     }
 
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return parsePartialUpdateNewKeyBehavior(partialUpdateNewKeyPolicy);
+    }
+
     public int getLoadStreamPerNode() {
         return loadStreamPerNode;
     }
@@ -4579,6 +4595,29 @@ public class SessionVariable implements Serializable, Writable {
             UnsupportedOperationException exception =
                     new UnsupportedOperationException("Generate stats factor " + value + " should greater than 0");
             LOG.warn("Check generate stats factor failed", exception);
+            throw exception;
+        }
+    }
+
+    public TPartialUpdateNewRowPolicy parsePartialUpdateNewKeyBehavior(String behavior) {
+        if (behavior == null) {
+            return null;
+        } else if (behavior.equalsIgnoreCase("APPEND")) {
+            return TPartialUpdateNewRowPolicy.APPEND;
+        } else if (behavior.equalsIgnoreCase("ERROR")) {
+            return TPartialUpdateNewRowPolicy.ERROR;
+        }
+        return null;
+    }
+
+    public void checkPartialUpdateNewKeyBehavior(String partialUpdateNewKeyBehavior) {
+        TPartialUpdateNewRowPolicy policy = parsePartialUpdateNewKeyBehavior(partialUpdateNewKeyBehavior);
+        if (policy == null) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(PARTIAL_UPDATE_NEW_KEY_BEHAVIOR
+                            + " should be one of {'APPEND', 'ERROR'}, but found "
+                                    + partialUpdateNewKeyBehavior);
+            LOG.warn("Check " + PARTIAL_UPDATE_NEW_KEY_BEHAVIOR + " failed", exception);
             throw exception;
         }
     }

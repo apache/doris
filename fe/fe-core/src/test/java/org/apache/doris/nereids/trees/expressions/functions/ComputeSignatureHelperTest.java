@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
@@ -402,6 +404,118 @@ public class ComputeSignatureHelperTest {
                 ((MapType) signature.getArgType(1)).getValueType());
         Assertions.assertEquals(DateTimeV2Type.of(4),
                 signature.getArgType(2));
+    }
+
+    @Test
+    void testTimeV2PrecisionPromotion() {
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE).args(TimeV2Type.INSTANCE,
+                        TimeV2Type.INSTANCE, TimeV2Type.INSTANCE);
+        List<Expression> arguments = Lists.newArrayList(new TimeV2Literal("12:34:56.12"),
+                        new TimeV2Literal("12:34:56.123"), new TimeV2Literal("12:34:56.1"));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+
+        // All arguments should be promoted to the highest precision (3)
+        Assertions.assertEquals(TimeV2Type.of(3), signature.getArgType(0));
+        Assertions.assertEquals(TimeV2Type.of(3), signature.getArgType(1));
+        Assertions.assertEquals(TimeV2Type.of(3), signature.getArgType(2));
+    }
+
+    @Test
+    void testMixedDateTimeV2AndTimeV2PrecisionPromotion() {
+        FunctionSignature signature = FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(
+                        DateTimeV2Type.SYSTEM_DEFAULT, TimeV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
+        List<Expression> arguments = Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00.12"),
+                        new TimeV2Literal("12:34:56.123"), new DateTimeV2Literal("2020-02-02 00:00:00.1"));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+
+        // All arguments should be promoted to the highest precision (3)
+        Assertions.assertEquals(DateTimeV2Type.of(3), signature.getArgType(0));
+        Assertions.assertEquals(TimeV2Type.of(3), signature.getArgType(1));
+        Assertions.assertEquals(DateTimeV2Type.of(3), signature.getArgType(2));
+        // Return type should also be promoted to precision 3
+        Assertions.assertEquals(DateTimeV2Type.of(3), signature.returnType);
+    }
+
+    @Test
+    void testNestedTimeV2PrecisionPromotion() {
+        FunctionSignature signature = FunctionSignature.ret(ArrayType.of(TimeV2Type.INSTANCE)).args(
+                        ArrayType.of(TimeV2Type.INSTANCE),
+                        MapType.of(IntegerType.INSTANCE, TimeV2Type.INSTANCE), TimeV2Type.INSTANCE);
+        List<Expression> arguments = Lists.newArrayList(
+                        new ArrayLiteral(Lists.newArrayList(new TimeV2Literal("12:34:56.12"))),
+                        new MapLiteral(Lists.newArrayList(new IntegerLiteral(1)),
+                                        Lists.newArrayList(new TimeV2Literal("12:34:56.1234"))),
+                        new TimeV2Literal("12:34:56.123"));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+
+        // Check array argument (precision should be 4 from the map value)
+        Assertions.assertTrue(signature.getArgType(0) instanceof ArrayType);
+        Assertions.assertEquals(TimeV2Type.of(4), ((ArrayType) signature.getArgType(0)).getItemType());
+
+        // Check map argument
+        Assertions.assertTrue(signature.getArgType(1) instanceof MapType);
+        Assertions.assertEquals(IntegerType.INSTANCE, ((MapType) signature.getArgType(1)).getKeyType());
+        Assertions.assertEquals(TimeV2Type.of(4), ((MapType) signature.getArgType(1)).getValueType());
+
+        // Check scalar argument
+        Assertions.assertEquals(TimeV2Type.of(4), signature.getArgType(2));
+
+        // Check return type
+        Assertions.assertTrue(signature.returnType instanceof ArrayType);
+        Assertions.assertEquals(TimeV2Type.of(4), ((ArrayType) signature.returnType).getItemType());
+    }
+
+    @Test
+    void testComplexNestedMixedTimePrecisionPromotion() {
+        // Create a complex nested structure with both DateTimeV2 and TimeV2 types
+        FunctionSignature signature = FunctionSignature
+                        .ret(MapType.of(DateTimeV2Type.SYSTEM_DEFAULT, ArrayType.of(TimeV2Type.INSTANCE)))
+                        .args(MapType.of(DateTimeV2Type.SYSTEM_DEFAULT, ArrayType.of(TimeV2Type.INSTANCE)),
+                                        ArrayType.of(MapType.of(TimeV2Type.INSTANCE,
+                                                        DateTimeV2Type.SYSTEM_DEFAULT)),
+                                        DateTimeV2Type.SYSTEM_DEFAULT);
+
+        // Create complex arguments with different precisions
+        List<Expression> arguments = Lists.newArrayList(
+                        // Map(DateTimeV2(2) -> Array(TimeV2(1)))
+                        new MapLiteral(Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00.12")),
+                                        Lists.newArrayList(new ArrayLiteral(
+                                                        Lists.newArrayList(new TimeV2Literal("12:34:56.1"))))),
+                        // Array(Map(TimeV2(3) -> DateTimeV2(0)))
+                        new ArrayLiteral(Lists.newArrayList(new MapLiteral(
+                                        Lists.newArrayList(new TimeV2Literal("12:34:56.123")),
+                                        Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00"))))),
+                        // DateTimeV2(4)
+                        new DateTimeV2Literal("2020-02-02 00:00:00.1234"));
+
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+
+        // All time types should be promoted to precision 4
+
+        // Check first argument: Map(DateTimeV2 -> Array(TimeV2))
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        Assertions.assertEquals(DateTimeV2Type.of(4), ((MapType) signature.getArgType(0)).getKeyType());
+        Assertions.assertTrue(((MapType) signature.getArgType(0)).getValueType() instanceof ArrayType);
+        Assertions.assertEquals(TimeV2Type.of(4),
+                        ((ArrayType) ((MapType) signature.getArgType(0)).getValueType()).getItemType());
+
+        // Check second argument: Array(Map(TimeV2 -> DateTimeV2))
+        Assertions.assertTrue(signature.getArgType(1) instanceof ArrayType);
+        Assertions.assertTrue(((ArrayType) signature.getArgType(1)).getItemType() instanceof MapType);
+        Assertions.assertEquals(TimeV2Type.of(4),
+                        ((MapType) ((ArrayType) signature.getArgType(1)).getItemType()).getKeyType());
+        Assertions.assertEquals(DateTimeV2Type.of(4),
+                        ((MapType) ((ArrayType) signature.getArgType(1)).getItemType()).getValueType());
+
+        // Check third argument: DateTimeV2
+        Assertions.assertEquals(DateTimeV2Type.of(4), signature.getArgType(2));
+
+        // Check return type: Map(DateTimeV2 -> Array(TimeV2))
+        Assertions.assertTrue(signature.returnType instanceof MapType);
+        Assertions.assertEquals(DateTimeV2Type.of(4), ((MapType) signature.returnType).getKeyType());
+        Assertions.assertTrue(((MapType) signature.returnType).getValueType() instanceof ArrayType);
+        Assertions.assertEquals(TimeV2Type.of(4),
+                        ((ArrayType) ((MapType) signature.returnType).getValueType()).getItemType());
     }
 
     private static class FakeComputeSignature implements ComputeSignature {
