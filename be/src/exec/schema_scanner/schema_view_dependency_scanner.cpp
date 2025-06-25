@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/schema_scanner/schema_view_dependency_scanner.h"
+
 #include <gen_cpp/FrontendService_types.h>
 
 #include <vector>
 
-#include "exec/schema_scanner/schema_view_dependency_scanner.h"
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -39,8 +40,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaViewDependencyScanner::_s_view_depe
         {"REF_CATALOG", TYPE_VARCHAR, sizeof(StringRef), false},
         {"REF_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), false},
         {"REF_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"REF_TYPE", TYPE_VARCHAR, sizeof(StringRef), false}
-};
+        {"REF_TYPE", TYPE_VARCHAR, sizeof(StringRef), false}};
 
 SchemaViewDependencyScanner::SchemaViewDependencyScanner()
         : SchemaScanner(_s_view_dependency_columns, TSchemaTableType::SCH_VIEW_DEPENDENCY) {}
@@ -103,7 +103,8 @@ Status SchemaViewDependencyScanner::_get_view_dependency_block_from_fe() {
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
         for (int j = 0; j < _s_view_dependency_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _view_dependency_block.get(),
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
+                                                _view_dependency_block.get(),
                                                 _s_view_dependency_columns[j].type));
         }
     }
