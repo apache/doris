@@ -124,7 +124,7 @@ PhysicalResultSink
 1	\N
 2	\N
 
--- !correlate_top_nonotnullable_agg_scalar_subquery_shape --
+-- !correlate_notop_notnullable_agg_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject[AND[any_value(count(x)) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`, assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row') AS `assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row')`, assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row') AS `assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row')`]

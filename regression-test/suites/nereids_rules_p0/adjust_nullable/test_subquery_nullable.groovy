@@ -83,7 +83,7 @@ suite('test_subquery_nullable') {
         with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000 group by x having test_subquery_nullable_t1.a + test_subquery_nullable_t1.b = test_subquery_nullable_t2.x) as x from test_subquery_nullable_t1)
         select a, x > 10 and x < 1 from cte1;
     '''
-    qt_correlate_top_nonotnullable_agg_scalar_subquery_shape '''explain shape plan
+    qt_correlate_notop_notnullable_agg_scalar_subquery_shape '''explain shape plan
         with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000 group by x having test_subquery_nullable_t1.a + test_subquery_nullable_t1.b = test_subquery_nullable_t2.x) as x from test_subquery_nullable_t1)
         select a, x > 10 and x < 1 from cte1;
     '''
