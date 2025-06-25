@@ -20,12 +20,8 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
-#include <algorithm>
-
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -78,13 +74,10 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
     case PrimitiveType::TYPE_DECIMAL256:
         return create_agg_function_histogram<TYPE_DECIMAL256>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_CHAR:
-        return create_agg_function_histogram<TYPE_CHAR>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_VARCHAR:
-        return create_agg_function_histogram<TYPE_VARCHAR>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_STRING:
         return create_agg_function_histogram<TYPE_STRING>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATE:
-        return create_agg_function_histogram<TYPE_DATE>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIME:
         return create_agg_function_histogram<TYPE_DATETIME>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATEV2:
@@ -92,9 +85,9 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
     case PrimitiveType::TYPE_DATETIMEV2:
         return create_agg_function_histogram<TYPE_DATETIMEV2>(argument_types, result_is_nullable);
     default:
-        LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
-                                    argument_types[0]->get_name(), name);
-        return nullptr;
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Aggregate function histogram does not support type {}",
+                        argument_types[0]->get_primitive_type());
     }
 }
 
