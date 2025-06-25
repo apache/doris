@@ -20,22 +20,21 @@ package org.apache.doris.datasource.paimon.source;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.source.DataSplit;
-import org.apache.paimon.table.source.RawFile;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import static org.mockito.ArgumentMatchers.any;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.junit.MockitoJUnitRunner;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,11 +43,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+@RunWith(MockitoJUnitRunner.class)
 public class PaimonScanNodeTest {
-    @Mocked
+    @Mock
     private SessionVariable sv;
 
-    @Mocked
+    @Mock
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
 
     @Test
@@ -82,41 +82,28 @@ public class PaimonScanNodeTest {
                 .build();
 
 
-        new MockUp<PaimonScanNode>() {
-            @Mock
-            public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() {
-                return new ArrayList<org.apache.paimon.table.source.Split>() {{
-                        add(ds1);
-                        add(ds2);
-                    }};
-            }
-        };
+        // Mock PaimonScanNode to return test data splits
+        PaimonScanNode spyPaimonScanNode = Mockito.spy(paimonScanNode);
+        Mockito.doReturn(new ArrayList<org.apache.paimon.table.source.Split>() {{
+            add(ds1);
+            add(ds2);
+        }}).when(spyPaimonScanNode).getPaimonSplitFromAPI();
 
-        new MockUp<PaimonSource>() {
-            @Mock
-            public ExternalCatalog getCatalog() {
-                return paimonFileExternalCatalog;
-            }
-        };
+        // Mock PaimonSource to return catalog
+        PaimonSource mockPaimonSource = Mockito.mock(PaimonSource.class);
+        Mockito.when(mockPaimonSource.getCatalog()).thenReturn(paimonFileExternalCatalog);
+        spyPaimonScanNode.setSource(mockPaimonSource);
 
-        new MockUp<ExternalCatalog>() {
-            @Mock
-            public Map<String, String> getProperties() {
-                return Collections.emptyMap();
-            }
-        };
+        // Mock ExternalCatalog properties
+        Mockito.when(paimonFileExternalCatalog.getProperties()).thenReturn(Collections.emptyMap());
 
-        new Expectations() {{
-                sv.isForceJniScanner();
-                result = false;
-
-                sv.getIgnoreSplitType();
-                result = "NONE";
-            }};
+        // Mock SessionVariable behavior
+        Mockito.when(sv.isForceJniScanner()).thenReturn(false);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
 
         // native
-        mockNativeReader();
-        List<org.apache.doris.spi.Split> s1 = paimonScanNode.getSplits(1);
+        mockNativeReader(spyPaimonScanNode);
+        List<org.apache.doris.spi.Split> s1 = spyPaimonScanNode.getSplits(1);
         PaimonSplit s11 = (PaimonSplit) s1.get(0);
         PaimonSplit s12 = (PaimonSplit) s1.get(1);
         Assert.assertEquals(2, s1.size());
@@ -126,8 +113,8 @@ public class PaimonScanNodeTest {
         Assert.assertNull(s12.getSplit());
 
         // jni
-        mockJniReader();
-        List<org.apache.doris.spi.Split> s2 = paimonScanNode.getSplits(1);
+        mockJniReader(spyPaimonScanNode);
+        List<org.apache.doris.spi.Split> s2 = spyPaimonScanNode.getSplits(1);
         PaimonSplit s21 = (PaimonSplit) s2.get(0);
         PaimonSplit s22 = (PaimonSplit) s2.get(1);
         Assert.assertEquals(2, s2.size());
@@ -383,21 +370,11 @@ public class PaimonScanNodeTest {
         }
     }
 
-    private void mockJniReader() {
-        new MockUp<PaimonScanNode>() {
-            @Mock
-            public boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
-                return false;
-            }
-        };
+    private void mockJniReader(PaimonScanNode spyNode) {
+        Mockito.doReturn(false).when(spyNode).supportNativeReader(any(Optional.class));
     }
 
-    private void mockNativeReader() {
-        new MockUp<PaimonScanNode>() {
-            @Mock
-            public boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
-                return true;
-            }
-        };
+    private void mockNativeReader(PaimonScanNode spyNode) {
+        Mockito.doReturn(true).when(spyNode).supportNativeReader(any(Optional.class));
     }
 }
