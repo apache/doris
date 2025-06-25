@@ -15,23 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+package org.apache.doris.nereids.types.coercion;
 
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
-import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
-
-import com.google.common.base.Preconditions;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.types.DataType;
 
 /**
- * This class uses the JDBC protocol to directly access the relational databases under HMS
- * to obtain Hive metadata information
+ * ScaleTimeType is a marker interface for types that have a scale, such as TimeV2Type and DateTimeV2Type.
  */
-public abstract class JdbcHMSCachedClient extends JdbcClient implements HMSCachedClient {
-    protected JdbcClientConfig jdbcClientConfig;
+public interface ScaleTimeType {
 
-    protected JdbcHMSCachedClient(JdbcClientConfig jdbcClientConfig) {
-        super(jdbcClientConfig);
-        Preconditions.checkNotNull(jdbcClientConfig, "JdbcClientConfig can not be null");
-        this.jdbcClientConfig = jdbcClientConfig;
-    }
+    public int getScale();
+
+    public ScaleTimeType forTypeFromString(StringLikeLiteral str);
+
+    public ScaleTimeType scaleTypeForType(DataType dataType);
+
 }

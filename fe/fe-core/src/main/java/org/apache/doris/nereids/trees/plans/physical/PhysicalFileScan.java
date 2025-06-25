@@ -132,12 +132,16 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
+        String rfV2 = "";
+        if (!runtimeFiltersV2.isEmpty()) {
+            rfV2 = runtimeFiltersV2.toString();
+        }
         return Utils.toSqlString("PhysicalFileScan[" + table.getName() + "]" + getGroupIdWithPrefix(),
             "stats", statistics,
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "selected partitions num",
                 selectedPartitions.isPruned ? selectedPartitions.selectedPartitions.size() : "unknown",
-                "operativeCols", getOperativeSlots()
+                "operativeCols", getOperativeSlots(), "RFV2", rfV2
         );
     }
 

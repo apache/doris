@@ -577,7 +577,7 @@ VBaseSchemaChangeWithSorting::VBaseSchemaChangeWithSorting(const BlockChanger& c
           _memory_limitation(memory_limitation),
           _temp_delta_versions(Version::mock()) {
     _mem_tracker = std::make_unique<MemTracker>(
-            fmt::format("VSchemaChangeWithSorting:changer={}", std::to_string(int64(&changer))));
+            fmt::format("VSchemaChangeWithSorting:changer={}", std::to_string(int64_t(&changer))));
 }
 
 Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,

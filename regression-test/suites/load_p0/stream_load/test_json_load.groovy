@@ -932,4 +932,31 @@ suite("test_json_load", "p0,nonConcurrent") {
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+
+    // support read "$."  as root with json type
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` json NULL,
+                `k3` json NULL,
+                `k4` json NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case30", 'false', 'true', 'json', '', '[\"$.k1\",\"$.\", \"$.\", \"$.k3\"]',
+                             '', '', '', 'test_read_root_path.json')
+        
+        sql "sync"
+        qt_select30 "select * from ${testTable} order by k1"
+
+    } finally {
+        // try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
 }

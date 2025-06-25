@@ -541,6 +541,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
         expBuilder.append("\n");
         expBuilder.append(getNodeExplainString(detailPrefix, detailLevel));
+        if (!runtimeFilters.isEmpty()) {
+            expBuilder.append(detailPrefix).append("runtime filters: ");
+            expBuilder.append(getRuntimeFilterExplainString());
+        }
         if (limit != -1) {
             expBuilder.append(detailPrefix + "limit: " + limit + "\n");
         }
@@ -1211,19 +1215,15 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         runtimeFilters.clear();
     }
 
-    protected String getRuntimeFilterExplainString(boolean isBuildNode, boolean isBrief) {
+    protected String getRuntimeFilterExplainString() {
         if (runtimeFilters.isEmpty()) {
             return "";
         }
         List<String> filtersStr = new ArrayList<>();
         for (RuntimeFilter filter : runtimeFilters) {
-            filtersStr.add(filter.getExplainString(isBuildNode, isBrief, getId()));
+            filtersStr.add(filter.getExplainString(getId()));
         }
         return Joiner.on(", ").join(filtersStr) + "\n";
-    }
-
-    protected String getRuntimeFilterExplainString(boolean isBuildNode) {
-        return getRuntimeFilterExplainString(isBuildNode, false);
     }
 
     /**

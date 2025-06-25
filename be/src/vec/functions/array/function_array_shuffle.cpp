@@ -79,7 +79,7 @@ public:
         }
 
         // time() and seed will not exceed the range of uint32.
-        std::mt19937 g(cast_set<uint32>(seed));
+        std::mt19937 g(cast_set<uint32_t>(seed));
         auto dest_column_ptr = _execute(src_column_array, g);
         if (!dest_column_ptr) {
             return Status::RuntimeError(

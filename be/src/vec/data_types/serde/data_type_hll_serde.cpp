@@ -158,7 +158,7 @@ Status DataTypeHLLSerDe::_write_column_to_mysql(const IColumn& column,
         HyperLogLog hyperLogLog = data_column.get_element(col_index);
         size_t size = hyperLogLog.max_serialized_size();
         std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
-        hyperLogLog.serialize((uint8*)buf.get());
+        hyperLogLog.serialize((uint8_t*)buf.get());
         if (UNLIKELY(0 != result.push_string(buf.get(), size))) {
             return Status::InternalError("pack mysql buffer failed.");
         }

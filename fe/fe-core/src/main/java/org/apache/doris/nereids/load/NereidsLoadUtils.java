@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -108,7 +109,8 @@ public class NereidsLoadUtils {
      * create a load plan tree for stream load, routine load and broker load
      */
     public static LogicalPlan createLoadPlan(NereidsFileGroupInfo fileGroupInfo, PartitionNames partitionNames,
-            NereidsParamCreateContext context, boolean isPartialUpdate) throws UserException {
+            NereidsParamCreateContext context, boolean isPartialUpdate,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy) throws UserException {
         // context.scanSlots represent columns read from external file
         // use LogicalOneRowRelation to hold this info for later use
         LogicalPlan currentRootPlan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
@@ -172,7 +174,7 @@ public class NereidsLoadUtils {
                 ImmutableList.of(),
                 partitionNames != null && partitionNames.isTemp(),
                 partitionNames != null ? partitionNames.getPartitionNames() : ImmutableList.of(), isPartialUpdate,
-                DMLCommandType.LOAD, currentRootPlan);
+                partialUpdateNewKeyPolicy, DMLCommandType.LOAD, currentRootPlan);
 
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
                 PhysicalProperties.ANY);

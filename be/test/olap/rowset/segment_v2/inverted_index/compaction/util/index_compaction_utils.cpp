@@ -484,7 +484,7 @@ class IndexCompactionUtils {
     }
 
     static RowsetSharedPtr create_delete_predicate_rowset(const TabletSchemaSPtr& schema,
-                                                          std::string pred, int64& inc_id) {
+                                                          std::string pred, int64_t& inc_id) {
         DeletePredicatePB del_pred;
         del_pred.add_sub_predicates(pred);
         del_pred.set_version(1);
@@ -601,8 +601,9 @@ class IndexCompactionUtils {
 
     static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>& data_dir,
                                                      const TabletSchemaSPtr& schema,
-                                                     const std::string& tablet_path, int64& inc_id,
-                                                     int64 max_rows_per_segment = 200) {
+                                                     const std::string& tablet_path,
+                                                     int64_t& inc_id,
+                                                     int64_t max_rows_per_segment = 200) {
         RowsetWriterContext context;
         RowsetId rowset_id;
         rowset_id.init(inc_id);
@@ -622,10 +623,10 @@ class IndexCompactionUtils {
     static void build_rowsets(const std::unique_ptr<DataDir>& data_dir,
                               const TabletSchemaSPtr& schema, const TabletSharedPtr& tablet,
                               StorageEngine* engine_ref, std::vector<RowsetSharedPtr>& rowsets,
-                              const std::vector<std::string>& data_files, int64& inc_id,
+                              const std::vector<std::string>& data_files, int64_t& inc_id,
                               const std::function<void(const int32_t&)> custom_check = nullptr,
                               const bool& is_performance = false,
-                              int64 max_rows_per_segment = 200) {
+                              int64_t max_rows_per_segment = 200) {
         std::vector<std::vector<T>> data;
         for (const auto& file : data_files) {
             data.emplace_back(read_data<T>(file));

@@ -210,7 +210,7 @@ struct PercentRankData {
 class WindowFunctionPercentRank final
         : public IAggregateFunctionDataHelper<PercentRankData, WindowFunctionPercentRank> {
 private:
-    static double _cal_percent(int64 rank, int64 total_rows) {
+    static double _cal_percent(int64_t rank, int64_t total_rows) {
         return total_rows <= 1 ? 0.0 : double(rank - 1) * 1.0 / double(total_rows - 1);
     }
 
@@ -360,9 +360,9 @@ public:
         int64_t bucket_num = columns[0]->get_int(0);
         int64_t partition_size = partition_end - partition_start;
 
-        int64 small_bucket_size = partition_size / bucket_num;
-        int64 big_bucket_num = partition_size % bucket_num;
-        int64 first_small_bucket_row_index = big_bucket_num * (small_bucket_size + 1);
+        int64_t small_bucket_size = partition_size / bucket_num;
+        int64_t big_bucket_num = partition_size % bucket_num;
+        int64_t first_small_bucket_row_index = big_bucket_num * (small_bucket_size + 1);
         if (row_index >= first_small_bucket_row_index) {
             // small_bucket_size can't be zero
             WindowFunctionNTile::data(place).bucket_index =

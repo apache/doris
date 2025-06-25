@@ -456,10 +456,10 @@ TEST(function_bitmap_test, function_bitmap_has_all) {
     BitmapValue empty_bitmap1;
     BitmapValue empty_bitmap2;
 
-    DataSet data_set = {{{&bitmap1, &bitmap2}, uint8(true)},
-                        {{&empty_bitmap1, &empty_bitmap2}, uint8(true)},
-                        {{&bitmap3, &bitmap4}, uint8(false)},
-                        {{&bitmap4, &bitmap5}, uint8(true)},
+    DataSet data_set = {{{&bitmap1, &bitmap2}, uint8_t(true)},
+                        {{&empty_bitmap1, &empty_bitmap2}, uint8_t(true)},
+                        {{&bitmap3, &bitmap4}, uint8_t(false)},
+                        {{&bitmap4, &bitmap5}, uint8_t(true)},
                         {{Null(), &empty_bitmap1}, Null()}};
 
     static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));

@@ -19,9 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AlterCatalogCommentStmt;
-import org.apache.doris.analysis.AlterCatalogNameStmt;
-import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -56,7 +53,6 @@ import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateStageStmt;
 import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -277,12 +273,6 @@ public class DdlExecutor {
             env.getCatalogMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {
             env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterCatalogNameStmt) {
-            env.getCatalogMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterCatalogCommentStmt) {
-            env.getCatalogMgr().alterCatalogComment((AlterCatalogCommentStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
-            env.getCatalogMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanLabelStmt) {
             env.getLoadManager().cleanLabel(((CleanLabelStmt) ddlStmt).getDb(), ((CleanLabelStmt) ddlStmt).getLabel());
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
@@ -299,8 +289,6 @@ public class DdlExecutor {
                     false);
         } else if (ddlStmt instanceof CreateStorageVaultStmt) {
             env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateStageStmt) {
-            ((CloudEnv) env).createStage((CreateStageStmt) ddlStmt);
         } else if (ddlStmt instanceof DropStageStmt) {
             ((CloudEnv) env).dropStage((DropStageStmt) ddlStmt);
         } else if (ddlStmt instanceof CopyStmt) {

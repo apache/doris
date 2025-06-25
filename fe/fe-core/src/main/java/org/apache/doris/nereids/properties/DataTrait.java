@@ -124,7 +124,7 @@ public class DataTrait {
     }
 
     public Optional<Expression> getUniformValue(Slot slot) {
-        return uniformSet.slotUniformValue.get(slot);
+        return uniformSet.slotUniformValue.getOrDefault(slot, Optional.empty());
     }
 
     public boolean isNullSafeEqual(Slot l, Slot r) {

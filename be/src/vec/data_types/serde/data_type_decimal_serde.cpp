@@ -106,7 +106,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
             const auto& data_ref = col.get_data_at(i);
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
-            uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
+            uint64_t low = cast_set<uint64_t>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
                                              array_builder->type()->name()));
@@ -124,7 +124,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
             const auto& data_ref = col.get_data_at(i);
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
-            uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
+            uint64_t low = cast_set<uint64_t>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
                                              array_builder->type()->name()));
