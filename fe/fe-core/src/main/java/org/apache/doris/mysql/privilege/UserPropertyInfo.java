@@ -17,9 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -59,13 +57,7 @@ public class UserPropertyInfo implements Writable, GsonPostProcessable {
     }
 
     public static UserPropertyInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            UserPropertyInfo info = new UserPropertyInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), UserPropertyInfo.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), UserPropertyInfo.class);
     }
 
     @Override
@@ -76,16 +68,5 @@ public class UserPropertyInfo implements Writable, GsonPostProcessable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        user = ClusterNamespace.getNameFromFullName(Text.readString(in));
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String val = Text.readString(in);
-            properties.add(Pair.of(key, val));
-        }
     }
 }

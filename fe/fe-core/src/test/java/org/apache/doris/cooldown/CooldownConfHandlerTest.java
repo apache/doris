@@ -18,7 +18,6 @@
 package org.apache.doris.cooldown;
 
 import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -34,6 +33,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -44,6 +44,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 
 public class CooldownConfHandlerTest extends TestWithFeService {
     private static final Logger LOG = LogManager.getLogger(CooldownConfHandlerTest.class);
@@ -72,8 +73,11 @@ public class CooldownConfHandlerTest extends TestWithFeService {
         List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze();
-        GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
-        Env.getCurrentEnv().getAuth().grant(grantStmt);
+
+        GrantTablePrivilegeCommand grantTablePrivilegeCommand = new GrantTablePrivilegeCommand(privileges, tablePattern, Optional.of(user), Optional.empty());
+        grantTablePrivilegeCommand.validate();
+        Env.getCurrentEnv().getAuth().grantTablePrivilegeCommand(grantTablePrivilegeCommand);
+
         useUser("test_cooldown");
         Database db = Env.getCurrentInternalCatalog().getDb("test")
                 .orElse(null);

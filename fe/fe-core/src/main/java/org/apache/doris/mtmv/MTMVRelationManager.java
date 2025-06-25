@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -45,6 +44,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -77,48 +77,43 @@ public class MTMVRelationManager implements MTMVHookService {
     /**
      * if At least one partition is available, return this mtmv
      *
-     * @param tableInfos
+     * @param candidateMTMVs
      * @param ctx
      * @return
      */
-    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx,
+    public Set<MTMV> getAvailableMTMVs(Set<MTMV> candidateMTMVs, ConnectContext ctx,
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
-        Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
-                ctx.getStatementContext());
-
-        for (BaseTableInfo tableInfo : mvInfos) {
-            try {
-                MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
-                if (predicate.test(ctx, mtmv)) {
-                    continue;
-                }
-                if (!mtmv.isUseForRewrite()) {
-                    continue;
-                }
-                BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
-                if (isMVPartitionValid(mtmv, ctx, forceConsistent,
-                        relatedTableInfo == null ? null : queryUsedPartitions.get(relatedTableInfo.toList()))) {
-                    res.add(mtmv);
-                }
-            } catch (Exception e) {
-                // not throw exception to client, just ignore it
-                LOG.warn("getTable failed: {}", tableInfo.toString(), e);
+                ctx.getStatementContext(), new BitSet());
+        for (MTMV mtmv : candidateMTMVs) {
+            if (predicate.test(ctx, mtmv)) {
+                continue;
+            }
+            if (!mtmv.isUseForRewrite()) {
+                continue;
+            }
+            BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+            if (isMVPartitionValid(mtmv, ctx, forceConsistent,
+                    relatedTableInfo == null ? null : queryUsedPartitions.get(relatedTableInfo.toList()))) {
+                res.add(mtmv);
             }
         }
         return res;
     }
 
     /**
-     * get all mtmv related to tableInfos.
+     * get candidate mtmv related to tableInfos.
      */
-    public Set<MTMV> getAllMTMVs(List<BaseTableInfo> tableInfos) {
+    public Set<MTMV> getCandidateMTMVs(List<BaseTableInfo> tableInfos) {
         Set<MTMV> mtmvs = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
-                mtmvs.add((MTMV) MTMVUtil.getTable(tableInfo));
+                MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
+                if (mtmv.canBeCandidate()) {
+                    mtmvs.add(mtmv);
+                }
             } catch (Exception e) {
                 // not throw exception to client, just ignore it
                 LOG.warn("getTable failed: {}", tableInfo.toString(), e);
@@ -203,16 +198,6 @@ public class MTMVRelationManager implements MTMVHookService {
         }
     }
 
-    @Override
-    public void createMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
-    @Override
-    public void dropMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
     /**
      * modify `tableMTMVs` by MTMVRelation
      *
@@ -232,11 +217,6 @@ public class MTMVRelationManager implements MTMVHookService {
     @Override
     public void unregisterMTMV(MTMV mtmv) {
         removeMTMV(new BaseTableInfo(mtmv));
-    }
-
-    @Override
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
-
     }
 
     @Override
@@ -290,6 +270,11 @@ public class MTMVRelationManager implements MTMVHookService {
 
     @Override
     public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+
+    }
+
+    @Override
+    public void postCreateMTMV(MTMV mtmv) {
 
     }
 

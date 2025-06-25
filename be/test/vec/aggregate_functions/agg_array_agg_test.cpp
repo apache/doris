@@ -32,7 +32,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
@@ -61,7 +60,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64) {
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = data_type->create_column();
     std::vector<ColumnArray::Offset64> offs = {0, 3};
     std::vector<int64_t> vals = {1, 2, 3};
@@ -84,7 +83,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_nullable) {
 
     auto array_data_type = std::make_shared<DataTypeArray>(data_type);
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = data_type->create_column();
     std::vector<ColumnArray::Offset64> offs = {0, 4};
     std::vector<int64_t> vals = {1, 2, 3};
@@ -107,7 +106,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_nullable) {
 
     auto array_data_type = std::make_shared<DataTypeArray>(data_type);
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = data_type->create_column();
     std::vector<ColumnArray::Offset64> offs = {0, 4};
     std::vector<int64_t> vals = {1, 2, 3};
@@ -129,7 +128,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_foreach) {
     auto array_data_type = std::make_shared<DataTypeArray>(data_type);
     create_agg("array_agg_foreach", false, {array_data_type});
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = data_type->create_column();
     std::vector<ColumnArray::Offset64> offs = {0, 4};
     std::vector<int64_t> vals = {1, 2, 3};
@@ -142,14 +141,14 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_foreach) {
     }
     auto array_column = ColumnArray::create(data_column->clone(), off_column->clone());
 
-    auto off_column2 = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column2 = ColumnOffset64::create();
     std::vector<ColumnArray::Offset64> offs2 = {0, 1, 2, 3, 4};
     for (size_t i = 1; i < offs2.size(); ++i) {
         off_column2->insert_data((const char*)(&offs2[i]), 0);
     }
 
     auto array_array_data_type = std::make_shared<DataTypeArray>(array_data_type);
-    auto array_array_off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto array_array_off_column = ColumnOffset64::create();
     array_array_off_column->insert_value(4);
     auto array_array_column =
             ColumnArray::create(ColumnArray::create(data_column->clone(), off_column2->clone()),
@@ -164,7 +163,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_foreach) {
     auto array_data_type = std::make_shared<DataTypeArray>(data_type);
     create_agg("array_agg_foreach", false, {array_data_type});
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = data_type->create_column();
     std::vector<ColumnArray::Offset64> offs = {0, 4};
     std::vector<int64_t> vals = {1, 2, 3};
@@ -177,14 +176,14 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_foreach) {
     }
     auto array_column = ColumnArray::create(data_column->clone(), off_column->clone());
 
-    auto off_column2 = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column2 = ColumnOffset64::create();
     std::vector<ColumnArray::Offset64> offs2 = {0, 1, 2, 3, 4};
     for (size_t i = 1; i < offs2.size(); ++i) {
         off_column2->insert_data((const char*)(&offs2[i]), 0);
     }
 
     auto array_array_data_type = std::make_shared<DataTypeArray>(array_data_type);
-    auto array_array_off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto array_array_off_column = ColumnOffset64::create();
     array_array_off_column->insert_value(4);
     auto array_array_column =
             ColumnArray::create(ColumnArray::create(data_column->clone(), off_column2->clone()),

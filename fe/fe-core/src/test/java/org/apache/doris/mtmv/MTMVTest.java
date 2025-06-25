@@ -32,6 +32,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 
@@ -172,5 +174,27 @@ public class MTMVTest {
         Assert.assertTrue(excludedTriggerTables.contains(new TableName("ctl1", "db1", "t1")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableName(null, "db2", "t2")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableName(null, null, "t3")));
+    }
+
+    @Test
+    public void testAlterStatus() {
+        MTMV mtmv = new MTMV();
+        MTMVStatus status = new MTMVStatus();
+        mtmv.setStatus(status);
+        // test init
+        Assert.assertEquals(MTMVState.INIT, status.getState());
+        Assert.assertEquals(MTMVRefreshState.INIT, status.getRefreshState());
+        // test schema change
+        status.setRefreshState(MTMVRefreshState.SUCCESS);
+        mtmv.alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "base table"));
+        Assert.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
+        Assert.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
+
+        MTMVStatus alterStatus = new MTMVStatus();
+        alterStatus.setState(MTMVState.SCHEMA_CHANGE);
+        alterStatus.setSchemaChangeDetail("base table");
+        mtmv.alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "base table"));
+        Assert.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
+        Assert.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
     }
 }

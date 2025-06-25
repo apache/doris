@@ -211,6 +211,11 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/active/{prof_value}",
                                       set_jeheap_profile_active_action);
 
+    SetJeHeapProfileResetActions* set_jeheap_profile_reset_action =
+            _pool.add(new SetJeHeapProfileResetActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/reset/{reset_value}",
+                                      set_jeheap_profile_reset_action);
+
     DumpJeHeapProfileToDotActions* dump_jeheap_profile_to_dot_action =
             _pool.add(new DumpJeHeapProfileToDotActions(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump",

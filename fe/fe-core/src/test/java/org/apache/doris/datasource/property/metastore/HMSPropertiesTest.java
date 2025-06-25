@@ -50,7 +50,7 @@ public class HMSPropertiesTest {
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params));
         params.put("hive.metastore.uris", "thrift://default:9083");
         hmsProperties = (HMSProperties) MetastoreProperties.create(params);
-        Map<String, String> hiveConf = hmsProperties.loadConfigFromFile("hive.conf.resources");
+        Map<String, String> hiveConf = hmsProperties.loadConfigFromFile("/hive-conf/hive1/hive-site.xml");
         Assertions.assertNotNull(hiveConf);
         Assertions.assertEquals("/user/hive/default", hiveConf.get("hive.metastore.warehouse.dir"));
     }

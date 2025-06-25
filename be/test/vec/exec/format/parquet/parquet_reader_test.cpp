@@ -148,7 +148,6 @@ TEST_F(ParquetReaderTest, normal) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    static_cast<void>(p_reader->open());
     static_cast<void>(p_reader->init_reader(column_names, missing_column_names, nullptr, {},
                                             nullptr, nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
@@ -227,7 +226,6 @@ TEST_F(ParquetReaderTest, use_column_name) {
     colname_to_value_range.emplace("smallint_col", ColumnValueRange<TYPE_SMALLINT>("smallint_col"));
     colname_to_value_range.emplace("int_col", ColumnValueRange<TYPE_INT>("int_col"));
 
-    static_cast<void>(p_reader->open());
     static_cast<void>(p_reader->init_reader(table_column_names, {}, &colname_to_value_range, {},
                                             nullptr, nullptr, nullptr, nullptr, nullptr, false,
                                             use_column_name));
@@ -267,7 +265,6 @@ TEST_F(ParquetReaderTest, use_column_name2) {
     colname_to_value_range.emplace("smallint_col", ColumnValueRange<TYPE_SMALLINT>("smallint_col"));
     colname_to_value_range.emplace("int_col", ColumnValueRange<TYPE_INT>("int_col"));
 
-    static_cast<void>(p_reader->open());
     static_cast<void>(p_reader->init_reader(table_column_names, {"boolean_col"},
                                             &colname_to_value_range, {}, nullptr, nullptr, nullptr,
                                             nullptr, nullptr, false, use_column_name));
@@ -310,7 +307,6 @@ TEST_F(ParquetReaderTest, use_column_idx) {
     colname_to_value_range.emplace("col3", ColumnValueRange<TYPE_SMALLINT>("col3"));
     colname_to_value_range.emplace("col102", ColumnValueRange<TYPE_SMALLINT>("col102"));
 
-    static_cast<void>(p_reader->open());
     static_cast<void>(p_reader->init_reader(table_column_names, {}, &colname_to_value_range, {},
                                             nullptr, nullptr, nullptr, nullptr, nullptr, false,
                                             use_column_name));

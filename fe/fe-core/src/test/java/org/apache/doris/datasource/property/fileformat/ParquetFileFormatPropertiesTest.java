@@ -95,6 +95,17 @@ public class ParquetFileFormatPropertiesTest {
     }
 
     @Test
+    public void testEnableInt96Timestamps() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("enable_int96_timestamps", "true");
+        parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assert.assertTrue(parquetFileFormatProperties.isEnableInt96Timestamps());
+        properties.put("enable_int96_timestamps", "false");
+        parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assert.assertFalse(parquetFileFormatProperties.isEnableInt96Timestamps());
+    }
+
+    @Test
     public void testParquetVersion() {
         Map<String, String> properties = new HashMap<>();
         properties.put("parquet.version", "v1");

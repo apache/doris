@@ -145,7 +145,8 @@ public class Index implements Writable {
             return "";
         }
 
-        return "(" + new PrintableMap(properties, "=", true, false, ",").toString() + ")";
+        // Use TreeMap to ensure consistent ordering of properties
+        return "(" + new PrintableMap(new java.util.TreeMap<>(properties), "=", true, false, ",").toString() + ")";
     }
 
     public String getInvertedIndexParser() {
@@ -179,6 +180,10 @@ public class Index implements Writable {
             return indexType == IndexDef.IndexType.INVERTED
                 || indexType == IndexDef.IndexType.NGRAM_BF;
         }
+    }
+
+    public String getInvertedIndexCustomAnalyzer() {
+        return InvertedIndexUtil.getInvertedIndexCustomAnalyzer(properties);
     }
 
     public String getComment() {

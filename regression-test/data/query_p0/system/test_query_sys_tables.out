@@ -126,6 +126,7 @@ IS_GRANTABLE	varchar(3)	Yes	false	\N
 'cywtable'@'%'	def	table_privileges_demo	test_table_privileges	INSERT	NO
 
 -- !desc_partitions --
+PARTITION_ID	bigint	Yes	false	\N	
 TABLE_CATALOG	varchar(64)	Yes	false	\N	
 TABLE_SCHEMA	varchar(64)	Yes	false	\N	
 TABLE_NAME	varchar(64)	Yes	false	\N	
@@ -151,6 +152,21 @@ CHECKSUM	bigint	Yes	false	\N
 PARTITION_COMMENT	text	Yes	false	\N	
 NODEGROUP	varchar(256)	Yes	false	\N	
 TABLESPACE_NAME	varchar(268)	Yes	false	\N	
+LOCAL_DATA_SIZE	text	Yes	false	\N	
+REMOTE_DATA_SIZE	text	Yes	false	\N	
+STATE	text	Yes	false	\N	
+REPLICA_ALLOCATION	text	Yes	false	\N	
+REPLICA_NUM	int	Yes	false	\N	
+STORAGE_POLICY	text	Yes	false	\N	
+STORAGE_MEDIUM	text	Yes	false	\N	
+COOLDOWN_TIME_MS	text	Yes	false	\N	
+LAST_CONSISTENCY_CHECK_TIME	text	Yes	false	\N	
+BUCKET_NUM	int	Yes	false	\N	
+COMMITTED_VERSION	bigint	Yes	false	\N	
+VISIBLE_VERSION	bigint	Yes	false	\N	
+PARTITION_KEY	text	Yes	false	\N	
+RANGE	text	Yes	false	\N	
+DISTRIBUTION	text	Yes	false	\N	
 
 -- !schemata --
 internal	test_query_sys_db_1	\N

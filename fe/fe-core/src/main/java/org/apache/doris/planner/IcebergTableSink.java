@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergTableSink;
 import org.apache.doris.thrift.TSortField;
 
@@ -58,6 +59,9 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
 
     public IcebergTableSink(IcebergExternalTable targetTable) {
         super();
+        if (targetTable.isView()) {
+            throw new UnsupportedOperationException("Write data to iceberg view is not supported");
+        }
         this.targetTable = targetTable;
     }
 
@@ -134,7 +138,11 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         LocationPath locationPath = new LocationPath(IcebergUtils.dataLocation(icebergTable), catalogProps);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
         tSink.setOriginalOutputPath(locationPath.getPath().toString());
-        tSink.setFileType(locationPath.getTFileTypeForBE());
+        TFileType fileType = locationPath.getTFileTypeForBE();
+        tSink.setFileType(fileType);
+        if (fileType.equals(TFileType.FILE_BROKER)) {
+            tSink.setBrokerAddresses(getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
+        }
 
         if (insertCtx.isPresent()) {
             BaseExternalTableInsertCommandContext context = (BaseExternalTableInsertCommandContext) insertCtx.get();

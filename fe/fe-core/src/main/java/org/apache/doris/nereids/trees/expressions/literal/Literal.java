@@ -30,6 +30,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -37,8 +38,13 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
@@ -294,6 +300,11 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new IPv4Literal(desc);
         } else if (targetType.isIPv6Type()) {
             return new IPv6Literal(desc);
+        } else if (targetType.isTimeType()) {
+            if (this.dataType.isStringLikeType()) { // could parse in FE
+                return new TimeV2Literal((TimeV2Type) targetType, desc);
+            }
+            throw new AnalysisException("cast to TimeType only in BE now");
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
@@ -406,6 +417,7 @@ public abstract class Literal extends Expression implements LeafExpression {
             case JSONB: return new JsonLiteral(literalExpr.getStringValue());
             case IPV4: return new IPv4Literal(literalExpr.getStringValue());
             case IPV6: return new IPv6Literal(literalExpr.getStringValue());
+            case TIMEV2: return new TimeV2Literal((TimeV2Type) dataType, literalExpr.getStringValue());
             default: {
                 throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
                         + " of legacy literal to nereids literal");
@@ -671,5 +683,22 @@ public abstract class Literal extends Expression implements LeafExpression {
         // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
         // different environment
         return new VarcharLiteral(new String(bytes, StandardCharsets.UTF_8));
+    }
+
+    /**convertToTypedLiteral*/
+    public static Literal convertToTypedLiteral(Object value, DataType dataType) {
+        Number number = (Number) value;
+        if (dataType.equals(TinyIntType.INSTANCE)) {
+            return new TinyIntLiteral(number.byteValue());
+        } else if (dataType.equals(SmallIntType.INSTANCE)) {
+            return new SmallIntLiteral(number.shortValue());
+        } else if (dataType.equals(IntegerType.INSTANCE)) {
+            return new IntegerLiteral(number.intValue());
+        } else if (dataType.equals(BigIntType.INSTANCE)) {
+            return new BigIntLiteral(number.longValue());
+        } else if (dataType.equals(DoubleType.INSTANCE)) {
+            return new DoubleLiteral(number.doubleValue());
+        }
+        return null;
     }
 }

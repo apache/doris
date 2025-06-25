@@ -1,0 +1,2733 @@
+{
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "c1",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "c2",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "TINYINT"
+    }
+  }, {
+    "id" : 2,
+    "name" : "c3",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "TINYINT"
+    }
+  }, {
+    "id" : 3,
+    "name" : "c4",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "SMALLINT"
+    }
+  }, {
+    "id" : 4,
+    "name" : "c5",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "SMALLINT"
+    }
+  }, {
+    "id" : 5,
+    "name" : "c6",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "INT"
+    }
+  }, {
+    "id" : 6,
+    "name" : "c7",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "INT"
+    }
+  }, {
+    "id" : 7,
+    "name" : "c8",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "BIGINT"
+    }
+  }, {
+    "id" : 8,
+    "name" : "c9",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "BIGINT"
+    }
+  }, {
+    "id" : 9,
+    "name" : "c10",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "FLOAT"
+    }
+  }, {
+    "id" : 10,
+    "name" : "c11",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "DOUBLE"
+    }
+  }, {
+    "id" : 11,
+    "name" : "c12",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 12,
+    "name" : "c13",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "DATE"
+    }
+  }, {
+    "id" : 13,
+    "name" : "c14",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "STRING"
+    }
+  }, {
+    "id" : 14,
+    "name" : "c15",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 15,
+    "name" : "c16",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "CHAR(2)"
+    }
+  }, {
+    "id" : 16,
+    "name" : "c17",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "BOOLEAN"
+    }
+  }, {
+    "id" : 17,
+    "name" : "c18",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "BYTES"
+    }
+  }, {
+    "id" : 18,
+    "name" : "c19",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 19,
+    "name" : "c20",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 20,
+    "name" : "c21",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 21,
+    "name" : "c22",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 22,
+    "name" : "c23",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 23,
+    "name" : "c24",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 24,
+    "name" : "c25",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 25,
+    "name" : "c26",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 26,
+    "name" : "c27",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 27,
+    "name" : "c28",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 28,
+    "name" : "c29",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 29,
+    "name" : "c30",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 30,
+    "name" : "c31",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 31,
+    "name" : "c32",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 32,
+    "name" : "c33",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 33,
+    "name" : "c34",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 34,
+    "name" : "c35",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 35,
+    "name" : "c36",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 36,
+    "name" : "c37",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 37,
+    "name" : "c38",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 38,
+    "name" : "c39",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 39,
+    "name" : "c40",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 40,
+    "name" : "c41",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 41,
+    "name" : "c42",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 42,
+    "name" : "c43",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 43,
+    "name" : "c44",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 44,
+    "name" : "c45",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 45,
+    "name" : "c46",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 46,
+    "name" : "c47",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 47,
+    "name" : "c48",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 48,
+    "name" : "c49",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 49,
+    "name" : "c50",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 50,
+    "name" : "c51",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 51,
+    "name" : "c52",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 52,
+    "name" : "c53",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 53,
+    "name" : "c54",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 54,
+    "name" : "c55",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TINYINT NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 55,
+    "name" : "c56",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 56,
+    "name" : "c57",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 57,
+    "name" : "c58",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 58,
+    "name" : "c59",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 59,
+    "name" : "c60",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 60,
+    "name" : "c61",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 61,
+    "name" : "c62",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 62,
+    "name" : "c63",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 63,
+    "name" : "c64",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 64,
+    "name" : "c65",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 65,
+    "name" : "c66",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 66,
+    "name" : "c67",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 67,
+    "name" : "c68",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 68,
+    "name" : "c69",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 69,
+    "name" : "c70",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 70,
+    "name" : "c71",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 71,
+    "name" : "c72",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 72,
+    "name" : "c73",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 73,
+    "name" : "c74",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 74,
+    "name" : "c75",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 75,
+    "name" : "c76",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 76,
+    "name" : "c77",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 77,
+    "name" : "c78",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 78,
+    "name" : "c79",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 79,
+    "name" : "c80",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 80,
+    "name" : "c81",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 81,
+    "name" : "c82",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 82,
+    "name" : "c83",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 83,
+    "name" : "c84",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 84,
+    "name" : "c85",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 85,
+    "name" : "c86",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 86,
+    "name" : "c87",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 87,
+    "name" : "c88",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 88,
+    "name" : "c89",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 89,
+    "name" : "c90",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 90,
+    "name" : "c91",
+    "type" : {
+      "type" : "MAP",
+      "key" : "SMALLINT NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 91,
+    "name" : "c92",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 92,
+    "name" : "c93",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 93,
+    "name" : "c94",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 94,
+    "name" : "c95",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 95,
+    "name" : "c96",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 96,
+    "name" : "c97",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 97,
+    "name" : "c98",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 98,
+    "name" : "c99",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 99,
+    "name" : "c100",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 100,
+    "name" : "c101",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 101,
+    "name" : "c102",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 102,
+    "name" : "c103",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 103,
+    "name" : "c104",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 104,
+    "name" : "c105",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 105,
+    "name" : "c106",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 106,
+    "name" : "c107",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 107,
+    "name" : "c108",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 108,
+    "name" : "c109",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 109,
+    "name" : "c110",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 110,
+    "name" : "c111",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 111,
+    "name" : "c112",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 112,
+    "name" : "c113",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 113,
+    "name" : "c114",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 114,
+    "name" : "c115",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 115,
+    "name" : "c116",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 116,
+    "name" : "c117",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 117,
+    "name" : "c118",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 118,
+    "name" : "c119",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 119,
+    "name" : "c120",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 120,
+    "name" : "c121",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 121,
+    "name" : "c122",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 122,
+    "name" : "c123",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 123,
+    "name" : "c124",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 124,
+    "name" : "c125",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 125,
+    "name" : "c126",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 126,
+    "name" : "c127",
+    "type" : {
+      "type" : "MAP",
+      "key" : "INT NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 127,
+    "name" : "c128",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 128,
+    "name" : "c129",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 129,
+    "name" : "c130",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 130,
+    "name" : "c131",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 131,
+    "name" : "c132",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 132,
+    "name" : "c133",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 133,
+    "name" : "c134",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 134,
+    "name" : "c135",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 135,
+    "name" : "c136",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 136,
+    "name" : "c137",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 137,
+    "name" : "c138",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 138,
+    "name" : "c139",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 139,
+    "name" : "c140",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 140,
+    "name" : "c141",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 141,
+    "name" : "c142",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 142,
+    "name" : "c143",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 143,
+    "name" : "c144",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 144,
+    "name" : "c145",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 145,
+    "name" : "c146",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 146,
+    "name" : "c147",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 147,
+    "name" : "c148",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 148,
+    "name" : "c149",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 149,
+    "name" : "c150",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 150,
+    "name" : "c151",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 151,
+    "name" : "c152",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 152,
+    "name" : "c153",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 153,
+    "name" : "c154",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 154,
+    "name" : "c155",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 155,
+    "name" : "c156",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 156,
+    "name" : "c157",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 157,
+    "name" : "c158",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 158,
+    "name" : "c159",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 159,
+    "name" : "c160",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 160,
+    "name" : "c161",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 161,
+    "name" : "c162",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 162,
+    "name" : "c163",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BIGINT NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 163,
+    "name" : "c164",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 164,
+    "name" : "c165",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 165,
+    "name" : "c166",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 166,
+    "name" : "c167",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 167,
+    "name" : "c168",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 168,
+    "name" : "c169",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 169,
+    "name" : "c170",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 170,
+    "name" : "c171",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 171,
+    "name" : "c172",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 172,
+    "name" : "c173",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 173,
+    "name" : "c174",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 174,
+    "name" : "c175",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 175,
+    "name" : "c176",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 176,
+    "name" : "c177",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 177,
+    "name" : "c178",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 178,
+    "name" : "c179",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 179,
+    "name" : "c180",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 180,
+    "name" : "c181",
+    "type" : {
+      "type" : "MAP",
+      "key" : "FLOAT NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 181,
+    "name" : "c182",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 182,
+    "name" : "c183",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 183,
+    "name" : "c184",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 184,
+    "name" : "c185",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 185,
+    "name" : "c186",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 186,
+    "name" : "c187",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 187,
+    "name" : "c188",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 188,
+    "name" : "c189",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 189,
+    "name" : "c190",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 190,
+    "name" : "c191",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 191,
+    "name" : "c192",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 192,
+    "name" : "c193",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 193,
+    "name" : "c194",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 194,
+    "name" : "c195",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 195,
+    "name" : "c196",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 196,
+    "name" : "c197",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 197,
+    "name" : "c198",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 198,
+    "name" : "c199",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DOUBLE NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 199,
+    "name" : "c200",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 200,
+    "name" : "c201",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 201,
+    "name" : "c202",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 202,
+    "name" : "c203",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 203,
+    "name" : "c204",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 204,
+    "name" : "c205",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 205,
+    "name" : "c206",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 206,
+    "name" : "c207",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 207,
+    "name" : "c208",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 208,
+    "name" : "c209",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 209,
+    "name" : "c210",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 210,
+    "name" : "c211",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 211,
+    "name" : "c212",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 212,
+    "name" : "c213",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 213,
+    "name" : "c214",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 214,
+    "name" : "c215",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 215,
+    "name" : "c216",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 216,
+    "name" : "c217",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DECIMAL(10, 2) NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 217,
+    "name" : "c218",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 218,
+    "name" : "c219",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 219,
+    "name" : "c220",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 220,
+    "name" : "c221",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 221,
+    "name" : "c222",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 222,
+    "name" : "c223",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 223,
+    "name" : "c224",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 224,
+    "name" : "c225",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 225,
+    "name" : "c226",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 226,
+    "name" : "c227",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 227,
+    "name" : "c228",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 228,
+    "name" : "c229",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 229,
+    "name" : "c230",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 230,
+    "name" : "c231",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 231,
+    "name" : "c232",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 232,
+    "name" : "c233",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 233,
+    "name" : "c234",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 234,
+    "name" : "c235",
+    "type" : {
+      "type" : "MAP",
+      "key" : "DATE NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 235,
+    "name" : "c236",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 236,
+    "name" : "c237",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 237,
+    "name" : "c238",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 238,
+    "name" : "c239",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 239,
+    "name" : "c240",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 240,
+    "name" : "c241",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 241,
+    "name" : "c242",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 242,
+    "name" : "c243",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 243,
+    "name" : "c244",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 244,
+    "name" : "c245",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 245,
+    "name" : "c246",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 246,
+    "name" : "c247",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 247,
+    "name" : "c248",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 248,
+    "name" : "c249",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 249,
+    "name" : "c250",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 250,
+    "name" : "c251",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 251,
+    "name" : "c252",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 252,
+    "name" : "c253",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 253,
+    "name" : "c254",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 254,
+    "name" : "c255",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 255,
+    "name" : "c256",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 256,
+    "name" : "c257",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 257,
+    "name" : "c258",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 258,
+    "name" : "c259",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 259,
+    "name" : "c260",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 260,
+    "name" : "c261",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 261,
+    "name" : "c262",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 262,
+    "name" : "c263",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 263,
+    "name" : "c264",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 264,
+    "name" : "c265",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 265,
+    "name" : "c266",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 266,
+    "name" : "c267",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 267,
+    "name" : "c268",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 268,
+    "name" : "c269",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 269,
+    "name" : "c270",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 270,
+    "name" : "c271",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 271,
+    "name" : "c272",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 272,
+    "name" : "c273",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 273,
+    "name" : "c274",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 274,
+    "name" : "c275",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 275,
+    "name" : "c276",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 276,
+    "name" : "c277",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 277,
+    "name" : "c278",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 278,
+    "name" : "c279",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 279,
+    "name" : "c280",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 280,
+    "name" : "c281",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 281,
+    "name" : "c282",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 282,
+    "name" : "c283",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 283,
+    "name" : "c284",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 284,
+    "name" : "c285",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 285,
+    "name" : "c286",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 286,
+    "name" : "c287",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 287,
+    "name" : "c288",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 288,
+    "name" : "c289",
+    "type" : {
+      "type" : "MAP",
+      "key" : "CHAR(2) NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 289,
+    "name" : "c290",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 290,
+    "name" : "c291",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 291,
+    "name" : "c292",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 292,
+    "name" : "c293",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 293,
+    "name" : "c294",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 294,
+    "name" : "c295",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 295,
+    "name" : "c296",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 296,
+    "name" : "c297",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 297,
+    "name" : "c298",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 298,
+    "name" : "c299",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 299,
+    "name" : "c300",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 300,
+    "name" : "c301",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 301,
+    "name" : "c302",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 302,
+    "name" : "c303",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 303,
+    "name" : "c304",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 304,
+    "name" : "c305",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 305,
+    "name" : "c306",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 306,
+    "name" : "c307",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BOOLEAN NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 307,
+    "name" : "c308",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 308,
+    "name" : "c309",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 309,
+    "name" : "c310",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 310,
+    "name" : "c311",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 311,
+    "name" : "c312",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 312,
+    "name" : "c313",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 313,
+    "name" : "c314",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 314,
+    "name" : "c315",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 315,
+    "name" : "c316",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 316,
+    "name" : "c317",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 317,
+    "name" : "c318",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 318,
+    "name" : "c319",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 319,
+    "name" : "c320",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 320,
+    "name" : "c321",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 321,
+    "name" : "c322",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 322,
+    "name" : "c323",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 323,
+    "name" : "c324",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 324,
+    "name" : "c325",
+    "type" : {
+      "type" : "MAP",
+      "key" : "BYTES NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  }, {
+    "id" : 325,
+    "name" : "c326",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 326,
+    "name" : "c327",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "TINYINT"
+    }
+  }, {
+    "id" : 327,
+    "name" : "c328",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 328,
+    "name" : "c329",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "SMALLINT"
+    }
+  }, {
+    "id" : 329,
+    "name" : "c330",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 330,
+    "name" : "c331",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "INT"
+    }
+  }, {
+    "id" : 331,
+    "name" : "c332",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 332,
+    "name" : "c333",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "BIGINT"
+    }
+  }, {
+    "id" : 333,
+    "name" : "c334",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "FLOAT"
+    }
+  }, {
+    "id" : 334,
+    "name" : "c335",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "DOUBLE"
+    }
+  }, {
+    "id" : 335,
+    "name" : "c336",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "DECIMAL(10, 2)"
+    }
+  }, {
+    "id" : 336,
+    "name" : "c337",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "DATE"
+    }
+  }, {
+    "id" : 337,
+    "name" : "c338",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "STRING"
+    }
+  }, {
+    "id" : 338,
+    "name" : "c339",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "VARCHAR(10)"
+    }
+  }, {
+    "id" : 339,
+    "name" : "c340",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "CHAR(2)"
+    }
+  }, {
+    "id" : 340,
+    "name" : "c341",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  }, {
+    "id" : 341,
+    "name" : "c342",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "BYTES"
+    }
+  }, {
+    "id" : 342,
+    "name" : "c343",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6) NOT NULL",
+      "value" : "TIMESTAMP(6)"
+    }
+  } ],
+  "highestFieldId" : 342,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "owner" : "hadoop"
+  },
+  "timeMillis" : 1698135030860
+}

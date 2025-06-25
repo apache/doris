@@ -42,8 +42,7 @@ auto random_column(size_t size) {
         }
         return column;
     } else {
-        using FieldType = DataType::FieldType;
-        auto column = ColumnVector<FieldType>::create();
+        auto column = ColumnVector<DataType::PType>::create();
         auto& data = column->get_data();
         data.resize(size);
         for (size_t i = 0; i < size; ++i) {

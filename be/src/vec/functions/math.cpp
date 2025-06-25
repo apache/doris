@@ -30,7 +30,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/number_traits.h"
@@ -90,12 +89,14 @@ struct AtanhName {
 using FunctionAtanh =
         FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AtanhName, std::atanh>>;
 
-template <typename A, typename B>
+template <PrimitiveType AType, PrimitiveType BType>
 struct Atan2Impl {
-    using ResultType = double;
+    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
+    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
+    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
     static const constexpr bool allow_decimal = false;
 
-    template <typename type>
+    template <PrimitiveType type>
     static inline double apply(A a, B b) {
         return std::atan2((double)a, (double)b);
     }
@@ -136,17 +137,19 @@ struct LogName {
     static constexpr auto name = "log";
 };
 
-template <typename A, typename B>
+template <PrimitiveType AType, PrimitiveType BType>
 struct LogImpl {
-    using ResultType = Float64;
-    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
+    using A = typename PrimitiveTypeTraits<AType>::CppNativeType;
+    using B = typename PrimitiveTypeTraits<BType>::CppNativeType;
+    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
+    using Traits = NumberTraits::BinaryOperatorTraits<AType, BType>;
 
     static const constexpr bool allow_decimal = false;
     static constexpr double EPSILON = 1e-9;
 
-    template <typename Result = ResultType>
+    template <PrimitiveType Result = ResultType>
     static void apply(const typename Traits::ArrayA& a, B b,
-                      typename ColumnVector<Result>::Container& c,
+                      typename PrimitiveTypeTraits<Result>::ColumnType::Container& c,
                       typename Traits::ArrayNull& null_map) {
         size_t size = c.size();
         UInt8 is_null = b <= 0;
@@ -164,8 +167,9 @@ struct LogImpl {
         }
     }
 
-    template <typename Result>
-    static inline Result apply(A a, B b, UInt8& is_null) {
+    template <PrimitiveType Result>
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(A a, B b,
+                                                                            UInt8& is_null) {
         is_null = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
         return static_cast<Float64>(std::log(static_cast<Float64>(b)) /
                                     std::log(static_cast<Float64>(a)));
@@ -175,14 +179,14 @@ using FunctionLog = FunctionBinaryArithmetic<LogImpl, LogName, true>;
 
 template <typename A>
 struct SignImpl {
-    using ResultType = Int8;
-    static inline ResultType apply(A a) {
+    static constexpr PrimitiveType ResultType = TYPE_TINYINT;
+    static inline UInt8 apply(A a) {
         if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>)
-            return static_cast<ResultType>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
+            return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
         else if constexpr (std::is_signed_v<A>)
-            return static_cast<ResultType>(a < 0 ? -1 : a == 0 ? 0 : 1);
+            return static_cast<UInt8>(a < 0 ? -1 : a == 0 ? 0 : 1);
         else if constexpr (std::is_unsigned_v<A>)
-            return static_cast<ResultType>(a == 0 ? 0 : 1);
+            return static_cast<UInt8>(a == 0 ? 0 : 1);
     }
 };
 
@@ -193,18 +197,21 @@ using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign>;
 
 template <typename A>
 struct AbsImpl {
-    using ResultType =
-            std::conditional_t<IsDecimalNumber<A>, A, typename NumberTraits::ResultOfAbs<A>::Type>;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfAbs<A>::Type;
 
-    static inline ResultType apply(A a) {
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
         if constexpr (IsDecimalNumber<A>)
             return a < A(0) ? A(-a) : a;
         else if constexpr (std::is_integral_v<A> && std::is_signed_v<A>)
-            return a < A(0) ? static_cast<ResultType>(~a) + 1 : a;
+            return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
+                                      ~a) +
+                                      1
+                            : a;
         else if constexpr (std::is_integral_v<A> && std::is_unsigned_v<A>)
-            return static_cast<ResultType>(a);
+            return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
         else if constexpr (std::is_floating_point_v<A>)
-            return static_cast<ResultType>(std::abs(a));
+            return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
+                    std::abs(a));
     }
 };
 
@@ -212,13 +219,81 @@ struct NameAbs {
     static constexpr auto name = "abs";
 };
 
+template <typename A>
+struct ResultOfUnaryFunc;
+
+template <>
+struct ResultOfUnaryFunc<UInt8> {
+    static constexpr PrimitiveType ResultType = TYPE_BOOLEAN;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int8> {
+    static constexpr PrimitiveType ResultType = TYPE_TINYINT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int16> {
+    static constexpr PrimitiveType ResultType = TYPE_SMALLINT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int32> {
+    static constexpr PrimitiveType ResultType = TYPE_INT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int64> {
+    static constexpr PrimitiveType ResultType = TYPE_BIGINT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int128> {
+    static constexpr PrimitiveType ResultType = TYPE_LARGEINT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal32> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL32;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal64> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL64;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal128V3> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL128I;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal128V2> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMALV2;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal256> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL256;
+};
+
+template <>
+struct ResultOfUnaryFunc<float> {
+    static constexpr PrimitiveType ResultType = TYPE_FLOAT;
+};
+
+template <>
+struct ResultOfUnaryFunc<double> {
+    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
+};
+
 using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs>;
 
 template <typename A>
 struct NegativeImpl {
-    using ResultType = A;
+    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline ResultType apply(A a) { return -a; }
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) { return -a; }
 };
 
 struct NameNegative {
@@ -229,9 +304,11 @@ using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative>;
 
 template <typename A>
 struct PositiveImpl {
-    using ResultType = A;
+    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline ResultType apply(A a) { return static_cast<ResultType>(a); }
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
+    }
 };
 
 struct NamePositive {
@@ -296,10 +373,11 @@ using FunctionTanh = FunctionMathUnary<UnaryFunctionPlain<TanhName, std::tanh>>;
 
 template <typename A>
 struct RadiansImpl {
-    using ResultType = A;
+    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline ResultType apply(A a) {
-        return static_cast<ResultType>(a * PiImpl::value / 180.0);
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
+                a * PiImpl::value / 180.0);
     }
 };
 
@@ -311,10 +389,11 @@ using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians>;
 
 template <typename A>
 struct DegreesImpl {
-    using ResultType = A;
+    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline ResultType apply(A a) {
-        return static_cast<ResultType>(a * 180.0 / PiImpl::value);
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a * 180.0 /
+                                                                                     PiImpl::value);
     }
 };
 
@@ -358,12 +437,14 @@ struct BinImpl {
 
 using FunctionBin = FunctionUnaryToType<BinImpl, NameBin>;
 
-template <typename A, typename B>
+template <PrimitiveType AType, PrimitiveType BType>
 struct PowImpl {
-    using ResultType = double;
+    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
+    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
+    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
     static const constexpr bool allow_decimal = false;
 
-    template <typename type>
+    template <PrimitiveType type>
     static inline double apply(A a, B b) {
         /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
         return std::pow((double)a, (double)b);

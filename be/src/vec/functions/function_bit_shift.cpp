@@ -40,12 +40,14 @@ struct NameBitShiftRight {
     static constexpr auto name = "bit_shift_right";
 };
 
-template <typename A, typename B>
+template <PrimitiveType AType, PrimitiveType BType>
 struct BitShiftLeftImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
+    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBit<A, B>::Type;
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::CppType apply(A a, B b) {
         if constexpr (!std::is_same_v<A, Int64> || !std::is_same_v<B, Int8>) {
             throw Exception(ErrorCode::NOT_FOUND,
                             "bit_shift_left only supports [BIGINT, TINYINT] as operator");
@@ -55,17 +57,20 @@ struct BitShiftLeftImpl {
             if (UNLIKELY(b >= 64 || b < 0)) {
                 return 0;
             }
-            return static_cast<typename std::make_unsigned<A>::type>(a) << static_cast<Result>(b);
+            return static_cast<typename std::make_unsigned<A>::type>(a)
+                   << static_cast<typename PrimitiveTypeTraits<Result>::CppType>(b);
         }
     }
 };
 
-template <typename A, typename B>
+template <PrimitiveType AType, PrimitiveType BType>
 struct BitShiftRightImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
+    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBit<A, B>::Type;
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::CppType apply(A a, B b) {
         if constexpr (!std::is_same_v<A, Int64> || !std::is_same_v<B, Int8>) {
             throw Exception(ErrorCode::NOT_FOUND,
                             "bit_shift_right only supports [BIGINT, TINYINT] as operator");
@@ -76,7 +81,8 @@ struct BitShiftRightImpl {
                 return 0;
             }
 
-            return static_cast<typename std::make_unsigned<A>::type>(a) >> static_cast<Result>(b);
+            return static_cast<typename std::make_unsigned<A>::type>(a) >>
+                   static_cast<typename PrimitiveTypeTraits<Result>::CppType>(b);
         }
     }
 };

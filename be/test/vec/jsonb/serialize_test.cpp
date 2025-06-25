@@ -74,8 +74,8 @@
 namespace doris::vectorized {
 
 void fill_block_with_array_int(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::ColumnArray::Offset64>::create();
-    auto data_column = vectorized::ColumnVector<int32_t>::create();
+    auto off_column = vectorized::ColumnOffset64::create();
+    auto data_column = vectorized::ColumnInt32::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
     std::vector<vectorized::ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
@@ -96,7 +96,7 @@ void fill_block_with_array_int(vectorized::Block& block) {
 }
 
 void fill_block_with_array_string(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::ColumnArray::Offset64>::create();
+    auto off_column = vectorized::ColumnOffset64::create();
     auto data_column = vectorized::ColumnString::create();
     // init column array with [["abc","de"],["fg"],[], [""]];
     std::vector<vectorized::ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
@@ -175,9 +175,9 @@ TEST(BlockSerializeTest, Array) {
     }
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
-    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
-                                       static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values, {});
+    THROW_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            create_data_type_serdes(read_desc.slots()), static_cast<ColumnString&>(*col.get()),
+            col_uid_to_idx, new_block, default_values, {}));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
@@ -258,9 +258,9 @@ TEST(BlockSerializeTest, Map) {
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     std::cout << "deserialize from jsonb" << std::endl;
-    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
-                                       static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values, {});
+    THROW_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            create_data_type_serdes(read_desc.slots()), static_cast<ColumnString&>(*col.get()),
+            col_uid_to_idx, new_block, default_values, {}));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
@@ -353,9 +353,9 @@ TEST(BlockSerializeTest, Struct) {
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     std::cout << "deserialize from jsonb" << std::endl;
-    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
-                                       static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values, {});
+    THROW_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            create_data_type_serdes(read_desc.slots()), static_cast<ColumnString&>(*col.get()),
+            col_uid_to_idx, new_block, default_values, {}));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
@@ -368,7 +368,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
             {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT},
             {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING},
             {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I},
-            {"v1", FieldType::OLAP_FIELD_TYPE_OBJECT, 7, TYPE_OBJECT},
+            {"v1", FieldType::OLAP_FIELD_TYPE_BITMAP, 7, TYPE_BITMAP},
             {"v2", FieldType::OLAP_FIELD_TYPE_HLL, 8, TYPE_HLL},
             {"k4", FieldType::OLAP_FIELD_TYPE_STRING, 4, TYPE_STRING},
             {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 5, TYPE_DECIMAL128I},
@@ -383,7 +383,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     // int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -408,9 +408,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                              decimal_column.get())
-                             ->get_data();
+        auto& data = ((vectorized::ColumnDecimal128V2*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
@@ -476,7 +474,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     // int with 1024 batch size
     {
-        auto column_vector_int32 = vectorized::ColumnVector<Int32>::create();
+        auto column_vector_int32 = vectorized::ColumnInt32::create();
         auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
         auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
         for (int i = 0; i < 1024; i++) {
@@ -490,7 +488,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     // fill with datev2
     {
-        auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
+        auto column_vector_date_v2 = vectorized::ColumnDateV2::create();
         auto& date_v2_data = column_vector_date_v2->get_data();
         for (int i = 0; i < 1024; ++i) {
             DateV2Value<DateV2ValueType> value;
@@ -532,9 +530,10 @@ TEST(BlockSerializeTest, JsonbBlock) {
     for (int i = 0; i < read_desc.slots().size(); ++i) {
         col_uid_to_idx[read_desc.slots()[i]->col_unique_id()] = i;
     }
-    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(block.get_data_types()),
-                                       static_cast<const ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values, {});
+    THROW_IF_ERROR(
+            JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(block.get_data_types()),
+                                               static_cast<const ColumnString&>(*col.get()),
+                                               col_uid_to_idx, new_block, default_values, {}));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());

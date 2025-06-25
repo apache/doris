@@ -18,13 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.constraint.Constraint;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -69,15 +65,5 @@ public class TableAttributes {
 
     public long getNextVersion() {
         return visibleVersion + 1;
-    }
-
-    public TableAttributes read(DataInput in) throws IOException {
-        TableAttributes tableAttributes = GsonUtils.GSON.fromJson(Text.readString(in), TableAttributes.class);
-        // To be compatible with previous versions
-        if (tableAttributes.getVisibleVersion() < TABLE_INIT_VERSION) {
-            tableAttributes.visibleVersion = TABLE_INIT_VERSION;
-            tableAttributes.visibleVersionTime = System.currentTimeMillis();
-        }
-        return tableAttributes;
     }
 }

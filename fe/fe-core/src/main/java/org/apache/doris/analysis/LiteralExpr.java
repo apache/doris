@@ -35,8 +35,6 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -271,9 +269,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     // Throws for non-numeric literals.
     public void swapSign() throws NotImplementedException {
         throw new NotImplementedException("swapSign() only implemented for numeric" + "literals");
-    }
-
-    public void readFields(DataInput in) throws IOException {
     }
 
     @Override

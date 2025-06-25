@@ -193,7 +193,7 @@ suite("test_window_fn") {
 
     // rank
     qt_sql  """ 
-        SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM ${tbName1} order by depname
+        SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM ${tbName1} order by depname,salary,empno;
     """
     qt_sql """
         SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary, empno) 
@@ -208,7 +208,7 @@ suite("test_window_fn") {
         FROM ${tbName1} order by s, r;
     """
     qt_sql """
-        SELECT * FROM ( select *, row_number() OVER (ORDER BY salary) as a from ${tbName1} ) as t where t.a < 10;
+        SELECT * FROM ( select *, row_number() OVER (ORDER BY empno) as a from ${tbName1} ) as t where t.a < 10 order by empno;
     """
     qt_sql """
         SELECT row_number() OVER (ORDER BY unique2) FROM ${tbName2} WHERE unique2 < 10;

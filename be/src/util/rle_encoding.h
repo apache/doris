@@ -229,12 +229,12 @@ private:
 template <typename T>
 bool RleDecoder<T>::ReadHeader() {
     DCHECK(bit_reader_.is_initialized());
-    if (PREDICT_FALSE(literal_count_ == 0 && repeat_count_ == 0)) {
+    if (literal_count_ == 0 && repeat_count_ == 0) [[unlikely]] {
         // Read the next run's indicator int, it could be a literal or repeated run
         // The int is encoded as a vlq-encoded value.
         uint32_t indicator_value = 0;
         bool result = bit_reader_.GetVlqInt(&indicator_value);
-        if (PREDICT_FALSE(!result)) {
+        if (!result) [[unlikely]] {
             return false;
         }
 
@@ -257,11 +257,11 @@ bool RleDecoder<T>::ReadHeader() {
 template <typename T>
 bool RleDecoder<T>::Get(T* val) {
     DCHECK(bit_reader_.is_initialized());
-    if (PREDICT_FALSE(!ReadHeader())) {
+    if (!ReadHeader()) [[unlikely]] {
         return false;
     }
 
-    if (PREDICT_TRUE(repeat_count_ > 0)) {
+    if (repeat_count_ > 0) [[likely]] {
         *val = current_value_;
         --repeat_count_;
         rewind_state_ = REWIND_RUN;
@@ -304,8 +304,8 @@ size_t RleDecoder<T>::GetNextRun(T* val, size_t max_run) {
     size_t ret = 0;
     size_t rem = max_run;
     while (ReadHeader()) {
-        if (PREDICT_TRUE(repeat_count_ > 0)) {
-            if (PREDICT_FALSE(ret > 0 && *val != current_value_)) {
+        if (repeat_count_ > 0) [[likely]] {
+            if (ret > 0 && *val != current_value_) [[unlikely]] {
                 return ret;
             }
             *val = current_value_;
@@ -402,7 +402,7 @@ size_t RleDecoder<T>::Skip(size_t to_skip) {
         bool result = ReadHeader();
         DCHECK(result);
 
-        if (PREDICT_TRUE(repeat_count_ > 0)) {
+        if (repeat_count_ > 0) [[likely]] {
             size_t nskip = (repeat_count_ < to_skip) ? repeat_count_ : to_skip;
             repeat_count_ -= nskip;
             to_skip -= nskip;
@@ -435,7 +435,7 @@ void RleEncoder<T>::Put(T value, size_t run_length) {
 
     // TODO(perf): remove the loop and use the repeat_count_
     for (; run_length > 0; run_length--) {
-        if (PREDICT_TRUE(current_value_ == value)) {
+        if (current_value_ == value) [[likely]] {
             ++repeat_count_;
             if (repeat_count_ > 8) {
                 // This is just a continuation of the current run, no need to buffer the

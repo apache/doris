@@ -28,25 +28,28 @@
 
 namespace doris::vectorized {
 
-template <typename A, typename B>
+template <PrimitiveType TypeA, PrimitiveType TypeB>
 struct MinusImpl {
-    using ResultType = typename NumberTraits::ResultOfSubtraction<A, B>::Type;
+    using A = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
+    using B = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfSubtraction<A, B>::Type;
     static const constexpr bool allow_decimal = true;
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) - b;
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(A a, B b) {
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) - b;
     }
 
-    template <typename Result = DecimalV2Value>
+    template <PrimitiveType Result = TYPE_DECIMALV2>
     static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
         return DecimalV2Value(a.value() - b.value());
     }
 
     /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
-    template <typename Result = ResultType>
-    static inline bool apply(A a, B b, Result& c) {
-        return common::sub_overflow(static_cast<Result>(a), b, c);
+    template <PrimitiveType Result = ResultType>
+    static inline bool apply(A a, B b, typename PrimitiveTypeTraits<Result>::CppNativeType& c) {
+        return common::sub_overflow(
+                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a), b, c);
     }
 };
 

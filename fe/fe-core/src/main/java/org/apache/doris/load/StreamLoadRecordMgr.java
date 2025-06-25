@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.ShowStreamLoadStmt.StreamLoadState;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -29,6 +28,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.EventType;
@@ -154,7 +154,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
     }
 
     public List<List<Comparable>> getStreamLoadRecordByDb(
-            long dbId, String label, boolean accurateMatch, StreamLoadState state) {
+            long dbId, String label, boolean accurateMatch, ShowLoadCommand.StreamLoadState state) {
         LinkedList<List<Comparable>> streamLoadRecords = new LinkedList<List<Comparable>>();
 
         readLock();

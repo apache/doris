@@ -175,7 +175,7 @@ struct TReportExecStatusResult {
 
 // Service Protocol Details
 enum FrontendServiceVersion {
-  V1
+  V1 = 0
 }
 
 struct TDetailedReportParams {

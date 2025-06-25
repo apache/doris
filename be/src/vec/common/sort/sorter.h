@@ -52,8 +52,7 @@ class MergeSorterState {
     ENABLE_FACTORY_CREATOR(MergeSorterState);
 
 public:
-    MergeSorterState(const RowDescriptor& row_desc, int64_t offset, int64_t limit,
-                     RuntimeState* state, RuntimeProfile* profile)
+    MergeSorterState(const RowDescriptor& row_desc, int64_t offset)
             // create_empty_block should ignore invalid slots, unsorted_block
             // should be same structure with arrival block from child node
             // since block from child node may ignored these slots
@@ -152,7 +151,7 @@ public:
     void set_enable_spill() { _enable_spill = true; }
 
 protected:
-    Status partial_sort(Block& src_block, Block& dest_block);
+    Status partial_sort(Block& src_block, Block& dest_block, bool reversed = false);
 
     bool _enable_spill = false;
     SortDescription _sort_description;

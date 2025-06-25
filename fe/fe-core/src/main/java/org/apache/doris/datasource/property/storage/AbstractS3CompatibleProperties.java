@@ -20,9 +20,14 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.base.Strings;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -152,6 +157,18 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         return generateBackendS3Configuration();
     }
 
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
+        if (StringUtils.isNotBlank(getAccessKey()) && StringUtils.isNotBlank(getSecretKey())) {
+            if (Strings.isNullOrEmpty(sessionToken)) {
+                return StaticCredentialsProvider.create(AwsBasicCredentials.create(getAccessKey(), getSecretKey()));
+            } else {
+                return StaticCredentialsProvider.create(AwsSessionCredentials.create(getAccessKey(), getSecretKey(),
+                        sessionToken));
+            }
+        }
+        return null;
+    }
+
 
     @Override
     protected void initNormalizeAndCheckProps() {
@@ -177,7 +194,15 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         }
         Matcher matcher = endpointPattern().matcher(endpoint.toLowerCase());
         if (matcher.find()) {
-            String region = matcher.group(1);
+            // Check all possible groups for region (group 1, 2, or 3)
+            String region = null;
+            for (int i = 1; i <= matcher.groupCount(); i++) {
+                String group = matcher.group(i);
+                if (StringUtils.isNotBlank(group)) {
+                    region = group;
+                    break;
+                }
+            }
             if (StringUtils.isBlank(region)) {
                 throw new IllegalArgumentException("Invalid endpoint format: " + endpoint);
             }

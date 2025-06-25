@@ -29,15 +29,16 @@ namespace doris::segment_v2 {
 RegexpQuery::RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                          const TQueryOptions& query_options, const io::IOContext* io_ctx)
         : _searcher(searcher),
+          _io_ctx(io_ctx),
           _max_expansions(query_options.inverted_index_max_expansions),
           _query(searcher, query_options, io_ctx) {}
 
 void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.size() != 1) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "RegexpQuery::add: terms size != 1");
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
-    const std::string& pattern = query_info.terms[0];
+    const std::string& pattern = query_info.term_infos[0].get_single_term();
     auto prefix = get_regex_prefix(pattern);
 
     hs_database_t* database = nullptr;
@@ -72,7 +73,7 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
 
     InvertedIndexQueryInfo new_query_info;
     new_query_info.field_name = query_info.field_name;
-    new_query_info.terms.swap(terms);
+    new_query_info.term_infos.emplace_back(std::move(terms), query_info.term_infos[0].position);
     _query.add(new_query_info);
 }
 
@@ -129,9 +130,9 @@ void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
         if (prefix) {
             std::wstring ws_prefix = StringUtil::string_to_wstring(*prefix);
             Term prefix(field_name.c_str(), ws_prefix.c_str());
-            enumerator = _searcher->getReader()->terms(&prefix);
+            enumerator = _searcher->getReader()->terms(&prefix, _io_ctx);
         } else {
-            enumerator = _searcher->getReader()->terms();
+            enumerator = _searcher->getReader()->terms(nullptr, _io_ctx);
             enumerator->next();
         }
         do {

@@ -145,9 +145,6 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
-            st = iter->seek_to_first();
-            EXPECT_TRUE(st.ok()) << st.to_string();
-
             vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
@@ -323,9 +320,6 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         EXPECT_TRUE(st.ok());
         // sequence read
         {
-            st = iter->seek_to_first();
-            EXPECT_TRUE(st.ok()) << st.to_string();
-
             vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
@@ -458,9 +452,6 @@ void test_read_default_value(string value, void* result) {
         EXPECT_TRUE(st.ok());
         // sequence read
         {
-            st = iter.seek_to_first();
-            EXPECT_TRUE(st.ok()) << st.to_string();
-
             vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
@@ -479,7 +470,7 @@ void test_read_default_value(string value, void* result) {
                             << "j:" << j;
                 } else if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                            type == FieldType::OLAP_FIELD_TYPE_HLL ||
-                           type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+                           type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                     EXPECT_EQ(value, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
                             << "j:" << j;
                 } else {
@@ -512,7 +503,7 @@ void test_read_default_value(string value, void* result) {
                                 << "j:" << j;
                     } else if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                                type == FieldType::OLAP_FIELD_TYPE_HLL ||
-                               type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+                               type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                         EXPECT_EQ(value,
                                   reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
                     } else {
@@ -545,7 +536,7 @@ static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type)
     } else if (type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
         return vectorized::DataTypeDateTime().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
-        return vectorized::DataTypeDecimal<vectorized::Decimal128V2>(27, 9).create_column();
+        return vectorized::DataTypeDecimalV2(27, 9).create_column();
     }
     return vectorized::DataTypeNothing().create_column();
 }
@@ -567,9 +558,6 @@ void test_v_read_default_value(string value, void* result) {
 
         // sequence read
         {
-            st = iter.seek_to_first();
-            EXPECT_TRUE(st.ok()) << st.to_string();
-
             vectorized::MutableColumnPtr mcp = create_vectorized_column_ptr(type);
 
             size_t rows_read = 16;
@@ -581,7 +569,7 @@ void test_v_read_default_value(string value, void* result) {
                 if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                 } else if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                            type == FieldType::OLAP_FIELD_TYPE_HLL ||
-                           type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+                           type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                 } else if (type == FieldType::OLAP_FIELD_TYPE_DATE ||
                            type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     StringRef sr = mcp->get_data_at(j);
@@ -755,7 +743,7 @@ TEST_F(ColumnReaderWriterTest, test_default_value) {
     c[0] = 0;
     std::string v_object(c, 1);
     test_read_default_value<FieldType::OLAP_FIELD_TYPE_HLL>(v_object, &v_object);
-    test_read_default_value<FieldType::OLAP_FIELD_TYPE_OBJECT>(v_object, &v_object);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_BITMAP>(v_object, &v_object);
     free(c);
 
     std::string v_date("2019-11-12");

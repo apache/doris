@@ -481,10 +481,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
         // commit and check the result. not modify metadata so dont need lock.
         if (!commitNextVersion(ctx, dictionary)) {
+            dictionary.decreaseVersion();
+            Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
             dictionary.trySetStatus(oldStatus);
             abortNextVersion(ctx, dictionary, dictionary.getVersion());
-            throw new RuntimeException("Dictionary " + dictionary.getName() + " commit version "
-                    + (dictionary.getVersion() + 1) + " failed");
+            throw new RuntimeException(
+                    "Dictionary " + dictionary.getName() + " commit version " + dictionary.getVersion() + " failed");
         }
 
         // commit succeed. update metadata.
@@ -496,8 +498,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         } else {
             dictionary.setLastUpdateResult("succeed");
         }
-        LOG.info("Dictionary {} refresh succeed. used src version {}", dictionary.getName(),
-                ctx.getStatementContext().getDictionaryUsedSrcVersion());
+        LOG.info("Dictionary {} refresh succeed. now version is {}. used src version {}", dictionary.getName(),
+                dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
     }
 
     private boolean commitNextVersion(ConnectContext ctx, Dictionary dictionary) {

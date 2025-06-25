@@ -20,17 +20,18 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Maps;
@@ -41,6 +42,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -232,10 +234,13 @@ public class TruncateTableTest {
     }
 
     private List<List<String>> checkShowTabletResultNum(String tbl, String partition, int expected) throws Exception {
-        String showStr = "show tablets from " + tbl + " partition(" + partition + ")";
-        ShowTabletStmt showStmt = (ShowTabletStmt) UtFrameUtils.parseAndAnalyzeStmt(showStr, connectContext);
-        ShowExecutor executor = new ShowExecutor(connectContext, (ShowStmt) showStmt);
-        ShowResultSet showResultSet = executor.execute();
+        // "show tablets from " + tbl + " partition(" + partition + ")
+        TableNameInfo tableNameInfo = new TableNameInfo(Arrays.asList(tbl.split("\\.")));
+        PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false,
+                Arrays.asList(partition.split(",")));
+        ShowTabletsFromTableCommand command = new ShowTabletsFromTableCommand(tableNameInfo, partitionNamesInfo,
+                null, null, 5, 0);
+        ShowResultSet showResultSet = command.doRun(connectContext, new StmtExecutor(connectContext, ""));
         List<List<String>> rows = showResultSet.getResultRows();
         Assert.assertEquals(expected, rows.size());
         return rows;

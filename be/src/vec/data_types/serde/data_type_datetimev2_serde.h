@@ -28,23 +28,20 @@
 #include "common/status.h"
 #include "data_type_number_serde.h"
 #include "olap/olap_common.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
 namespace doris {
-class JsonbOutStream;
 
 namespace vectorized {
 class Arena;
 
-class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<UInt64> {
+class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2> {
 public:
     DataTypeDateTimeV2SerDe(int scale, int nesting_level = 1)
-            : DataTypeNumberSerDe<UInt64>(nesting_level), scale(scale) {};
+            : DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2>(nesting_level), scale(scale) {};
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -59,11 +56,11 @@ public:
                                                uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
 
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,

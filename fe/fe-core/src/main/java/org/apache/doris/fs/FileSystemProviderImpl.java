@@ -30,7 +30,7 @@ public class FileSystemProviderImpl implements FileSystemProvider {
     private Map<String, String> properties;
 
     public FileSystemProviderImpl(ExternalMetaCacheMgr extMetaCacheMgr, String bindBrokerName,
-            Map<String, String> properties) {
+                                  Map<String, String> properties) {
         this.extMetaCacheMgr = extMetaCacheMgr;
         this.bindBrokerName = bindBrokerName;
         this.properties = properties;

@@ -57,7 +57,7 @@ protected:
         tablet_meta->_schema_hash = tablet_id;
         return std::make_shared<Tablet>(*_engine, std::move(tablet_meta), _data_dir);
     }
-    auto create_rowset(TabletSharedPtr tablet, int64_t start, int64 end) {
+    auto create_rowset(TabletSharedPtr tablet, int64_t start, int64_t end) {
         auto rowset_meta = std::make_shared<RowsetMeta>();
         Version version(start, end);
         rowset_meta->set_version(version);

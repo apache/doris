@@ -55,7 +55,7 @@ public class ComputeGroupMgr {
         for (Tag tag : rgTags) {
             tagStrSet.add(tag.value);
         }
-        return new MergedComputeGroup(tagStrSet, systemInfoService);
+        return new MergedComputeGroup(String.join(",", tagStrSet), tagStrSet, systemInfoService);
     }
 
     // to be compatible with resource tag's logic, if root/admin user not specify a resource tag,

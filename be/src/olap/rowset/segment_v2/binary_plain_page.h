@@ -69,7 +69,7 @@ public:
         // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
             const auto* src = reinterpret_cast<const Slice*>(vals);
-            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));
                 }
@@ -216,6 +216,12 @@ public:
     }
 
     Status seek_to_position_in_page(size_t pos) override {
+        if (_num_elems == 0) [[unlikely]] {
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elems);
+            }
+        }
         DCHECK_LE(pos, _num_elems);
         _cur_idx = pos;
         return Status::OK();
@@ -223,7 +229,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
+        if (*n == 0 || _cur_idx >= _num_elems) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -236,7 +242,7 @@ public:
             const uint32_t start_offset = last_offset;
             last_offset = guarded_offset(_cur_idx + 1);
             _offsets[i + 1] = last_offset;
-            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + start_offset)));
                 }
@@ -244,7 +250,7 @@ public:
         }
         _cur_idx++;
         _offsets[max_fetch] = offset(_cur_idx);
-        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
             if (_options.need_check_bitmap) {
                 RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
             }
@@ -258,7 +264,7 @@ public:
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0)) {
+        if (*n == 0) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }

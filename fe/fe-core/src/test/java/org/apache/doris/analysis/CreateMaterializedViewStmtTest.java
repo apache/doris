@@ -356,7 +356,7 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
-                slotRef1.toSql();
+                slotRef1.toSqlWithoutTbl();
                 result = "k1";
             }
         };

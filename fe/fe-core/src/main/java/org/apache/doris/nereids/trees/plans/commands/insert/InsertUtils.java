@@ -529,16 +529,16 @@ public class InsertUtils {
         optimizedRowConstructor.add(value);
     }
 
-    private static Expression castValue(Expression value, DataType targetType) {
+    private static Alias castValue(Expression value, DataType targetType) {
         if (value instanceof Alias) {
             Expression oldChild = value.child(0);
             Expression newChild = TypeCoercionUtils.castUnbound(oldChild, targetType);
-            return oldChild == newChild ? value : value.withChildren(newChild);
+            return (Alias) (oldChild == newChild ? value : value.withChildren(newChild));
         } else if (value instanceof UnboundAlias) {
             UnboundAlias unboundAlias = (UnboundAlias) value;
             return new Alias(TypeCoercionUtils.castUnbound(unboundAlias.child(), targetType));
         } else {
-            return TypeCoercionUtils.castUnbound(value, targetType);
+            return new Alias(TypeCoercionUtils.castUnbound(value, targetType));
         }
     }
 
@@ -547,7 +547,7 @@ public class InsertUtils {
      */
     public static TableIf getTargetTable(Plan plan, ConnectContext ctx) {
         List<String> tableQualifier = getTargetTableQualified(plan, ctx);
-        return RelationUtil.getTable(tableQualifier, ctx.getEnv());
+        return RelationUtil.getTable(tableQualifier, ctx.getEnv(), Optional.empty());
     }
 
     /**

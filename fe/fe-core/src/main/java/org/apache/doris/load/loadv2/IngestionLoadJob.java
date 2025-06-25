@@ -57,7 +57,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -100,8 +99,6 @@ import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1098,30 +1095,6 @@ public class IngestionLoadJob extends LoadJob {
                 LOG.warn("replay update load job state info failed. error: wrong state. job id: {}, state: {}", id,
                         state);
                 break;
-        }
-    }
-
-    @Override
-    protected void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        this.etlStartTimestamp = in.readLong();
-        this.etlStatus = new EtlStatus();
-        this.etlStatus.readFields(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String tabletMetaStr = Text.readString(in);
-            Pair<String, Long> fileInfo = Pair.of(Text.readString(in), in.readLong());
-            tabletMetaToFileInfo.put(tabletMetaStr, fileInfo);
-        }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String propKey = Text.readString(in);
-            String propValue = Text.readString(in);
-            hadoopProperties.put(propKey, propValue);
-        }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            indexToSchemaVersion.put(in.readLong(), in.readInt());
         }
     }
 

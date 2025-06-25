@@ -36,19 +36,23 @@ import org.junit.jupiter.api.Assertions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class ExprTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Test
     public void testGetTableNameToColumnNames(@Mocked Analyzer analyzer,
-                                              @Injectable SlotDescriptor slotDesc1,
-                                              @Injectable SlotDescriptor slotDesc2,
-                                              @Injectable TupleDescriptor tupleDescriptor1,
-                                              @Injectable TupleDescriptor tupleDescriptor2,
-                                              @Injectable Table tableA,
-                                              @Injectable Table tableB) throws AnalysisException {
+            @Injectable SlotDescriptor slotDesc1,
+            @Injectable SlotDescriptor slotDesc2,
+            @Injectable TupleDescriptor tupleDescriptor1,
+            @Injectable TupleDescriptor tupleDescriptor2,
+            @Injectable Table tableA,
+            @Injectable Table tableB) throws AnalysisException {
         TableName tableAName = new TableName(internalCtl, "test", "tableA");
         TableName tableBName = new TableName(internalCtl, "test", "tableB");
         SlotRef tableAColumn1 = new SlotRef(tableAName, "c1");
@@ -182,7 +186,7 @@ public class ExprTest {
         Expr r7 = new DateLiteral(2020, 10, 23, 0, 0, 0, Type.DATETIMEV2);
         Expr r8 = new DateLiteral(2020, 10, 23, 0, 0, 0, ScalarType.createDatetimeV2Type(3));
 
-        //list1 equal list2
+        // list1 equal list2
         List<Expr> list1 = new ArrayList<>();
         List<Expr> list2 = new ArrayList<>();
         list1.add(r1);
@@ -201,7 +205,7 @@ public class ExprTest {
         list2.add(r8);
         Assert.assertTrue(Expr.equalSets(list1, list2));
 
-        //list3 not equal list4
+        // list3 not equal list4
         list2.add(r4);
         Assert.assertFalse(Expr.equalSets(list1, list2));
     }
@@ -211,7 +215,7 @@ public class ExprTest {
         Expr cast = new CastExpr(Type.DATETIME, new IntLiteral(10000101));
         FunctionCallExpr call = new FunctionCallExpr("leap", Lists.newArrayList(cast));
         call.uncheckedCastChild(Type.DATETIME, 0);
-        //do not cast a castExpr
+        // do not cast a castExpr
         Assertions.assertTrue(call.getChild(0).getChild(0) instanceof IntLiteral);
     }
 
@@ -232,5 +236,27 @@ public class ExprTest {
         SlotRef srcSlotRef = castExpr.getSrcSlotRef();
         Assert.assertTrue(srcSlotRef != null);
         Assert.assertTrue(srcSlotRef == slotRef);
+    }
+
+    @Test
+    public void testToSql() throws InterruptedException {
+        String toSqlValue = "`db1`.`table1`.`c1`";
+        String toSqlWithoutTblValue = "`c1`";
+        TableName tableName = new TableName(internalCtl, "db1", "table1");
+        SlotRef slotRef = new SlotRef(tableName, "c1");
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+
+        for (int i = 0; i < 100; i++) {
+            executor.submit(() -> {
+                Random random = new Random();
+                if (random.nextInt() % 2 == 0) {
+                    Assert.assertEquals(toSqlValue, slotRef.toSql());
+                } else {
+                    Assert.assertEquals(toSqlWithoutTblValue, slotRef.toSqlWithoutTbl());
+                }
+            });
+        }
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
     }
 }

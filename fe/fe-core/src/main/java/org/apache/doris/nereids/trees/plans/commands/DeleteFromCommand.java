@@ -297,10 +297,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     private void checkColumn(Set<String> tableColumns, SlotReference slotReference, OlapTable table) {
         // 0. must slot from table
-        if (!slotReference.getColumn().isPresent()) {
+        if (!slotReference.getOriginalColumn().isPresent()) {
             throw new AnalysisException("");
         }
-        Column column = slotReference.getColumn().get();
+        Column column = slotReference.getOriginalColumn().get();
 
         if (Column.DELETE_SIGN.equalsIgnoreCase(column.getName())) {
             return;
@@ -450,7 +450,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     private OlapTable getTargetTable(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv());
+        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("table must be olapTable in delete command");
         }

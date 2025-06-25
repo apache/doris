@@ -288,10 +288,6 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
                             .set_max_threads(max_checkpoint_thread_num)
                             .build(&_tablet_meta_checkpoint_thread_pool));
 
-    RETURN_IF_ERROR(ThreadPoolBuilder("MultiGetTaskThreadPool")
-                            .set_min_threads(config::multi_get_max_threads)
-                            .set_max_threads(config::multi_get_max_threads)
-                            .build(&_bg_multi_get_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
             [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
@@ -387,7 +383,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
-        auto curr_interval = uint32_t(max_interval * ratio);
+        curr_interval = uint32_t(max_interval * ratio);
         curr_interval = std::max(curr_interval, min_interval);
         curr_interval = std::min(curr_interval, max_interval);
 
@@ -402,6 +398,8 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
                          << "see previous message for detail. err code=" << res;
             // do nothing. continue next loop.
         }
+        LOG(INFO) << "trash thread check usage=" << usage << " ratio=" << ratio
+                  << " curr_interval=" << curr_interval;
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval)));
 }
 
@@ -662,6 +660,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
+        int64_t cur_time = UnixMillis();
         if (!config::disable_auto_compaction &&
             (!config::enable_compaction_pause_on_high_memory ||
              !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
@@ -715,6 +714,17 @@ void StorageEngine::_compaction_tasks_producer_callback() {
         } else {
             interval = 5000; // 5s to check disable_auto_compaction
         }
+
+        // wait some seconds for ut test
+        {
+            std ::vector<std ::any> args {};
+            args.emplace_back(1);
+            doris ::SyncPoint ::get_instance()->process(
+                    "StorageEngine::_compaction_tasks_producer_callback", std ::move(args));
+        }
+        int64_t end_time = UnixMillis();
+        DorisMetrics::instance()->compaction_producer_callback_a_round_time->set_value(end_time -
+                                                                                       cur_time);
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
@@ -1687,8 +1697,9 @@ void StorageEngine::_process_async_publish() {
                 continue;
             }
             if (version != max_version + 1) {
+                int32_t max_version_config = tablet->max_version_config();
                 // Keep only the most recent versions
-                while (tablet_iter->second.size() > config::max_tablet_version_num) {
+                while (tablet_iter->second.size() > max_version_config) {
                     need_removed_tasks.emplace_back(tablet, version);
                     task_iter = tablet_iter->second.erase(task_iter);
                     version = task_iter->first;
@@ -1727,9 +1738,8 @@ void StorageEngine::_check_tablet_delete_bitmap_score_callback() {
         }
         uint64_t max_delete_bitmap_score = 0;
         uint64_t max_base_rowset_delete_bitmap_score = 0;
-        std::vector<CloudTabletSPtr> tablets;
-        _tablet_manager.get()->get_topn_tablet_delete_bitmap_score(
-                &max_delete_bitmap_score, &max_base_rowset_delete_bitmap_score);
+        _tablet_manager->get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
+                                                             &max_base_rowset_delete_bitmap_score);
         if (max_delete_bitmap_score > 0) {
             _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
         }

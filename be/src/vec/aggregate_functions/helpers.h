@@ -111,6 +111,44 @@ struct creator_without_type {
         return AggregateFunctionPtr(result.release());
     }
 
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_multi_arguments(const DataTypes& argument_types_,
+                                                       const bool result_is_nullable,
+                                                       TArgs&&... args) {
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            if (result_is_nullable) {
+                result.reset(new NullableT<true, true, AggregateFunctionTemplate>(result.release(),
+                                                                                  argument_types_));
+            } else {
+                result.reset(new NullableT<true, false, AggregateFunctionTemplate>(
+                        result.release(), argument_types_));
+            }
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_unary_arguments(const DataTypes& argument_types_,
+                                                       const bool result_is_nullable,
+                                                       TArgs&&... args) {
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            if (result_is_nullable) {
+                result.reset(new NullableT<false, true, AggregateFunctionTemplate>(
+                        result.release(), argument_types_));
+            } else {
+                result.reset(new NullableT<false, false, AggregateFunctionTemplate>(
+                        result.release(), argument_types_));
+            }
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
     /// AggregateFunctionTemplate will handle the nullable arguments, no need to use
     /// AggregateFunctionNullVariadicInline/AggregateFunctionNullUnaryInline
     template <typename AggregateFunctionTemplate, typename... TArgs>

@@ -514,7 +514,7 @@ public class ColumnDefinition {
             }
         }
 
-        if (type.getDataType().isTimeLikeType()) {
+        if (type.getDataType().isTimeType()) {
             throw new AnalysisException("Time type is not supported for olap table");
         }
         validateGeneratedColumnInfo();

@@ -341,7 +341,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
     public static final String DISABLE_NEREIDS_EXPRESSION_RULES = "disable_nereids_expression_rules";
-    public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
     public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
     public static final String NEREIDS_TIMEOUT_SECOND = "nereids_timeout_second";
@@ -411,8 +410,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
 
     public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
-
-    public static final String INTERNAL_SESSION = "internal_session";
 
     public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
 
@@ -578,6 +575,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
     public static final String PARTITION_SAMPLE_COUNT = "partition_sample_count";
     public static final String PARTITION_SAMPLE_ROW_COUNT = "partition_sample_row_count";
+    public static final String FETCH_HIVE_ROW_COUNT_SYNC = "fetch_hive_row_count_sync";
 
     // for spill to disk
     public static final String ENABLE_SPILL = "enable_spill";
@@ -737,7 +735,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
 
+    public static final String ENABLE_SCHEMA_SCAN_FROM_MASTER_FE = "enable_schema_scan_from_master_fe";
+
+    public static final String SHOW_COLUMN_COMMENT_IN_DESCRIBE = "show_column_comment_in_describe";
+
     public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
+
+    public static final String PREFER_UDF_OVER_BUILTIN = "prefer_udf_over_builtin";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1186,7 +1190,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private int parallelScanMaxScannersCount = 48;
+    private int parallelScanMaxScannersCount = 0;
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1327,6 +1331,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
+
+    @VariableMgr.VarAttr(name = "enable_topn_lazy_materialization", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public boolean enableTopnLazyMaterialization = true;
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
@@ -1552,9 +1561,6 @@ public class SessionVariable implements Serializable, Writable {
 
     private BitSet disableNereidsExpressionRuleSet = new BitSet();
 
-    @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
-    private boolean enableNewCostModel = false;
-
     @VariableMgr.VarAttr(name = "filter_cost_factor", needForward = true)
     public double filterCostFactor = 0.0001;
 
@@ -1717,9 +1723,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
-
-    @VariableMgr.VarAttr(name = INTERNAL_SESSION)
-    public boolean internalSession = false;
 
     @VariableMgr.VarAttr(name = PARTITION_PRUNING_EXPAND_THRESHOLD, fuzzy = true)
     public int partitionPruningExpandThreshold = 10;
@@ -2176,6 +2179,10 @@ public class SessionVariable implements Serializable, Writable {
                     "The upper limit of the number of rows for sampling large partitioned tables.\n"})
     public long partitionSampleRowCount = 3_000_000_000L;
 
+    @VariableMgr.VarAttr(name = FETCH_HIVE_ROW_COUNT_SYNC,
+            description = {"同步获取Hive外表行数", "Fetch Hive external table row count synchronously"})
+    public boolean fetchHiveRowCountSync = true;
+
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = {"是否开启基于结构信息的物化视图透明改写",
                     "Whether to enable materialized view rewriting based on struct info"})
@@ -2596,12 +2603,36 @@ public class SessionVariable implements Serializable, Writable {
             })
     public String enableSqlConvertorFeatures = "";
 
+    // The default value is true,
+    // which throughs reducing rpc call from follower node to meta service to improve query performance
+    // for getting version is memory operation in master node,
+    // but it will slightly increase the pressure on the FE master.
+    @VariableMgr.VarAttr(name = ENABLE_SCHEMA_SCAN_FROM_MASTER_FE, description = {
+            "在follower节点查询时, 是否允许从master节点扫描information_schema.tables的结果",
+            "Whether to allow scanning information_schema.tables from the master node"
+    })
+    public boolean enableSchemaScanFromMasterFe = true;
+
+    @VariableMgr.VarAttr(name = SHOW_COLUMN_COMMENT_IN_DESCRIBE, needForward = true,
+            description = {
+                    "是否在 DESCRIBE TABLE 语句中显示列注释",
+                    "whether to show column comments in DESCRIBE TABLE statement"
+            })
+    public boolean showColumnCommentInDescribe = false;
+
     @VariableMgr.VarAttr(name = SQL_CONVERTOR_CONFIG, needForward = true,
             description = {
                     "SQL 转换器的相关配置，使用 Json 格式。以 {} 为根元素。",
                     "SQL convertor config, use Json format. The root element is {}"
             })
     public String sqlConvertorConfig = "{}";
+
+    @VariableMgr.VarAttr(name = PREFER_UDF_OVER_BUILTIN, needForward = true,
+            description = {
+                    "是否优先查找 UDF 而不是内置函数",
+                    "Whether to prefer UDF over builtin functions"
+            })
+    public boolean preferUdfOverBuiltin = false;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -2623,12 +2654,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        // This will cause be dead loop, disable it first
-        // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
-        this.enableParallelResultSink = random.nextBoolean();
 
         // 4KB = 4 * 1024 bytes
         int minBytes = 4 * 1024;
@@ -3801,14 +3829,6 @@ public class SessionVariable implements Serializable, Writable {
         return disableNereidsExpressionRuleSet;
     }
 
-    public void setEnableNewCostModel(boolean enable) {
-        this.enableNewCostModel = enable;
-    }
-
-    public boolean getEnableNewCostModel() {
-        return this.enableNewCostModel;
-    }
-
     public void setDisableNereidsRules(String disableNereidsRules) {
         this.disableNereidsRules = disableNereidsRules;
     }
@@ -4404,6 +4424,7 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * The sessionContext is as follows:
      * "k1:v1;k2:v2;..."
+     * eg: set session_context="trace_id:123456"
      * Here we want to get value with key named "trace_id",
      * Return empty string is not found.
      *

@@ -18,20 +18,17 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.persist.gson.GsonPreProcessable;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Map;
 
 /**
  * Use for persistence, Repository will persist properties of file system.
  */
-public abstract class PersistentFileSystem implements FileSystem, GsonPreProcessable {
+public abstract class PersistentFileSystem implements FileSystem {
     public static final String STORAGE_TYPE = "_DORIS_STORAGE_TYPE_";
     @SerializedName("prop")
     public Map<String, String> properties = Maps.newHashMap();
@@ -39,11 +36,7 @@ public abstract class PersistentFileSystem implements FileSystem, GsonPreProcess
     public String name;
     public StorageBackend.StorageType type;
 
-    public boolean needFullPath() {
-        return type == StorageBackend.StorageType.S3
-                    || type == StorageBackend.StorageType.OFS
-                    || type == StorageBackend.StorageType.JFS;
-    }
+    public abstract StorageProperties getStorageProperties();
 
     public PersistentFileSystem(String name, StorageBackend.StorageType type) {
         this.name = name;
@@ -60,33 +53,5 @@ public abstract class PersistentFileSystem implements FileSystem, GsonPreProcess
 
     public StorageBackend.StorageType getStorageType() {
         return type;
-    }
-
-    /**
-     *
-     * @param in persisted data
-     * @return file systerm
-     */
-    @Deprecated
-    public static PersistentFileSystem read(DataInput in) throws IOException {
-        String name = Text.readString(in);
-        Map<String, String> properties = Maps.newHashMap();
-        StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            properties.put(key, value);
-        }
-        if (properties.containsKey(STORAGE_TYPE)) {
-            type = StorageBackend.StorageType.valueOf(properties.get(STORAGE_TYPE));
-            properties.remove(STORAGE_TYPE);
-        }
-        return FileSystemFactory.get(name, type, properties);
-    }
-
-    @Override
-    public void gsonPreProcess() {
-        properties.put(STORAGE_TYPE, type.name());
     }
 }

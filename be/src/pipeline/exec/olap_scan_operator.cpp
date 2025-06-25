@@ -372,9 +372,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
         // If the `max_scanners_count` was not set,
-        // use `config::doris_scanner_thread_pool_thread_num` as the default value.
+        // use `CpuInfo::num_cores()` as the default value.
         if (max_scanners_count <= 0) {
-            max_scanners_count = config::doris_scanner_thread_pool_thread_num;
+            max_scanners_count = CpuInfo::num_cores();
         }
 
         // Too small value of `min_rows_per_scanner` is meaningless.
@@ -513,6 +513,40 @@ Status OlapScanLocalState::hold_tablets() {
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
                            sync_stats.get_remote_delete_bitmap_rpc_ns);
         }
+        auto time_ms = duration_ns / 1000 / 1000;
+        if (time_ms >= config::sync_rowsets_slow_threshold_ms) {
+            DorisMetrics::instance()->get_remote_tablet_slow_time_ms->increment(time_ms);
+            DorisMetrics::instance()->get_remote_tablet_slow_cnt->increment(1);
+            LOG_WARNING("get tablet takes too long")
+                    .tag("query_id", print_id(PipelineXLocalState<>::_state->query_id()))
+                    .tag("node_id", _parent->node_id())
+                    .tag("total_time", PrettyPrinter::print(duration_ns, TUnit::TIME_NS))
+                    .tag("num_tablets", _tablets.size())
+                    .tag("tablet_meta_cache_hit", _sync_rowset_tablet_meta_cache_hit->value())
+                    .tag("tablet_meta_cache_miss", _sync_rowset_tablet_meta_cache_miss->value())
+                    .tag("get_remote_tablet_meta_rpc_time",
+                         PrettyPrinter::print(
+                                 _sync_rowset_get_remote_tablet_meta_rpc_timer->value(),
+                                 TUnit::TIME_NS))
+                    .tag("remote_rowsets_num", _sync_rowset_get_remote_rowsets_num->value())
+                    .tag("get_remote_rowsets_rpc_time",
+                         PrettyPrinter::print(_sync_rowset_get_remote_rowsets_rpc_timer->value(),
+                                              TUnit::TIME_NS))
+                    .tag("local_delete_bitmap_rowsets_num",
+                         _sync_rowset_get_local_delete_bitmap_rowsets_num->value())
+                    .tag("remote_delete_bitmap_rowsets_num",
+                         _sync_rowset_get_remote_delete_bitmap_rowsets_num->value())
+                    .tag("remote_delete_bitmap_key_count",
+                         _sync_rowset_get_remote_delete_bitmap_key_count->value())
+                    .tag("remote_delete_bitmap_bytes",
+                         PrettyPrinter::print(_sync_rowset_get_remote_delete_bitmap_bytes->value(),
+                                              TUnit::BYTES))
+                    .tag("get_remote_delete_bitmap_rpc_time",
+                         PrettyPrinter::print(
+                                 _sync_rowset_get_remote_delete_bitmap_rpc_timer->value(),
+                                 TUnit::TIME_NS));
+        }
+
     } else {
         for (size_t i = 0; i < _scan_ranges.size(); i++) {
             int64_t version = 0;

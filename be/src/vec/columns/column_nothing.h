@@ -32,7 +32,7 @@ private:
 
     ColumnNothing(const ColumnNothing&) = default;
 
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override {
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override {
         return clone_dummy(limit ? std::min(s, limit) : s);
     }
     Field operator[](size_t) const override { return {}; }

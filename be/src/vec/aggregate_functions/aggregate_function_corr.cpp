@@ -25,8 +25,39 @@ AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     assert_binary(name, argument_types);
-    return create_with_two_basic_numeric_types<CorrMoment>(argument_types[0], argument_types[1],
-                                                           argument_types, result_is_nullable);
+
+    DCHECK(argument_types[0]->get_primitive_type() == argument_types[1]->get_primitive_type());
+
+    switch ((argument_types[0]->get_primitive_type())) {
+    case PrimitiveType::TYPE_TINYINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_TINYINT, TYPE_TINYINT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_SMALLINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_SMALLINT, TYPE_SMALLINT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_INT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_INT, TYPE_INT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_BIGINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_BIGINT, TYPE_BIGINT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_FLOAT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_FLOAT, TYPE_FLOAT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DOUBLE:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, TYPE_DOUBLE, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    default:
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Aggregate function {} only support numeric types", name);
+    }
+    return nullptr;
 }
 
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory) {

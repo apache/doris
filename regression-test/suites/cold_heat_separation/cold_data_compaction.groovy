@@ -18,7 +18,7 @@
 import com.amazonaws.services.s3.model.ListObjectsRequest
 import java.util.function.Supplier
 
-suite("test_cold_data_compaction") {
+suite("test_cold_data_compaction", "nonConcurrent") {
     def retryUntilTimeout = { int timeoutSecond, Supplier<Boolean> closure ->
         long start = System.currentTimeMillis()
         while (true) {
@@ -87,7 +87,7 @@ suite("test_cold_data_compaction") {
     """
 
     // wait until files upload to S3
-    retryUntilTimeout(1800, {
+    retryUntilTimeout(3600, {
         def res = sql_return_maparray "show data from t_recycle_in_s3"
         String size = ""
         String remoteSize = ""
@@ -112,9 +112,13 @@ suite("test_cold_data_compaction") {
 
     // trigger cold data compaction
     sql """alter table t_recycle_in_s3 set ("disable_auto_compaction" = "false")"""
+    def v = get_be_param("disable_auto_compaction").values().toArray()[0].toString()
+    if ("true" == v) {
+        set_be_param("disable_auto_compaction", "false")
+    }
 
     // wait until compaction finish
-    retryUntilTimeout(1800, {
+    retryUntilTimeout(3600, {
         def filesAfterCompaction = getS3Client().listObjects(
                 new ListObjectsRequest().withBucketName(getS3BucketName()).withPrefix(s3Prefix+ "/data/${tabletId}")).getObjectSummaries()
         logger.info("t_recycle_in_s3's remote file number is ${filesAfterCompaction.size()}")
@@ -122,8 +126,12 @@ suite("test_cold_data_compaction") {
         return filesAfterCompaction.size() == 2
     })
 
+    if ("true" == v) {
+        set_be_param("disable_auto_compaction", "true")
+    }
+
     sql "drop table t_recycle_in_s3 force"
-    retryUntilTimeout(1800, {
+    retryUntilTimeout(3600, {
         def filesAfterDrop = getS3Client().listObjects(
                 new ListObjectsRequest().withBucketName(getS3BucketName()).withPrefix(s3Prefix+ "/data/${tabletId}")).getObjectSummaries()
         logger.info("after drop t_recycle_in_s3, remote file number is ${filesAfterDrop.size()}")

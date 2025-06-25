@@ -30,7 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
-import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -500,9 +500,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
         } else if (isMysqlLoad) {
             etlJobType = EtlJobType.LOCAL_FILE;
         } else {
-            // if cluster is null, use default hadoop cluster
-            // if cluster is not null, use this hadoop cluster
-            etlJobType = EtlJobType.HADOOP;
+            etlJobType = EtlJobType.UNKNOWN;
         }
 
         try {
@@ -572,7 +570,11 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     private void checkEndpoint(String endpoint) throws UserException {
         HttpURLConnection connection = null;
         try {
-            String urlStr = "http://" + endpoint;
+            String urlStr = endpoint;
+            // Add default protocol if not specified
+            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                urlStr = "http://" + endpoint;
+            }
             SecurityChecker.getInstance().startSSRFChecking(urlStr);
             URL url = new URL(urlStr);
             connection = (HttpURLConnection) url.openConnection();
@@ -607,8 +609,21 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             String endpoint = storageProperties.getEndpoint();
             checkEndpoint(endpoint);
             checkWhiteList(endpoint);
+            List<String> filePaths = new ArrayList<>();
+            if (dataDescriptions != null && !dataDescriptions.isEmpty()) {
+                for (DataDescription dataDescription : dataDescriptions) {
+                    if (dataDescription.getFilePaths() != null) {
+                        for (String filePath : dataDescription.getFilePaths()) {
+                            if (filePath != null && !filePath.isEmpty()) {
+                                filePaths.add(filePath);
+                            }
+                        }
+                    }
+                }
+            }
             //should add connectivity test
-            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties()).connectivityTest();
+            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties())
+                    .connectivityTest(filePaths);
             if (!connectivityTest) {
                 throw new UserException("Failed to access object storage, message=connectivity test failed");
             }
@@ -616,6 +631,8 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     public void checkWhiteList(String endpoint) throws UserException {
+        endpoint = endpoint.replaceFirst("^http://", "");
+        endpoint = endpoint.replaceFirst("^https://", "");
         List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
         whiteList.removeIf(String::isEmpty);
         if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {

@@ -44,8 +44,7 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-const uint8_t* EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start,
-                                                           const size_t length) {
+const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, const size_t length) {
     _total_len = length;
     size_t bound = update_reading_bound(start);
 
@@ -73,8 +72,7 @@ const uint8_t* EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start,
     return _result;
 }
 
-void EncloseCsvLineReaderContext::on_col_sep_found(const uint8_t* start,
-                                                   const uint8_t* col_sep_pos) {
+void EncloseCsvLineReaderCtx::on_col_sep_found(const uint8_t* start, const uint8_t* col_sep_pos) {
     const uint8_t* field_start = start + _idx;
     // record column separator's position
     _column_sep_positions.push_back(col_sep_pos - start);
@@ -82,7 +80,7 @@ void EncloseCsvLineReaderContext::on_col_sep_found(const uint8_t* start,
     _idx += forward_distance;
 }
 
-size_t EncloseCsvLineReaderContext::update_reading_bound(const uint8_t* start) {
+size_t EncloseCsvLineReaderCtx::update_reading_bound(const uint8_t* start) {
     _result = call_find_line_sep(start + _idx, _total_len - _idx);
     if (_result == nullptr) {
         return _total_len;
@@ -91,10 +89,10 @@ size_t EncloseCsvLineReaderContext::update_reading_bound(const uint8_t* start) {
 }
 
 template <bool SingleChar>
-const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos(const uint8_t* curr_start,
-                                                                    size_t curr_len,
-                                                                    const char* column_sep,
-                                                                    size_t column_sep_len) {
+const uint8_t* EncloseCsvLineReaderCtx::look_for_column_sep_pos(const uint8_t* curr_start,
+                                                                size_t curr_len,
+                                                                const char* column_sep,
+                                                                size_t column_sep_len) {
     const uint8_t* col_sep_pos = nullptr;
 
     if constexpr (SingleChar) {
@@ -112,13 +110,13 @@ const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos(const uint8_
     return col_sep_pos;
 }
 
-template const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos<true>(
+template const uint8_t* EncloseCsvLineReaderCtx::look_for_column_sep_pos<true>(
         const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
 
-template const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos<false>(
+template const uint8_t* EncloseCsvLineReaderCtx::look_for_column_sep_pos<false>(
         const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
 
-void EncloseCsvLineReaderContext::_on_start(const uint8_t* start, size_t& len) {
+void EncloseCsvLineReaderCtx::_on_start(const uint8_t* start, size_t& len) {
     if (start[_idx] == _enclose) [[unlikely]] {
         _state.forward_to(ReaderState::PRE_MATCH_ENCLOSE);
         ++_idx;
@@ -127,7 +125,7 @@ void EncloseCsvLineReaderContext::_on_start(const uint8_t* start, size_t& len) {
     }
 }
 
-void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) {
+void EncloseCsvLineReaderCtx::_on_normal(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
     size_t curr_len = len - _idx;
     const uint8_t* col_sep_pos =
@@ -142,18 +140,30 @@ void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) 
     _idx = len;
 }
 
-void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, size_t& len) {
+void EncloseCsvLineReaderCtx::_on_pre_match_enclose(const uint8_t* start, size_t& len) {
     do {
         do {
             if (start[_idx] == _escape) [[unlikely]] {
                 _should_escape = !_should_escape;
             } else if (_should_escape) [[unlikely]] {
                 _should_escape = false;
-            } else if (start[_idx] == _enclose) [[unlikely]] {
-                _state.forward_to(ReaderState::MATCH_ENCLOSE);
-                ++_idx;
-                return;
+            } else if (_quote_escape) {
+                // the last char is quote, so we need to check if the current char is quote to determine if it is escaped by quote
+                if (start[_idx] == _enclose) {
+                    // double quote, escaped by quote
+                    _quote_escape = false;
+                } else {
+                    // match enclose
+                    _quote_escape = false;
+                    _state.forward_to(ReaderState::MATCH_ENCLOSE);
+                    return;
+                }
+            } else if (start[_idx] == _enclose) {
+                _quote_escape = true;
+            } else {
+                _quote_escape = false;
             }
+
             ++_idx;
         } while (_idx != len);
 
@@ -170,7 +180,7 @@ void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, si
     } while (true);
 }
 
-void EncloseCsvLineReaderContext::_on_match_enclose(const uint8_t* start, size_t& len) {
+void EncloseCsvLineReaderCtx::_on_match_enclose(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
     size_t curr_len = len - _idx;
     const uint8_t* delim_pos =

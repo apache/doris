@@ -17,14 +17,14 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.fsv2.FileSystemFactory;
-import org.apache.doris.fsv2.remote.RemoteFile;
-import org.apache.doris.fsv2.remote.RemoteFileSystem;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;
@@ -100,7 +100,7 @@ public class RepositoryTest {
 
     @Test
     public void testGet() {
-        repo = new Repository(10000, "repo", false, location, fileSystem, null);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
 
         Assert.assertEquals(repoId, repo.getId());
         Assert.assertEquals(name, repo.getName());
@@ -128,7 +128,7 @@ public class RepositoryTest {
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, fileSystem, null);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
 
         Status st = repo.initRepository();
         System.out.println(st);
@@ -137,7 +137,7 @@ public class RepositoryTest {
 
     @Test
     public void testassemnblePath() throws MalformedURLException, URISyntaxException {
-        repo = new Repository(10000, "repo", false, location, fileSystem, null);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
 
         // job info
         String label = "label";
@@ -178,7 +178,7 @@ public class RepositoryTest {
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, fileSystem, null);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
         Assert.assertTrue(repo.ping());
         Assert.assertTrue(repo.getErrorMsg() == null);
     }
@@ -199,7 +199,7 @@ public class RepositoryTest {
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, fileSystem, null);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
         List<String> snapshotNames = Lists.newArrayList();
         Status st = repo.listSnapshots(snapshotNames);
         Assert.assertTrue(st.ok());
@@ -225,7 +225,7 @@ public class RepositoryTest {
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, fileSystem, null);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
         String localFilePath = "./tmp_" + System.currentTimeMillis();
         try (PrintWriter out = new PrintWriter(localFilePath)) {
             out.print("a");
@@ -272,20 +272,13 @@ public class RepositoryTest {
                 }
             };
 
-            repo = new Repository(10000, "repo", false, location, fileSystem, null);
+            repo = new Repository(10000, "repo", false, location, fileSystem);
             String remoteFilePath = location + "/remote_file";
             Status st = repo.download(remoteFilePath, localFilePath);
             Assert.assertTrue(st.ok());
         } finally {
             localFile.delete();
         }
-    }
-
-    @Test
-    public void testGetInfo() {
-        repo = new Repository(10000, "repo", false, location, fileSystem, null);
-        List<String> infos = repo.getInfo();
-        Assert.assertTrue(infos.size() == ShowRepositoriesStmt.TITLE_NAMES.size());
     }
 
     @Test
@@ -311,7 +304,7 @@ public class RepositoryTest {
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, fileSystem, null);
+        repo = new Repository(10000, "repo", false, location, fileSystem);
         String snapshotName = "";
         String timestamp = "";
         try {
@@ -331,8 +324,8 @@ public class RepositoryTest {
         properties.put("bos_endpoint", "http://gz.bcebos.com");
         properties.put("bos_accesskey", "a");
         properties.put("bos_secret_accesskey", "b");
-        RemoteFileSystem fs = FileSystemFactory.get(properties);
-        repo = new Repository(10000, "repo", false, location, fs, null);
+        RemoteFileSystem fs = FileSystemFactory.get(StorageProperties.createPrimary(properties));
+        repo = new Repository(10000, "repo", false, location, fs);
 
         File file = new File("./Repository");
         try {
@@ -362,7 +355,7 @@ public class RepositoryTest {
     public void testPathNormalize() {
 
         String newLoc = "bos://cmy_bucket/bos_repo/";
-        repo = new Repository(10000, "repo", false, newLoc, fileSystem, null);
+        repo = new Repository(10000, "repo", false, newLoc, fileSystem);
         String path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content/__db_10000/");
         Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000/", path);
 
@@ -370,7 +363,7 @@ public class RepositoryTest {
         Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000", path);
 
         newLoc = "hdfs://path/to/repo";
-        repo = new Repository(10000, "repo", false, newLoc, fileSystem, null);
+        repo = new Repository(10000, "repo", false, newLoc, fileSystem);
         SnapshotInfo snapshotInfo = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path", Lists.newArrayList());
         path = repo.getRepoTabletPathBySnapshotInfo("label1", snapshotInfo);
         Assert.assertEquals("hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5", path);

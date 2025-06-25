@@ -98,7 +98,7 @@ public:
         return result_size;
     }
 
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override {
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override {
         if (s != perm.size()) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "Size of permutation doesn't match size of column.");

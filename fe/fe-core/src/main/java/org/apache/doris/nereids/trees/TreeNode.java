@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees;
 
+import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
@@ -47,6 +48,10 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     List<NODE_TYPE> children();
 
     NODE_TYPE child(int index);
+
+    default Optional<Origin> getOrigin() {
+        return Optional.empty();
+    }
 
     int arity();
 

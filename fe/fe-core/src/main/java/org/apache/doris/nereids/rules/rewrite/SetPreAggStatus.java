@@ -295,12 +295,12 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                 } else if (aggFunc.children().size() == 1 && aggFunc.child(0) instanceof Slot) {
                     Slot aggSlot = (Slot) aggFunc.child(0);
                     if (aggSlot instanceof SlotReference
-                            && ((SlotReference) aggSlot).getColumn().isPresent()) {
-                        if (((SlotReference) aggSlot).getColumn().get().isKey()) {
+                            && ((SlotReference) aggSlot).getOriginalColumn().isPresent()) {
+                        if (((SlotReference) aggSlot).getOriginalColumn().get().isKey()) {
                             preAggStatus = OneKeySlotAggChecker.INSTANCE.check(aggFunc);
                         } else {
                             preAggStatus = OneValueSlotAggChecker.INSTANCE.check(aggFunc,
-                                    ((SlotReference) aggSlot).getColumn().get().getAggregationType());
+                                    ((SlotReference) aggSlot).getOriginalColumn().get().getAggregationType());
                         }
                     } else {
                         preAggStatus = PreAggStatus.off(
@@ -323,8 +323,8 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             Set<SlotReference> keySlots = com.google.common.collect.Sets.newHashSetWithExpectedSize(slots.size());
             Set<SlotReference> valueSlots = com.google.common.collect.Sets.newHashSetWithExpectedSize(slots.size());
             for (Slot slot : slots) {
-                if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()) {
-                    if (((SlotReference) slot).getColumn().get().isKey()) {
+                if (slot instanceof SlotReference && ((SlotReference) slot).getOriginalColumn().isPresent()) {
+                    if (((SlotReference) slot).getOriginalColumn().get().isKey()) {
                         keySlots.add((SlotReference) slot);
                     } else {
                         valueSlots.add((SlotReference) slot);
@@ -577,14 +577,14 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
             private boolean isKeySlot(Expression expression) {
                 return expression instanceof SlotReference
-                        && ((SlotReference) expression).getColumn().isPresent()
-                        && ((SlotReference) expression).getColumn().get().isKey();
+                        && ((SlotReference) expression).getOriginalColumn().isPresent()
+                        && ((SlotReference) expression).getOriginalColumn().get().isKey();
             }
 
             private boolean isAggTypeMatched(Expression expression, AggregateType aggregateType) {
                 return expression instanceof SlotReference
-                        && ((SlotReference) expression).getColumn().isPresent()
-                        && ((SlotReference) expression).getColumn().get()
+                        && ((SlotReference) expression).getOriginalColumn().isPresent()
+                        && ((SlotReference) expression).getOriginalColumn().get()
                                 .getAggregationType() == aggregateType;
             }
         }

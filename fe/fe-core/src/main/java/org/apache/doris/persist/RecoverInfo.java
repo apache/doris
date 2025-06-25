@@ -17,9 +17,7 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -99,20 +97,7 @@ public class RecoverInfo implements Writable, GsonPostProcessable {
     }
 
     public static RecoverInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), RecoverInfo.class);
-        } else {
-            RecoverInfo recoverInfo = new RecoverInfo();
-            recoverInfo.readFields(in);
-            return recoverInfo;
-        }
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partitionId = in.readLong();
+        return GsonUtils.GSON.fromJson(Text.readString(in), RecoverInfo.class);
     }
 
     @Override

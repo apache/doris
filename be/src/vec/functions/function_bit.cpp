@@ -39,13 +39,18 @@ struct NameBitAnd {
     static constexpr auto name = "bitand";
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct BitAndImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr PrimitiveType ResultType =
+            NumberTraits::ResultOfBit<typename PrimitiveTypeTraits<A>::CppNativeType,
+                                      typename PrimitiveTypeTraits<B>::CppNativeType>::Type;
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) & static_cast<Result>(b);
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(
+            typename PrimitiveTypeTraits<A>::CppNativeType a,
+            typename PrimitiveTypeTraits<B>::CppNativeType b) {
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) &
+               static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(b);
     }
 };
 
@@ -55,22 +60,29 @@ struct NameBitNot {
 
 template <typename A>
 struct BitNotImpl {
-    using ResultType = typename NumberTraits::ResultOfBitNot<A>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBitNot<A>::Type;
 
-    static inline ResultType apply(A a) { return ~static_cast<ResultType>(a); }
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        return ~static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
+    }
 };
 
 struct NameBitOr {
     static constexpr auto name = "bitor";
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct BitOrImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr PrimitiveType ResultType =
+            NumberTraits::ResultOfBit<typename PrimitiveTypeTraits<A>::CppNativeType,
+                                      typename PrimitiveTypeTraits<B>::CppNativeType>::Type;
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) | static_cast<Result>(b);
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(
+            typename PrimitiveTypeTraits<A>::CppNativeType a,
+            typename PrimitiveTypeTraits<B>::CppNativeType b) {
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) |
+               static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(b);
     }
 };
 
@@ -78,13 +90,18 @@ struct NameBitXor {
     static constexpr auto name = "bitxor";
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct BitXorImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr PrimitiveType ResultType =
+            NumberTraits::ResultOfBit<typename PrimitiveTypeTraits<A>::CppNativeType,
+                                      typename PrimitiveTypeTraits<B>::CppNativeType>::Type;
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) ^ static_cast<Result>(b);
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(
+            typename PrimitiveTypeTraits<A>::CppNativeType a,
+            typename PrimitiveTypeTraits<B>::CppNativeType b) {
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) ^
+               static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(b);
     }
 };
 
@@ -96,7 +113,7 @@ struct BitLengthImpl {
     using ReturnType = DataTypeInt32;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {

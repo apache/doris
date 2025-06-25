@@ -81,7 +81,7 @@ bvar::LatencyRecorder g_stream_load_commit_and_publish_latency_ms("stream_load",
                                                                   "commit_and_publish_ms");
 
 static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
-static const string CHUNK = "chunked";
+static const std::string CHUNK = "chunked";
 
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
@@ -257,10 +257,6 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
         ctx->header_type = format_str;
         //treat as CSV
-        format_str = BeConsts::CSV;
-    }
-    if (iequal(format_str, "hive_text")) {
-        ctx->header_type = format_str;
         format_str = BeConsts::CSV;
     }
     LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,

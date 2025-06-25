@@ -28,7 +28,6 @@
 #endif
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "gutil/bits.h"
 #include "gutil/endian.h"
 #include "util/cpu_info.h"
 #include "util/sse_util.hpp"
@@ -257,10 +256,10 @@ public:
     }
 
     // Wrap the gutil/ version for convenience.
-    static inline int Log2FloorNonZero64(uint64_t n) { return Bits::Log2FloorNonZero64(n); }
+    static inline int Log2FloorNonZero64(uint64_t n) { return 63 ^ __builtin_clzll(n); }
 
     // Wrap the gutil/ version for convenience.
-    static inline int Log2Floor64(uint64_t n) { return Bits::Log2Floor64(n); }
+    static inline int Log2Floor64(uint64_t n) { return n == 0 ? -1 : 63 ^ __builtin_clzll(n); }
 
     static inline int Log2Ceiling64(uint64_t n) {
         int floor = Log2Floor64(n);
@@ -384,19 +383,27 @@ public:
 
     // Returns the 'num_bits' least-significant bits of 'v'.
     static inline uint64_t TrailingBits(uint64_t v, int num_bits) {
-        if (PREDICT_FALSE(num_bits == 0)) return 0;
-        if (PREDICT_FALSE(num_bits >= 64)) return v;
+        if (num_bits == 0) [[unlikely]] {
+            return 0;
+        }
+        if (num_bits >= 64) [[unlikely]] {
+            return v;
+        }
         int n = 64 - num_bits;
         return (v << n) >> n;
     }
 
     static inline uint64_t ShiftLeftZeroOnOverflow(uint64_t v, int num_bits) {
-        if (PREDICT_FALSE(num_bits >= 64)) return 0;
+        if (num_bits >= 64) [[unlikely]] {
+            return 0;
+        }
         return v << num_bits;
     }
 
     static inline uint64_t ShiftRightZeroOnOverflow(uint64_t v, int num_bits) {
-        if (PREDICT_FALSE(num_bits >= 64)) return 0;
+        if (num_bits >= 64) [[unlikely]] {
+            return 0;
+        }
         return v >> num_bits;
     }
 

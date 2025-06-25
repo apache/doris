@@ -35,8 +35,8 @@ namespace doris {
 
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
                                UniqueKeyUpdateModePB unique_key_update_mode,
-                               const std::set<string>& partial_update_cols, bool is_strict_mode,
-                               int64_t timestamp_ms, int32_t nano_seconds,
+                               const std::set<std::string>& partial_update_cols,
+                               bool is_strict_mode, int64_t timestamp_ms, int32_t nano_seconds,
                                const std::string& timezone,
                                const std::string& auto_increment_column,
                                int32_t sequence_map_col_uid, int64_t cur_max_version) {
@@ -266,7 +266,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
-            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT &&
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_BITMAP &&
                                 to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
                                         std::string::npos)) {
                 BitmapValue v = BitmapValue {};

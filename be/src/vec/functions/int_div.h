@@ -29,14 +29,18 @@
 
 namespace doris::vectorized {
 
-template <typename A, typename B>
+template <PrimitiveType TypeA, PrimitiveType TypeB>
 struct DivideIntegralImpl {
-    using ResultType = typename NumberTraits::ResultOfIntegerDivision<A, B>::Type;
-    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
+    using A = std::conditional_t<TypeA == TYPE_BOOLEAN, UInt8,
+                                 typename PrimitiveTypeTraits<TypeA>::CppNativeType>;
+    using B = std::conditional_t<TypeB == TYPE_BOOLEAN, UInt8,
+                                 typename PrimitiveTypeTraits<TypeB>::CppNativeType>;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfIntegerDivision<A, B>::Type;
+    using Traits = NumberTraits::BinaryOperatorTraits<TypeA, TypeB>;
 
-    template <typename Result = ResultType>
+    template <PrimitiveType Result = ResultType>
     static void apply(const typename Traits::ArrayA& a, B b,
-                      typename ColumnVector<Result>::Container& c,
+                      typename PrimitiveTypeTraits<Result>::ColumnType::Container& c,
                       typename Traits::ArrayNull& null_map) {
         size_t size = c.size();
         UInt8 is_null = b == 0;
@@ -51,16 +55,17 @@ struct DivideIntegralImpl {
                 }
             } else {
                 for (size_t i = 0; i < size; i++) {
-                    c[i] = Result(a[i] / b);
+                    c[i] = typename PrimitiveTypeTraits<Result>::ColumnItemType(a[i] / b);
                 }
             }
         }
     }
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b, UInt8& is_null) {
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::ColumnItemType apply(A a, B b,
+                                                                             UInt8& is_null) {
         is_null = b == 0;
-        return Result(a / (b + is_null));
+        return typename PrimitiveTypeTraits<Result>::ColumnItemType(a / (b + is_null));
     }
 };
 

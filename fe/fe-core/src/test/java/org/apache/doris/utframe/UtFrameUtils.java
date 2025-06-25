@@ -22,8 +22,6 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.ShowCreateTableStmt;
-import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -41,8 +39,6 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.ShowExecutor;
-import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -439,28 +435,6 @@ public class UtFrameUtils {
             Env.getCurrentEnv().createTable(stmt);
         }
         updateReplicaPathHash();
-    }
-
-    public static ShowResultSet showCreateTable(ConnectContext ctx, String sql) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql, ctx);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        return executor.execute();
-    }
-
-    public static ShowResultSet showCreateTableByName(ConnectContext ctx, String table) throws Exception {
-        String sql = "show create table " + table;
-        return showCreateTable(ctx, sql);
-    }
-
-    public static ShowResultSet showPartitions(ConnectContext ctx, String sql) throws Exception {
-        ShowPartitionsStmt stmt = (ShowPartitionsStmt) parseAndAnalyzeStmt(sql, ctx);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        return executor.execute();
-    }
-
-    public static ShowResultSet showPartitionsByName(ConnectContext ctx, String table) throws Exception {
-        String sql = "show partitions from " + table;
-        return showPartitions(ctx, sql);
     }
 
     private static void updateReplicaPathHash() {

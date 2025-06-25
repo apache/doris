@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/custom_allocator.h"
 
@@ -91,11 +90,11 @@ struct ProcessHashTableProbe {
     const std::shared_ptr<vectorized::Block>& _build_block;
     std::unique_ptr<vectorized::Arena> _arena;
 
-    vectorized::ColumnVector<uint32_t> _probe_indexs;
-    vectorized::ColumnVector<uint32_t> _output_row_indexs;
+    vectorized::ColumnOffset32 _probe_indexs;
+    vectorized::ColumnOffset32 _output_row_indexs;
     bool _probe_visited = false;
     bool _picking_null_keys = false;
-    vectorized::ColumnVector<uint32_t> _build_indexs;
+    vectorized::ColumnOffset32 _build_indexs;
     std::vector<uint8_t> _null_flags;
 
     /// If the probe key of one row on left side is null,

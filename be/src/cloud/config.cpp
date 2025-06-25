@@ -40,6 +40,7 @@ DEFINE_Int64(tablet_cache_capacity, "100000");
 DEFINE_Int64(tablet_cache_shards, "16");
 DEFINE_mInt32(tablet_sync_interval_s, "1800");
 DEFINE_mInt32(init_scanner_sync_rowsets_parallelism, "10");
+DEFINE_mInt32(sync_rowsets_slow_threshold_ms, "1000");
 
 DEFINE_mInt64(min_compaction_failure_interval_ms, "5000");
 DEFINE_mInt64(base_compaction_freeze_interval_s, "7200");
@@ -66,7 +67,7 @@ DEFINE_mBool(save_load_error_log_to_s3, "false");
 
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
-DEFINE_mBool(enable_new_tablet_do_compaction, "false");
+DEFINE_mBool(enable_new_tablet_do_compaction, "true");
 
 DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
 

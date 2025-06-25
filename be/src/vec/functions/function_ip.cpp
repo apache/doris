@@ -52,12 +52,12 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIPv6CIDRToRange>();
 
     /// Convert to IPv4/IPv6 part
-    factory.register_function<FunctionToIP<IPConvertExceptionMode::Throw, IPv4>>();
-    factory.register_function<FunctionToIP<IPConvertExceptionMode::Default, IPv4>>();
-    factory.register_function<FunctionToIP<IPConvertExceptionMode::Null, IPv4>>();
-    factory.register_function<FunctionToIP<IPConvertExceptionMode::Throw, IPv6>>();
-    factory.register_function<FunctionToIP<IPConvertExceptionMode::Default, IPv6>>();
-    factory.register_function<FunctionToIP<IPConvertExceptionMode::Null, IPv6>>();
+    factory.register_function<FunctionToIP<IPConvertExceptionMode::Throw, TYPE_IPV4>>();
+    factory.register_function<FunctionToIP<IPConvertExceptionMode::Default, TYPE_IPV4>>();
+    factory.register_function<FunctionToIP<IPConvertExceptionMode::Null, TYPE_IPV4>>();
+    factory.register_function<FunctionToIP<IPConvertExceptionMode::Throw, TYPE_IPV6>>();
+    factory.register_function<FunctionToIP<IPConvertExceptionMode::Default, TYPE_IPV6>>();
+    factory.register_function<FunctionToIP<IPConvertExceptionMode::Null, TYPE_IPV6>>();
 
     /// Convert between IPv4 and IPv6 part
     factory.register_function<FunctionIPv4ToIPv6>();

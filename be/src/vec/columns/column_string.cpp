@@ -27,13 +27,13 @@
 #include "runtime/primitive_type.h"
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
+#include "util/simd/vstring_function.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
-
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
@@ -383,7 +383,7 @@ Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
 }
 
 template <typename T>
-ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = offsets.size();
 
     if (limit == 0) {
@@ -650,8 +650,8 @@ void ColumnStr<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 
 template <typename T>
 void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                                    int direction, std::vector<uint8>& cmp_res,
-                                    uint8* __restrict filter) const {
+                                    int direction, std::vector<uint8_t>& cmp_res,
+                                    uint8_t* __restrict filter) const {
     sanity_check_simple();
     auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
@@ -775,6 +775,11 @@ void ColumnStr<T>::insert(const Field& x) {
     memcpy(chars.data() + old_size, s.data, size_to_append);
     offsets.push_back(new_size);
     sanity_check_simple();
+}
+
+template <typename T>
+bool ColumnStr<T>::is_ascii() const {
+    return simd::VStringFunctions::is_ascii(StringRef(chars.data(), chars.size()));
 }
 
 template class ColumnStr<uint32_t>;

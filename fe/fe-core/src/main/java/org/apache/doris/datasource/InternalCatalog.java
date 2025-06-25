@@ -146,8 +146,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -593,11 +591,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                                         + " please use \"DROP table FORCE\".");
                                 }
                             }
-                        }
-                    }
-                    for (Table table : tableList) {
-                        if (table.getType() == TableType.MATERIALIZED_VIEW) {
-                            Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
                         }
                     }
                     unprotectDropDb(db, force, false, 0);
@@ -1059,9 +1052,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         long recycleTime = 0;
         try {
-            if (table.getType() == TableType.MATERIALIZED_VIEW) {
-                Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
-            }
             unprotectDropTable(db, table, forceDrop, false, 0);
             if (watch != null) {
                 watch.split();
@@ -1104,7 +1094,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
         }
-
+        if (table instanceof MTMV) {
+            Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
+        }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
@@ -2025,7 +2017,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        long version = olapTable.getVisibleVersion();
+        // In cloud mode, the internal partition deletion logic will update the table version,
+        // so here we only need to handle non-cloud mode.
+        long version = 0L;
         long versionTime = olapTable.getVisibleVersionTime();
         // Only update table version if drop a non-empty partition
         if (partition != null && partition.hasData()) {
@@ -3279,19 +3273,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
         if (olapTable instanceof MTMV) {
-            try {
-                Env.getCurrentEnv().getMtmvService().createMTMV((MTMV) olapTable);
-            } catch (Throwable t) {
-                LOG.warn("create mv failed, start rollback, error msg: " + t.getMessage());
-                try {
-                    DropMTMVInfo dropMTMVInfo = new DropMTMVInfo(
-                            new TableNameInfo(olapTable.getDatabase().getFullName(), olapTable.getName()), true);
-                    Env.getCurrentEnv().dropTable(dropMTMVInfo.translateToLegacyStmt());
-                } catch (Throwable throwable) {
-                    LOG.warn("rollback mv failed, please drop mv by manual, error msg: " + t.getMessage());
-                }
-                throw t;
-            }
+            Env.getCurrentEnv().getMtmvService().postCreateMTMV((MTMV) olapTable);
         }
         return tableHasExist;
     }

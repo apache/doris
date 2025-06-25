@@ -22,7 +22,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
-import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
@@ -30,9 +29,8 @@ import java.util.Set;
 
 public class HdfsPropertiesUtils {
     private static final String URI_KEY = "uri";
-    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
 
-    public static String validateAndGetUri(Map<String, String> props) throws UserException {
+    public static String validateAndGetUri(Map<String, String> props, Set<String> supportSchemas) throws UserException {
         if (props.isEmpty()) {
             throw new UserException("props is empty");
         }
@@ -40,10 +38,11 @@ public class HdfsPropertiesUtils {
         if (StringUtils.isBlank(uriStr)) {
             throw new StoragePropertiesException("props must contain uri");
         }
-        return validateAndNormalizeUri(uriStr);
+        return validateAndNormalizeUri(uriStr, supportSchemas);
     }
 
-    public static boolean validateUriIsHdfsUri(Map<String, String> props) {
+    public static boolean validateUriIsHdfsUri(Map<String, String> props,
+                                               Set<String> supportSchemas) {
         String uriStr = getUri(props);
         if (StringUtils.isBlank(uriStr)) {
             return false;
@@ -54,7 +53,7 @@ public class HdfsPropertiesUtils {
             if (StringUtils.isBlank(schema)) {
                 throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
             }
-            return isSupportedSchema(schema);
+            return isSupportedSchema(schema, supportSchemas);
         } catch (AnalysisException e) {
             throw new IllegalArgumentException("Invalid uri: " + uriStr, e);
         }
@@ -72,14 +71,14 @@ public class HdfsPropertiesUtils {
         }
     }
 
-    public static String extractDefaultFsFromUri(Map<String, String> props) {
+    public static String extractDefaultFsFromUri(Map<String, String> props, Set<String> supportSchemas) {
         String uriStr = getUri(props);
         if (StringUtils.isBlank(uriStr)) {
             return null;
         }
         try {
             URI uri = URI.create(uriStr);
-            if (!isSupportedSchema(uri.getScheme())) {
+            if (!isSupportedSchema(uri.getScheme(), supportSchemas)) {
                 return null;
             }
             return uri.getScheme() + "://" + uri.getAuthority();
@@ -88,24 +87,39 @@ public class HdfsPropertiesUtils {
         }
     }
 
-    public static String convertUrlToFilePath(String uriStr) throws UserException {
-        return validateAndNormalizeUri(uriStr);
+    public static String convertUrlToFilePath(String uriStr, Set<String> supportSchemas) throws UserException {
+        return validateAndNormalizeUri(uriStr, supportSchemas);
     }
 
+    /*
+     * Extracts the URI value from the given properties.
+     * If multiple URIs are specified (separated by commas), this method returns null.
+     * Note: Some storage systems may support multiple URIs (e.g., for load balancing or multi-host),
+     * but in the HDFS scenario, fs.defaultFS only supports a single URI.
+     * Therefore, such a format is considered invalid for HDFS. so, just return null.
+     */
     private static String getUri(Map<String, String> props) {
-        return props.entrySet().stream()
+        String uriValue = props.entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
                 .map(Map.Entry::getValue)
                 .filter(StringUtils::isNotBlank)
                 .findFirst()
                 .orElse(null);
+        if (uriValue == null) {
+            return null;
+        }
+        String[] uris = uriValue.split(",");
+        if (uris.length > 1) {
+            return null;
+        }
+        return uriValue;
     }
 
-    private static boolean isSupportedSchema(String schema) {
+    private static boolean isSupportedSchema(String schema, Set<String> supportSchema) {
         return schema != null && supportSchema.contains(schema.toLowerCase());
     }
 
-    private static String validateAndNormalizeUri(String uriStr) throws AnalysisException {
+    private static String validateAndNormalizeUri(String uriStr, Set<String> supportSchema) throws AnalysisException {
         if (StringUtils.isBlank(uriStr)) {
             throw new IllegalArgumentException("Properties 'uri' is required");
         }
@@ -114,7 +128,7 @@ public class HdfsPropertiesUtils {
         if (StringUtils.isBlank(schema)) {
             throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
         }
-        if (!isSupportedSchema(schema)) {
+        if (!isSupportedSchema(schema, supportSchema)) {
             throw new IllegalArgumentException("Invalid export path:"
                     + schema + " , please use valid 'hdfs://' or 'viewfs://' path.");
         }

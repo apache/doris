@@ -45,21 +45,22 @@ class IColumn;
 
 namespace doris::vectorized {
 
-class DataTypeDate final : public DataTypeNumberBase<Int64> {
+class DataTypeDate final : public DataTypeNumberBase<PrimitiveType::TYPE_DATE> {
 public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATE; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATE;
     }
-    const char* get_family_name() const override { return "DateTime"; }
+    const std::string get_family_name() const override { return "Date"; }
     std::string do_get_name() const override { return "Date"; }
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<Int64>::template to_string_batch_impl<DataTypeDate>(column, column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_DATE>::template to_string_batch_impl<DataTypeDate>(
+                column, column_to);
     }
 
     size_t number_length() const;
@@ -87,7 +88,7 @@ public:
     MutableColumnPtr create_column() const override;
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDate64SerDe>(nesting_level);
+        return std::make_shared<DataTypeDate64SerDe<TYPE_DATE>>(nesting_level);
     }
 };
 #include "common/compile_check_end.h"

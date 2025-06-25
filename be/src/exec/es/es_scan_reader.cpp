@@ -75,7 +75,7 @@ ESScanReader::ESScanReader(const std::string& target,
             _doc_value_mode ? DOCVALUE_SCROLL_SEARCH_FILTER_PATH : SOURCE_SCROLL_SEARCH_FILTER_PATH;
 
     // When shard_id is negative(-1), the request will be sent to ES without shard preference.
-    int32 shard_id = std::stoi(_shards);
+    int32_t shard_id = std::stoi(_shards);
     if (props.find(KEY_TERMINATE_AFTER) != props.end()) {
         _exactly_once = true;
         std::stringstream scratch;

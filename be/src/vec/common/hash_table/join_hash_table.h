@@ -178,7 +178,7 @@ public:
     }
 
     template <int JoinOpType, bool is_mark_join>
-    bool iterate_map(vectorized::ColumnVector<uint32_t>& build_idxs,
+    bool iterate_map(vectorized::ColumnOffset32& build_idxs,
                      vectorized::ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
@@ -209,7 +209,7 @@ public:
 
     bool keep_null_key() { return _keep_null_key; }
 
-    void pre_build_idxs(DorisVector<uint32>& buckets) const {
+    void pre_build_idxs(DorisVector<uint32_t>& buckets) const {
         for (unsigned int& bucket : buckets) {
             bucket = first[bucket];
         }

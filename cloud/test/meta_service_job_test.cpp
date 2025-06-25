@@ -30,6 +30,7 @@
 #include <random>
 #include <string>
 
+#include "common/defer.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
@@ -313,8 +314,9 @@ void finish_schema_change_job(
 
 TEST(MetaServiceJobTest, StartCompactionArguments) {
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -376,8 +378,9 @@ TEST(MetaServiceJobTest, StartCompactionArguments) {
 
 TEST(MetaServiceJobTest, StartFullCompaction) {
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -431,8 +434,9 @@ TEST(MetaServiceJobTest, StartFullCompaction) {
 
 TEST(MetaServiceJobTest, StartSchemaChangeArguments) {
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -536,8 +540,9 @@ TEST(MetaServiceJobTest, StartSchemaChangeArguments) {
 
 TEST(MetaServiceJobTest, ProcessCompactionArguments) {
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -635,8 +640,9 @@ TEST(MetaServiceJobTest, ProcessCompactionArguments) {
 
 TEST(MetaServiceJobTest, ProcessSchemaChangeArguments) {
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -779,8 +785,9 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -1155,8 +1162,9 @@ void check_compaction_key(MetaServiceProxy* meta_service, std::string instance_i
 TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2666,8 +2674,9 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
 TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2937,8 +2946,9 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3161,8 +3171,9 @@ TEST(MetaServiceJobTest, RetrySchemaChangeJobTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3326,8 +3337,9 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3387,12 +3399,46 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
 
         res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, 12345);
         ASSERT_EQ(res_code, MetaServiceCode::OK);
+
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
+        std::string pending_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        res_code = update_delete_bitmap(meta_service.get(), table_id, partition_id, new_tablet_id,
+                                        -2, 12345);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+
+        // schema change job should write pending delete bitmap key
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_OK);
+        PendingDeleteBitmapPB pending_info;
+        ASSERT_TRUE(pending_info.ParseFromString(pending_val));
+        ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 3);
+        for (int i = 0; i < 3; ++i) {
+            std::string_view k1 = pending_info.delete_bitmap_keys(i);
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+            ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[3])), new_tablet_id);
+            ASSERT_EQ(std::get<std::string>(std::get<0>(out[4])),
+                      "0200000003ea308a3647dbea83220ed4b8897f2288244a91");
+            ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[5])), i);
+            ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[6])), 0);
+        }
+
         finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job1", "be1",
                                  output_rowsets, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, -2, 12345);
         ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
         res.Clear();
+
+        // pending delete bitmap key on new tablet should be removed after schema change job finishes
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     }
 
     {
@@ -3424,6 +3470,29 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         ASSERT_EQ(res_code, MetaServiceCode::OK);
         res.Clear();
     }
+
+    // alter version < 2
+    {
+        int64_t new_tablet_id = 16;
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                              new_tablet_id, true, true));
+        StartTabletJobResponse sc_res;
+        ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                        partition_id, tablet_id, new_tablet_id,
+                                                        "job2", "be1", sc_res));
+        std::vector<doris::RowsetMetaCloudPB> output_rowsets;
+        auto res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, 12345);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+        FinishTabletJobResponse res;
+        finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job2", "be1",
+                                 output_rowsets, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+        res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+        res.Clear();
+    }
 }
 
 TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
@@ -3431,8 +3500,9 @@ TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3782,8 +3852,9 @@ TEST(MetaServiceJobTest, ParallelCumuCompactionTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3901,8 +3972,9 @@ TEST(MetaServiceJobTest, SchemaChangeJobPersistTest) {
     auto meta_service = get_meta_service();
 
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3968,8 +4040,9 @@ TEST(MetaServiceJobTest, DoCompactionWhenSC) {
     auto meta_service = get_meta_service();
 
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4055,8 +4128,9 @@ TEST(MetaServiceJobTest, ReStartSC) {
     auto meta_service = get_meta_service();
 
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4100,8 +4174,9 @@ TEST(MetaServiceJobTest, CancelSC) {
     auto meta_service = get_meta_service();
 
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;

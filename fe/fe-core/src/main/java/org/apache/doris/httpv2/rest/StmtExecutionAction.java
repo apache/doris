@@ -119,7 +119,6 @@ public class StmtExecutionAction extends RestBaseController {
                             response, isStream);
     }
 
-
     /**
      * Get all create table stmt of a SQL
      *

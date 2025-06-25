@@ -169,14 +169,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     @Override
     public Statistics visitComparisonPredicate(ComparisonPredicate cp, EstimationContext context) {
         Expression left = cp.left();
-        if (left instanceof SlotReference && ((SlotReference) left).getColumn().isPresent()) {
-            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) left).getColumn().get().getName())) {
+        if (left instanceof SlotReference && ((SlotReference) left).getOriginalColumn().isPresent()) {
+            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) left).getOriginalColumn().get().getName())) {
                 return context.statistics;
             }
         }
         Expression right = cp.right();
-        if (right instanceof SlotReference && ((SlotReference) right).getColumn().isPresent()) {
-            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) right).getColumn().get().getName())) {
+        if (right instanceof SlotReference && ((SlotReference) right).getOriginalColumn().isPresent()) {
+            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) right).getOriginalColumn().get().getName())) {
                 return context.statistics;
             }
         }

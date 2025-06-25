@@ -19,6 +19,7 @@
 
 #include "cast_test.h"
 #include "olap/olap_common.h"
+#include "runtime/primitive_type.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -30,8 +31,9 @@ using namespace ut_type;
 struct FunctionCastToFloatTest : public FunctionCastTest {
     const std::vector<std::string> white_spaces = {" ", "\t", "\r", "\n", "\f", "\v"};
     std::string white_spaces_str = " \t\r\n\f\v";
-    template <typename FloatType>
+    template <PrimitiveType FloatPType>
     void from_string_test_func() {
+        using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 // Zero and sign variations
@@ -158,12 +160,14 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 */
         };
 
-        check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set);
     }
 
-    template <typename IntType, typename FloatType>
+    template <PrimitiveType IntPType, PrimitiveType FloatPType>
     void from_int_test_func() {
-        DataTypeNumber<IntType> dt_from;
+        using IntType = typename PrimitiveTypeTraits<IntPType>::CppType;
+        using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
+        DataTypeNumber<IntPType> dt_from;
         InputTypeSet input_types = {dt_from.get_primitive_type()};
         DataSet data_set = {
                 // Zero values
@@ -236,13 +240,14 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 // {{-(IntType(1) << 127)}, FloatType(-std::pow(2.0, 127))},
         };
 
-        check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set);
     }
-    template <typename FromT, int FromPrecision, int FromScale, typename FloatType>
+    template <PrimitiveType FromPT, int FromPrecision, int FromScale, PrimitiveType FloatPType>
     void from_decimalv3_no_overflow_test_func() {
+        using FromT = typename PrimitiveTypeTraits<FromPT>::CppType;
         static_assert(IsDecimalNumber<FromT>, "FromT must be a decimal type");
-
-        DataTypeDecimal<FromT> dt_from(FromPrecision, FromScale);
+        using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
+        DataTypeDecimal<FromPT> dt_from(FromPrecision, FromScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto decimal_ctor = get_decimal_ctor<FromT>();
 
@@ -296,7 +301,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                                                    large_fractional1,
                                                                    large_fractional2,
                                                                    large_fractional3};
-        DataTypeDecimal<FromT> dt(FromPrecision, FromScale);
+        DataTypeDecimal<FromPT> dt(FromPrecision, FromScale);
         DataSet data_set;
         std::string dbg_str =
                 fmt::format("test cast Decimal({}, {}) to {}: ", FromPrecision, FromScale,
@@ -328,7 +333,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             }
             dbg_str += "\n";
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set);
             return;
         } else if constexpr (FromScale == FromPrecision) {
             // e.g. Decimal(9, 9), only fraction part
@@ -345,7 +350,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             }
             dbg_str += "\n";
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set);
             return;
         }
 
@@ -375,41 +380,42 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         }
         std::cout << dbg_str << std::endl;
 
-        check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set);
     }
 
-    template <typename FromT, typename ToT>
+    template <PrimitiveType FromPT, PrimitiveType ToPT>
     void from_decimal_test_func() {
-        constexpr auto max_decimal_pre = max_decimal_precision<FromT>();
+        constexpr auto max_decimal_pre = max_decimal_precision<FromPT>();
         constexpr auto min_decimal_pre =
-                std::is_same_v<FromT, Decimal32>
+                FromPT == TYPE_DECIMAL32
                         ? 1
-                        : (std::is_same_v<FromT, Decimal64>
+                        : (FromPT == TYPE_DECIMAL64
                                    ? BeConsts::MAX_DECIMAL32_PRECISION + 1
-                                   : (std::is_same_v<FromT, Decimal128V3>
+                                   : (FromPT == TYPE_DECIMAL128I
                                               ? BeConsts::MAX_DECIMAL64_PRECISION + 1
-                                              : (std::is_same_v<FromT, Decimal256>
+                                              : (FromPT == TYPE_DECIMAL256
                                                          ? BeConsts::MAX_DECIMAL128_PRECISION + 1
                                                          : 1)));
         static_assert(min_decimal_pre == 1 || min_decimal_pre > 9);
-        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, 0, ToT>();
+        from_decimalv3_no_overflow_test_func<FromPT, min_decimal_pre, 0, ToPT>();
         if constexpr (min_decimal_pre != 1) {
-            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre / 2,
-                                                 ToT>();
-            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre - 1,
-                                                 ToT>();
+            from_decimalv3_no_overflow_test_func<FromPT, min_decimal_pre, min_decimal_pre / 2,
+                                                 ToPT>();
+            from_decimalv3_no_overflow_test_func<FromPT, min_decimal_pre, min_decimal_pre - 1,
+                                                 ToPT>();
         }
-        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre, ToT>();
+        from_decimalv3_no_overflow_test_func<FromPT, min_decimal_pre, min_decimal_pre, ToPT>();
 
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 0, ToT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 1, ToT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre / 2, ToT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre - 1, ToT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre, ToT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, 0, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, 1, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, max_decimal_pre / 2, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, max_decimal_pre - 1, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, max_decimal_pre, ToPT>();
     }
 
-    template <typename FloatType>
+    template <PrimitiveType FloatPType>
     void from_date_test_func() {
+        using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
         InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2};
         std::vector<uint16_t> years = {0,   1,    9,    10,   11,   99,   100,  101,
                                        999, 1000, 1001, 1999, 2000, 2024, 2025, 9999};
@@ -432,11 +438,12 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             dbg_str += "\n";
         }
         std::cout << dbg_str << std::endl;
-        check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set, false);
+        check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set, false);
     }
 
-    template <typename FloatType, int Scale>
+    template <PrimitiveType FloatPType, int Scale>
     void from_datetime_test_func() {
+        using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
         InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, Scale}};
         std::vector<uint16_t> years = {0, 1, 10, 100, 2025, 9999};
         std::vector<uint8_t> months = {1, 10, 12};
@@ -473,11 +480,12 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             }
         }
         // std::cout << dbg_str << std::endl;
-        check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set, false);
+        check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set, false);
     }
 
-    template <typename ToT, bool negative>
+    template <PrimitiveType ToPT, bool negative>
     void from_time_test_func() {
+        using ToT = typename PrimitiveTypeTraits<ToPT>::CppType;
         InputTypeSet input_types = {{PrimitiveType::TYPE_TIMEV2, 6}};
         std::vector<int64_t> hours = {0, 1, 10, 100, 838};
         std::vector<int64_t> minutes = {0, 1, 10, 59};
@@ -499,7 +507,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         }
 
         std::cout << dbg_str << std::endl;
-        check_function_for_cast<DataTypeNumber<ToT>>(input_types, data_set, false);
+        check_function_for_cast<DataTypeNumber<ToPT>>(input_types, data_set, false);
     }
 };
 /*
@@ -532,8 +540,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
 <nan_literal> ::= <"NAN" case-insensitive>
 */
 TEST_F(FunctionCastToFloatTest, test_from_string) {
-    from_string_test_func<Float32>();
-    from_string_test_func<Float64>();
+    from_string_test_func<TYPE_FLOAT>();
+    from_string_test_func<TYPE_DOUBLE>();
 }
 TEST_F(FunctionCastToFloatTest, test_from_bool) {
     InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
@@ -542,37 +550,37 @@ TEST_F(FunctionCastToFloatTest, test_from_bool) {
                 {{UInt8 {0}}, Float32(0)},
                 {{UInt8 {1}}, Float32(1)},
         };
-        check_function_for_cast<DataTypeNumber<Float32>>(input_types, data_set);
+        check_function_for_cast<DataTypeFloat32>(input_types, data_set);
     }
     {
         DataSet data_set = {
                 {{UInt8 {0}}, Float64(0)},
                 {{UInt8 {1}}, Float64(1)},
         };
-        check_function_for_cast<DataTypeNumber<Float64>>(input_types, data_set);
+        check_function_for_cast<DataTypeFloat64>(input_types, data_set);
     }
 }
 
 TEST_F(FunctionCastToFloatTest, test_from_int) {
     // Test Int8 to Float32/Float64
-    from_int_test_func<Int8, Float32>();
-    from_int_test_func<Int8, Float64>();
+    from_int_test_func<TYPE_TINYINT, TYPE_FLOAT>();
+    from_int_test_func<TYPE_TINYINT, TYPE_DOUBLE>();
 
     // Test Int16 to Float32/Float64
-    from_int_test_func<Int16, Float32>();
-    from_int_test_func<Int16, Float64>();
+    from_int_test_func<TYPE_SMALLINT, TYPE_FLOAT>();
+    from_int_test_func<TYPE_SMALLINT, TYPE_DOUBLE>();
 
     // Test Int32 to Float32/Float64
-    from_int_test_func<Int32, Float32>();
-    from_int_test_func<Int32, Float64>();
+    from_int_test_func<TYPE_INT, TYPE_FLOAT>();
+    from_int_test_func<TYPE_INT, TYPE_DOUBLE>();
 
     // Test Int64 to Float32/Float64
-    from_int_test_func<Int64, Float32>();
-    from_int_test_func<Int64, Float64>();
+    from_int_test_func<TYPE_BIGINT, TYPE_FLOAT>();
+    from_int_test_func<TYPE_BIGINT, TYPE_DOUBLE>();
 
     // Test Int128 to Float32/Float64
-    from_int_test_func<Int128, Float32>();
-    from_int_test_func<Int128, Float64>();
+    from_int_test_func<TYPE_LARGEINT, TYPE_FLOAT>();
+    from_int_test_func<TYPE_LARGEINT, TYPE_DOUBLE>();
 }
 TEST_F(FunctionCastToFloatTest, test_from_float_to_double) {
     InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
@@ -663,7 +671,7 @@ TEST_F(FunctionCastToFloatTest, test_from_float_to_double) {
 
     };
 
-    check_function_for_cast<DataTypeNumber<Float64>>(input_types, data_set);
+    check_function_for_cast<DataTypeFloat64>(input_types, data_set);
 }
 TEST_F(FunctionCastToFloatTest, test_from_double_to_float) {
     InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
@@ -745,40 +753,40 @@ TEST_F(FunctionCastToFloatTest, test_from_double_to_float) {
 
     };
 
-    check_function_for_cast<DataTypeNumber<Float32>>(input_types, data_set);
+    check_function_for_cast<DataTypeFloat32>(input_types, data_set);
 }
 TEST_F(FunctionCastToFloatTest, test_from_decimal) {
-    from_decimal_test_func<Decimal32, Float32>();
-    from_decimal_test_func<Decimal64, Float32>();
-    from_decimal_test_func<Decimal128V3, Float32>();
-    from_decimal_test_func<Decimal256, Float32>();
+    from_decimal_test_func<TYPE_DECIMAL32, TYPE_FLOAT>();
+    from_decimal_test_func<TYPE_DECIMAL64, TYPE_FLOAT>();
+    from_decimal_test_func<TYPE_DECIMAL128I, TYPE_FLOAT>();
+    from_decimal_test_func<TYPE_DECIMAL256, TYPE_FLOAT>();
 
-    from_decimal_test_func<Decimal32, Float64>();
-    from_decimal_test_func<Decimal64, Float64>();
-    from_decimal_test_func<Decimal128V3, Float64>();
-    from_decimal_test_func<Decimal256, Float64>();
+    from_decimal_test_func<TYPE_DECIMAL32, TYPE_DOUBLE>();
+    from_decimal_test_func<TYPE_DECIMAL64, TYPE_DOUBLE>();
+    from_decimal_test_func<TYPE_DECIMAL128I, TYPE_DOUBLE>();
+    from_decimal_test_func<TYPE_DECIMAL256, TYPE_DOUBLE>();
 }
 TEST_F(FunctionCastToFloatTest, test_from_date) {
-    from_date_test_func<Float32>();
-    from_date_test_func<Float64>();
+    from_date_test_func<TYPE_FLOAT>();
+    from_date_test_func<TYPE_DOUBLE>();
 }
 
 TEST_F(FunctionCastToFloatTest, test_from_datetime) {
-    from_datetime_test_func<Float32, 0>();
-    from_datetime_test_func<Float32, 1>();
-    from_datetime_test_func<Float32, 3>();
-    from_datetime_test_func<Float32, 6>();
+    from_datetime_test_func<TYPE_FLOAT, 0>();
+    from_datetime_test_func<TYPE_FLOAT, 1>();
+    from_datetime_test_func<TYPE_FLOAT, 3>();
+    from_datetime_test_func<TYPE_FLOAT, 6>();
 
-    from_datetime_test_func<Float64, 0>();
-    from_datetime_test_func<Float64, 1>();
-    from_datetime_test_func<Float64, 3>();
-    from_datetime_test_func<Float64, 6>();
+    from_datetime_test_func<TYPE_DOUBLE, 0>();
+    from_datetime_test_func<TYPE_DOUBLE, 1>();
+    from_datetime_test_func<TYPE_DOUBLE, 3>();
+    from_datetime_test_func<TYPE_DOUBLE, 6>();
 }
 TEST_F(FunctionCastToFloatTest, test_from_time) {
-    from_time_test_func<Float32, false>();
-    from_time_test_func<Float32, true>();
+    from_time_test_func<TYPE_FLOAT, false>();
+    from_time_test_func<TYPE_FLOAT, true>();
 
-    from_time_test_func<Float64, false>();
-    from_time_test_func<Float64, true>();
+    from_time_test_func<TYPE_DOUBLE, false>();
+    from_time_test_func<TYPE_DOUBLE, true>();
 }
 } // namespace doris::vectorized

@@ -30,6 +30,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -51,7 +52,7 @@ public class ShowConstraintsCommand extends Command implements NoForward {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf tableIf = RelationUtil.getDbAndTable(
-                RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv()).value();
+                RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv(), Optional.empty()).value();
         tableIf.readLock();
         List<List<String>> res;
         try {

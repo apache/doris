@@ -64,7 +64,6 @@
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
@@ -240,7 +239,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
     DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
     DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
-    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP, "object")
     DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
     DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
     DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
@@ -1341,7 +1340,7 @@ Status VerticalSegmentWriter::_generate_short_key_index(
     return Status::OK();
 }
 
-void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, string* encoded_keys) {
+void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_keys) {
     encoded_keys->push_back(KEY_NORMAL_MARKER);
     _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
 }
@@ -1382,7 +1381,8 @@ std::string VerticalSegmentWriter::_full_encode_keys(
 }
 
 void VerticalSegmentWriter::_encode_seq_column(
-        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos, string* encoded_keys) {
+        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+        std::string* encoded_keys) {
     const auto* field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column

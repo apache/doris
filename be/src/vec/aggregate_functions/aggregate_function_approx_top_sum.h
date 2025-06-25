@@ -32,7 +32,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/space_saving.h"
 #include "vec/common/string_ref.h"
@@ -58,9 +57,9 @@ class AggregateFunctionApproxTopSum final
 private:
     using State = AggregateFunctionTopKGenericData;
 
-    using ResultDataType = DataTypeNumber<TResult>;
+    using ResultDataType = DataTypeNumber<T>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using ColVecResult = ColumnVector<TResult>;
+    using ColVecResult = typename PrimitiveTypeTraits<T>::ColumnType;
 
 public:
     AggregateFunctionApproxTopSum(const std::vector<std::string>& column_names,

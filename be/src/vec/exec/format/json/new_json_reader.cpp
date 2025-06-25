@@ -257,18 +257,23 @@ Status NewJsonReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
     return Status::OK();
 }
 
-Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                        std::vector<DataTypePtr>* col_types) {
+// init decompressor, file reader and line reader for parsing schema
+Status NewJsonReader::init_schema_reader() {
     RETURN_IF_ERROR(_get_range_params());
-
+    // create decompressor.
+    // _decompressor may be nullptr if this is not a compressed file
+    RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
     RETURN_IF_ERROR(_open_file_reader(true));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
-
     // generate _parsed_jsonpaths and _parsed_json_root
     RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
+    return Status::OK();
+}
 
+Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                        std::vector<DataTypePtr>* col_types) {
     bool eof = false;
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
@@ -873,7 +878,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
     if (!has_valid_value && _is_load) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
-        string col_names;
+        std::string col_names;
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
@@ -1646,7 +1651,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
     }
 
     if (!has_valid_value && _is_load) {
-        string col_names;
+        std::string col_names;
         for (auto* slot_desc : slot_descs) {
             col_names.append(slot_desc->col_name() + ", ");
         }
@@ -1792,7 +1797,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
             sub_col_name_to_idx.emplace(type_struct->get_element_name(sub_col_idx), sub_col_idx);
         }
-        vector<bool> has_value(sub_col_size, false);
+        std::vector<bool> has_value(sub_col_size, false);
         for (simdjson::ondemand::field sub : struct_value) {
             std::string_view sub_key_view = sub.unescaped_key();
             std::string sub_key(sub_key_view.data(), sub_key_view.length());
@@ -2113,6 +2118,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
             if (slot_desc->is_nullable()) {
                 nullable_column = assert_cast<ColumnNullable*>(column_ptr);
                 target_column_ptr = &nullable_column->get_nested_column();
+                nullable_column->get_null_map_data().push_back(0);
             }
             auto* column_string = assert_cast<ColumnString*>(target_column_ptr);
             column_string->insert_data(_simdjson_ondemand_padding_buffer.data(),
@@ -2137,7 +2143,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
     if (!has_valid_value) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
-        string col_names;
+        std::string col_names;
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);

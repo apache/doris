@@ -21,7 +21,6 @@
 #include <stddef.h>
 
 #include "runtime/decimalv2_value.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"
@@ -30,17 +29,20 @@
 
 namespace doris::vectorized {
 
-template <typename A, typename B>
+template <PrimitiveType TypeA, PrimitiveType TypeB>
 struct MultiplyImpl {
-    using ResultType = typename NumberTraits::ResultOfAdditionMultiplication<A, B>::Type;
+    using A = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
+    using B = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    static constexpr PrimitiveType ResultType =
+            NumberTraits::ResultOfAdditionMultiplication<A, B>::Type;
     static const constexpr bool allow_decimal = true;
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) * b;
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(A a, B b) {
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) * b;
     }
 
-    template <typename Result = DecimalV2Value>
+    template <PrimitiveType Result = TYPE_DECIMALV2>
     static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
         return a * b;
     }
@@ -53,8 +55,8 @@ struct MultiplyImpl {
     static void vector_vector(const ColumnDecimal128V2::Container::value_type* __restrict a,
                               const ColumnDecimal128V2::Container::value_type* __restrict b,
                               ColumnDecimal128V2::Container::value_type* c, size_t size) {
-        auto sng_uptr = std::unique_ptr<int8[]>(new int8[size]);
-        int8* sgn = sng_uptr.get();
+        auto sng_uptr = std::unique_ptr<int8_t[]>(new int8_t[size]);
+        int8_t* sgn = sng_uptr.get();
         auto max = DecimalV2Value::get_max_decimal();
         auto min = DecimalV2Value::get_min_decimal();
 
@@ -94,9 +96,10 @@ struct MultiplyImpl {
     }
 
     /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
-    template <typename Result = ResultType>
-    static inline bool apply(A a, B b, Result& c) {
-        return common::mul_overflow(static_cast<Result>(a), b, c);
+    template <PrimitiveType Result = ResultType>
+    static inline bool apply(A a, B b, typename PrimitiveTypeTraits<Result>::CppNativeType& c) {
+        return common::mul_overflow(
+                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a), b, c);
     }
 };
 

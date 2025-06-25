@@ -41,7 +41,7 @@ public class LocationPathTest {
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("hdfs://"));
         Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
-                FileSystemType.DFS);
+                FileSystemType.HDFS);
 
         // HA props
         Map<String, String> props = new HashMap<>();
@@ -130,13 +130,13 @@ public class LocationPathTest {
         locationPath = new LocationPath("oss://test.oss-dls.aliyuncs.com/path", rangeProps);
         Assertions.assertEquals("oss://test.oss-dls.aliyuncs.com/path", locationPath.get());
         Assertions.assertEquals(LocationPath.getFSIdentity(locationPath.get(), rangeProps, null).first,
-                FileSystemType.DFS);
+                FileSystemType.HDFS);
         // FE
         Assertions.assertTrue(locationPath.get().startsWith("oss://test.oss-dls.aliyuncs"));
         // BE
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("oss://test.oss-dls.aliyuncs"));
-        Assertions.assertEquals(locationPath.getFileSystemType(), FileSystemType.DFS);
+        Assertions.assertEquals(locationPath.getFileSystemType(), FileSystemType.HDFS);
     }
 
     @Test
@@ -177,7 +177,7 @@ public class LocationPathTest {
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("gfs://"));
         Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
-                FileSystemType.DFS);
+                FileSystemType.HDFS);
     }
 
     @Test

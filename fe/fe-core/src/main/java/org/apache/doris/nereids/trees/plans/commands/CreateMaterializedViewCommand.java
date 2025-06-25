@@ -242,7 +242,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         @Override
         public Plan visit(Plan plan, ValidateContext context) {
-            throw new AnalysisException(String.format("%s is not supported", plan.getClass().getSimpleName()));
+            throw new AnalysisException(String.format("%s is not supported in sync materialized view",
+                    plan.getClass().getSimpleName()));
         }
 
         @Override
@@ -272,7 +273,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot, olapTable);
                 SlotRef slotRef = translatorContext.findSlotRef(slot.getExprId());
                 slotRef.setLabel("`" + slot.getName() + "`");
-                slotRef.setDisableTableName(true);
+                slotRef.disableTableName();
             }
             return olapScan;
         }
@@ -289,7 +290,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 Set<Slot> slots = expr.getInputSlots();
                 for (Slot slot : slots) {
                     if (slot instanceof SlotReference) {
-                        Column column = ((SlotReference) slot).getColumn().orElse(null);
+                        Column column = ((SlotReference) slot).getOriginalColumn().orElse(null);
                         if (column != null) {
                             if (column.isVisible()) {
                                 AggregateType aggregateType = column.getAggregationType();
@@ -604,12 +605,12 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             }
             Expr expr = translateToLegacyExpr(defineExpr, ctx.planTranslatorContext);
             return new MVColumnItem(mvDataType.toCatalogDataType(), mvAggType, expr,
-                    CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql()));
+                    CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutTbl()));
         }
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {
             Expr expr = ExpressionTranslator.translate(expression, context);
-            expr.setDisableTableName(true);
+            expr.disableTableName();
             return expr;
         }
 
@@ -729,7 +730,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         private AggregateType getAggTypeFromSlot(Slot slot) {
             if (slot instanceof SlotReference) {
-                Column column = ((SlotReference) slot).getColumn().orElse(null);
+                Column column = ((SlotReference) slot).getOriginalColumn().orElse(null);
                 if (column != null && column.isVisible()) {
                     return column.getAggregationType();
                 }

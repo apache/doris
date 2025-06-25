@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -35,6 +36,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -164,7 +166,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(
                 cascadesContext.getConnectContext(), unboundRelation.getNameParts());
-        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY);
+        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
+                Optional.of(unboundRelation));
 
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
         if (cascadesContext.isLeadingJoin()) {
@@ -178,7 +181,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
-        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY);
+        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
+                Optional.of(unboundRelation));
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
@@ -266,10 +270,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         for (Column col : columns) {
             // use exist slot in the plan
-            SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.qualified());
+            SlotReference slot = SlotReference.fromColumn(olapTable, col, olapScan.qualified());
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
-                if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName().equals(col.getName())) {
+                if (childSlot instanceof SlotReference && childSlot.getName().equals(col.getName())) {
                     exprId = childSlot.getExprId();
                     slot = slot.withExprId(exprId);
                     break;
@@ -385,7 +389,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
-        cascadesContext.getStatementContext().loadSnapshots(unboundRelation.getTableSnapshot());
+        cascadesContext.getStatementContext().loadSnapshots(
+                unboundRelation.getTableSnapshot(),
+                Optional.ofNullable(unboundRelation.getScanParams()));
         boolean isView = false;
         try {
             switch (table.getType()) {
@@ -405,30 +411,62 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         String hiveCatalog = hmsTable.getCatalog().getName();
                         String hiveDb = hmsTable.getDatabase().getFullName();
                         String ddlSql = hmsTable.getViewText();
-                        Plan hiveViewPlan = parseAndAnalyzeHiveView(
+                        Plan hiveViewPlan = parseAndAnalyzeExternalView(
                                 hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
                         return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
-                        hudiScan = hudiScan.withScanParams(hmsTable, unboundRelation.getScanParams());
+                                unboundRelation.getTableSnapshot(), ImmutableList.of(), Optional.empty());
+                        hudiScan = hudiScan.withScanParams(
+                                hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
                         return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
                                 unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
+                                unboundRelation.getTableSnapshot(),
+                                ImmutableList.of(),
+                                Optional.ofNullable(unboundRelation.getScanParams()));
                     }
                 case ICEBERG_EXTERNAL_TABLE:
+                    IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+                    if (Config.enable_query_iceberg_views && icebergExternalTable.isView()) {
+                        Optional<TableSnapshot> tableSnapshot = unboundRelation.getTableSnapshot();
+                        if (tableSnapshot.isPresent()) {
+                            // iceberg view not supported with snapshot time/version travel
+                            // note that enable_fallback_to_original_planner should be set with false
+                            // or else this exception will not be thrown
+                            // because legacy planner will retry and thrown other exception
+                            throw new UnsupportedOperationException(
+                                "iceberg view not supported with snapshot time/version travel");
+                        }
+                        isView = true;
+                        String icebergCatalog = icebergExternalTable.getCatalog().getName();
+                        String icebergDb = icebergExternalTable.getDatabase().getFullName();
+                        String ddlSql = icebergExternalTable.getViewText();
+                        Plan icebergViewPlan = parseAndAnalyzeExternalView(icebergExternalTable,
+                                icebergCatalog, icebergDb, ddlSql, cascadesContext);
+                        return new LogicalSubQueryAlias<>(qualifiedTableName, icebergViewPlan);
+                    }
+                    if (icebergExternalTable.isView()) {
+                        throw new UnsupportedOperationException(
+                            "please set enable_query_iceberg_views=true to enable query iceberg views");
+                    }
+                    return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
+                        qualifierWithoutTableName, unboundRelation.getTableSample(),
+                        unboundRelation.getTableSnapshot(), ImmutableList.of(),
+                        Optional.ofNullable(unboundRelation.getScanParams()));
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case LAKESOUl_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, unboundRelation.getTableSample(),
-                            unboundRelation.getTableSnapshot());
+                            unboundRelation.getTableSnapshot(),
+                            ImmutableList.of(),
+                            Optional.ofNullable(unboundRelation.getScanParams()));
                 case SCHEMA:
                     // schema table's name is case-insensitive, we need save its name in SQL text to get correct case.
                     return new LogicalSubQueryAlias<>(qualifiedTableName,
@@ -460,15 +498,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private Plan parseAndAnalyzeHiveView(
-            HMSExternalTable table, String hiveCatalog, String hiveDb, String ddlSql, CascadesContext cascadesContext) {
+    private Plan parseAndAnalyzeExternalView(
+            ExternalTable table, String externalCatalog, String externalDb,
+            String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();
         String convertedSql = SqlDialectHelper.convertSqlByDialect(ddlSql, ctx.getSessionVariable());
-        // change catalog and db to hive catalog and db, so that we can parse and analyze the view sql in hive context.
-        ctx.changeDefaultCatalog(hiveCatalog);
-        ctx.setDatabase(hiveDb);
+        // change catalog and db to external catalog and db,
+        // so that we can parse and analyze the view sql in external context.
+        ctx.changeDefaultCatalog(externalCatalog);
+        ctx.setDatabase(externalDb);
         try {
             return parseAndAnalyzeView(table, convertedSql, cascadesContext);
         } finally {

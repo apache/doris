@@ -91,6 +91,13 @@ public:
         }
     }
 
+    // decrements the internal counter by n and blocks the calling thread until the counter reaches zero.
+    void arrive_and_wait(uint64_t n) {
+        DCHECK_GE(n, 0);
+        count_down(n);
+        wait();
+    }
+
     uint64_t count() const {
         std::lock_guard<std::mutex> lock(_lock);
         return _count;

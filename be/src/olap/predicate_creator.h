@@ -27,7 +27,6 @@
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
-#include "olap/match_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/tablet_schema.h"
 #include "runtime/define_primitive_type.h"
@@ -295,9 +294,6 @@ inline ColumnPredicate* parse_to_predicate(const TabletColumn& column, uint32_t 
     if (to_lower(condition.condition_op) == "is") {
         return new NullPredicate(index, to_lower(condition.condition_values[0]) == "null",
                                  opposite);
-    } else if (is_match_condition(condition.condition_op)) {
-        return new MatchPredicate(index, condition.condition_values[0],
-                                  to_match_type(condition.condition_op));
     }
 
     if ((condition.condition_op == "*=" || condition.condition_op == "!*=") &&

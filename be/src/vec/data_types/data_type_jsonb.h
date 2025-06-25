@@ -27,7 +27,6 @@
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/jsonb_value.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -48,9 +47,10 @@ class DataTypeJsonb final : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = JsonbField;
+    static constexpr PrimitiveType PType = TYPE_JSONB;
     static constexpr bool is_parametric = false;
 
-    const char* get_family_name() const override { return "JSONB"; }
+    const std::string get_family_name() const override { return "JSONB"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_JSONB; }
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_JSONB;
@@ -64,24 +64,9 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    Field get_default() const override {
-        std::string default_json = "null";
-        // convert default_json to binary
-        JsonBinaryValue binary_val(default_json.c_str(), static_cast<Int32>(default_json.size()));
-        // Throw exception if default_json.size() is large than INT32_MAX
-        // JsonbField keeps its own memory
-        return Field::create_field<TYPE_JSONB>(
-                JsonbField(binary_val.value(), cast_set<Int32>(binary_val.size())));
-    }
+    Field get_default() const override;
 
-    Field get_field(const TExprNode& node) const override {
-        DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
-        DCHECK(node.__isset.json_literal);
-        JsonBinaryValue value(node.json_literal.value);
-        return Field::create_field<TYPE_JSONB>(
-                JsonbField(value.value(), cast_set<Int32>(value.size())));
-    }
-
+    Field get_field(const TExprNode& node) const override;
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return false; }

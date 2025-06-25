@@ -20,6 +20,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
@@ -57,7 +58,8 @@ void DataTypeSerDe::convert_variant_map_to_rapidjson(
             continue;
         }
         rapidjson::Value key;
-        key.SetString(item.first.data(), cast_set<rapidjson::SizeType>(item.first.size()));
+        key.SetString(item.first.get_path().data(),
+                      cast_set<rapidjson::SizeType>(item.first.get_path().size()));
         rapidjson::Value val;
         convert_field_to_rapidjson(item.second, val, allocator);
         if (val.IsNull() && item.first.empty()) {

@@ -26,15 +26,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hudi.HudiUtils;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
@@ -47,9 +43,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -85,7 +78,7 @@ import java.util.regex.Matcher;
  * TODO for 2.3: Rename this class to CollectionRef and re-consider the naming and
  * structure of all subclasses.
  */
-public class TableRef implements ParseNode, Writable {
+public class TableRef implements ParseNode {
     private static final Logger LOG = LogManager.getLogger(TableRef.class);
     @SerializedName("n")
     protected TableName name;
@@ -562,7 +555,7 @@ public class TableRef implements ParseNode, Writable {
             switch (extTable.getDlaType()) {
                 case ICEBERG:
                     if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
-                        String asOfTime = tableSnapshot.getTime();
+                        String asOfTime = tableSnapshot.getValue();
                         Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
                         if (!matcher.matches()) {
                             throw new AnalysisException("Invalid datetime string: " + asOfTime);
@@ -574,7 +567,7 @@ public class TableRef implements ParseNode, Writable {
                         throw new AnalysisException("Hudi table only supports timestamp as snapshot ID");
                     }
                     try {
-                        tableSnapshot.setTime(HudiUtils.formatQueryInstant(tableSnapshot.getTime()));
+                        tableSnapshot.setValue(HudiUtils.formatQueryInstant(tableSnapshot.getValue()));
                     } catch (Exception e) {
                         throw new AnalysisException("Failed to parse hudi timestamp: " + e.getMessage(), e);
                     }
@@ -584,7 +577,7 @@ public class TableRef implements ParseNode, Writable {
             }
         } else if (tableType == TableIf.TableType.ICEBERG_EXTERNAL_TABLE) {
             if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
-                String asOfTime = tableSnapshot.getTime();
+                String asOfTime = tableSnapshot.getValue();
                 Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
                 if (!matcher.matches()) {
                     throw new AnalysisException("Invalid datetime string: " + asOfTime);
@@ -975,34 +968,6 @@ public class TableRef implements ParseNode, Writable {
             sb.append(" AS ").append(aliases[0]);
         }
         return sb.toString();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static TableRef read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            TableRef ref = new TableRef();
-            ref.readFields(in);
-            return ref;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), TableRef.class);
-        }
-    }
-
-    private void readFields(DataInput in) throws IOException {
-        name = new TableName();
-        name.readFields(in);
-        if (in.readBoolean()) {
-            partitionNames = PartitionNames.read(in);
-        }
-
-        if (in.readBoolean()) {
-            String alias = Text.readString(in);
-            aliases = new String[]{alias};
-        }
     }
 
     public void setPartitionNames(PartitionNames partitionNames) {
