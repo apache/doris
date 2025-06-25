@@ -1359,6 +1359,12 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     // 4. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());
 
+    // update compaction status data
+    auto tablet = std::static_pointer_cast<CloudTablet>(_tablet);
+    tablet->local_read_time_us.fetch_add(_stats.cloud_local_read_time);
+    tablet->remote_read_time_us.fetch_add(_stats.cloud_remote_read_time);
+    tablet->exec_compaction_time_us.fetch_add(watch.get_elapse_time_us());
+
     return Status::OK();
 }
 
