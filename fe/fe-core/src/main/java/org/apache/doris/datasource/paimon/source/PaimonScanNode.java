@@ -570,8 +570,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             // Validate DORIS_INCREMENTAL_BETWEEN_SCAN_MODE
             if (hasIncrementalBetweenScanMode) {
                 String scanMode = params.get(DORIS_INCREMENTAL_BETWEEN_SCAN_MODE).toLowerCase();
-                if (!scanMode.equals("auto") && !scanMode.equals("diff") &&
-                        !scanMode.equals("delta") && !scanMode.equals("changelog")) {
+                if (!scanMode.equals("auto") && !scanMode.equals("diff")
+                        && !scanMode.equals("delta") && !scanMode.equals("changelog")) {
                     throw new UserException("incrementalBetweenScanMode must be one of: auto, diff, delta, changelog");
                 }
             }
@@ -588,8 +588,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (hasStartTimestamp) {
                 try {
                     long startTS = Long.parseLong(params.get(DORIS_START_TIMESTAMP));
-                    if (startTS <= 0) {
-                        throw new UserException("startTimestamp must be greater than 0");
+                    if (startTS < 0) {
+                        throw new UserException("startTimestamp must be greater than or equal to 0");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid startTimestamp format: " + e.getMessage());
@@ -631,10 +631,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         Map<String, String> paimonScanParams = new HashMap<>();
 
         if (hasSnapshotParams) {
+            paimonScanParams.put(PAIMON_SCAN_MODE, null);
             if (hasStartSnapshotId && !hasEndSnapshotId) {
                 // Only startSnapshotId is specified
                 paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, params.get(DORIS_START_SNAPSHOT_ID));
-                paimonScanParams.put(PAIMON_SCAN_MODE, null);
             } else if (hasStartSnapshotId && hasEndSnapshotId) {
                 // Both start and end snapshot IDs are specified
                 String startSId = params.get(DORIS_START_SNAPSHOT_ID);

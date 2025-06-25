@@ -144,7 +144,8 @@ public class PaimonScanNodeTest {
         params.put("endSnapshotId", "5");
         result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("1,5", result.get("incremental-between"));
-        Assert.assertEquals(1, result.size());
+        Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
+        Assert.assertEquals(2, result.size());
 
         // 3. startSnapshotId + endSnapshotId + incrementalBetweenScanMode
         params.clear();
@@ -154,7 +155,8 @@ public class PaimonScanNodeTest {
         result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("2,8", result.get("incremental-between"));
         Assert.assertEquals("diff", result.get("incremental-between-scan-mode"));
-        Assert.assertEquals(2, result.size());
+        Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
+        Assert.assertEquals(3, result.size());
 
         // 4. Only startTimestamp
         params.clear();
@@ -278,12 +280,12 @@ public class PaimonScanNodeTest {
 
         // 13. Test invalid timestamp values (≤ 0)
         params.clear();
-        params.put("startTimestamp", "0");
+        params.put("startTimestamp", "-1");
         try {
             PaimonScanNode.validateIncrementalReadParams(params);
-            Assert.fail("Should throw exception for startTimestamp ≤ 0");
+            Assert.fail("Should throw exception for startTimestamp < 0");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("startTimestamp must be greater than 0"));
+            Assert.assertTrue(e.getMessage().contains("startTimestamp must be greater than or equal to 0"));
         }
 
         params.clear();
@@ -359,7 +361,8 @@ public class PaimonScanNodeTest {
             result = PaimonScanNode.validateIncrementalReadParams(params);
             Assert.assertEquals("1,5", result.get("incremental-between"));
             Assert.assertEquals(mode, result.get("incremental-between-scan-mode"));
-            Assert.assertEquals(2, result.size());
+            Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
+            Assert.assertEquals(3, result.size());
         }
 
         // 18. Test no parameters at all
