@@ -22,13 +22,13 @@ suite("test_cast_to_decimal32_from_double_overflow_const") {
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal32_9_0_from_float64_overflow_vals = [("999999999.95"),("-999999999.95"),("1000000000.95"),("-1000000000.95"),("inf"),
-        ("-inf"),("nan"),("-nan")]
+    def test_cast_to_decimal32_9_0_from_double_overflow_vals = [("1099999998.99"),("-1099999998.99"),("inf"),("-inf"),("nan"),
+        ("-nan")]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal32_9_0_from_float64_overflow_vals) {
+        for (test_str in test_cast_to_decimal32_9_0_from_double_overflow_vals) {
             test {
                 sql """select cast(cast("${test_str}" as double) as decimalv3(9, 0));"""
                 exception ""
@@ -37,20 +37,20 @@ suite("test_cast_to_decimal32_from_double_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal32_9_0_from_float64_overflow_vals) {
-        qt_sql_test_cast_to_decimal32_9_0_from_float64_overflow """select cast(cast("${test_str}" as double) as decimalv3(9, 0));"""
+    for (test_str in test_cast_to_decimal32_9_0_from_double_overflow_vals) {
+        qt_sql_test_cast_to_decimal32_9_0_from_double_overflow """select cast(cast("${test_str}" as double) as decimalv3(9, 0));"""
     }
 
-    for (test_str in test_cast_to_decimal32_9_0_from_float64_overflow_vals) {
+    for (test_str in test_cast_to_decimal32_9_0_from_double_overflow_vals) {
         testFoldConst("""select cast(cast("${test_str}" as double) as decimalv3(9, 0));""")
     }
-    def test_cast_to_decimal32_9_3_from_float64_overflow_vals = [("999999.9995"),("-999999.9995"),("1000000.9995"),("-1000000.9995"),("inf"),
-        ("-inf"),("nan"),("-nan")]
+    def test_cast_to_decimal32_9_3_from_double_overflow_vals = [("1099998.9999"),("-1099998.9999"),("inf"),("-inf"),("nan"),
+        ("-nan")]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal32_9_3_from_float64_overflow_vals) {
+        for (test_str in test_cast_to_decimal32_9_3_from_double_overflow_vals) {
             test {
                 sql """select cast(cast("${test_str}" as double) as decimalv3(9, 3));"""
                 exception ""
@@ -59,20 +59,20 @@ suite("test_cast_to_decimal32_from_double_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal32_9_3_from_float64_overflow_vals) {
-        qt_sql_test_cast_to_decimal32_9_3_from_float64_overflow """select cast(cast("${test_str}" as double) as decimalv3(9, 3));"""
+    for (test_str in test_cast_to_decimal32_9_3_from_double_overflow_vals) {
+        qt_sql_test_cast_to_decimal32_9_3_from_double_overflow """select cast(cast("${test_str}" as double) as decimalv3(9, 3));"""
     }
 
-    for (test_str in test_cast_to_decimal32_9_3_from_float64_overflow_vals) {
+    for (test_str in test_cast_to_decimal32_9_3_from_double_overflow_vals) {
         testFoldConst("""select cast(cast("${test_str}" as double) as decimalv3(9, 3));""")
     }
-    def test_cast_to_decimal32_9_8_from_float64_overflow_vals = [("9.999999995"),("-9.999999995"),("10.999999995"),("-10.999999995"),("inf"),
-        ("-inf"),("nan"),("-nan")]
+    def test_cast_to_decimal32_9_8_from_double_overflow_vals = [("9.999999999"),("-9.999999999"),("inf"),("-inf"),("nan"),
+        ("-nan")]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal32_9_8_from_float64_overflow_vals) {
+        for (test_str in test_cast_to_decimal32_9_8_from_double_overflow_vals) {
             test {
                 sql """select cast(cast("${test_str}" as double) as decimalv3(9, 8));"""
                 exception ""
@@ -81,11 +81,11 @@ suite("test_cast_to_decimal32_from_double_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal32_9_8_from_float64_overflow_vals) {
-        qt_sql_test_cast_to_decimal32_9_8_from_float64_overflow """select cast(cast("${test_str}" as double) as decimalv3(9, 8));"""
+    for (test_str in test_cast_to_decimal32_9_8_from_double_overflow_vals) {
+        qt_sql_test_cast_to_decimal32_9_8_from_double_overflow """select cast(cast("${test_str}" as double) as decimalv3(9, 8));"""
     }
 
-    for (test_str in test_cast_to_decimal32_9_8_from_float64_overflow_vals) {
+    for (test_str in test_cast_to_decimal32_9_8_from_double_overflow_vals) {
         testFoldConst("""select cast(cast("${test_str}" as double) as decimalv3(9, 8));""")
     }
 }

@@ -879,7 +879,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 auto num_str = dt.to_string(decimal_num);
                 // auto float_v = static_cast<FloatType>(i);
                 FloatType float_v;
-                if constexpr (IsDataTypeDecimal256<FromT>) {
+                if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
                 } else {
@@ -899,7 +899,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 decimal_num = decimal_ctor(-i, 0, FromScale);
                 num_str = dt.to_string(decimal_num);
                 // float_v = static_cast<FloatType>(-i);
-                if constexpr (IsDataTypeDecimal256<FromT>) {
+                if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
                 } else {
@@ -930,7 +930,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 auto num_str = dt.to_string(decimal_num);
                 // auto float_v = FloatType(f) / scale_multiplier;
                 FloatType float_v;
-                if constexpr (IsDataTypeDecimal256<FromT>) {
+                if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
                 } else {
@@ -944,7 +944,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 decimal_num = decimal_ctor(0, -f, FromScale);
                 num_str = dt.to_string(decimal_num);
                 // float_v = FloatType(-f) / scale_multiplier;
-                if constexpr (IsDataTypeDecimal256<FromT>) {
+                if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
                 } else {
@@ -970,7 +970,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 auto num_str = dt.to_string(decimal_num);
                 /// auto float_v = static_cast<FloatType>(decimal_num.value) / scale_multiplier;
                 FloatType float_v;
-                if constexpr (IsDataTypeDecimal256<FromT>) {
+                if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
                 } else {
@@ -990,7 +990,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 decimal_num = decimal_ctor(-i, -f, FromScale);
                 num_str = dt.to_string(decimal_num);
                 // float_v = static_cast<FloatType>(decimal_num.value) / scale_multiplier;
-                if constexpr (IsDataTypeDecimal256<FromT>) {
+                if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
                 } else {
