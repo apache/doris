@@ -681,7 +681,7 @@ public class Config extends ConfigBase {
     public static int max_running_txn_num_per_db = 10000;
 
     @ConfField(masterOnly = true, description = {"pending load task 执行线程数。这个配置可以限制当前等待的导入作业数。"
-            + "并且应小于 `async_pending_load_task_pool_size`。",
+            + "并且应小于 `max_running_txn_num_per_db`。",
             "The pending load task executor pool size. "
                     + "This pool size limits the max running pending load tasks.",
             "Currently, it only limits the pending load task of broker load and ingestion load.",
