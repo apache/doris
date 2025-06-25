@@ -156,7 +156,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         auto tablet = res.value();
         auto tablet_meta = tablet->tablet_meta();
 
-        int64_t now_ts = std::chrono::duration_cast<std::chrono::seconds>(
+        int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                  std::chrono::system_clock::now().time_since_epoch())
                                  .count();
         g_file_cache_warm_up_rowset_last_handle_unix_ts.set_value(now_ts);
