@@ -62,7 +62,7 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
     private TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
 
     public ParquetFileFormatProperties() {
-        super(TFileFormatType.FORMAT_PARQUET);
+        super(TFileFormatType.FORMAT_PARQUET, FileFormatProperties.FORMAT_PARQUET);
     }
 
     @Override

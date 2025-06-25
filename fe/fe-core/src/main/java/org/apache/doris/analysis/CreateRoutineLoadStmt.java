@@ -28,6 +28,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
@@ -167,22 +168,8 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int sendBatchParallelism = 1;
     private boolean loadToSingleTablet = false;
-    /**
-     * RoutineLoad support json data.
-     * Require Params:
-     * 1) dataFormat = "json"
-     * 2) jsonPaths = "$.XXX.xxx"
-     */
-    private String format = ""; //default is csv.
-    private String jsonPaths = "";
-    private String jsonRoot = ""; // MUST be a jsonpath string
-    private boolean stripOuterArray = false;
-    private boolean numAsString = false;
-    private boolean fuzzyParse = false;
 
-    private byte enclose;
-
-    private byte escape;
+    private FileFormatProperties fileFormatProperties;
 
     private long workloadGroupId = -1;
 
@@ -227,6 +214,8 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         if (comment != null) {
             this.comment = comment;
         }
+        String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
     }
 
     public String getName() {
@@ -293,40 +282,12 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         return timezone;
     }
 
-    public String getFormat() {
-        return format;
-    }
-
-    public boolean isStripOuterArray() {
-        return stripOuterArray;
-    }
-
-    public boolean isNumAsString() {
-        return numAsString;
-    }
-
-    public boolean isFuzzyParse() {
-        return fuzzyParse;
-    }
-
-    public String getJsonPaths() {
-        return jsonPaths;
-    }
-
-    public byte getEnclose() {
-        return enclose;
-    }
-
-    public byte getEscape() {
-        return escape;
-    }
-
-    public String getJsonRoot() {
-        return jsonRoot;
-    }
-
     public LoadTask.MergeType getMergeType() {
         return mergeType;
+    }
+
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
     }
 
     public AbstractDataSourceProperties getDataSourceProperties() {
@@ -517,23 +478,6 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
                 RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
                 LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
-        String encloseStr = jobProperties.get(LoadStmt.KEY_ENCLOSE);
-        if (encloseStr != null) {
-            if (encloseStr.length() != 1) {
-                throw new AnalysisException("enclose must be single-char");
-            } else {
-                enclose = encloseStr.getBytes()[0];
-            }
-        }
-        String escapeStr = jobProperties.get(LoadStmt.KEY_ESCAPE);
-        if (escapeStr != null) {
-            if (escapeStr.length() != 1) {
-                throw new AnalysisException("enclose must be single-char");
-            } else {
-                escape = escapeStr.getBytes()[0];
-            }
-        }
-
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
@@ -545,23 +489,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
 
-        format = jobProperties.get(FORMAT);
-        if (format != null) {
-            if (format.equalsIgnoreCase("csv")) {
-                format = ""; // if it's not json, then it's mean csv and set empty
-            } else if (format.equalsIgnoreCase("json")) {
-                format = "json";
-                jsonPaths = jobProperties.getOrDefault(JSONPATHS, "");
-                jsonRoot = jobProperties.getOrDefault(JSONROOT, "");
-                stripOuterArray = Boolean.parseBoolean(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
-                numAsString = Boolean.parseBoolean(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
-                fuzzyParse = Boolean.parseBoolean(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
-            } else {
-                throw new UserException("Format type is invalid. format=`" + format + "`");
-            }
-        } else {
-            format = "csv"; // default csv
-        }
+        fileFormatProperties.analyzeFileFormatProperties(jobProperties, false);
     }
 
     private void checkDataSourceProperties() throws UserException {
