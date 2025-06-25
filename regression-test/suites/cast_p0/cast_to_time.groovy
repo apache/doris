@@ -123,7 +123,6 @@ qt_sql """ select cast(cast(67 as double) as time(3)) """
 qt_sql "select cast('11:12:13.123456' as time) = cast('11:12:13.12' as time)"
 
     sql "set debug_skip_fold_constant = false"
-//TODO: support new parse
 qt_sql """ select cast("100:10:10.123456" as time(3)) """
 qt_sql """ select cast("-100:10:10.123456" as time(3)) """
 qt_sql """ select cast("100:10:10.12345699999" as time(3)) """
