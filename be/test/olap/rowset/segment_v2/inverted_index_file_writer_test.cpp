@@ -435,7 +435,7 @@ TEST_F(InvertedIndexFileWriterTest, PrepareFileMetadataTest) {
     int64_t current_offset = 0;
 
     std::vector<InvertedIndexFileWriter::FileMetadata> file_metadata =
-            writer.prepare_file_metadata_v2(current_offset);
+            writer.prepare_file_metadata(current_offset);
 
     ASSERT_EQ(file_metadata.size(), 7); // Adjusted size after adding new files
 
