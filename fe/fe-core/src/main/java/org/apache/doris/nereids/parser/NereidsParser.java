@@ -30,7 +30,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.plsql.PLSqlLogicalPlanBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.commands.info.TypeAndEncoding;
+import org.apache.doris.nereids.trees.plans.commands.info.TypeWithEncoding;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.DialectConverterPlugin;
@@ -333,8 +333,8 @@ public class NereidsParser {
     }
 
     public DataType parseDataType(String dataType) {
-        TypeAndEncoding typeAndEncoding = parse(dataType, DorisParser::dataType);
-        return typeAndEncoding.getDataType();
+        TypeWithEncoding typeWithEncoding = parse(dataType, DorisParser::dataType);
+        return typeWithEncoding.getDataType();
     }
 
     public Map<String, String> parseProperties(String properties) {

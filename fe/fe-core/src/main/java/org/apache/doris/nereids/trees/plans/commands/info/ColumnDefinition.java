@@ -56,7 +56,7 @@ import java.util.stream.Collectors;
  */
 public class ColumnDefinition {
     private final String name;
-    private TypeAndEncoding type;
+    private TypeWithEncoding type;
     private boolean isKey;
     private AggregateType aggType;
     private boolean isNullable;
@@ -76,11 +76,11 @@ public class ColumnDefinition {
     }
 
     // Used by LogicalPlanBuilder
-    public ColumnDefinition(String name, TypeAndEncoding typeAndEncoding, boolean isKey, AggregateType aggType,
+    public ColumnDefinition(String name, TypeWithEncoding typeWithEncoding, boolean isKey, AggregateType aggType,
             ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
             Optional<DefaultValue> onUpdateDefaultValue, String comment,
             Optional<GeneratedColumnDesc> generatedColumnDesc) {
-        this(name, typeAndEncoding, isKey, aggType, nullableType, autoIncInitValue, defaultValue, onUpdateDefaultValue,
+        this(name, typeWithEncoding, isKey, aggType, nullableType, autoIncInitValue, defaultValue, onUpdateDefaultValue,
                 comment, true, generatedColumnDesc);
     }
 
@@ -90,7 +90,7 @@ public class ColumnDefinition {
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment, boolean isVisible) {
         this.name = name;
-        this.type = TypeAndEncoding.forDefaultEncoding(type);
+        this.type = TypeWithEncoding.forDefaultEncoding(type);
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = isNullable;
@@ -102,7 +102,7 @@ public class ColumnDefinition {
     /**
      * constructor
      */
-    public ColumnDefinition(String name, TypeAndEncoding type, boolean isKey, AggregateType aggType,
+    public ColumnDefinition(String name, TypeWithEncoding type, boolean isKey, AggregateType aggType,
             ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
             Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean isVisible,
             Optional<GeneratedColumnDesc> generatedColumnDesc) {
@@ -236,23 +236,23 @@ public class ColumnDefinition {
         }
     }
 
-    private TypeAndEncoding updateCharacterTypeLength(TypeAndEncoding dataType) {
+    private TypeWithEncoding updateCharacterTypeLength(TypeWithEncoding dataType) {
         if (dataType.getDataType() instanceof ArrayType) {
-            TypeAndEncoding item = dataType.children.get(0);
-            TypeAndEncoding newItem = updateCharacterTypeLength(item);
+            TypeWithEncoding item = dataType.children.get(0);
+            TypeWithEncoding newItem = updateCharacterTypeLength(item);
             ArrayType newArrayType = ArrayType.of(newItem.getDataType());
             dataType.setDataType(newArrayType);
             dataType.setChildren(Lists.newArrayList(newItem));
             return dataType;
         } else if (dataType.getDataType() instanceof MapType) {
-            TypeAndEncoding key = updateCharacterTypeLength((dataType.children.get(0)));
-            TypeAndEncoding value = updateCharacterTypeLength((dataType.children.get(1)));
+            TypeWithEncoding key = updateCharacterTypeLength((dataType.children.get(0)));
+            TypeWithEncoding value = updateCharacterTypeLength((dataType.children.get(1)));
             MapType newMapType = MapType.of(key.getDataType(), value.getDataType());
             dataType.setDataType(newMapType);
             dataType.setChildren(Lists.newArrayList(key, value));
             return dataType;
         } else if (dataType.getDataType() instanceof StructType) {
-            List<TypeAndEncoding> newChildren =
+            List<TypeWithEncoding> newChildren =
                     dataType.children.stream().map(this::updateCharacterTypeLength).collect(Collectors.toList());
             StructType structType = (StructType) dataType.getDataType();
             if (structType.getFields().size() != newChildren.size()) {
