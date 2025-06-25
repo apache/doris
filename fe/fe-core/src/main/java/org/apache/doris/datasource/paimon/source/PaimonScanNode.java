@@ -629,6 +629,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // Fill the result map based on parameter combinations
         Map<String, String> paimonScanParams = new HashMap<>();
+        paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, null);
+        paimonScanParams.put(PAIMON_SCAN_MODE, null);
 
         if (hasSnapshotParams) {
             paimonScanParams.put(PAIMON_SCAN_MODE, null);
@@ -665,3 +667,4 @@ public class PaimonScanNode extends FileQueryScanNode {
         return paimonScanParams;
     }
 }
+

@@ -43,15 +43,19 @@ suite("test_paimon_incr_read", "p0,external,doris,external_docker,external_docke
 
         def test_incr_read = { String force ->
             sql """ set force_jni_scanner=${force} """
-            order_qt_snapshot_incr  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
+            order_qt_snapshot_incr1  """select * from paimon_incr@incr('startSnapshotId'=1)"""
+            order_qt_snapshot_incr2  """select * from paimon_incr@incr('startSnapshotId'=2)"""
+            order_qt_snapshot_incr3  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
+            order_qt_snapshot_incr4  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=3)"""
+            order_qt_snapshot_incr5  """select * from paimon_incr@incr('startSnapshotId'=2, 'endSnapshotId'=3)"""
             order_qt_timestamp_incr1  """select * from paimon_incr@incr('startTimestamp'=0)"""
             order_qt_timestamp_incr2  """select * from paimon_incr@incr('startTimestamp'=0, 'endTimestamp' = 1)"""
             order_qt_timestamp_incr3  """select * from paimon_incr@incr('startTimestamp'=0, 'endtimestamp' = 999999999999999)"""
 
             order_qt_scan_mode1 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'auto');"""
-            order_qt_scan_mode1 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'diff');"""
-            order_qt_scan_mode1 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'delta');"""
-            order_qt_scan_mode1 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'changelog');"""
+            order_qt_scan_mode2 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'diff');"""
+            order_qt_scan_mode3 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'delta');"""
+            order_qt_scan_mode4 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'changelog');"""
             
 
             // complex query
@@ -60,27 +64,31 @@ suite("test_paimon_incr_read", "p0,external,doris,external_docker,external_docke
 
             test {
                 sql """select * from paimon_incr@incr('startTimestamp'=-1);"""
-                exception "startTimestamp must be greater than zero"
+                exception "startTimestamp must be greater than or equal to 0"
             }
             test {
                 sql """select * from paimon_incr@incr('startTimestam'=-1)"""
-                exception "Invalid paimon incr param"
+                exception "at least one valid parameter group must be specified"
             }
             test {
                 sql """select * from paimon_incr@incr('endTimestamp'=999999999999999)"""
-                exception "Invalid paimon incr param"
+                exception "startTimestamp is required when using timestamp-based incremental read"
             }
             test {
                 sql """select * from paimon_incr@incr()"""
-                exception "Invalid paimon incr param"
+                exception "at least one valid parameter group must be specified"
             }
             test {
                 sql """select * from paimon_incr@incr('incrementalBetweenScanMode' = 'auto');"""
-                exception "Invalid paimon incr param"
+                exception "startSnapshotId is required when using snapshot-based incremental read"
             }
             test {
                 sql """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'error');"""
-                exception "Invalid paimon incr param"
+                exception "incrementalBetweenScanMode must be one of"
+            }
+            test {
+                sql """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=1)"""
+                exception "startSnapshotId must be less than endSnapshotId"
             }
         }
 
