@@ -74,7 +74,6 @@ statementBase
 
 unsupportedStatement
     : unsupportedStatsStatement
-    | unsupportedAlterStatement
     | unsupportedAdminStatement
     | unsupportedLoadStatement
     | unsupportedOtherStatement
@@ -633,11 +632,6 @@ privilege
 
 privilegeList
     : privilege (COMMA privilege)*
-    ;
-
-unsupportedAlterStatement
-    : ALTER STORAGE POLICY name=identifierOrText
-        properties=propertyClause                                                   #alterStoragePlicy
     ;
 
 alterSystemClause
