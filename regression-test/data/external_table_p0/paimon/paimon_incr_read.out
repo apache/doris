@@ -7,6 +7,14 @@
 2	Bob	25
 3	Charlie	28
 
+-- !cte --
+Bob	25
+Charlie	28
+Alice	30
+
+-- !join --
+2	Bob	25	2	Bob	25
+
 -- !snapshot_incr --
 2	Bob	25
 
@@ -14,4 +22,12 @@
 1	Alice	30
 2	Bob	25
 3	Charlie	28
+
+-- !cte --
+Bob	25
+Charlie	28
+Alice	30
+
+-- !join --
+2	Bob	25	2	Bob	25
 

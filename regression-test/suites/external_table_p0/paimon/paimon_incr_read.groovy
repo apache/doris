@@ -40,18 +40,54 @@ suite("test_paimon_incr_read", "p0,external,doris,external_docker,external_docke
             """
         sql """switch `${catalog_name}`"""
         sql """use test_paimon_incr_read_db"""
-        sql """set force_jni_scanner=false"""
-        order_qt_snapshot_incr  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
-        logger.info("snapshot_incr test success")
-        order_qt_timestamp_incr  """select * from paimon_incr@incr('startTimestamp'=0)"""
-        logger.info("timestamp_incr test success")
-        sql """set force_jni_scanner=true"""
-        order_qt_snapshot_incr  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
-        logger.info("snapshot_incr test success")
-        order_qt_timestamp_incr  """select * from paimon_incr@incr('startTimestamp'=0)"""
-        logger.info("timestamp_incr test success")
+
+        def test_incr_read = { String force ->
+            sql """ set force_jni_scanner=${force} """
+            order_qt_snapshot_incr  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
+            order_qt_timestamp_incr1  """select * from paimon_incr@incr('startTimestamp'=0)"""
+            order_qt_timestamp_incr2  """select * from paimon_incr@incr('startTimestamp'=0, 'endTimestamp' = 1)"""
+            order_qt_timestamp_incr3  """select * from paimon_incr@incr('startTimestamp'=0, 'endtimestamp' = 999999999999999)"""
+
+            order_qt_scan_mode1 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'auto');"""
+            order_qt_scan_mode1 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'diff');"""
+            order_qt_scan_mode1 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'delta');"""
+            order_qt_scan_mode1 """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'changelog');"""
+            
+
+            // complex query
+            qt_cte """with cte1 as (select * from paimon_incr@incr('startTimestamp'=0)) select name, age from cte1 order by age;"""
+            qt_join """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2) t1 join paimon_incr@incr('startTimestamp'=0) t2 on t1.id = t2.id order by id;"""
+
+            test {
+                sql """select * from paimon_incr@incr('startTimestamp'=-1);"""
+                exception "startTimestamp must be greater than zero"
+            }
+            test {
+                sql """select * from paimon_incr@incr('startTimestam'=-1)"""
+                exception "Invalid paimon incr param"
+            }
+            test {
+                sql """select * from paimon_incr@incr('endTimestamp'=999999999999999)"""
+                exception "Invalid paimon incr param"
+            }
+            test {
+                sql """select * from paimon_incr@incr()"""
+                exception "Invalid paimon incr param"
+            }
+            test {
+                sql """select * from paimon_incr@incr('incrementalBetweenScanMode' = 'auto');"""
+                exception "Invalid paimon incr param"
+            }
+            test {
+                sql """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2, 'incrementalBetweenScanMode' = 'error');"""
+                exception "Invalid paimon incr param"
+            }
+        }
+
+        test_incr_read("false")
+        test_incr_read("true")
     } finally {
-        sql """drop catalog if exists ${catalog_name}"""
+        // sql """drop catalog if exists ${catalog_name}"""
     }
 }
 
