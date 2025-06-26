@@ -128,7 +128,7 @@ public class BuildIndexOp extends AlterTableOp {
             }
         }
         if (indexDef.getIndexType() == IndexDef.IndexType.ANN
-            && ((OlapTable) table).getKeysType() != KeysType.DUP_KEYS) {
+                && ((OlapTable) table).getKeysType() != KeysType.DUP_KEYS) {
             throw new AnalysisException("ANN index can only be built on DUP KEYS tables");
         }
         indexDef.validate();
