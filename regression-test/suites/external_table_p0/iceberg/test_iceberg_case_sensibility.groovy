@@ -54,16 +54,24 @@ suite("test_iceberg_case_sensibility", "p0,external,doris,external_docker,extern
                     // store in origin, query case sensitive
                     qt_sql """show tables like "iceberg_case_sensibility_TBL1""""
                     qt_sql """show tables like "iceberg_case_sensibility_tbl2""""
+                    sql """insert into iceberg_case_sensibility_TBL1 values(2)"""
+                    sql """insert into iceberg_case_sensibility_tbl2 values(2)"""
                     order_qt_sql11 """select * from iceberg_case_sensibility_TBL1""";
                     order_qt_sql12 """select * from iceberg_case_sensibility_tbl2""";
                     test {
                         sql "select * from iceberg_case_sensibility_tbl1"
                         exception "does not exist in database"
                     }
+                    test {
+                        sql "insert into iceberg_case_sensibility_tbl1 values(1)"
+                        exception "does not exist in database"
+                    }
                 } else if (case_type.equals("1")) {
                     // store in lower case, query case insensitive
                     qt_sql """show tables like "iceberg_case_sensibility_tbl1""""
                     qt_sql """show tables like "iceberg_case_sensibility_tbl2""""
+                    sql """insert into iceberg_case_sensibility_tbl1 values(2)"""
+                    sql """insert into iceberg_case_sensibility_tbl2 values(2)"""
                     order_qt_sql11 """select * from iceberg_case_sensibility_TBL1""";
                     order_qt_sql12 """select * from iceberg_case_sensibility_tbl2""";
                     order_qt_sql11 """select * from iceberg_case_sensibility_tbl1""";
@@ -72,6 +80,8 @@ suite("test_iceberg_case_sensibility", "p0,external,doris,external_docker,extern
                     // store in origin, query case insensitive
                     qt_sql """show tables like "iceberg_case_sensibility_TBL1""""
                     qt_sql """show tables like "iceberg_case_sensibility_tbl2""""
+                    sql """insert into iceberg_case_sensibility_tbl1 values(2)"""
+                    sql """insert into iceberg_case_sensibility_tbl2 values(2)"""
                     order_qt_sql11 """select * from iceberg_case_sensibility_TBL1""";
                     order_qt_sql12 """select * from iceberg_case_sensibility_tbl2""";
                     order_qt_sql11 """select * from iceberg_case_sensibility_tbl1""";
@@ -106,16 +116,24 @@ suite("test_iceberg_case_sensibility", "p0,external,doris,external_docker,extern
                     // store in origin, query case sensitive
                     qt_sql """show tables like "iceberg_case_sensibility_TBL1""""
                     qt_sql """show tables like "iceberg_case_sensibility_tbl2""""
+                    sql """insert into iceberg_case_sensibility_TBL1 values(2)"""
+                    sql """insert into iceberg_case_sensibility_tbl2 values(2)"""
                     order_qt_sql11 """select * from iceberg_case_sensibility_TBL1""";
                     order_qt_sql12 """select * from iceberg_case_sensibility_tbl2""";
                     test {
                         sql "select * from iceberg_case_sensibility_tbl1"
                         exception "does not exist in database"
                     }
+                    test {
+                        sql "insert into iceberg_case_sensibility_tbl1 values(1)"
+                        exception "does not exist in database"
+                    }
                 } else if (case_type.equals("1")) {
                     // store in lower case, query case insensitive
                     qt_sql """show tables like "iceberg_case_sensibility_tbl1""""
                     qt_sql """show tables like "iceberg_case_sensibility_tbl2""""
+                    sql """insert into iceberg_case_sensibility_tbl1 values(2)"""
+                    sql """insert into iceberg_case_sensibility_tbl2 values(2)"""
                     order_qt_sql11 """select * from iceberg_case_sensibility_TBL1""";
                     order_qt_sql12 """select * from iceberg_case_sensibility_tbl2""";
                     order_qt_sql11 """select * from iceberg_case_sensibility_tbl1""";
@@ -124,6 +142,8 @@ suite("test_iceberg_case_sensibility", "p0,external,doris,external_docker,extern
                     // store in origin, query case insensitive
                     qt_sql """show tables like "iceberg_case_sensibility_TBL1""""
                     qt_sql """show tables like "iceberg_case_sensibility_tbl2""""
+                    sql """insert into iceberg_case_sensibility_tbl1 values(2)"""
+                    sql """insert into iceberg_case_sensibility_tbl2 values(2)"""
                     order_qt_sql11 """select * from iceberg_case_sensibility_TBL1""";
                     order_qt_sql12 """select * from iceberg_case_sensibility_tbl2""";
                     order_qt_sql11 """select * from iceberg_case_sensibility_tbl1""";
@@ -162,10 +182,16 @@ suite("test_iceberg_case_sensibility", "p0,external,doris,external_docker,extern
                         sql "select * from iceberg_case_sensibility_TBL1"
                         exception "does not exist in database"
                     }
+                    test {
+                        sql "insert into iceberg_case_sensibility_TBL1 values(1)"
+                        exception "does not exist in database"
+                    }
                 } else if (case_type.equals("1")) {
                     // store in lower case, query case insensitive
                     qt_sql """show tables like "iceberg_case_sensibility_tbl1""""
                     qt_sql """show tables like "iceberg_case_sensibility_tbl2""""
+                    sql """insert into iceberg_case_sensibility_TBL1 values(2)"""
+                    sql """insert into iceberg_case_sensibility_tbl2 values(2)"""
                     order_qt_sql11 """select * from iceberg_case_sensibility_TBL1""";
                     order_qt_sql12 """select * from iceberg_case_sensibility_tbl2""";
                     order_qt_sql11 """select * from iceberg_case_sensibility_tbl1""";
@@ -174,6 +200,8 @@ suite("test_iceberg_case_sensibility", "p0,external,doris,external_docker,extern
                     // store in origin, query case insensitive
                     qt_sql """show tables like "iceberg_case_sensibility_TBL1""""
                     qt_sql """show tables like "iceberg_case_sensibility_tbl2""""
+                    sql """insert into iceberg_case_sensibility_TBL1 values(2)"""
+                    sql """insert into iceberg_case_sensibility_tbl2 values(2)"""
                     order_qt_sql11 """select * from iceberg_case_sensibility_TBL1""";
                     order_qt_sql12 """select * from iceberg_case_sensibility_tbl2""";
                     order_qt_sql11 """select * from iceberg_case_sensibility_tbl1""";

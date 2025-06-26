@@ -7,9 +7,11 @@ iceberg_case_sensibility_tbl2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql --
 iceberg_case_sensibility_TBL1
@@ -19,9 +21,11 @@ iceberg_case_sensibility_tbl2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql --
 iceberg_case_sensibility_tbl1
@@ -43,15 +47,19 @@ iceberg_case_sensibility_tbl2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql --
 iceberg_case_sensibility_tbl1
@@ -61,15 +69,19 @@ iceberg_case_sensibility_tbl2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql --
 iceberg_case_sensibility_tbl1
@@ -79,15 +91,19 @@ iceberg_case_sensibility_tbl2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql --
 iceberg_case_sensibility_TBL1
@@ -97,15 +113,19 @@ iceberg_case_sensibility_tbl2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql --
 iceberg_case_sensibility_TBL1
@@ -115,15 +135,19 @@ iceberg_case_sensibility_tbl2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql --
 
@@ -132,13 +156,17 @@ iceberg_case_sensibility_tbl2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
 -- !sql11 --
 1
+2
 
 -- !sql12 --
 1
+2
 
