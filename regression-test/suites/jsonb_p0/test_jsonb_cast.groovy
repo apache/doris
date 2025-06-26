@@ -73,4 +73,18 @@ suite("test_jsonb_cast", "p0") {
     qt_select_2 "SELECT * FROM ${testTable} ORDER BY id"
     // check cast as json
     qt_select_json "SELECT id, cast(a as JSON) FROM ${testTable} ORDER BY id"
+
+
+
+
+    sql """
+        set debug_skip_fold_constant= true;
+    """
+
+    qt_sql """
+   SELECT 
+        cast(CAST(1234.56 AS DECIMAL(10,2)) as json) as decimal_10_2,
+        cast(CAST(1234.56789 AS DECIMAL(12,5)) as json) as decimal_12_5,
+        cast(CAST(123456789.123456789 AS DECIMAL(20,9)) as json) as decimal_20_9
+    """
 }
