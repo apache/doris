@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -34,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Use this node to display the subquery in the relational algebra tree.
@@ -187,13 +189,20 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.<Slot>builder()
-                .addAll(left().getOutput())
-                .addAll(markJoinSlotReference.isPresent()
-                    ? ImmutableList.of(markJoinSlotReference.get()) : ImmutableList.of())
-                .addAll(needAddSubOutputToProjects
-                    ? ImmutableList.of(right().getOutput().get(0)) : ImmutableList.of())
-                .build();
+        ImmutableList.Builder<Slot> builder = ImmutableList.builder();
+        builder.addAll(left().getOutput());
+        if (markJoinSlotReference.isPresent()) {
+            builder.add(markJoinSlotReference.get());
+        }
+        if (needAddSubOutputToProjects) {
+            if (isScalar()) {
+                builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(),
+                        correlationSlot.stream().map(slot -> (Slot) slot).collect(Collectors.toList())));
+            } else {
+                builder.add(right().getOutput().get(0));
+            }
+        }
+        return builder.build();
     }
 
     @Override

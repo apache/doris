@@ -30,12 +30,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * A subquery that will return only one row and one column.
@@ -47,6 +49,9 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
 
     // indicate if the subquery has limit 1 clause but it's been eliminated in previous process step
     private final boolean limitOneIsEliminated;
+
+    private final Supplier<Slot> queryPlanSlot = Suppliers.memoize(
+            () -> getScalarQueryOutputAdjustNullable(queryPlan, correlateSlots));
 
     public ScalarSubquery(LogicalPlan subquery) {
         this(subquery, ImmutableList.of(), false);
@@ -76,10 +81,10 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     /**
     * getTopLevelScalarAggFunction
     */
-    public Optional<NamedExpression> getTopLevelScalarAggFunction() {
-        Plan plan = findTopLevelScalarAgg(queryPlan, ImmutableSet.copyOf(correlateSlots));
-        if (plan != null) {
-            LogicalAggregate aggregate = (LogicalAggregate) plan;
+    public static Optional<NamedExpression> getTopLevelScalarAggFunction(Plan queryPlan,
+            List<Slot> correlateSlots) {
+        LogicalAggregate<?> aggregate = findTopLevelScalarAgg(queryPlan, ImmutableSet.copyOf(correlateSlots));
+        if (aggregate != null) {
             Preconditions.checkState(aggregate.getAggregateFunctions().size() == 1,
                     "in scalar subquery, should only return 1 column 1 row, "
                             + "but we found multiple columns ", aggregate.getOutputExpressions());
@@ -128,6 +133,10 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
         return new ScalarSubquery(subquery, correlateSlots, typeCoercionExpr, limitOneIsEliminated);
     }
 
+    public Slot getOutputSlotAdjustNullable() {
+        return queryPlanSlot.get();
+    }
+
     /**
      *  get query plan output slot, adjust it to
      *  1. true(no adjust), when it has top agg, and the agg function is NotNullableAggregateFunction
@@ -136,10 +145,10 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
      *     for example: `t1.a = (select t2.y from t2 limit 1)`, even if t2.y is not nullable, but if t2 contain 0 row,
      *     the sub query t2 output is still null.
      */
-    public Slot getOutputSlotAdjustNullable() {
+    public static Slot getScalarQueryOutputAdjustNullable(Plan queryPlan, List<Slot> correlateSlots) {
         Slot output = queryPlan.getOutput().get(0);
         boolean nullable = true;
-        Optional<NamedExpression> aggOpt = getTopLevelScalarAggFunction();
+        Optional<NamedExpression> aggOpt = getTopLevelScalarAggFunction(queryPlan, correlateSlots);
         if (aggOpt.isPresent()) {
             NamedExpression agg = aggOpt.get();
             if (agg.getExprId().equals(output.getExprId())
@@ -157,18 +166,19 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
      * 1. The agg or its child contains correlated slots(un-correlated sub query's correlated slot is empty)
      * 2. only project, sort and subquery alias node can be agg's parent
      */
-    public static Plan findTopLevelScalarAgg(Plan plan, ImmutableSet<Slot> slots) {
+    public static LogicalAggregate<?> findTopLevelScalarAgg(Plan plan, ImmutableSet<Slot> slots) {
         if (plan instanceof LogicalAggregate) {
-            if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty()
+            LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
+            if (agg.getGroupByExpressions().isEmpty()
                     && (plan.containsSlots(slots) || slots.isEmpty())) {
-                return plan;
+                return agg;
             } else {
                 return null;
             }
         } else if (plan instanceof LogicalProject || plan instanceof LogicalSubQueryAlias
                 || plan instanceof LogicalSort) {
             for (Plan child : plan.children()) {
-                Plan result = findTopLevelScalarAgg(child, slots);
+                LogicalAggregate<?> result = findTopLevelScalarAgg(child, slots);
                 if (result != null) {
                     return result;
                 }
