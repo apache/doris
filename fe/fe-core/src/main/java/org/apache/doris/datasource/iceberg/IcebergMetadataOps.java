@@ -38,12 +38,15 @@ import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -449,7 +452,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void afterCreateOrReplaceBranchOrTag(String dbName, String tblName) {
+    public void afterOperateOnBranchOrTag(String dbName, String tblName) {
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db != null) {
             ExternalTable tbl = db.getTableNullable(tblName);
@@ -500,6 +503,44 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new RuntimeException(
                     "Failed to create or replace tag: " + tagName + " in table: " + icebergTable.name()
                             + ", error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void dropTagImpl(String dbName, String tblName, DropTagInfo tagInfo) throws UserException {
+        String tagName = tagInfo.getTagName();
+        boolean ifExists = tagInfo.getIfExists();
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisCatalog, dbName, tblName);
+        SnapshotRef snapshotRef = icebergTable.refs().get(tagName);
+
+        if (snapshotRef != null || !ifExists) {
+            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+            try {
+                preExecutionAuthenticator.execute(() -> manageSnapshots.removeTag(tagName).commit());
+            } catch (Exception e) {
+                throw new RuntimeException(
+                    "Failed to drop tag: " + tagName + " in table: " + icebergTable.name()
+                        + ", error message is: " + e.getMessage(), e);
+            }
+        }
+    }
+
+    @Override
+    public void dropBranchImpl(String dbName, String tblName, DropBranchInfo branchInfo) throws UserException {
+        String branchName = branchInfo.getBranchName();
+        boolean ifExists = branchInfo.getIfExists();
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisCatalog, dbName, tblName);
+        SnapshotRef snapshotRef = icebergTable.refs().get(branchName);
+
+        if (snapshotRef != null || !ifExists) {
+            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+            try {
+                preExecutionAuthenticator.execute(() -> manageSnapshots.removeBranch(branchName).commit());
+            } catch (Exception e) {
+                throw new RuntimeException(
+                    "Failed to drop tag: " + branchName + " in table: " + icebergTable.name()
+                        + ", error message is: " + e.getMessage(), e);
+            }
         }
     }
 
