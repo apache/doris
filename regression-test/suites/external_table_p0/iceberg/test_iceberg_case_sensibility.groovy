@@ -187,24 +187,4 @@ suite("test_iceberg_case_sensibility", "p0,external,doris,external_docker,extern
     }
 }
 
-/*
-
-CREATE TABLE tb_ts_filter (
-  id INT COMMENT '',
-  ts TIMESTAMP_NTZ COMMENT '')
-USING iceberg
-TBLPROPERTIES (
-  'format' = 'iceberg/parquet',
-  'format-version' = '2',
-  'write.parquet.compression-codec' = 'zstd');
-
-insert into tb_ts_filter values (1, timestamp '2024-05-30 20:34:56');
-insert into tb_ts_filter values (2, timestamp '2024-05-30 20:34:56.1');
-insert into tb_ts_filter values (3, timestamp '2024-05-30 20:34:56.12');
-insert into tb_ts_filter values (4, timestamp '2024-05-30 20:34:56.123');
-insert into tb_ts_filter values (5, timestamp '2024-05-30 20:34:56.1234');
-insert into tb_ts_filter values (6, timestamp '2024-05-30 20:34:56.12345');
-insert into tb_ts_filter values (7, timestamp '2024-05-30 20:34:56.123456');
-
-*/
 
