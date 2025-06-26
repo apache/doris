@@ -76,7 +76,7 @@ public class StructInfoMap {
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
             refresh(group, cascadesContext, tableMap, new HashSet<>(),
                     forceRefresh);
-            group.getstructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
+            group.getStructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(tableMap);
@@ -110,7 +110,7 @@ public class StructInfoMap {
     private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children) {
         List<Plan> childrenPlan = new ArrayList<>();
         for (int i = 0; i < children.size(); i++) {
-            StructInfoMap structInfoMap = groupExpression.child(i).getstructInfoMap();
+            StructInfoMap structInfoMap = groupExpression.child(i).getStructInfoMap();
             BitSet childMap = children.get(i);
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair
                     = structInfoMap.getGroupExpressionWithChildren(childMap);
@@ -133,7 +133,7 @@ public class StructInfoMap {
             BitSet targetBitSet,
             Set<Integer> refreshedGroup,
             boolean forceRefresh) {
-        StructInfoMap structInfoMap = group.getstructInfoMap();
+        StructInfoMap structInfoMap = group.getStructInfoMap();
         refreshedGroup.add(group.getGroupId().asInt());
         long memoVersion = cascadesContext.getMemo().getRefreshVersion();
         if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
@@ -150,13 +150,13 @@ public class StructInfoMap {
                 continue;
             }
             for (Group child : groupExpression.children()) {
-                StructInfoMap childStructInfoMap = child.getstructInfoMap();
+                StructInfoMap childStructInfoMap = child.getStructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
                     childStructInfoMap.refresh(child, cascadesContext, targetBitSet, refreshedGroup, forceRefresh);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
                 Set<BitSet> filteredTableMaps = new HashSet<>();
-                for (BitSet tableMaps : child.getstructInfoMap().getTableMaps()) {
+                for (BitSet tableMaps : child.getStructInfoMap().getTableMaps()) {
                     // filter the tableSet that used intersects with targetBitSet
                     if (!targetBitSet.isEmpty() && !tableMaps.intersects(targetBitSet)) {
                         continue;

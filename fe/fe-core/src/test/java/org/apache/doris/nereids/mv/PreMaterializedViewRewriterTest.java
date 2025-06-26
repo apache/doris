@@ -2951,7 +2951,7 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
         Memo memo = cascadesContext.getMemo();
         for (Map.Entry<BitSet, LogicalPlan> planEntry : bitSetLogicalPlanMap.entrySet()) {
             memo.incrementAndGetRefreshVersion();
-            StructInfo structInfo = memo.getRoot().getstructInfoMap().getStructInfo(cascadesContext,
+            StructInfo structInfo = memo.getRoot().getStructInfoMap().getStructInfo(cascadesContext,
                     planEntry.getKey(), memo.getRoot(), null, true);
             Assertions.assertNotNull(structInfo);
             Assertions.assertTrue(structInfo.getOriginalPlan().deepEquals(planEntry.getValue()));

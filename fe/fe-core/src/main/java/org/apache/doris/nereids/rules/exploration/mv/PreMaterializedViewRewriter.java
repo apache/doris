@@ -86,7 +86,7 @@ public class PreMaterializedViewRewriter {
         // Calc the table id set which is used by physical plan
         cascadesContext.getMemo().incrementAndGetRefreshVersion();
         // Extract logical plan by table id set by the corresponding best physical plan
-        StructInfo structInfo = root.getstructInfoMap().getStructInfo(cascadesContext,
+        StructInfo structInfo = root.getStructInfoMap().getStructInfo(cascadesContext,
                 chosenMaterializationAndUsedTable.value(), root, null, true);
         if (structInfo == null) {
             LOG.error("preMaterializedViewRewriter rewrite structInfo is null, query id is {}",
