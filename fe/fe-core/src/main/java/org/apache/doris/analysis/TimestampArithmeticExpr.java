@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -406,6 +408,45 @@ public class TimestampArithmeticExpr extends Expr {
             strBuilder.append(" " + op.toString() + " ");
             strBuilder.append("INTERVAL ");
             strBuilder.append(getChild(1).toSql() + " ");
+            strBuilder.append(timeUnitIdent);
+        }
+        return strBuilder.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        StringBuilder strBuilder = new StringBuilder();
+        if (funcName != null) {
+            if (funcName.equalsIgnoreCase("TIMESTAMPDIFF") || funcName.equalsIgnoreCase("TIMESTAMPADD")) {
+                strBuilder.append(funcName).append("(");
+                strBuilder.append(timeUnitIdent).append(", ");
+                strBuilder.append(getChild(1).toSql(disableTableName, needExternalSql, tableType, table)).append(", ");
+                strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table)).append(")");
+                return strBuilder.toString();
+            }
+            // Function-call like version.
+            strBuilder.append(funcName).append("(");
+            strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table)).append(", ");
+            strBuilder.append("INTERVAL ");
+            strBuilder.append(getChild(1).toSql(disableTableName, needExternalSql, tableType, table));
+            strBuilder.append(" ").append(timeUnitIdent);
+            strBuilder.append(")");
+            return strBuilder.toString();
+        }
+        if (intervalFirst) {
+            // Non-function-call like version with interval as first operand.
+            strBuilder.append("INTERVAL ");
+            strBuilder.append(getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + " ");
+            strBuilder.append(timeUnitIdent);
+            strBuilder.append(" ").append(op.toString()).append(" ");
+            strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table));
+        } else {
+            // Non-function-call like version with interval as second operand.
+            strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table));
+            strBuilder.append(" " + op.toString() + " ");
+            strBuilder.append("INTERVAL ");
+            strBuilder.append(getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + " ");
             strBuilder.append(timeUnitIdent);
         }
         return strBuilder.toString();
