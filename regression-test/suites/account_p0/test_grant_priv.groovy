@@ -99,7 +99,7 @@ suite("test_grant_priv") {
     connect(user1, "${pwd}", url) {
         test {
                  sql """grant select_priv on *.*.* to ${user2}"""
-                  exception "denide"
+                  exception "denied"
               }
     }
     sql """revoke '${role1}' from ${user1}"""
@@ -108,7 +108,7 @@ suite("test_grant_priv") {
     connect(user1, "${pwd}", url) {
         test {
                   sql """grant select_priv on *.*.* to ${user2}"""
-                  exception "denide"
+                  exception "denied"
               }
     }
     // test both have role1 and role2 can grant to other
