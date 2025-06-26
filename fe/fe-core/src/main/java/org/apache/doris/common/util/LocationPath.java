@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemType;
 import org.apache.doris.fs.SchemaTypeMapper;
 import org.apache.doris.thrift.TFileType;
@@ -38,56 +39,27 @@ import java.nio.file.Paths;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * LocationPath is a utility class for parsing, validating, and normalizing storage location URIs.
+ * It supports various storage backends such as HDFS, S3, OSS, and local file systems.
+ * <p>
+ * Core responsibilities include:
+ * - Extracting the schema (e.g., "s3", "hdfs", "file") from a location string.
+ * - Normalizing the location path using the corresponding {@link StorageProperties} for the schema.
+ * - Deriving the file system identifier (e.g., "s3://bucket") to uniquely identify a storage endpoint.
+ * - Mapping the schema to corresponding {@link TFileType} and {@link FileSystemType} for backend access.
+ * <p>
+ * Special handling:
+ * - Supports both standard ("scheme://") and nonstandard ("scheme:/") URI formats.
+ * - If the schema is missing (e.g., for local paths), it gracefully falls back to treating the path as local/HDFS.
+ * - Includes fallback compatibility logic for legacy schema mappings (e.g., S3 vs COS vs MinIO).
+ * <p>
+ * This class is often used by Frontend to pass normalized locations and storage metadata to Backend (BE).
+ */
 public class LocationPath {
     private static final Logger LOG = LogManager.getLogger(LocationPath.class);
     private static final String SCHEME_DELIM = "://";
     private static final String NONSTANDARD_SCHEME_DELIM = ":/";
-
-    // Return true if this location is with oss-hdfs
-    public static boolean isHdfsOnOssEndpoint(String location) {
-        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
-        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
-        return location.contains("oss-dls.aliyuncs");
-    }
-
-    /**
-     * provide file type for BE.
-     *
-     * @param location the location is from fs.listFile
-     * @return on BE, we will use TFileType to get the suitable client to access storage.
-     */
-    public static TFileType getTFileTypeForBE(String location) {
-        if (location == null || location.isEmpty()) {
-            return null;
-        }
-        LocationPath locationPath = LocationPath.of(location);
-        return locationPath.getTFileTypeForBE();
-    }
-
-    public static String getTempWritePath(String loc, String prefix) {
-        Path tempRoot = new Path(loc, prefix);
-        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
-        return tempPath.toString();
-    }
-
-    public TFileType getTFileTypeForBE() {
-        return SchemaTypeMapper.fromSchemaToFileType(schema);
-    }
-
-    /**
-     * The converted path is used for BE
-     *
-     * @return BE scan range path
-     */
-    public Path toStorageLocation() {
-        return new Path(normalizedLocation);
-    }
-
-
-    public FileSystemType getFileSystemType() {
-        return SchemaTypeMapper.fromSchemaToFileSystemType(schema);
-    }
-
 
     /**
      * URI schema, e.g., "s3", "hdfs", "file"
@@ -172,10 +144,9 @@ public class LocationPath {
             }
             normalizedLocation = storageProperties.validateAndNormalizeUri(location);
             if (StringUtils.isBlank(normalizedLocation)) {
-                throw new UserException("Invalid location: " + location + ", normalized location is null");
+                throw new IllegalArgumentException("Invalid location: " + location + ", normalized location is null");
             }
         }
-
         String encodedLocation = encodedLocation(normalizedLocation);
         URI uri = URI.create(encodedLocation);
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
@@ -183,23 +154,61 @@ public class LocationPath {
         return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
     }
 
+    public static LocationPath of(String location) {
+        String schema = extractScheme(location);
+        String encodedLocation = encodedLocation(location);
+        URI uri = URI.create(encodedLocation);
+        String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
+        return new LocationPath(schema, location, fsIdentifier, null);
+    }
+
+    /**
+     * Static factory method to create a LocationPath2 instance.
+     *
+     * @param location             the input URI location string
+     * @param storagePropertiesMap map of schema type to corresponding storage properties
+     * @return a new LocationPath2 instance
+     */
+    public static LocationPath of(String location,
+                                  Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
+        try {
+            return LocationPath.of(location, storagePropertiesMap, true);
+        } catch (UserException e) {
+            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+        }
+    }
+
+    /**
+     * Extracts the URI scheme (e.g., "s3", "hdfs") from the location string.
+     *
+     * @param location the input URI string
+     * @return the extracted scheme
+     * @throws IllegalArgumentException if the scheme is missing or URI is malformed
+     */
+    private static String extractScheme(String location) {
+        if (StringUtils.isBlank(location)) {
+            return null;
+        }
+        return parseScheme(location);
+    }
+
     /**
      * Finds the appropriate {@link StorageProperties} configuration for a given storage type and schema.
-     *
+     * <p>
      * This method attempts to locate the storage properties using the following logic:
-     *
+     * <p>
      * 1. Direct match by type: Attempts to retrieve the properties from the map using the given {@code type}.
      * 2. S3-Minio fallback: If the requested type is S3 and no properties are found, try to fall back to MinIO
      * configuration,
-     *    assuming it is compatible with S3.
+     * assuming it is compatible with S3.
      * 3. Compatibility fallback based on schema:
-     *    In older configurations, the schema name might not strictly match the actual storage type.
-     *    For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
-     *    To handle such legacy inconsistencies, we try to find any storage configuration with the name "s3"
-     *    if the schema maps to a file type of FILE_S3.
+     * In older configurations, the schema name might not strictly match the actual storage type.
+     * For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
+     * To handle such legacy inconsistencies, we try to find any storage configuration with the name "s3"
+     * if the schema maps to a file type of FILE_S3.
      *
-     * @param type the storage type to search for
-     * @param schema the schema string used in the original request (e.g., "s3://bucket/file")
+     * @param type                 the storage type to search for
+     * @param schema               the schema string used in the original request (e.g., "s3://bucket/file")
      * @param storagePropertiesMap a map of available storage types to their configuration
      * @return a matching {@link StorageProperties} if found; otherwise, {@code null}
      */
@@ -244,44 +253,52 @@ public class LocationPath {
         }
     }
 
-    public static LocationPath of(String location) {
-        String schema = extractScheme(location);
-        String encodedLocation = encodedLocation(location);
-        URI uri = URI.create(encodedLocation);
-        String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
-        return new LocationPath(schema, location, fsIdentifier, null);
+
+    // Return true if this location is with oss-hdfs
+    public static boolean isHdfsOnOssEndpoint(String location) {
+        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
+        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
+        return location.contains("oss-dls.aliyuncs");
     }
 
     /**
-     * Static factory method to create a LocationPath2 instance.
+     * provide file type for BE.
      *
-     * @param location             the input URI location string
-     * @param storagePropertiesMap map of schema type to corresponding storage properties
-     * @return a new LocationPath2 instance
-     * @throws UserException if validation fails or required data is missing
+     * @param location the location is from fs.listFile
+     * @return on BE, we will use TFileType to get the suitable client to access storage.
      */
-    public static LocationPath of(String location,
-                                  Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
-        try {
-            return LocationPath.of(location, storagePropertiesMap, true);
-        } catch (UserException e) {
-            throw new RuntimeException("Failed to create LocationPath for location: " + location, e);
-        }
-    }
-
-    /**
-     * Extracts the URI scheme (e.g., "s3", "hdfs") from the location string.
-     *
-     * @param location the input URI string
-     * @return the extracted scheme
-     * @throws IllegalArgumentException if the scheme is missing or URI is malformed
-     */
-    private static String extractScheme(String location) {
-        if (Strings.isNullOrEmpty(location)) {
+    public static TFileType getTFileTypeForBE(String location) {
+        if (StringUtils.isBlank(location)) {
             return null;
         }
-        return parseScheme(location);
+        LocationPath locationPath = LocationPath.of(location);
+        return locationPath.getTFileTypeForBE();
     }
+
+    public static String getTempWritePath(String loc, String prefix) {
+        Path tempRoot = new Path(loc, prefix);
+        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
+        return tempPath.toString();
+    }
+
+    public TFileType getTFileTypeForBE() {
+        return SchemaTypeMapper.fromSchemaToFileType(schema);
+    }
+
+    /**
+     * The converted path is used for BE
+     *
+     * @return BE scan range path
+     */
+    public Path toStorageLocation() {
+        return new Path(normalizedLocation);
+    }
+
+
+    public FileSystemType getFileSystemType() {
+        return SchemaTypeMapper.fromSchemaToFileSystemType(schema);
+    }
+
 
     // Getters (optional, if needed externally)
     public String getSchema() {

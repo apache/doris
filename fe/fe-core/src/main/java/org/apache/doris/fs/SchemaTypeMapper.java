@@ -20,24 +20,46 @@ package org.apache.doris.fs;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * SchemaTypeMapper is an enum mapping URI schemas (protocols) of file systems
+ * to their corresponding storage types, filesystem types, and internal file types.
+ * <p>
+ * Key functionalities:
+ * 1. Defines common file system and object storage schemas and maps them to StorageProperties.Type.
+ * 2. Maps to FileSystemType for unified management of different storage access logic.
+ * 3. Maps to internal TFileType to facilitate file classification and handling.
+ * 4. Provides backward compatibility for legacy paths without schema by defaulting to HDFS.
+ * <p>
+ * Design notes:
+ * - Supported schemas include S3 variants (s3, s3a, s3n), COS variants (cos, cosn), OSS, OBS, Azure
+ * (abfss, wasbs, azure), etc.
+ * - Differentiates storage types clearly to locate implementations quickly during runtime.
+ * - Case insensitive mapping using lowercase keys to avoid mismatch errors.
+ * - This enum serves as a critical helper component in the filesystem access layer,
+ *   simplifying schema-to-storage conversions.
+ * <p>
+ * Example usage:
+ * StorageProperties.Type storageType = SchemaTypeMapper.fromSchema("s3a");
+ * FileSystemType fsType = SchemaTypeMapper.fromSchemaToFileSystemType("hdfs");
+ * TFileType fileType = SchemaTypeMapper.fromSchemaToFileType(null);
+ */
 public enum SchemaTypeMapper {
 
     S3("s3", StorageProperties.Type.S3, FileSystemType.S3, TFileType.FILE_S3),
     S3A("s3a", StorageProperties.Type.S3, FileSystemType.S3, TFileType.FILE_S3),
     S3N("s3n", StorageProperties.Type.S3, FileSystemType.S3, TFileType.FILE_S3),
     COSN("cosn", StorageProperties.Type.COS, FileSystemType.S3, TFileType.FILE_S3),
+    //todo Support for this type is planned but not yet implemented.
     OFS("ofs", StorageProperties.Type.BROKER, FileSystemType.OFS, TFileType.FILE_BROKER),
     GFS("gfs", StorageProperties.Type.BROKER, FileSystemType.HDFS, TFileType.FILE_BROKER),
     JFS("jfs", StorageProperties.Type.BROKER, FileSystemType.JFS, TFileType.FILE_BROKER),
     VIEWFS("viewfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
-    //LAKEFS("lakefs", StorageProperties.Type.LAKEFS),
-    //GCS("gs", StorageProperties.Type.S3),
-    //BOS("bos", StorageProperties.Type.BOS),
     FILE("file", StorageProperties.Type.LOCAL, FileSystemType.FILE, TFileType.FILE_LOCAL),
 
     OSS("oss", StorageProperties.Type.OSS, FileSystemType.S3, TFileType.FILE_S3),
@@ -54,9 +76,17 @@ public enum SchemaTypeMapper {
     AZURE("azure", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     HDFS("hdfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     LOCAL("local", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS);
+    //LAKEFS("lakefs", StorageProperties.Type.LAKEFS),
+    //GCS("gs", StorageProperties.Type.S3),
+    //BOS("bos", StorageProperties.Type.BOS),
+
+    @Getter
     private final String schema;
+    @Getter
     private final StorageProperties.Type storageType;
+    @Getter
     private final FileSystemType fileSystemType;
+    @Getter
     private final TFileType fileType;
 
     SchemaTypeMapper(String schema, StorageProperties.Type storageType, FileSystemType fileSystemType,
@@ -110,14 +140,14 @@ public enum SchemaTypeMapper {
     }
 
     public static FileSystemType fromSchemaToFileSystemType(String schema) {
-        if (schema == null) {
+        if (StringUtils.isBlank(schema)) {
             return FileSystemType.HDFS;
         }
         return SCHEMA_TO_FS_TYPE_MAP.get(schema.toLowerCase());
     }
 
     public static TFileType fromSchemaToFileType(String schema) {
-        if (schema == null) {
+        if (StringUtils.isBlank(schema)) {
             return TFileType.FILE_HDFS;
         }
         return SCHEMA_TO_FILE_TYPE_MAP.get(schema.toLowerCase());

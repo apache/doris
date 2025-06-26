@@ -69,7 +69,6 @@ public class FileSystemCache {
                 return false;
             }
             FileSystemCacheKey o = (FileSystemCacheKey) obj;
-            //fixme 需要重写吗
             return fsIdent.equals(o.fsIdent)
                             && properties.equals(o.properties);
         }

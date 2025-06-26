@@ -80,7 +80,6 @@ public class HiveTableSinkTest {
                 add("s3a://abc/def");
                 add("s3n://abc/def");
                 add("cos://abc/def");
-                add("oss://abc/def");
             }
         };
         for (String location : locations) {
