@@ -601,9 +601,9 @@ public class IndexChangeJobTest {
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
 
-        // Test with enable_light_index_change = true (default)
+        // Test with enable_add_index_for_new_data = true
         ConnectContext context = ConnectContext.get();
-        context.getSessionVariable().setEnableLightAddIndex(true);
+        context.getSessionVariable().setEnableAddIndexForNewData(true);
         schemaChangeHandler.process(alterClauses, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
@@ -621,8 +621,8 @@ public class IndexChangeJobTest {
         indexChangeJobMap.clear();
         AgentTaskQueue.clearAllTasks();
 
-        // Test with enable_light_index_change = false
-        context.getSessionVariable().setEnableLightAddIndex(false);
+        // Test with enable_add_index_for_new_data = false
+        context.getSessionVariable().setEnableAddIndexForNewData(false);
         String indexName2 = "ngram_bf_index2";
         IndexDef indexDef2 = new IndexDef(indexName2, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
@@ -687,8 +687,8 @@ public class IndexChangeJobTest {
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
 
-        //cancel test can only with enable_light_index_change = false
-        ctx.getSessionVariable().setEnableLightAddIndex(false);
+        //cancel test can only with enable_add_index_for_new_data = false
+        ctx.getSessionVariable().setEnableAddIndexForNewData(false);
         schemaChangeHandler.process(alterClauses, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());

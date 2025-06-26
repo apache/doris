@@ -153,6 +153,10 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexParser(properties);
     }
 
+    public boolean isInvertedIndexParserNone() {
+        return InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equals(getInvertedIndexParser());
+    }
+
     public String getInvertedIndexParserMode() {
         return InvertedIndexUtil.getInvertedIndexParserMode(properties);
     }
@@ -170,23 +174,27 @@ public class Index implements Writable {
     }
 
     // Whether the index can be changed in light mode
-    // cloud mode supports light change for ngram_bf index and non-tokenized inverted index (parser="none")
-    // local mode supports light change for both inverted index and ngram_bf index
-    // the rest of the index types do not support light change
     public boolean isLightIndexChangeSupported() {
-        if (Config.isCloudMode()) {
-            if (indexType == IndexDef.IndexType.NGRAM_BF) {
-                return true;
-            } else if (indexType == IndexDef.IndexType.INVERTED) {
-                // Only support non-tokenized inverted index (parser="none") in cloud mode
-                String parser = getInvertedIndexParser();
-                return "none".equals(parser);
-            }
-            return false;
-        } else {
-            return indexType == IndexDef.IndexType.INVERTED
-                || indexType == IndexDef.IndexType.NGRAM_BF;
+        return indexType == IndexDef.IndexType.INVERTED;
+    }
+
+    // Whether the index can be added in light mode
+    // cloud mode supports light add for ngram_bf index and non-tokenized inverted index (parser="none")
+    // local mode supports light add for both inverted index and ngram_bf index
+    // the rest of the index types do not support light add
+    public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
+        // Determine if the index supports light change based on the index type and configuration mode.
+        if (indexType == IndexDef.IndexType.NGRAM_BF) {
+            // For NGRAM_BF type, support is based solely on the enableAddIndexForNewData flag.
+            return enableAddIndexForNewData;
+        } else if (indexType == IndexDef.IndexType.INVERTED) {
+            // For INVERTED type:
+            // - In cloud mode (with enableAddIndexForNewData enabled), only support non-tokenized indexes (parser="none").
+            // - In local mode or when add-index for new data is disabled, light add is always supported.
+            return (Config.isCloudMode() && enableAddIndexForNewData) ? isInvertedIndexParserNone() : true;
         }
+        // Other index types do not support light add.
+        return false;
     }
 
     public String getInvertedIndexCustomAnalyzer() {

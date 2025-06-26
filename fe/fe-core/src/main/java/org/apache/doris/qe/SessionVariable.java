@@ -746,7 +746,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
 
     public static final String PREFER_UDF_OVER_BUILTIN = "prefer_udf_over_builtin";
-    public static final String ENABLE_LIGHT_ADD_INDEX = "enable_light_add_index";
+    public static final String ENABLE_ADD_INDEX_FOR_NEW_DATA = "enable_add_index_for_new_data";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2664,12 +2664,12 @@ public class SessionVariable implements Serializable, Writable {
         return enableESParallelScroll;
     }
 
-    @VariableMgr.VarAttr(name = ENABLE_LIGHT_ADD_INDEX, fuzzy = true, description = {
-            "是否启用ngram index的轻量级变更模式，开启时只变更元数据，关闭时进行数据转换重写",
-            "Whether to enable lightweight index change mode for ngram index, "
-                    + "when enabled only metadata is changed, when disabled data conversion rewrite is performed"
+    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, fuzzy = true, description = {
+            "是否启用仅对新数据生效的索引添加模式，开启时新建索引只对后续写入的数据生效，关闭时对全部数据重建索引",
+            "Whether to enable add index mode that only affects new data, "
+                    + "when enabled new indexes only affect subsequently written data, when disabled rebuild indexes for all data"
     })
-    public boolean enableLightAddIndex = true;
+    public boolean enableAddIndexForNewData = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -4933,11 +4933,11 @@ public class SessionVariable implements Serializable, Writable {
         return enableProfile() && getProfileLevel() > 1;
     }
 
-    public boolean isEnableLightAddIndex() {
-        return enableLightAddIndex;
+    public boolean isEnableAddIndexForNewData() {
+        return enableAddIndexForNewData;
     }
 
-    public void setEnableLightAddIndex(boolean enableLightAddIndex) {
-        this.enableLightAddIndex = enableLightAddIndex;
+    public void setEnableAddIndexForNewData(boolean enableAddIndexForNewData) {
+        this.enableAddIndexForNewData = enableAddIndexForNewData;
     }
 }

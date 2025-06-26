@@ -2088,20 +2088,20 @@ public class SchemaChangeHandler extends AlterHandler {
                     lightSchemaChange = false;
 
                     // Check if the index supports light index change and session variable is enabled
-                    boolean enableLightAddIndex = true;
+                    boolean enableAddIndexForNewData = true;
                     try {
                         ConnectContext context = ConnectContext.get();
                         if (context != null && context.getSessionVariable() != null) {
-                            enableLightAddIndex = context.getSessionVariable().isEnableLightAddIndex();
+                            enableAddIndexForNewData = context.getSessionVariable().isEnableAddIndexForNewData();
                         }
                     } catch (Exception e) {
-                        LOG.warn("Failed to get session variable enable_light_index_change, "
-                                + "using default value: true", e);
+                        LOG.warn("Failed to get session variable enable_add_index_for_new_data, "
+                                + "using default value: false", e);
                     }
 
                     // ngram_bf index can do light_schema_change in both local and cloud mode
                     // inverted index can only do light_schema_change in local mode
-                    if (index.isLightIndexChangeSupported() && enableLightAddIndex) {
+                    if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
                         alterIndexes.add(index);
                         isDropIndex = false;
                         lightIndexChange = true;

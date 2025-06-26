@@ -61,10 +61,10 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Define test query
     def query = "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/  * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
-    // Test Case 1: Test with enable_light_add_index = true (default, lightweight mode)
-    logger.info("=== Test Case 1: enable_light_add_index = true ===")
-    // Set enable_light_add_index = true
-    sql "set enable_light_add_index = true"
+    // Test Case 1: Test with enable_add_index_for_new_data = true
+    logger.info("=== Test Case 1: enable_add_index_for_new_data = true ===")
+    // Set enable_add_index_for_new_data = true
+    sql "set enable_add_index_for_new_data = true"
     // Create table
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
@@ -151,10 +151,10 @@ suite("test_ngram_bloomfilter_index_change") {
         }
     }
 
-    // Test Case 2: Test with enable_light_add_index = false (schema change mode)
-    logger.info("=== Test Case 2: enable_light_add_index = false ===")
-    // Set enable_light_add_index = false
-    sql "set enable_light_add_index = false"
+    // Test Case 2: Test with enable_add_index_for_new_data = false (schema change mode)
+    logger.info("=== Test Case 2: enable_add_index_for_new_data = false ===")
+    // Set enable_add_index_for_new_data = false
+    sql "set enable_add_index_for_new_data = false"
     // Create new table
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
@@ -251,9 +251,9 @@ suite("test_ngram_bloomfilter_index_change") {
     }
 
     // Test Case 3: Test different scenarios for index lifecycle
-    logger.info("=== Test Case 3: Index lifecycle with light mode ===")
-    // Set back to light mode for additional tests
-    sql "set enable_light_add_index = true"
+    logger.info("=== Test Case 3: Index lifecycle with enable_add_index_for_new_data = true ===")
+    // Set enable_add_index_for_new_data = true
+    sql "set enable_add_index_for_new_data = true"
     // Create table and add index before inserting data
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
