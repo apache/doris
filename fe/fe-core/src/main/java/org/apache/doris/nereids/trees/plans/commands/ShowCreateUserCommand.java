@@ -36,7 +36,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -88,8 +87,6 @@ public class ShowCreateUserCommand extends ShowCommand {
         userInfo.add(toSql(userIdent));
         infos.add(userInfo);
 
-        // order by UserIdentity
-        infos.sort(Comparator.comparing(list -> list.isEmpty() ? "" : list.get(0)));
         return new ShowResultSet(getMetaData(), infos);
     }
 
