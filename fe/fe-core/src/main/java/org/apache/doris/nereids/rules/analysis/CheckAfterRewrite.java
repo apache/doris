@@ -158,14 +158,16 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         } else if (plan instanceof LogicalSort) {
             LogicalSort<?> sort = (LogicalSort<?>) plan;
             for (OrderKey orderKey : sort.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isOnlyMetricType()) {
+                if (orderKey.getExpr().getDataType().isOnlyMetricType()
+                        && !orderKey.getExpr().getDataType().isArrayType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
         } else if (plan instanceof LogicalTopN) {
             LogicalTopN<?> topN = (LogicalTopN<?>) plan;
             for (OrderKey orderKey : topN.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isOnlyMetricType()) {
+                if (orderKey.getExpr().getDataType().isOnlyMetricType()
+                        && !orderKey.getExpr().getDataType().isArrayType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
