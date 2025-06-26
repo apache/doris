@@ -465,6 +465,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
 
     PWarmUpRowsetRequest request;
     request.add_rowset_metas()->CopyFrom(rs_meta.get_rowset_pb());
+    request.set_unix_ts_us(now_ts);
     for (auto& replica : replicas) {
         // send sync request
         std::string host = replica.host;

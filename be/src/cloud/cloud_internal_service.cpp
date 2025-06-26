@@ -132,6 +132,13 @@ bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_failed_index_size(
         "file_cache_event_driven_warm_up_failed_index_size");
 bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_handle_unix_ts(
         "file_cache_warm_up_rowset_last_handle_unix_ts", 0);
+bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_finish_unix_ts(
+        "file_cache_warm_up_rowset_last_finish_unix_ts", 0);
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_latency("file_cache_warm_up_rowset_latency");
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_request_to_handle_latency(
+        "file_cache_warm_up_rowset_request_to_handle_latency");
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_handle_to_finish_latency(
+        "file_cache_warm_up_rowset_handle_to_finish_latency");
 
 void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* controller
                                               [[maybe_unused]],
@@ -156,10 +163,17 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         auto tablet = res.value();
         auto tablet_meta = tablet->tablet_meta();
 
-        int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                                 std::chrono::system_clock::now().time_since_epoch())
-                                 .count();
-        g_file_cache_warm_up_rowset_last_handle_unix_ts.set_value(now_ts);
+        int64_t handle_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
+        g_file_cache_warm_up_rowset_last_handle_unix_ts.set_value(handle_ts);
+        int64_t request_ts = request->has_unix_ts_us() ? request->unix_ts_us() : 0;
+        g_file_cache_warm_up_rowset_request_to_handle_latency << (handle_ts - request_ts);
+        if (request_ts > 0 && handle_ts - request_ts > 1L * 1000 * 1000) { // 1s
+            LOG(INFO) << "warm up rowset (request to handle) took " << handle_ts - request_ts
+                      << " us, tablet_id: " << rs_meta.tablet_id()
+                      << ", rowset_id: " << rs_meta.rowset_id().to_string();
+        }
         int64_t expiration_time =
                 tablet_meta->ttl_seconds() == 0 || rs_meta.newest_write_timestamp() <= 0
                         ? 0
@@ -169,11 +183,28 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         }
 
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
-            auto download_done = [&, tablet_id, rowset_id = rs_meta.rowset_id().to_string(),
+            auto download_done = [=, tablet_id = rs_meta.tablet_id(),
+                                  rowset_id = rs_meta.rowset_id().to_string(),
                                   segment_size = rs_meta.segment_file_size(segment_id)](Status st) {
                 if (st.ok()) {
                     g_file_cache_event_driven_warm_up_finished_segment_num << 1;
                     g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
+                    int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count();
+                    g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
+                    g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
+                    g_file_cache_warm_up_rowset_handle_to_finish_latency << (now_ts - handle_ts);
+                    if (request_ts > 0 && now_ts - request_ts > 1L * 1000 * 1000) { // 1s
+                        LOG(INFO) << "warm up rowset took " << now_ts - request_ts
+                                  << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id
+                                  << ", segment_id: " << segment_id;
+                    }
+                    if (now_ts - handle_ts > 1L * 1000 * 1000) { // 1s
+                        LOG(INFO) << "warm up rowset (handle to finish) took " << now_ts - handle_ts
+                                  << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id
+                                  << ", segment_id: " << segment_id;
+                    }
                 } else {
                     g_file_cache_event_driven_warm_up_failed_segment_num << 1;
                     g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
@@ -209,6 +240,26 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     if (st.ok()) {
                         g_file_cache_event_driven_warm_up_finished_index_num << 1;
                         g_file_cache_event_driven_warm_up_finished_index_size << idx_size;
+                        int64_t now_ts =
+                                std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
+                        g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
+                        g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
+                        g_file_cache_warm_up_rowset_handle_to_finish_latency
+                                << (now_ts - handle_ts);
+                        if (request_ts > 0 && now_ts - request_ts > 1L * 1000 * 1000) { // 1s
+                            LOG(INFO) << "warm up rowset took " << now_ts - request_ts
+                                      << " us, tablet_id: " << tablet_id
+                                      << ", rowset_id: " << rowset_id
+                                      << ", segment_id: " << segment_id;
+                        }
+                        if (now_ts - handle_ts > 1L * 1000 * 1000) { // 1s
+                            LOG(INFO) << "warm up rowset (handle to finish) took "
+                                      << now_ts - handle_ts << " us, tablet_id: " << tablet_id
+                                      << ", rowset_id: " << rowset_id
+                                      << ", segment_id: " << segment_id;
+                        }
                     } else {
                         g_file_cache_event_driven_warm_up_failed_index_num << 1;
                         g_file_cache_event_driven_warm_up_failed_index_size << idx_size;
