@@ -84,6 +84,35 @@ public:
         }
         return Status::OK();
     }
+
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        if (iterators.empty() || iterators[0] == nullptr) {
+            return Status::OK();
+        }
+        auto* inverted_index_iter = iterators[0];
+        if (inverted_index_iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(inverted_index_iter->read_null_bitmap(&null_bitmap_cache_handle));
+            std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+            // only inverted index has null bitmap, so we can calculate
+            if (null_bitmap) {
+                std::shared_ptr<roaring::Roaring> data_bitmap =
+                        std::make_shared<roaring::Roaring>();
+                data_bitmap->addRange(0, num_rows);
+
+                // null_bitmap is null bitmap
+                bitmap_result = segment_v2::InvertedIndexResultBitmap(data_bitmap, null_bitmap);
+
+                // need to mask out null bitmap
+                bitmap_result.mask_out_null();
+            }
+        }
+        return Status::OK();
+    }
 };
 
 void register_function_is_not_null(SimpleFunctionFactory& factory) {

@@ -85,6 +85,92 @@ private:
     const char* _data;
 };
 
+inline void writeChar(char x, BufferWritable& buf) {
+    buf.write(x);
+}
+
+/** Writes a C-string without creating a temporary object. If the string is a literal, then `strlen` is executed at the compilation stage.
+  * Use when the string is a literal.
+  */
+#define writeCString(s, buf) (buf).write((s), strlen(s))
+
+inline void writeJSONString(const char* begin, const char* end, BufferWritable& buf) {
+    writeChar('"', buf);
+    for (const char* it = begin; it != end; ++it) {
+        switch (*it) {
+        case '\b':
+            writeChar('\\', buf);
+            writeChar('b', buf);
+            break;
+        case '\f':
+            writeChar('\\', buf);
+            writeChar('f', buf);
+            break;
+        case '\n':
+            writeChar('\\', buf);
+            writeChar('n', buf);
+            break;
+        case '\r':
+            writeChar('\\', buf);
+            writeChar('r', buf);
+            break;
+        case '\t':
+            writeChar('\\', buf);
+            writeChar('t', buf);
+            break;
+        case '\\':
+            writeChar('\\', buf);
+            writeChar('\\', buf);
+            break;
+        case '/':
+            writeChar('/', buf);
+            break;
+        case '"':
+            writeChar('\\', buf);
+            writeChar('"', buf);
+            break;
+        default:
+            UInt8 c = *it;
+            if (c <= 0x1F) {
+                /// Escaping of ASCII control characters.
+
+                UInt8 higher_half = c >> 4;
+                UInt8 lower_half = c & 0xF;
+
+                writeCString("\\u00", buf);
+                writeChar('0' + higher_half, buf);
+
+                if (lower_half <= 9) {
+                    writeChar('0' + lower_half, buf);
+                } else {
+                    writeChar('A' + lower_half - 10, buf);
+                }
+            } else if (end - it >= 3 && it[0] == '\xE2' && it[1] == '\x80' &&
+                       (it[2] == '\xA8' || it[2] == '\xA9')) {
+                /// This is for compatibility with JavaScript, because unescaped line separators are prohibited in string literals,
+                ///  and these code points are alternative line separators.
+
+                if (it[2] == '\xA8') {
+                    writeCString("\\u2028", buf);
+                }
+                if (it[2] == '\xA9') {
+                    writeCString("\\u2029", buf);
+                }
+
+                /// Byte sequence is 3 bytes long. We have additional two bytes to skip.
+                it += 2;
+            } else {
+                writeChar(*it, buf);
+            }
+        }
+    }
+    writeChar('"', buf);
+}
+
+inline void writeJSONString(std::string_view s, BufferWritable& buf) {
+    writeJSONString(s.data(), s.data() + s.size(), buf);
+}
+
 using VectorBufferReader = BufferReadable;
 using BufferReader = BufferReadable;
 

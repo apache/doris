@@ -25,6 +25,7 @@
 #include "vec/common/demangle.h"
 #include "vec/core/accurate_comparison.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
@@ -71,6 +72,12 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
         return visitor(field.template get<DecimalField<Decimal256>>());
     case Field::Types::JSONB:
         return visitor(field.template get<JsonbField>());
+    case Field::Types::Variant:
+        return visitor(field.template get<VariantField>());
+    case Field::Types::IPv6:
+        return visitor(field.template get<IPv6>());
+    case Field::Types::Int128:
+        return visitor(field.template get<Int128>());
     default:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Bad type of Field {}",
                                static_cast<int>(field.get_type()));

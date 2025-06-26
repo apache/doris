@@ -43,6 +43,10 @@ import java.util.List;
 public class ExplodeVariantArray extends TableGeneratingFunction implements
         CustomSignature, ComputePrecision, AlwaysNullable {
 
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(new VariantType(0)).args(new VariantType(0))
+    );
+
     /**
      * constructor with one or more argument.
      */

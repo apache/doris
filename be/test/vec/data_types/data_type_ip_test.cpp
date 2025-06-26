@@ -20,17 +20,11 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 
-#include "olap/schema.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
-#include "vec/core/sort_block.h"
-#include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
@@ -38,6 +32,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
 // for example DataTypeIPv4 should test this function:
@@ -47,7 +43,7 @@
 //         text_can_contain_only_valid_utf8
 //         have_maximum_size_of_value, get_maximum_size_of_value_in_memory, get_size_of_value_in_memory
 //         get_precision, get_scale
-//         is_null_literal, is_value_represented_by_number, is_value_represented_by_integer, is_value_represented_by_unsigned_integer, is_value_unambiguously_represented_in_contiguous_memory_region
+//         is_null_literal, is_value_represented_by_number, is_value_unambiguously_represented_in_contiguous_memory_region
 // 2. datatype creation with column : create_column, create_column_const (size_t size, const Field &field), create_column_const_with_default_value (size_t size), get_uncompressed_serialized_bytes (const IColumn &column, int be_exec_version)
 // 3. serde related: get_serde (int nesting_level=1)
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to), from_string (ReadBuffer &rb, IColumn *column)
@@ -96,9 +92,9 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .scale = size_t(-1),
             .is_null_literal = false,
             .is_value_represented_by_number = true,
-            .is_value_represented_by_unsigned_integer = true,
-            .pColumnMeta = col_meta.get()
-            //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
+            .pColumnMeta = col_meta.get(),
+            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
+            .default_field = UInt64(0),
     };
     TypeDescriptor ipv6_type_descriptor = {PrimitiveType::TYPE_IPV6};
     auto col_meta6 = std::make_shared<PColumnMeta>();
@@ -117,10 +113,9 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .scale = size_t(-1),
             .is_null_literal = false,
             .is_value_represented_by_number = true,
-            .is_value_represented_by_unsigned_integer = true,
-            .pColumnMeta = col_meta6.get()
-            //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
-    };
+            .pColumnMeta = col_meta6.get(),
+            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
+            .default_field = IPv6(0)};
     meta_info_assert(dt_ipv4, ipv4_meta_info_to_assert);
     meta_info_assert(dt_ipv6, ipv6_meta_info);
 }
@@ -128,8 +123,8 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
 TEST_F(DataTypeIPTest, CreateColumnTest) {
     Field default_field_ipv4 = IPv4(0);
     Field default_field_ipv6 = IPv6(0);
-    create_column_assert(dt_ipv4, default_field_ipv4);
-    create_column_assert(dt_ipv6, default_field_ipv6);
+    create_column_assert(dt_ipv4, default_field_ipv4, 17);
+    create_column_assert(dt_ipv6, default_field_ipv6, 17);
 }
 
 TEST_F(DataTypeIPTest, GetFieldTest) {

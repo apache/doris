@@ -19,6 +19,9 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <string_view>
+#include <unordered_map>
+
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/storage_policy.h"
@@ -114,6 +117,9 @@ struct RowsetWriterContext {
 
     // For remote rowset
     std::optional<StorageResource> storage_resource;
+
+    // For collect segment statistics for compaction
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
 
     bool is_local_rowset() const { return !storage_resource; }
 

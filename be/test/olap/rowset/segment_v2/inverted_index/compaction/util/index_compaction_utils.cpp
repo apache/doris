@@ -416,7 +416,7 @@ class IndexCompactionUtils {
         // only base compaction can handle delete predicate
         BaseCompaction compaction(*engine_ref, tablet);
         compaction._input_rowsets = std::move(rowsets);
-        compaction.build_basic_info();
+        RETURN_IF_ERROR(compaction.build_basic_info());
 
         std::vector<RowsetReaderSharedPtr> input_rs_readers;
         create_input_rowsets_readers(compaction, input_rs_readers);
@@ -574,7 +574,9 @@ class IndexCompactionUtils {
 
         for (const auto& [col_uid, query_data] : query_map) {
             const auto& column = tablet_schema->column_by_uid(col_uid);
-            const auto* index = tablet_schema->inverted_index(column);
+            auto indexs = tablet_schema->inverted_indexs(column);
+            EXPECT_EQ(indexs.size(), 1);
+            const auto* index = indexs[0];
             EXPECT_TRUE(index != nullptr);
 
             if (col_uid == 0 || col_uid == 3) {

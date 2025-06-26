@@ -35,6 +35,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 class JsonbOutStream;
@@ -102,10 +103,9 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int start, int end,
                                std::vector<StringRef>& buffer_list) const override;
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int row_num) const override;
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
+
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
 
 private:
     template <bool is_binary_format>
@@ -297,66 +297,6 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
     }
-}
-
-template <typename T>
-Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
-                                                      rapidjson::Value& result,
-                                                      rapidjson::Document::AllocatorType& allocator,
-                                                      Arena& mem_pool, int row_num) const {
-    const auto& data = reinterpret_cast<const ColumnType&>(column).get_data();
-    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> || std::is_same_v<T, Int32>) {
-        result.SetInt(data[row_num]);
-    } else if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16> ||
-                         std::is_same_v<T, UInt32>) {
-        result.SetUint(data[row_num]);
-    } else if constexpr (std::is_same_v<T, Int64>) {
-        result.SetInt64(data[row_num]);
-    } else if constexpr (std::is_same_v<T, UInt64>) {
-        result.SetUint64(data[row_num]);
-    } else if constexpr (std::is_same_v<T, float>) {
-        result.SetFloat(data[row_num]);
-    } else if constexpr (std::is_same_v<T, double>) {
-        result.SetDouble(data[row_num]);
-    } else {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "unknown column type {} for writing to jsonb " + column.get_name());
-        __builtin_unreachable();
-    }
-    return Status::OK();
-}
-
-template <typename T>
-Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
-                                                       const rapidjson::Value& value) const {
-    auto& col = reinterpret_cast<ColumnType&>(column);
-    switch (value.GetType()) {
-    case rapidjson::Type::kNumberType:
-        if (value.IsUint()) {
-            col.insert_value((T)value.GetUint());
-        } else if (value.IsInt()) {
-            col.insert_value((T)value.GetInt());
-        } else if (value.IsUint64()) {
-            col.insert_value((T)value.GetUint64());
-        } else if (value.IsInt64()) {
-            col.insert_value((T)value.GetInt64());
-        } else if (value.IsFloat() || value.IsDouble()) {
-            col.insert_value(T(value.GetDouble()));
-        } else {
-            CHECK(false) << "Improssible";
-        }
-        break;
-    case rapidjson::Type::kFalseType:
-        col.insert_value((T)0);
-        break;
-    case rapidjson::Type::kTrueType:
-        col.insert_value((T)1);
-        break;
-    default:
-        col.insert_default();
-        break;
-    }
-    return Status::OK();
 }
 
 } // namespace vectorized

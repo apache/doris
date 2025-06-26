@@ -39,6 +39,8 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/io/reader_buffer.h"
 
@@ -357,6 +359,26 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
     }
     offsets.push_back(offsets.back() + element_num);
     return Status::OK();
+}
+
+Field DataTypeArray::get_type_field(const IColumn& column, size_t row) const {
+    const auto& array = assert_cast<const ColumnArray&>(column);
+    size_t offset = array.offset_at(row);
+    size_t size = array.size_at(row);
+
+    if (size > max_array_size_as_field) {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Array of size {}, is too large to be manipulated as single field, maximum size {}",
+                size, max_array_size_as_field);
+    }
+
+    Array res(size);
+
+    for (size_t i = 0; i < size; ++i) {
+        res[i] = get_nested_type()->get_type_field(array.get_data(), offset + i);
+    }
+    return VariantField(res, TypeIndex::Array);
 }
 
 } // namespace doris::vectorized

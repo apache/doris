@@ -34,7 +34,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "serde/data_type_object_serde.h"
-#include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -50,24 +49,25 @@ class IColumn;
 namespace doris::vectorized {
 class DataTypeObject : public IDataType {
 private:
-    String schema_format;
-    bool is_nullable;
+    int32_t _max_subcolumns_count = 0;
+    std::string name = "Variant";
 
 public:
-    DataTypeObject(const String& schema_format_ = "json", bool is_nullable_ = true);
+    DataTypeObject() {}
+    DataTypeObject(int32_t max_subcolumns_count);
+    String do_get_name() const override { return name; }
     const char* get_family_name() const override { return "Variant"; }
     TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
     TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_VARIANT);
+        return TypeDescriptor(TYPE_VARIANT, _max_subcolumns_count);
     }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
     }
-    MutableColumnPtr create_column() const override { return ColumnObject::create(is_nullable); }
     bool is_object() const override { return true; }
+    MutableColumnPtr create_column() const override;
     bool equals(const IDataType& rhs) const override;
-    bool hasNullableSubcolumns() const { return is_nullable; }
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; };
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
@@ -95,5 +95,9 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeObjectSerDe>(nesting_level);
     };
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
+    // Return Field which wrapped with the real type.
+    Field get_type_field(const IColumn& column, size_t row) const override;
+    int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
 };
 } // namespace doris::vectorized

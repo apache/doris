@@ -110,6 +110,7 @@ void register_function_ip(SimpleFunctionFactory& factory);
 void register_function_multi_match(SimpleFunctionFactory& factory);
 void register_function_assert_true(SimpleFunctionFactory& factory);
 void register_function_split_by_regexp(SimpleFunctionFactory& factory);
+void register_function_variant_type(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -315,6 +316,7 @@ public:
             register_function_multi_match(instance);
             register_function_assert_true(instance);
             register_function_split_by_regexp(instance);
+            register_function_variant_type(instance);
         });
         return instance;
     }
