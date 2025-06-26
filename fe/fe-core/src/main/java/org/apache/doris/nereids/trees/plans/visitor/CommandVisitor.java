@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -69,6 +70,9 @@ import org.apache.doris.nereids.trees.plans.commands.CreateDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateIndexTokenFilterCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
@@ -100,6 +104,9 @@ import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropExpiredStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenFilterCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
@@ -187,8 +194,11 @@ import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexAnalyzerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenFilterCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
@@ -1204,6 +1214,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropAnalyzeJobCommand, context);
     }
 
+    default R visitAlterRoutineLoadCommand(AlterRoutineLoadCommand alterRoutineLoadCommand, C context) {
+        return visitCommand(alterRoutineLoadCommand, context);
+    }
+
     default R visitColocateGroupCommand(AlterColocateGroupCommand alterColocateGroupCommand, C context) {
         return visitCommand(alterColocateGroupCommand, context);
     }
@@ -1315,5 +1329,50 @@ public interface CommandVisitor<R, C> {
 
     default R visitRevokeTablePrivilegeCommand(RevokeTablePrivilegeCommand revokeTablePrivilegeCommand, C context) {
         return visitCommand(revokeTablePrivilegeCommand, context);
+    }
+
+    default R visitCreateIndexAnalyzerCommand(
+            CreateIndexAnalyzerCommand createIndexAnalyzerCommand, C context) {
+        return visitCommand(createIndexAnalyzerCommand, context);
+    }
+
+    default R visitCreateIndexTokenizerCommand(
+            CreateIndexTokenizerCommand createIndexTokenizerCommand, C context) {
+        return visitCommand(createIndexTokenizerCommand, context);
+    }
+
+    default R visitCreateIndexTokenFilterCommand(
+            CreateIndexTokenFilterCommand createIndexTokenFilterCommand, C context) {
+        return visitCommand(createIndexTokenFilterCommand, context);
+    }
+
+    default R visitDropIndexAnalyzerCommand(
+            DropIndexAnalyzerCommand dropIndexAnalyzerCommand, C context) {
+        return visitCommand(dropIndexAnalyzerCommand, context);
+    }
+
+    default R visitDropIndexTokenizerCommand(
+            DropIndexTokenizerCommand dropIndexTokenizerCommand, C context) {
+        return visitCommand(dropIndexTokenizerCommand, context);
+    }
+
+    default R visitDropIndexTokenFilterCommand(
+            DropIndexTokenFilterCommand dropIndexTokenFilterCommand, C context) {
+        return visitCommand(dropIndexTokenFilterCommand, context);
+    }
+
+    default R visitShowIndexAnalyzerCommand(
+            ShowIndexAnalyzerCommand showIndexAnalyzerCommand, C context) {
+        return visitCommand(showIndexAnalyzerCommand, context);
+    }
+
+    default R visitShowIndexTokenizerCommand(
+            ShowIndexTokenizerCommand showIndexTokenizerCommand, C context) {
+        return visitCommand(showIndexTokenizerCommand, context);
+    }
+
+    default R visitShowIndexTokenFilterCommand(
+            ShowIndexTokenFilterCommand showIndexTokenFilterCommand, C context) {
+        return visitCommand(showIndexTokenFilterCommand, context);
     }
 }

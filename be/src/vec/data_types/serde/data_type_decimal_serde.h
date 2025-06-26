@@ -19,23 +19,16 @@
 
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
-#include <ostream>
 #include <string>
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 
 namespace doris {
 
@@ -59,6 +52,8 @@ public:
               precision(precision_),
               scale(scale_),
               scale_multiplier(decimal_scale_multiplier<typename FieldType::NativeType>(scale)) {}
+
+    std::string get_name() const override { return type_to_string(T); }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -154,59 +149,6 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
     return Status::OK();
 }
 
-template <PrimitiveType T>
-void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                      Arena* mem_pool, int32_t col_id,
-                                                      int64_t row_num) const {
-    StringRef data_ref = column.get_data_at(row_num);
-    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
-    if constexpr (T == TYPE_DECIMALV2) {
-        Decimal128V2::NativeType val =
-                *reinterpret_cast<const Decimal128V2::NativeType*>(data_ref.data);
-        result.writeInt128(val);
-    } else if constexpr (T == TYPE_DECIMAL128I) {
-        Decimal128V3::NativeType val =
-                *reinterpret_cast<const Decimal128V3::NativeType*>(data_ref.data);
-        result.writeInt128(val);
-    } else if constexpr (T == TYPE_DECIMAL32) {
-        Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
-        result.writeInt32(val);
-    } else if constexpr (T == TYPE_DECIMAL64) {
-        Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
-        result.writeInt64(val);
-    } else if constexpr (T == TYPE_DECIMAL256) {
-        // use binary type, since jsonb does not support int256
-        result.writeStartBinary();
-        result.writeBinary(data_ref.data, data_ref.size);
-        result.writeEndBinary();
-    } else {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_one_cell_to_jsonb with type " + column.get_name());
-    }
-}
-
-template <PrimitiveType T>
-void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
-                                                       const JsonbValue* arg) const {
-    auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
-    if constexpr (T == TYPE_DECIMALV2) {
-        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
-    } else if constexpr (T == TYPE_DECIMAL128I) {
-        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
-    } else if constexpr (T == TYPE_DECIMAL32) {
-        col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
-    } else if constexpr (T == TYPE_DECIMAL64) {
-        col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
-    } else if constexpr (T == TYPE_DECIMAL256) {
-        // use binary type, since jsonb does not support int256
-        const wide::Int256 val = *reinterpret_cast<const wide::Int256*>(
-                static_cast<const JsonbBlobVal*>(arg)->getBlob());
-        col.insert_value(Decimal256(val));
-    } else {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "read_one_cell_from_jsonb with type " + column.get_name());
-    }
-}
 #include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

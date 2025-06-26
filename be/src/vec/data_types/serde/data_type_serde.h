@@ -28,7 +28,6 @@
 #include "arrow/status.h"
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_buffer.hpp"
@@ -101,8 +100,15 @@ struct ColumnVectorBatch;
 
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
+class JsonbOutStream;
 class SlotDescriptor;
+
+template <class OS_TYPE>
+class JsonbWriterT;
+
+using JsonbWriter = JsonbWriterT<JsonbOutStream>;
+
 #include "common/compile_check_begin.h"
 namespace vectorized {
 class IColumn;
@@ -124,6 +130,8 @@ using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 // the developer does not know how many datatypes has to deal.
 class DataTypeSerDe {
 public:
+    // return type name , such as "BOOL", "BIGINT", "ARRAY<DATE>"
+    virtual std::string get_name() const = 0;
     // Text serialization/deserialization of data types depend on some settings witch we define
     // in formatOptions.
     struct FormatOptions {

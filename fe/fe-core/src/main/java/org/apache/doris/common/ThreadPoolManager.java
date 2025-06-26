@@ -23,6 +23,7 @@ import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -240,9 +241,12 @@ public class ThreadPoolManager {
      * Create a thread factory that names threads with a prefix and also sets the threads to daemon.
      */
     private static ThreadFactory namedThreadFactory(String poolName) {
-        return new ThreadFactoryBuilder().setDaemon(true).setNameFormat(poolName + "-%d").build();
+        return new ThreadFactoryBuilder()
+                .setDaemon(true)
+                .setNameFormat(poolName + "-%d")
+                .setThreadFactory(MoreFieldsThread::new)
+                .build();
     }
-
 
     public static ThreadPoolExecutor newDaemonThreadPoolWithPreAuth(
             int corePoolSize,
@@ -267,7 +271,7 @@ public class ThreadPoolManager {
         return new ThreadFactoryBuilder()
             .setDaemon(true)
             .setNameFormat(poolName + "-%d")
-            .setThreadFactory(runnable -> new Thread(() -> {
+            .setThreadFactory(runnable -> new MoreFieldsThread(() -> {
                 try {
                     preAuth.execute(runnable);
                 } catch (Exception e) {

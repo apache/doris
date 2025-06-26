@@ -85,6 +85,7 @@ public abstract class DataType {
             .add(DateType.class, () -> ImmutableList.of(
                     DateTimeType.INSTANCE, DateV2Type.INSTANCE, StringType.INSTANCE))
             .add(DateV2Type.class, () -> ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
+            .add(TimeV2Type.class, () -> ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE))
             .build();
 
     /**
@@ -250,6 +251,7 @@ public abstract class DataType {
                 dataType = DateV2Type.INSTANCE;
                 break;
             case "time":
+            case "timev2":
                 switch (types.size()) {
                     case 1:
                         dataType = TimeV2Type.INSTANCE;
@@ -535,14 +537,6 @@ public abstract class DataType {
 
     public boolean isTimeType() {
         return this instanceof TimeV2Type;
-    }
-
-    public boolean isTimeV2Type() {
-        return this instanceof TimeV2Type;
-    }
-
-    public boolean isTimeLikeType() {
-        return isTimeType() || isTimeV2Type();
     }
 
     public boolean isNullType() {

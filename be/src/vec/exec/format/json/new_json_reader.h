@@ -83,6 +83,7 @@ public:
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+    Status init_schema_reader() override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 

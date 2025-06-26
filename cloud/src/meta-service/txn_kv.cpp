@@ -34,6 +34,7 @@
 
 #include "common/bvars.h"
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
@@ -398,6 +399,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     const uint8_t* ret;
     int len;
     err = fdb_future_get_value(fut, &found, &ret, &len);
+    num_get_keys_++;
 
     if (err) {
         LOG(WARNING) << __PRETTY_FUNCTION__
@@ -416,8 +418,9 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
                               int limit) {
     StopWatch sw;
     approximate_bytes_ += begin.size() + end.size();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [&sw](int*) { g_bvar_txn_kv_range_get << sw.elapsed_us(); });
+    DORIS_CLOUD_DEFER {
+        g_bvar_txn_kv_range_get << sw.elapsed_us();
+    };
 
     FDBFuture* fut = fdb_transaction_get_range(
             txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)begin.data(), begin.size()),
@@ -436,6 +439,7 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
 
     std::unique_ptr<RangeGetIterator> ret(new RangeGetIterator(fut));
     RETURN_IF_ERROR(ret->init());
+    num_get_keys_ += ret->size();
     g_bvar_txn_kv_get_count_normalized << ret->size();
 
     *(iter) = std::move(ret);
@@ -555,10 +559,10 @@ TxnErrorCode Transaction::commit() {
 TxnErrorCode Transaction::get_read_version(int64_t* version) {
     StopWatch sw;
     auto* fut = fdb_transaction_get_read_version(txn_);
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [fut, &sw](...) {
+    DORIS_CLOUD_DEFER {
         fdb_future_destroy(fut);
         g_bvar_txn_kv_get_read_version << sw.elapsed_us();
-    });
+    };
     RETURN_IF_ERROR(await_future(fut));
     auto err = fdb_future_get_error(fut);
     TEST_SYNC_POINT_CALLBACK("transaction:get_read_version:get_err", &err);
@@ -666,6 +670,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         futures.clear();
     }
     DCHECK_EQ(res->size(), num_keys);
+    num_get_keys_ += num_keys;
     return TxnErrorCode::TXN_OK;
 }
 
