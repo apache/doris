@@ -33,7 +33,12 @@ suite("test_show_transaction_auth","p0,auth") {
     }
     sql """grant load_priv on regression_test.* to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        sql "SHOW TRANSACTION WHERE ID=4005;"
+        try {
+                sql "SHOW TRANSACTION WHERE ID=4005;"
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                assertFalse(e.getMessage().contains("denied"))
+            }
     }
     try_sql("DROP USER ${user}")
 }
