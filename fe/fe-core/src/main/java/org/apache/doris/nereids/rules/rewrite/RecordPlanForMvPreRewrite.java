@@ -54,7 +54,8 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
                         Rewriter.getCteChildrenRewriter(childContext,
                                         ImmutableList.of(Rewriter.custom(RuleType.REWRITE_CTE_CHILDREN,
                                                 () -> new RewriteCteChildren(
-                                                        Rewriter.CTE_CHILDREN_REWRITE_JOBS_MV_REWRITE_USED))))
+                                                        Rewriter.CTE_CHILDREN_REWRITE_JOBS_MV_REWRITE_USED,
+                                                        false))))
                                 .execute();
                         return childContext.getRewritePlan();
                     }, plan, plan, false);
