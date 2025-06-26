@@ -1228,8 +1228,16 @@ joinRelation
 
 // Just like `opt_plan_hints` in legacy CUP parser.
 distributeType
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketDistributeType
-    | HINT_START identifier HINT_END                                  #commentDistributeType
+    : LEFT_BRACKET identifier skewHint? RIGHT_BRACKET
+    | HINT_START identifier skewHint? HINT_END
+    ;
+
+skewHint
+    :  LEFT_PAREN identifier LEFT_PAREN qualifiedName constantList RIGHT_PAREN RIGHT_PAREN
+    ;
+
+constantList
+    : LEFT_PAREN values+=constant (COMMA values+=constant)* RIGHT_PAREN
     ;
 
 relationHint
@@ -1268,7 +1276,7 @@ hintStatement
     ;
 
 hintAssignment
-    : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
+    : key=identifierOrText skew=skewHint? (EQ (constantValue=constant | identifierValue=identifier))?
     | constant
     ;
 
@@ -1304,7 +1312,7 @@ limitClause
     ;
 
 partitionClause
-    : PARTITION BY expression (COMMA expression)*
+    : PARTITION BY (LEFT_BRACKET identifier RIGHT_BRACKET)? expression (COMMA expression)*
     ;
 
 joinType
@@ -1580,6 +1588,7 @@ functionCallExpression
     : functionIdentifier
               LEFT_PAREN (
                   (DISTINCT|ALL)?
+                  (LEFT_BRACKET identifier RIGHT_BRACKET)?
                   arguments+=expression (COMMA arguments+=expression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
