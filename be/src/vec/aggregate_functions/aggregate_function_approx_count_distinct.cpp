@@ -17,6 +17,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
+#include "common/status.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
@@ -51,19 +52,15 @@ AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
     case PrimitiveType::TYPE_VARIANT:
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_VARIANT>>(
                 argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_BITMAP:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BITMAP>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_HLL:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_HLL>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_QUANTILE_STATE:
-        return creator_without_type::create<
-                AggregateFunctionApproxCountDistinct<TYPE_QUANTILE_STATE>>(argument_types,
-                                                                           result_is_nullable);
     default:
-        return creator_with_any::create<AggregateFunctionApproxCountDistinct>(argument_types,
-                                                                          result_is_nullable);
+        auto res = creator_with_any::create<AggregateFunctionApproxCountDistinct>(
+                argument_types, result_is_nullable);
+        if (!res) {
+            throw Exception(
+                    ErrorCode::NOT_IMPLEMENTED_ERROR,
+                    "Unsupported type for approx_count_distinct: " + argument_types[0]->get_name());
+        }
+        return res;
     }
 }
 
