@@ -473,3 +473,10 @@ extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter;
+
+// meta ranges bvar
+extern bvar::Adder<int64_t> g_bvar_meta_ranges_txn_count;
+
+extern mBvarLongStatus g_bvar_meta_ranges_txn_instance_count;
+extern mBvarLongStatus g_bvar_meta_ranges_meta_instance_count;
+extern mBvarLongStatus g_bvar_meta_ranges_recycle_instance_count;
