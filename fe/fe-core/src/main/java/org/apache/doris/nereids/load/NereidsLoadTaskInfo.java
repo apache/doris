@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
@@ -119,6 +120,10 @@ public interface NereidsLoadTaskInfo {
 
     default boolean isFlexiblePartialUpdate() {
         return false;
+    }
+
+    default TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return TPartialUpdateNewRowPolicy.APPEND;
     }
 
     default boolean getTrimDoubleQuotes() {

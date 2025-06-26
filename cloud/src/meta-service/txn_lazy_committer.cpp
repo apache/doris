@@ -20,6 +20,7 @@
 #include <chrono>
 
 #include "common/logging.h"
+#include "common/stats.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
@@ -33,7 +34,8 @@ namespace doris::cloud {
 void scan_tmp_rowset(
         const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
         MetaServiceCode& code, std::string& msg, int64_t* db_id,
-        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* tmp_rowsets_meta);
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* tmp_rowsets_meta,
+        KVStats* stats);
 
 void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stats,
                          std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
@@ -308,7 +310,7 @@ void TxnLazyCommitTask::commit() {
             int64_t db_id;
             std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> all_tmp_rowset_metas;
             scan_tmp_rowset(instance_id_, txn_id_, txn_kv_, code_, msg_, &db_id,
-                            &all_tmp_rowset_metas);
+                            &all_tmp_rowset_metas, nullptr);
             if (code_ != MetaServiceCode::OK) {
                 LOG(WARNING) << "scan_tmp_rowset failed, txn_id=" << txn_id_ << " code=" << code_;
                 break;

@@ -56,9 +56,9 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Eliminate GroupBy.
@@ -88,16 +88,11 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
     }
 
     private Plan rewrite(LogicalAggregate<Plan> agg) {
-        List<Expression> groupByExpressions = agg.getGroupByExpressions();
-        Builder<Slot> groupBySlots
-                = ImmutableSet.builderWithExpectedSize(groupByExpressions.size());
-        for (Expression groupByExpression : groupByExpressions) {
-            groupBySlots.add((Slot) groupByExpression);
-        }
+        Set<Slot> groupBySlots = (Set) ImmutableSet.copyOf(agg.getGroupByExpressions());
         Plan child = agg.child();
         boolean unique = child.getLogicalProperties()
                 .getTrait()
-                .isUniqueAndNotNull(groupBySlots.build());
+                .isUniqueAndNotNull(groupBySlots);
         if (!unique) {
             return null;
         }

@@ -1374,23 +1374,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabasePropertyStmt(dbName, map);
     :}
-    /* Catalog */
-    | KW_ALTER KW_CATALOG ident:catalogName KW_RENAME ident:newCatalogName
-    {:
-        RESULT = new AlterCatalogNameStmt(catalogName, newCatalogName);
-    :}
-    | KW_ALTER KW_CATALOG ident:catalogName KW_SET KW_PROPERTIES LPAREN key_value_map:map RPAREN
-    {:
-        RESULT = new AlterCatalogPropertyStmt(catalogName, map);
-    :}
-    | KW_ALTER KW_CATALOG ident:catalogName KW_MODIFY KW_COMMENT STRING_LITERAL:comment
-    {:
-        RESULT = new AlterCatalogCommentStmt(catalogName, comment);
-    :}
-    | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
-    {:
-        RESULT = new AlterResourceStmt(resourceName, properties);
-    :}
     | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
@@ -1422,10 +1405,6 @@ alter_stmt ::=
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
-    :}
-    | KW_ALTER KW_STORAGE KW_POLICY ident_or_text:policyName opt_properties:properties
-    {:
-        RESULT = new AlterPolicyStmt(policyName, properties);
     :}
     | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
     {:
@@ -1881,16 +1860,6 @@ create_stmt ::=
         RESULT = new CreateTableAsSelectStmt(new CreateTableStmt(ifNotExists, isExternal, name, null, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index), columns, query_def);
     :}
-    /* User */
-    | KW_CREATE KW_USER
-      opt_if_not_exists:ifNotExists
-      grant_user:user
-      opt_user_role:userRole
-      opt_password_option:passwdOptions
-      opt_comment:comment
-    {:
-        RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions, comment);
-    :}
     | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
     {:
@@ -1961,11 +1930,6 @@ create_stmt ::=
     | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, indexName, partitionNames, false)));
-    :}
-    /* stage */
-    | KW_CREATE KW_STAGE opt_if_not_exists:ifNotExists ident:stageName KW_PROPERTIES opt_key_value_map:properties
-    {:
-        RESULT = new CreateStageStmt(ifNotExists, stageName, properties);
     :}
     ;
 

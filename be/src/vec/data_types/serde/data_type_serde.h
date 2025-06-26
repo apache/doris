@@ -130,6 +130,8 @@ using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 // the developer does not know how many datatypes has to deal.
 class DataTypeSerDe {
 public:
+    // return type name , such as "BOOL", "BIGINT", "ARRAY<DATE>"
+    virtual std::string get_name() const = 0;
     // Text serialization/deserialization of data types depend on some settings witch we define
     // in formatOptions.
     struct FormatOptions {

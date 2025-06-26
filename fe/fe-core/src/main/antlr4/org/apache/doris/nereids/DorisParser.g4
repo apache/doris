@@ -74,7 +74,6 @@ statementBase
 
 unsupportedStatement
     : unsupportedStatsStatement
-    | unsupportedAlterStatement
     | unsupportedAdminStatement
     | unsupportedLoadStatement
     | unsupportedOtherStatement
@@ -283,6 +282,8 @@ supportedAlterStatement
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
+    | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
+            (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
@@ -643,13 +644,6 @@ privilege
 
 privilegeList
     : privilege (COMMA privilege)*
-    ;
-
-unsupportedAlterStatement
-    : ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
-            (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
-    | ALTER STORAGE POLICY name=identifierOrText
-        properties=propertyClause                                                   #alterStoragePlicy
     ;
 
 alterSystemClause
