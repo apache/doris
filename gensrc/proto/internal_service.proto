@@ -839,6 +839,7 @@ message PGetFileCacheMetaResponse {
 
 message PWarmUpRowsetRequest {
     repeated RowsetMetaPB rowset_metas = 1;
+    optional int64 unix_ts_us = 2;
 }
 
 message PWarmUpRowsetResponse {
