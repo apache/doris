@@ -179,6 +179,10 @@ public class MysqlLoadCommand extends Command {
     }
 
     private void validate(ConnectContext ctx) throws UserException {
+        if (mysqlDataDescription == null) {
+            throw new AnalysisException("No data file in load statement.");
+        }
+
         // check data descriptions, only support one file path:
         String fullDbName = mysqlDataDescription.analyzeFullDbName(ctx);
         mysqlDataDescription.analyze(fullDbName);
