@@ -19,28 +19,34 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.rewrite.AdaptiveBottomUpRewriteJob;
+import org.apache.doris.nereids.jobs.rewrite.AdaptiveTopDownRewriteJob;
+import org.apache.doris.nereids.jobs.rewrite.BottomUpVisitorRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
+import org.apache.doris.nereids.jobs.rewrite.TopDownVisitorRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.TopicRewriteJob;
-import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -49,7 +55,7 @@ import java.util.stream.Stream;
  * Each batch of rules will be uniformly executed.
  */
 public abstract class AbstractBatchJobExecutor {
-    private static final ThreadLocal<Set<Class<Plan>>> NOT_TRAVERSE_CHILDREN = new ThreadLocal();
+    private static final ThreadLocal<Set<Class<Plan>>> NOT_TRAVERSE_CHILDREN = new ThreadLocal<>();
     private static final Predicate<Plan> TRAVERSE_ALL_PLANS = plan -> true;
 
     protected CascadesContext cascadesContext;
@@ -64,10 +70,13 @@ public abstract class AbstractBatchJobExecutor {
     public static List<RewriteJob> jobs(RewriteJob... jobs) {
         return Arrays.stream(jobs)
                 .filter(Objects::nonNull)
-                .flatMap(job -> job instanceof TopicRewriteJob
-                    ? ((TopicRewriteJob) job).jobs.stream().filter(Objects::nonNull)
-                    : Stream.of(job)
-                ).collect(ImmutableList.toImmutableList());
+                .flatMap(job -> {
+                    if (job instanceof TopicRewriteJob && !((TopicRewriteJob) job).condition.isPresent()) {
+                        return ((TopicRewriteJob) job).jobs.stream();
+                    } else {
+                        return Stream.of(job);
+                    }
+                }).collect(ImmutableList.toImmutableList());
     }
 
     /** notTraverseChildrenOf */
@@ -82,7 +91,11 @@ public abstract class AbstractBatchJobExecutor {
     }
 
     public static TopicRewriteJob topic(String topicName, RewriteJob... jobs) {
-        return new TopicRewriteJob(topicName, Arrays.asList(jobs));
+        return new TopicRewriteJob(topicName, Arrays.asList(jobs), null);
+    }
+
+    public static TopicRewriteJob topic(String topicName, Predicate<CascadesContext> condition, RewriteJob... jobs) {
+        return new TopicRewriteJob(topicName, Arrays.asList(jobs), condition);
     }
 
     public static RewriteJob costBased(RewriteJob... jobs) {
@@ -93,12 +106,17 @@ public abstract class AbstractBatchJobExecutor {
         return bottomUp(Arrays.asList(ruleFactories));
     }
 
+    /** bottomUp */
     public static RewriteJob bottomUp(List<RuleFactory> ruleFactories) {
-        List<Rule> rules = ruleFactories.stream()
+        Rules rules = new FilteredRules(ruleFactories.stream()
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
-                .collect(ImmutableList.toImmutableList());
-        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteBottomUpJob::new, getTraversePredicate(), true);
+                .collect(ImmutableList.toImmutableList()));
+        Predicate<Plan> traversePredicate = getTraversePredicate();
+        BottomUpVisitorRewriteJob visitorJob = new BottomUpVisitorRewriteJob(rules, traversePredicate);
+        RootPlanTreeRewriteJob stackJob = new RootPlanTreeRewriteJob(rules,
+                PlanTreeRewriteBottomUpJob::new, traversePredicate, true);
+        return new AdaptiveBottomUpRewriteJob(visitorJob, stackJob);
     }
 
     public static RewriteJob topDown(RuleFactory... ruleFactories) {
@@ -109,12 +127,16 @@ public abstract class AbstractBatchJobExecutor {
         return topDown(ruleFactories, true);
     }
 
+    /** topDown */
     public static RewriteJob topDown(List<RuleFactory> ruleFactories, boolean once) {
-        List<Rule> rules = ruleFactories.stream()
+        Rules rules = new FilteredRules(ruleFactories.stream()
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
-                .collect(ImmutableList.toImmutableList());
-        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, getTraversePredicate(), once);
+                .collect(ImmutableList.toImmutableList()));
+        TopDownVisitorRewriteJob visitorJob = new TopDownVisitorRewriteJob(rules, getTraversePredicate());
+        RootPlanTreeRewriteJob stackJob
+                = new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, getTraversePredicate(), once);
+        return new AdaptiveTopDownRewriteJob(visitorJob, stackJob);
     }
 
     public static RewriteJob custom(RuleType ruleType, Supplier<CustomRewriter> planRewriter) {
@@ -125,23 +147,34 @@ public abstract class AbstractBatchJobExecutor {
      * execute.
      */
     public void execute() {
-        for (int i = 0; i < getJobs().size(); i++) {
+        List<RewriteJob> jobs = Lists.newArrayList(getJobs());
+        for (int i = 0; i < jobs.size(); i++) {
             JobContext jobContext = cascadesContext.getCurrentJobContext();
-            RewriteJob currentJob = getJobs().get(i);
-            if (currentJob instanceof CostBasedRewriteJob) {
-                List<RewriteJob> remainJobs = getJobs().subList(i + 1, getJobs().size()).stream()
-                        .filter(j -> !(j instanceof CostBasedRewriteJob))
-                        .collect(Collectors.toList());
-                jobContext.setRemainJobs(remainJobs);
+            RewriteJob currentJob = jobs.get(i);
+
+            if (currentJob instanceof TopicRewriteJob) {
+                TopicRewriteJob topicRewriteJob = (TopicRewriteJob) currentJob;
+                Optional<Predicate<CascadesContext>> condition = topicRewriteJob.condition;
+                if (!condition.isPresent() || condition.get().test(jobContext.getCascadesContext())) {
+                    jobs.addAll(i + 1, topicRewriteJob.jobs);
+                }
+                continue;
             }
-            do {
-                jobContext.setRewritten(false);
-                currentJob.execute(jobContext);
-            } while (!currentJob.isOnce() && jobContext.isRewritten());
+
+            if (shouldRun(currentJob, jobContext, jobs, i)) {
+                do {
+                    jobContext.setRewritten(false);
+                    currentJob.execute(jobContext);
+                } while (!currentJob.isOnce() && jobContext.isRewritten());
+            }
         }
     }
 
     public abstract List<RewriteJob> getJobs();
+
+    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext, List<RewriteJob> jobs, int jobIndex) {
+        return true;
+    }
 
     private static Predicate<Plan> getTraversePredicate() {
         Set<Class<Plan>> notTraverseChildren = NOT_TRAVERSE_CHILDREN.get();

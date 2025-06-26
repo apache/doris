@@ -55,9 +55,11 @@ suite("push_topn_to_agg") {
     // 2. append o_custkey to order key 
     explain{
         sql "select sum(o_shippriority)  from orders group by o_custkey, o_clerk order by o_clerk limit 11;"
-        contains("sortByGroupKey:true")
-        contains("group by: o_clerk[#10], o_custkey[#9]")
-        contains("order by: o_clerk[#18] ASC, o_custkey[#19] ASC")
+        check { String explainStr ->
+            assertTrue(explainStr.contains("sortByGroupKey:true"))
+            assertTrue(explainStr.find("group by: o_clerk\\[#\\d+\\], o_custkey\\[#\\d+\\]") != null)
+            assertTrue(explainStr.find("order by: o_clerk\\[#\\d+\\] ASC, o_custkey\\[#\\d+\\] ASC") != null)
+        }
     }
 
 

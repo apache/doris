@@ -1374,10 +1374,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabasePropertyStmt(dbName, map);
     :}
-    | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
-    {:
-        RESULT = new AlterResourceStmt(resourceName, properties);
-    :}
     | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
@@ -1409,10 +1405,6 @@ alter_stmt ::=
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
-    :}
-    | KW_ALTER KW_STORAGE KW_POLICY ident_or_text:policyName opt_properties:properties
-    {:
-        RESULT = new AlterPolicyStmt(policyName, properties);
     :}
     | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
     {:
@@ -1867,16 +1859,6 @@ create_stmt ::=
     {:
         RESULT = new CreateTableAsSelectStmt(new CreateTableStmt(ifNotExists, isExternal, name, null, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index), columns, query_def);
-    :}
-    /* User */
-    | KW_CREATE KW_USER
-      opt_if_not_exists:ifNotExists
-      grant_user:user
-      opt_user_role:userRole
-      opt_password_option:passwdOptions
-      opt_comment:comment
-    {:
-        RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions, comment);
     :}
     | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def

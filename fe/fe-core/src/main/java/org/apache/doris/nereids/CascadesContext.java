@@ -542,6 +542,10 @@ public class CascadesContext implements ScheduleContext {
         return isEnableExprTrace;
     }
 
+    public boolean rewritePlanContainsTypes(Class<?>... types) {
+        return getRewritePlan().containsType(types);
+    }
+
     public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
         return runtimeFilterV2Context;
     }

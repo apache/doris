@@ -35,12 +35,12 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -180,11 +180,12 @@ public class AuditLogHelper {
         }
         int cnt = 0;
         for (Plan child : children) {
-            if (child instanceof UnboundOneRowRelation) {
+            if (child instanceof OneRowRelation) {
                 cnt++;
             } else if (child instanceof InlineTable) {
                 cnt += ((InlineTable) child).getConstantExprsList().size();
             } else if (child instanceof LogicalUnion) {
+                cnt += ((LogicalUnion) child).getConstantExprsList().size();
                 cnt += countValues(child.children());
             }
         }

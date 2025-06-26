@@ -113,7 +113,7 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
     }
 
     @Override
-    public String treeString() {
+    public String treeString(boolean printStates) {
         throw new RuntimeException("Command do not implement treeString");
     }
 
