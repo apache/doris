@@ -21,7 +21,6 @@
 #pragma once
 
 #include <vec/common/hex.h>
-#include <vec/common/string_utils/string_utils.h>
 #include <vec/core/types.h>
 
 #include <algorithm>
@@ -30,6 +29,8 @@
 #include <cstdint>
 #include <cstring>
 #include <utility>
+
+#include "util/string_parser.hpp"
 
 constexpr size_t IPV4_BINARY_LENGTH = 4;
 constexpr size_t IPV4_MAX_TEXT_LENGTH = 15; /// Does not count tail zero byte.

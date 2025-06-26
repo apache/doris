@@ -17,8 +17,11 @@
 
 #include "function_cast.h"
 
+#include <utility>
+
 #include "cast_to_array.h"
 #include "cast_to_boolean.h"
+#include "cast_to_date.h"
 #include "cast_to_decimal.h"
 #include "cast_to_float.h"
 #include "cast_to_int.h"
@@ -28,7 +31,10 @@
 #include "cast_to_struct.h"
 #include "cast_to_variant.h"
 #include "vec/data_types/data_type_agg_state.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/functions/simple_function_factory.h"
+
 namespace doris::vectorized {
 
 namespace CastWrapper {
@@ -74,7 +80,7 @@ WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from
         return cast_from_string_to_generic;
     }
 
-    //TODO if from is not string, it must be HLL?
+    //TODO: if from is not string, it must be HLL?
     const auto* from_type = check_and_get_data_type<DataTypeHLL>(from_type_untyped.get());
 
     if (!from_type) {
@@ -93,7 +99,7 @@ WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& f
         return cast_from_string_to_generic;
     }
 
-    //TODO if from is not string, it must be BITMAP?
+    //TODO: if from is not string, it must be BITMAP?
     const auto* from_type = check_and_get_data_type<DataTypeBitMap>(from_type_untyped.get());
 
     if (!from_type) {
@@ -308,8 +314,9 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
                              std::is_same_v<ToDataType, DataTypeDateTime> ||
                              std::is_same_v<ToDataType, DataTypeDateV2> ||
                              std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
-                             std::is_same_v<ToDataType, DataTypeTimeV2> ||
-                             std::is_same_v<ToDataType, DataTypeIPv4> ||
+                             std::is_same_v<ToDataType, DataTypeTimeV2>) {
+            ret = create_datelike_wrapper<ToDataType>(context, from_type);
+        } else if constexpr (std::is_same_v<ToDataType, DataTypeIPv4> ||
                              std::is_same_v<ToDataType, DataTypeIPv6>) {
             ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                  requested_result_is_nullable);
@@ -382,9 +389,10 @@ private:
 
 class FunctionCast final : public IFunctionBase {
 public:
-    FunctionCast(const char* name_, const DataTypes& argument_types_,
-                 const DataTypePtr& return_type_)
-            : name(name_), argument_types(argument_types_), return_type(return_type_) {}
+    FunctionCast(const char* name_, DataTypes argument_types_, DataTypePtr return_type_)
+            : name(name_),
+              argument_types(std::move(argument_types_)),
+              return_type(std::move(return_type_)) {}
 
     const DataTypes& get_argument_types() const override { return argument_types; }
     const DataTypePtr& get_return_type() const override { return return_type; }
@@ -427,7 +435,9 @@ protected:
                                const DataTypePtr& return_type) const override {
         DataTypes data_types(arguments.size());
 
-        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            data_types[i] = arguments[i].type;
+        }
 
         return std::make_shared<FunctionCast>(name, data_types, return_type);
     }

@@ -22,25 +22,17 @@
 
 #include <gen_cpp/data.pb.h>
 
-#include <cctype>
 #include <typeinfo>
 #include <utility>
 
-#include "common/status.h"
 #include "util/date_func.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/runtime/time_value.h"
-
-namespace doris {
-namespace vectorized {
-class IColumn;
-} // namespace vectorized
-} // namespace doris
 
 namespace doris::vectorized {
+class IColumn;
 
 void DataTypeTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);

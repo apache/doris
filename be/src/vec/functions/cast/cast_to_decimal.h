@@ -38,14 +38,11 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
         auto serde = remove_nullable(to_type)->get_serde();
         MutableColumnPtr column_to;
 
-        DataTypeSerDe::FormatOptions format_options;
-        format_options.converted_from_string = true;
-
         if constexpr (Mode == CastModeType::NonStrictMode) {
             auto to_nullable_type = make_nullable(to_type);
             column_to = to_nullable_type->create_column();
             auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
-            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, format_options));
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, {}));
         } else if constexpr (Mode == CastModeType::StrictMode) {
             if (to_type->is_nullable()) {
                 return Status::InternalError(
@@ -54,7 +51,7 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
             }
             column_to = to_type->create_column();
             RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, *column_to, format_options));
+                    serde->from_string_strict_mode_batch(*col_from, *column_to, {}));
         } else {
             return Status::InternalError("Unsupported cast mode");
         }

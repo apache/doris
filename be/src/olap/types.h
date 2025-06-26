@@ -19,18 +19,15 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
 
-#include <algorithm>
 #include <cinttypes>
+#include <climits>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
 #include <limits>
 #include <memory>
-#include <new>
-#include <sstream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -47,6 +44,7 @@
 #include "runtime/collection_value.h"
 #include "runtime/map_value.h"
 #include "runtime/struct_value.h"
+#include "runtime/type_limit.h"
 #include "util/binary_cast.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"

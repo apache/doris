@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "runtime/type_limit.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"

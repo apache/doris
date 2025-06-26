@@ -60,6 +60,28 @@ struct IsWideInteger<wide::integer<Bits, Signed>> {
 };
 
 template <typename T>
+struct MakeUnsigned {
+    using type = std::make_unsigned_t<T>;
+};
+template <size_t Bits, typename Signed>
+struct MakeUnsigned<wide::integer<Bits, Signed>> {
+    using type = wide::integer<Bits, unsigned>;
+};
+template <typename T>
+using MakeUnsignedT = typename MakeUnsigned<T>::type;
+
+template <typename T>
+struct MakeSigned {
+    using type = std::make_signed_t<T>;
+};
+template <size_t Bits, typename Signed>
+struct MakeSigned<wide::integer<Bits, Signed>> {
+    using type = wide::integer<Bits, signed>;
+};
+template <typename T>
+using MakeSignedT = typename MakeSigned<T>::type;
+
+template <typename T>
 static constexpr bool ArithmeticConcept() noexcept {
     return std::is_arithmetic_v<T> || IsWideInteger<T>::value;
 }

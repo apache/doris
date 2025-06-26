@@ -110,4 +110,9 @@ private:
     const PrimitiveType _primitive_type;
 };
 
+template <typename T>
+constexpr static bool IsStringType = false;
+template <>
+inline constexpr bool IsStringType<DataTypeString> = true;
+
 } // namespace doris::vectorized

@@ -24,6 +24,7 @@
 #include <fast_float/parse_number.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cstdlib>
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath> // IWYU pragma: keep
@@ -31,7 +32,6 @@
 #include <limits>
 #include <map>
 #include <string>
-#include <system_error>
 #include <type_traits>
 #include <utility>
 
@@ -40,10 +40,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/int_exp.h"
-#include "vec/common/string_utils/string_utils.h"
-#include "vec/core/extended_types.h"
 #include "vec/core/wide_integer.h"
-#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/number_traits.h"
 
 namespace doris {
@@ -51,6 +48,178 @@ namespace vectorized {
 template <DecimalNativeTypeConcept T>
 struct Decimal;
 } // namespace vectorized
+
+#define RETURN_INVALID_ARG_IF_NOT(stmt, ...)             \
+    do {                                                 \
+        if (UNLIKELY(!(stmt))) {                         \
+            return Status::InvalidArgument(__VA_ARGS__); \
+        }                                                \
+    } while (false)
+
+/// Utility functions for parsing ASCII strings.
+/// More efficient than libc, because doesn't respect locale. But for some functions table implementation could be better.
+inline bool is_ascii(char c) {
+    return static_cast<unsigned char>(c) < 0x80;
+}
+
+inline bool is_alpha_ascii(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+inline bool is_numeric_ascii(char c) {
+    /// This is faster than
+    /// return UInt8(UInt8(c) - UInt8('0')) < UInt8(10);
+    /// on Intel CPUs when compiled by gcc 8.
+    return (c >= '0' && c <= '9');
+}
+
+inline bool is_alpha_numeric_ascii(char c) {
+    return is_alpha_ascii(c) || is_numeric_ascii(c);
+}
+
+inline bool is_word_char_ascii(char c) {
+    return is_alpha_numeric_ascii(c) || c == '_';
+}
+
+inline bool is_tz_name_ascii(char c) {
+    return is_alpha_ascii(c) || c == '/' || c == '_';
+}
+
+inline bool is_valid_identifier_begin(char c) {
+    return is_alpha_ascii(c) || c == '_';
+}
+
+// Our own definition of "isspace" that optimize on the ' ' branch.
+inline bool is_whitespace_ascii(char c) {
+    return LIKELY(c == ' ') ||
+           UNLIKELY(c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r');
+}
+
+// skip leading and trailing ascii whitespaces,
+// return the pointer to the first non-whitespace char,
+// and update the len to the new length, which does not include
+// leading and trailing whitespaces
+template <typename T>
+inline const char* skip_ascii_whitespaces(const char* s, T& len) {
+    while (len > 0 && is_whitespace_ascii(*s)) {
+        ++s;
+        --len;
+    }
+
+    while (len > 0 && is_whitespace_ascii(s[len - 1])) {
+        --len;
+    }
+
+    return s;
+}
+
+template <bool (*Pred)(char)>
+bool range_suite(const char* s, const char* end) {
+    return std::ranges::all_of(s, end, Pred);
+}
+
+inline auto is_digit_range = range_suite<is_numeric_ascii>;
+
+inline Status assert_within_bound(const char* s, const char* end, size_t offset) {
+    DCHECK(offset >= 0);
+    if (s + offset >= end) {
+        return Status::InvalidArgument(
+                "StringParser: failed because we need at least {} but only got '{}'", offset,
+                std::string {s, end});
+    }
+    return Status::OK();
+}
+
+// LEN = 0 means any length(include zero). LEN = 1 means only one character. so on. LEN = -x means x or more.
+// if need result, use StringRef{origin_s, s} outside
+template <int LEN = 0, bool (*Pred)(char)>
+Status skip_qualified_char(const char*& s, const char* end) {
+    if constexpr (LEN == 0) {
+        // Consume any length of characters that match the predicate.
+        while (s != end && Pred(*s)) {
+            ++s;
+        }
+    } else if constexpr (LEN > 0) {
+        // Consume exactly LEN characters that match the predicate.
+        for (int i = 0; i < LEN; ++i, ++s) {
+            if (s == end || !Pred(*s)) {
+                return Status::InvalidArgument(
+                        "StringParser: failed to consume {} characters, got '{}'", LEN - i,
+                        std::string {s, end});
+            }
+        }
+    } else { // LEN < 0
+        // Consume at least -LEN characters that match the predicate.
+        int count = 0;
+        while (s != end && Pred(*s)) {
+            ++s;
+            ++count;
+        }
+        if (count < -LEN) {
+            return Status::InvalidArgument(
+                    "StringParser: failed to consume at least {} characters, got '{}'",
+                    -LEN - count, std::string {s, end});
+        }
+    }
+    return Status::OK();
+}
+
+inline auto skip_any_whitespace = skip_qualified_char<0, is_whitespace_ascii>;
+inline auto skip_any_digit = skip_qualified_char<0, is_numeric_ascii>;
+inline auto skip_tz_name = skip_qualified_char<-1, is_tz_name_ascii>;
+
+// only consume a string of digit, not include sign.
+// when has MAX_LEN > 0, do greedy match but at most MAX_LEN.
+// LEN = 0 means any length, otherwise(must > 0) it means exactly LEN digits.
+template <typename T, int LEN = 0, int MAX_LEN = -1>
+Status consume_digit(const char*& s, const char* end, T& out) {
+    static_assert(LEN >= 0);
+    if constexpr (MAX_LEN > 0) {
+        out = 0;
+        for (int i = 0; i < MAX_LEN; ++i, ++s) {
+            if ((s == end || !is_numeric_ascii(*s)) && i < LEN) {
+                return Status::InvalidArgument(
+                        "StringParser: failed to consume ({}, {}) digits, got '{}'", LEN - i,
+                        MAX_LEN - i, std::string {s, end});
+            }
+            out = out * 10 + (*s - '0');
+        }
+    } else if constexpr (LEN == 0) {
+        // Consume any length of digits.
+        out = 0;
+        while (s != end && is_numeric_ascii(*s)) {
+            out = out * 10 + (*s - '0');
+            ++s;
+        }
+    } else if constexpr (LEN > 0) {
+        // Consume exactly LEN digits.
+        out = 0;
+        for (int i = 0; i < LEN; ++i, ++s) {
+            if (s == end || !is_numeric_ascii(*s)) {
+                return Status::InvalidArgument(
+                        "StringParser: failed to consume {} digits, got '{}'", LEN - i,
+                        std::string {s, end});
+            }
+            out = out * 10 + (*s - '0');
+        }
+    }
+    return Status::OK();
+}
+
+inline bool is_delimiter(char c) {
+    return c == ' ' || c == 'T';
+}
+inline auto consume_one_delimiter = skip_qualified_char<1, is_delimiter>;
+
+inline bool is_bar(char c) {
+    return c == '-';
+}
+inline auto consume_one_bar = skip_qualified_char<1, is_bar>;
+
+inline bool is_colon(char c) {
+    return c == ':';
+}
+inline auto consume_one_colon = skip_qualified_char<1, is_colon>;
 
 // Utility functions for doing atoi/atof on non-null terminated strings.  On micro benchmarks,
 // this is significantly faster than libc (atoi/strtol and atof/strtod).
@@ -68,7 +237,7 @@ struct Decimal;
 // Things we tried that did not work:
 //  - lookup table for converting character to digit
 // Improvements (TODO):
-//  - Validate input using _sidd_compare_ranges
+//  - Validate input using _simd_compare_ranges
 //  - Since we know the length, we can parallelize this: i.e. result = 100*s[0] + 10*s[1] + s[2]
 class StringParser {
 public:
@@ -169,7 +338,6 @@ public:
         return Status::OK();
     }
 
-private:
     // This is considerably faster than glibc's implementation.
     // In the case of overflow, the max/min value for the data type will be returned.
     // Assumes s represents a decimal number.
@@ -246,7 +414,7 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
         return 0;
     }
 
-    typedef typename std::make_unsigned<T>::type UnsignedT;
+    using UnsignedT = wide::MakeUnsignedT<T>;
     UnsignedT val = 0;
     UnsignedT max_val = StringParser::numeric_limits<T>(false);
     bool negative = false;
@@ -321,7 +489,7 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
     T max_val = std::numeric_limits<T>::max();
     int i = 0;
 
-    typedef typename std::make_signed<T>::type signedT;
+    using signedT = wide::MakeSignedT<T>;
     // This is the fast path where the string cannot overflow.
     if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<signedT>())) {
         val = string_to_int_no_overflow<T>(s + i, len - i, result);
@@ -360,7 +528,7 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
 template <typename T>
 T StringParser::string_to_int_internal(const char* __restrict s, int64_t len, int base,
                                        ParseResult* result) {
-    typedef typename std::make_unsigned<T>::type UnsignedT;
+    using UnsignedT = wide::MakeUnsignedT<T>;
     UnsignedT val = 0;
     UnsignedT max_val = StringParser::numeric_limits<T>(false);
     bool negative = false;

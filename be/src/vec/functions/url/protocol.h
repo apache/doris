@@ -20,7 +20,7 @@
 
 #pragma once
 
-#include "vec/common/string_utils/string_utils.h"
+#include "util/string_parser.hpp"
 #include "vec/functions/url/functions_url.h"
 
 namespace doris::vectorized {

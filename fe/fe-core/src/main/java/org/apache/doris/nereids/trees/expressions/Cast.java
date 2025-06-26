@@ -108,10 +108,15 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         DataType childDataType = child().getDataType();
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
-        } else if (!childDataType.isDateLikeType() && targetType.isDateLikeType()) {
-            return true;
-        } else if (!childDataType.isTimeType() && targetType.isTimeType()) {
-            return true;
+        } else if (targetType.isDateLikeType() || targetType.isTimeType()) {
+            // for date/time types, parsing or converting from numbers may generate null.
+            // datetime scale reduction may also generate null. that's all for them.
+            if (childDataType.isStringLikeType() || childDataType.isNumericType()) {
+                return true;
+            } else if (childDataType.isDateTimeV2Type() && targetType.isDateTimeV2Type()) {
+                return true;
+            }
+            return false;
         } else if (childDataType.isJsonType() || targetType.isJsonType()) {
             return true;
         } else if (childDataType.isVariantType() || targetType.isVariantType()) {

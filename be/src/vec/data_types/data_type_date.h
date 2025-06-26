@@ -34,16 +34,11 @@
 #include "vec/data_types/data_type_number_base.h"
 #include "vec/data_types/serde/data_type_date64_serde.h"
 
-namespace doris {
-#include "common/compile_check_begin.h"
-namespace vectorized {
-class BufferWritable;
-class ReadBuffer;
-class IColumn;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+    #include "common/compile_check_begin.h"
+    class BufferWritable;
+    class ReadBuffer;
+    class IColumn;
 
 class DataTypeDate final : public DataTypeNumberBase<PrimitiveType::TYPE_DATE> {
 public:

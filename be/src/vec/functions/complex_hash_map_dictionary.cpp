@@ -21,6 +21,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/functions/dictionary.h"
 
 namespace doris::vectorized {

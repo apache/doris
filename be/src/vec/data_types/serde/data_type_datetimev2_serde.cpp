@@ -23,8 +23,13 @@
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
 
+#include "common/status.h"
+#include "runtime/primitive_type.h"
+#include "util/string_parser.hpp"
 #include "vec/columns/column_const.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/vdatetime_value.h"
 
 enum {
     DIVISOR_FOR_SECOND = 1,
@@ -34,8 +39,360 @@ enum {
 };
 
 namespace doris::vectorized {
-static const int64_t micr_to_nano_second = 1000;
+static const int64_t micro_to_nano_second = 1000;
 #include "common/compile_check_begin.h"
+
+Status DataTypeDateTimeV2SerDe::from_string_batch(const ColumnString& col_str,
+                                                  ColumnNullable& col_res,
+                                                  const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnDateTimeV2&>(col_res.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    size_t row = col_str.size();
+    col_res.resize(row);
+
+    for (size_t i = 0; i < row; ++i) {
+        auto str = col_str.get_element(i);
+        DateV2Value<DateTimeV2ValueType> res;
+        Status st = _from_string_strict_mode(str, res, options.timezone);
+        if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
+            st = _from_string(str, res, options.timezone);
+        }
+        if (st.ok()) {
+            col_nullmap.get_data()[i] = false;
+            col_data.get_data()[i] = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(res);
+        } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
+            // if still invalid, set null
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] =
+                    binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(MIN_DATETIME_V2);
+        } else {
+            // some internal error
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeDateTimeV2SerDe::from_string_strict_mode_batch(const ColumnString& col_str,
+                                                              IColumn& col_res,
+                                                              const FormatOptions& options) const {
+    size_t row = col_str.size();
+    col_res.resize(row);
+    auto& col_data = assert_cast<ColumnDateTimeV2&>(col_res);
+
+    for (size_t i = 0; i < row; ++i) {
+        auto str = col_str.get_element(i);
+        DateV2Value<DateTimeV2ValueType> res;
+        RETURN_IF_ERROR(_from_string_strict_mode(str, res, options.timezone));
+        col_data.get_data()[i] = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(res);
+    }
+    return Status::OK();
+}
+
+/**
+<datetime> ::= <whitespace>* <date> (<delimiter> <time> <whitespace>* <timezone>?)? <whitespace>*
+
+<date> ::= <year> <separator> <month> <separator> <day>
+<time> ::= <hour> <separator> <minute> <separator> <second> [<fraction>]
+
+<year> ::= <digit>{4} | <digit>{2}
+<month> ::= <digit>{1,2}
+<day> ::= <digit>{1,2}
+<hour> ::= <digit>{1,2}
+<minute> ::= <digit>{1,2}
+<second> ::= <digit>{1,2}
+
+<separator> ::= ^(<digit> | <alpha>)
+<delimiter> ::= " " | "T"
+
+<fraction> ::= "." <digit>*
+
+––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+<offset>         ::= ( "+" | "-" ) <hour-offset> [ ":"? <minute-offset> ]
+                   | <tz-name>
+
+<tz-name>        ::= <short-tz> | <long-tz> 
+
+<short-tz>       ::= "CST" | "UTC" | "GMT" | "ZULU" | "Z"   ; 忽略大小写
+<long-tz>        ::= <area> "/" <location>                  ; e.g. America/New_York
+
+<hour-offset>    ::= <digit>{1,2}      ; 0–14
+<minute-offset>  ::= <digit>{2}        ; 00/30/45
+
+<area>           ::= <alpha>+
+<location>       ::= (<alpha> | "_")+
+
+––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+<whitespace> ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
+
+<digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+
+<alpha>          ::= "A" | … | "Z" | "a" | … | "z"
+*/
+Status DataTypeDateTimeV2SerDe::_from_string(const std::string& str,
+                                             DateV2Value<DateTimeV2ValueType>& res,
+                                             const cctz::time_zone* local_time_zone) const {
+                                                return Status::OK(); // TODO: Implement this function
+                                             }
+
+/**
+<datetime>       ::= <date> (("T" | " ") <time> <whitespace>* <offset>?)?
+
+––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+<date>           ::= <year> "-" <month1> "-" <day1>
+                   | <year> <month2> <day2>
+
+<year>           ::= <digit>{2} | <digit>{4} ; 1970 为界
+<month1>         ::= <digit>{1,2}            ; 01–12
+<day1>           ::= <digit>{1,2}            ; 01–28/29/30/31 视月份而定
+
+<month2>         ::= <digit>{2}              ; 01–12
+<day2>           ::= <digit>{2}              ; 01–28/29/30/31 视月份而定
+
+––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+<time>           ::= <hour1> (":" <minute1> (":" <second1> <fraction>?)?)?
+                   | <hour2> (<minute2> (<second2> <fraction>?)?)?
+
+<hour1>           ::= <digit>{1,2}      ; 00–23
+<minute1>         ::= <digit>{1,2}      ; 00–59
+<second1>         ::= <digit>{1,2}      ; 00–59
+
+<hour2>           ::= <digit>{2}        ; 00–23
+<minute2>         ::= <digit>{2}        ; 00–59
+<second2>         ::= <digit>{2}        ; 00–59
+
+<fraction>        ::= "." <digit>*
+
+––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+<offset>         ::= ( "+" | "-" ) <hour-offset> [ ":"? <minute-offset> ]
+                   | <tz-name>
+
+<tz-name>        ::= <short-tz> | <long-tz> 
+
+<short-tz>       ::= "CST" | "UTC" | "GMT" | "ZULU" | "Z"   ; 忽略大小写
+<long-tz>        ::= <area> "/" <location>                  ; e.g. America/New_York
+
+<hour-offset>    ::= <digit>{1,2}      ; 0–14
+<minute-offset>  ::= <digit>{2}        ; 00/30/45
+
+––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+<digit>          ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+
+<area>           ::= <alpha>+
+<location>       ::= (<alpha> | "_")+
+<alpha>          ::= "A" | … | "Z" | "a" | … | "z"
+<whitespace>     ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
+*/
+Status DataTypeDateTimeV2SerDe::_from_string_strict_mode(
+        const std::string& str, DateV2Value<DateTimeV2ValueType>& res,
+        const cctz::time_zone* local_time_zone) const {
+    const char* ptr = str.data();
+    const char* end = ptr + str.size();
+
+    // date part
+    RETURN_IF_ERROR(assert_within_bound(ptr, end, 5));
+    if (is_digit_range(ptr, ptr + 5)) {
+        // no delimiter here.
+        uint32_t part[4];
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        if (is_numeric_ascii(*ptr)) {
+            // 4 digits year
+            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[3])));
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
+                                      "invalid year {}", part[0] * 100 + part[1]);
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::MONTH>(part[2]),
+                                      "invalid month {}", part[2]);
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::DAY>(part[3]), "invalid day {}",
+                                      part[3]);
+        } else {
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::YEAR>(part[0]), "invalid year {}",
+                                      part[0]);
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::MONTH>(part[1]),
+                                      "invalid month {}", part[1]);
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::DAY>(part[2]), "invalid day {}",
+                                      part[2]);
+        }
+    } else {
+        // has delimiter here.
+        uint32_t part[4];
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+        if (*ptr == '-') {
+            // 2 digits year
+            ++ptr;
+            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
+            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::YEAR>(part[0]), "invalid year {}",
+                                      part[0]);
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::MONTH>(part[1]),
+                                      "invalid month {}", part[1]);
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::DAY>(part[2]), "invalid day {}",
+                                      part[2]);
+        } else {
+            // 4 digits year
+            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[3])));
+
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
+                                      "invalid year {}", part[0] * 100 + part[1]);
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::MONTH>(part[2]),
+                                      "invalid month {}", part[2]);
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::DAY>(part[3]), "invalid day {}",
+                                      part[3]);
+        }
+    }
+
+    if (ptr == end) {
+        // no time part, just return.
+        res.unchecked_set_time_unit<TimeUnit::HOUR>(0);
+        res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
+        res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
+        res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(consume_one_delimiter(ptr, end));
+
+    // time part.
+    uint32_t part[3];
+    bool has_second = false;
+    // hour
+    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
+    RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
+                              part[0]);
+    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+    if (*ptr == ':') {
+        // with hour:minute:second
+        if (consume_one_colon(ptr, end)) { // minute
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::MINUTE>(part[1]),
+                                      "invalid minute {}", part[1]);
+            if (consume_one_colon(ptr, end)) { // second
+                has_second = true;
+                RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+                RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::SECOND>(part[2]),
+                                          "invalid second {}", part[2]);
+            } else {
+                res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
+            }
+        } else {
+            res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
+            res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
+        }
+    } else {
+        // no ':'
+        if (consume_digit<UInt32, 2>(ptr, end, part[1])) {
+            // has minute
+            RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::MINUTE>(part[1]),
+                                      "invalid minute {}", part[1]);
+            if (consume_digit<UInt32, 2>(ptr, end, part[2])) {
+                // has second
+                has_second = true;
+                RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::SECOND>(part[2]),
+                                          "invalid second {}", part[2]);
+            }
+        }
+    }
+
+    // fractional part
+    if (has_second && assert_within_bound(ptr, end, 0).ok() && *ptr == '.') {
+        ++ptr;
+
+        const auto* start = ptr;
+        static_cast<void>(skip_any_digit(ptr, end));
+        auto length = ptr - start;
+
+        if (length > 0) {
+            StringParser::ParseResult success;
+            auto ms = StringParser::string_to_int_internal<uint32_t, true>(start, 6, &success);
+            DCHECK(success ==
+                   StringParser::PARSE_SUCCESS); // skip_any_digit ensured [start, ptr) is digit
+
+            if (length > 6) {
+                // round off to at most 6 digits
+                if (auto remainder = *(start + 6) - '0'; remainder >= 5) {
+                    ms++;
+                    DCHECK(ms <= 1000000);
+                    if (ms == 1000000) {
+                        // overflow, round up to next second
+                        res.date_add_interval<TimeUnit::SECOND>(
+                                TimeInterval {TimeUnit::SECOND, 1, false});
+                        ms = 0;
+                    }
+                }
+                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(ms);
+            } else {
+                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
+                        (int32_t)ms * common::exp10_i32(6 - (int)length));
+            }
+        }
+    } else {
+        res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
+    }
+    static_cast<void>(skip_any_digit(ptr, end));
+
+    static_cast<void>(skip_any_whitespace(ptr, end));
+
+    // timezone part
+    if (ptr != end) {
+        cctz::time_zone parsed_tz {};
+        if (*ptr == '+' || *ptr == '-') {
+            // offset
+            const auto* start = ptr;
+            ++ptr;
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
+            RETURN_INVALID_ARG_IF_NOT(part[0] <= 14, "invalid hour offset {}", part[0]);
+            if (assert_within_bound(ptr, end, 0).ok() && *ptr == ':') {
+                ++ptr;
+                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+                RETURN_INVALID_ARG_IF_NOT(part[1] < 60, "invalid minute offset {}", part[1]);
+            }
+
+            RETURN_INVALID_ARG_IF_NOT(
+                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
+                    "invalid timezone offset '{}'", std::string {start, ptr});
+        } else {
+            // timezone name
+            const auto* start = ptr;
+            RETURN_IF_ERROR(skip_tz_name(ptr, end));
+
+            RETURN_INVALID_ARG_IF_NOT(
+                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
+                    "invalid timezone name '{}'", std::string {start, ptr});
+        }
+        // convert tz
+        cctz::civil_second cs {res.year(), res.month(),  res.day(),
+                               res.hour(), res.minute(), res.second()};
+
+        auto given = cctz::convert(cs, parsed_tz);
+        auto local = cctz::convert(given, *local_time_zone);
+        res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
+        res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
+        res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
+        res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
+        res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
+        res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
+
+        static_cast<void>(skip_any_whitespace(ptr, end));
+        RETURN_INVALID_ARG_IF_NOT(ptr == end,
+                                  "invalid datetime string '{}', extra characters after timezone",
+                                  std::string {ptr, end});
+    }
+    return Status::OK();
+}
 
 Status DataTypeDateTimeV2SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                          int64_t end_idx, BufferWritable& bw,
@@ -241,7 +598,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
         }
 
         cur_batch->data[row_id] = timestamp;
-        cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micr_to_nano_second;
+        cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micro_to_nano_second;
     }
     cur_batch->numElements = end - start;
     return Status::OK();

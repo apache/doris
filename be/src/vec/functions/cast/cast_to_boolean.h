@@ -34,14 +34,11 @@ public:
         auto serde = remove_nullable(to_type)->get_serde();
         MutableColumnPtr column_to;
 
-        DataTypeSerDe::FormatOptions format_options;
-        format_options.converted_from_string = true;
-
         if constexpr (Mode == CastModeType::NonStrictMode) {
             auto to_nullable_type = make_nullable(to_type);
             column_to = to_nullable_type->create_column();
             auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
-            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, format_options));
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, {}));
         } else if constexpr (Mode == CastModeType::StrictMode) {
             if (to_type->is_nullable()) {
                 return Status::InternalError(
@@ -50,7 +47,7 @@ public:
             }
             column_to = to_type->create_column();
             RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, *column_to, format_options));
+                    serde->from_string_strict_mode_batch(*col_from, *column_to, {}));
         } else {
             return Status::InternalError("Unsupported cast mode");
         }
@@ -60,7 +57,7 @@ public:
     }
 };
 template <CastModeType AllMode, typename NumberOrDecimalType>
-    requires(CastUtil::is_number<NumberOrDecimalType> || CastUtil::is_decimal<NumberOrDecimalType>)
+    requires(IsDataTypeNumber<NumberOrDecimalType> || IsDataTypeDecimal<NumberOrDecimalType>)
 class CastToImpl<AllMode, NumberOrDecimalType, DataTypeBool> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -72,7 +69,7 @@ public:
                 DataTypeBool::ColumnType::create(input_rows_count);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if constexpr (CastUtil::is_decimal<NumberOrDecimalType>) {
+            if constexpr (IsDataTypeDecimal<NumberOrDecimalType>) {
                 using NativeType = typename NumberOrDecimalType::FieldType::NativeType;
                 col_to->get_element(i) = ((NativeType)col_from->get_element(i)) != 0;
             } else {
@@ -92,7 +89,7 @@ WrapperType create_boolean_wrapper(FunctionContext* context, const DataTypePtr& 
     auto make_bool_wrapper = [&](const auto& types) -> bool {
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
-        if constexpr (CastUtil::is_base_cast_from_type<FromDataType>) {
+        if constexpr (CastUtil::IsBaseCastFromType<FromDataType>) {
             if (context->enable_strict_mode()) {
                 cast_to_bool = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, DataTypeBool>>();

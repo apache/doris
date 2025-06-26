@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
@@ -131,10 +132,16 @@ template <>
 inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2> = true;
 
 template <typename DataType>
-constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
+constexpr bool IsTimeV2Type = false;
+template <>
+inline constexpr bool IsTimeV2Type<DataTypeTimeV2> = true;
 
 template <typename DataType>
+constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
+template <typename DataType>
 constexpr bool IsDatelikeV2Types = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
+template <typename DataType>
+constexpr bool IsDatelikeTypes = IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType> || IsTimeV2Type<DataType>;
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
