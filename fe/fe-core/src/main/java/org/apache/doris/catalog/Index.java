@@ -172,6 +172,10 @@ public class Index implements Writable {
         return indexType == IndexDef.IndexType.INVERTED;
     }
 
+    public String getInvertedIndexCustomAnalyzer() {
+        return InvertedIndexUtil.getInvertedIndexCustomAnalyzer(properties);
+    }
+
     public String getComment() {
         return getComment(false);
     }

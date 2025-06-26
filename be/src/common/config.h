@@ -306,6 +306,8 @@ DECLARE_mBool(enable_batch_download);
 DECLARE_mBool(enable_download_md5sum_check);
 // download binlog meta timeout
 DECLARE_mInt32(download_binlog_meta_timeout_ms);
+// the interval time(seconds) for agent report index policy to FE
+DECLARE_mInt32(report_index_policy_interval_seconds);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);

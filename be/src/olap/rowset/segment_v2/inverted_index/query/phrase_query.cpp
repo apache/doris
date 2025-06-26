@@ -29,14 +29,16 @@ namespace doris::segment_v2 {
 
 PhraseQuery::PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                          const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher), _disjunction_query(searcher, query_options, io_ctx) {}
+        : _searcher(searcher),
+          _io_ctx(io_ctx),
+          _disjunction_query(searcher, query_options, io_ctx) {}
 
 void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.empty()) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "PhraseQuery::add: terms empty");
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
-    if (query_info.terms.size() == 1) {
+    if (query_info.term_infos.size() == 1) {
         _disjunction_query.add(query_info);
         return;
     }
@@ -62,60 +64,24 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 }
 
-void PhraseQuery::add(const std::wstring& field_name,
-                      const std::vector<std::vector<std::wstring>>& terms) {
-    if (terms.size() < 2 || terms[0].empty() || terms[1].empty()) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "PhraseQuery::add: terms empty");
-    }
-
-    init_exact_phrase_matcher(field_name, terms);
-
-    std::sort(_iterators.begin(), _iterators.end(), [](const DISI& a, const DISI& b) {
-        int64_t freq1 = visit_node(a, DocFreq {});
-        int64_t freq2 = visit_node(b, DocFreq {});
-        return freq1 < freq2;
-    });
-
-    _lead1 = &_iterators.at(0);
-    _lead2 = &_iterators.at(1);
-    for (int32_t i = 2; i < _iterators.size(); i++) {
-        _others.push_back(&_iterators[i]);
-    }
-}
-
 void PhraseQuery::init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
     std::vector<PostingsAndPosition> postings;
-    for (size_t i = 0; i < query_info.terms.size(); i++) {
-        const auto& term = query_info.terms[i];
-        auto* term_pos = TermPositionIterator::ensure_term_position(_searcher->getReader(),
-                                                                    query_info.field_name, term);
-        auto iter = std::make_shared<TermPositionIterator>(term_pos);
-        _iterators.emplace_back(iter);
-        postings.emplace_back(iter, i);
-    }
-    ExactPhraseMatcher matcher(std::move(postings));
-    _matchers.emplace_back(std::move(matcher));
-}
-
-void PhraseQuery::init_exact_phrase_matcher(const std::wstring& field_name,
-                                            const std::vector<std::vector<std::wstring>>& terms) {
-    std::vector<PostingsAndPosition> postings;
-    for (size_t i = 0; i < terms.size(); i++) {
-        if (i < terms.size() - 1) {
-            const auto& term = terms[i][0];
-            auto* term_pos = TermPositionIterator::ensure_term_position(_searcher->getReader(),
-                                                                        field_name, term);
-            auto iter = std::make_shared<TermPositionIterator>(term_pos);
+    for (size_t i = 0; i < query_info.term_infos.size(); i++) {
+        const auto& term_info = query_info.term_infos[i];
+        if (term_info.is_single_term()) {
+            const auto& term = term_info.get_single_term();
+            auto iter = TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
+                                                      query_info.field_name, term);
             _iterators.emplace_back(iter);
             postings.emplace_back(iter, i);
         } else {
-            std::vector<TermPositionIterator> subs;
-            for (const auto& term : terms[i]) {
-                auto* term_pos = TermPositionIterator::ensure_term_position(_searcher->getReader(),
-                                                                            field_name, term);
-                subs.emplace_back(term_pos);
+            std::vector<TermPositionsIterPtr> subs;
+            for (const auto& term : term_info.get_multi_terms()) {
+                auto iter = TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
+                                                          query_info.field_name, term);
+                subs.emplace_back(iter);
             }
-            auto iter = std::make_shared<UnionTermIterator<TermPositionIterator>>(std::move(subs));
+            auto iter = std::make_shared<UnionTermIterator<TermPositionsIterator>>(std::move(subs));
             _iterators.emplace_back(iter);
             postings.emplace_back(iter, i);
         }
@@ -126,11 +92,15 @@ void PhraseQuery::init_exact_phrase_matcher(const std::wstring& field_name,
 
 void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
     std::vector<PostingsAndFreq> postings;
-    for (size_t i = 0; i < query_info.terms.size(); i++) {
-        const auto& term = query_info.terms[i];
-        auto* term_pos = TermPositionIterator::ensure_term_position(_searcher->getReader(),
-                                                                    query_info.field_name, term);
-        auto iter = std::make_shared<TermPositionIterator>(term_pos);
+    for (size_t i = 0; i < query_info.term_infos.size(); i++) {
+        const auto& term_info = query_info.term_infos[i];
+        if (term_info.is_multi_terms()) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
+        }
+
+        const auto& term = term_info.get_single_term();
+        auto iter = TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
+                                                  query_info.field_name, term);
         _iterators.emplace_back(iter);
         postings.emplace_back(iter, i, std::vector<std::string> {term});
     }
@@ -139,33 +109,21 @@ void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query
 }
 
 void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
-    {
-        std::vector<PostingsAndPosition> postings;
-        for (size_t i = 0; i < query_info.terms.size(); i++) {
-            const auto& term = query_info.terms[i];
-            auto* term_pos = TermPositionIterator::ensure_term_position(
-                    _searcher->getReader(), query_info.field_name, term);
-            auto iter = std::make_shared<TermPositionIterator>(term_pos);
-            _iterators.emplace_back(iter);
-            postings.emplace_back(iter, i);
+    std::vector<PostingsAndPosition> postings;
+    for (size_t i = 0; i < query_info.term_infos.size(); i++) {
+        const auto& term_info = query_info.term_infos[i];
+        if (term_info.is_multi_terms()) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
         }
-        OrderedSloppyPhraseMatcher single_matcher(std::move(postings), query_info.slop);
-        _matchers.emplace_back(std::move(single_matcher));
+
+        auto iter =
+                TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
+                                              query_info.field_name, term_info.get_single_term());
+        _iterators.emplace_back(iter);
+        postings.emplace_back(iter, i);
     }
-    {
-        for (auto& terms : _additional_terms) {
-            std::vector<PostingsAndPosition> postings;
-            for (size_t i = 0; i < terms.size(); i++) {
-                const auto& term = terms[i];
-                auto* term_pos = TermPositionIterator::ensure_term_position(
-                        _searcher->getReader(), query_info.field_name, term);
-                auto iter = std::make_shared<TermPositionIterator>(term_pos);
-                postings.emplace_back(iter, i);
-            }
-            ExactPhraseMatcher single_matcher(std::move(postings));
-            _matchers.emplace_back(std::move(single_matcher));
-        }
-    }
+    OrderedSloppyPhraseMatcher single_matcher(std::move(postings), query_info.slop);
+    _matchers.emplace_back(std::move(single_matcher));
 }
 
 void PhraseQuery::search(roaring::Roaring& roaring) {
@@ -269,6 +227,14 @@ void PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_
             } while (false);
         }
     }
+}
+
+void PhraseQuery::parser_info(std::string& query,
+                              const std::map<std::string, std::string>& properties,
+                              InvertedIndexQueryInfo& query_info) {
+    parser_slop(query, query_info);
+    query_info.term_infos =
+            inverted_index::InvertedIndexAnalyzer::get_analyse_result(query, properties);
 }
 
 } // namespace doris::segment_v2
