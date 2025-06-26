@@ -22,6 +22,7 @@
 #include <cstdint>
 
 #include "data_type_number_serde.h"
+#include "vec/runtime/time_value.h"
 
 namespace doris {
 class JsonbOutStream;
@@ -38,11 +39,22 @@ public:
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
 
+    Status from_string_batch(const ColumnString& str, ColumnNullable& column,
+                             const FormatOptions& options) const final;
+
+    Status from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
+                                         const FormatOptions& options) const final;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
+
+    Status _from_string(const std::string& str, TimeValue::TimeType& res) const;
+
+    Status _from_string_strict_mode(const std::string& str, TimeValue::TimeType& res) const;
+
     int scale;
 };
 #include "common/compile_check_end.h"

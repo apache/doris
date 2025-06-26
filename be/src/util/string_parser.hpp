@@ -81,8 +81,12 @@ inline bool is_word_char_ascii(char c) {
     return is_alpha_numeric_ascii(c) || c == '_';
 }
 
-inline bool is_tz_name_ascii(char c) {
-    return is_alpha_ascii(c) || c == '/' || c == '_';
+inline bool is_tz_name_part_ascii(char c) {
+    return is_alpha_ascii(c) || c == '_';
+}
+
+inline bool is_slash_ascii(char c) {
+    return c == '/';
 }
 
 inline bool is_valid_identifier_begin(char c) {
@@ -166,7 +170,8 @@ Status skip_qualified_char(const char*& s, const char* end) {
 
 inline auto skip_any_whitespace = skip_qualified_char<0, is_whitespace_ascii>;
 inline auto skip_any_digit = skip_qualified_char<0, is_numeric_ascii>;
-inline auto skip_tz_name = skip_qualified_char<-1, is_tz_name_ascii>;
+inline auto skip_tz_name_part = skip_qualified_char<-1, is_tz_name_part_ascii>;
+inline auto skip_one_slash = skip_qualified_char<1, is_slash_ascii>;
 
 // only consume a string of digit, not include sign.
 // when has MAX_LEN > 0, do greedy match but at most MAX_LEN.

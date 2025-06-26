@@ -82,8 +82,9 @@ public:
     }
 
     bool have_subtypes() const override { return false; }
+    using SerDeType = DataTypeNothingSerde;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeNothingSerde>();
+        return std::make_shared<SerDeType>();
     };
 };
 

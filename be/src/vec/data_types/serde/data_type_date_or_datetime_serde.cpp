@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "data_type_date64_serde.h"
+#include "data_type_date_or_datetime_serde.h"
 
 #include <arrow/builder.h>
 
@@ -26,14 +26,14 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
-Status DataTypeDate64SerDe<T>::serialize_column_to_json(
+Status DataTypeDateSerDe<T>::serialize_column_to_json(
         const IColumn& column, int64_t start_idx, int64_t end_idx, BufferWritable& bw,
         typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <PrimitiveType T>
-Status DataTypeDate64SerDe<T>::serialize_one_cell_to_json(
+Status DataTypeDateSerDe<T>::serialize_one_cell_to_json(
         const IColumn& column, int64_t row_num, BufferWritable& bw,
         typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -55,7 +55,7 @@ Status DataTypeDate64SerDe<T>::serialize_one_cell_to_json(
 }
 
 template <PrimitiveType T>
-Status DataTypeDate64SerDe<T>::deserialize_column_from_json_vector(
+Status DataTypeDateSerDe<T>::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
@@ -63,7 +63,7 @@ Status DataTypeDate64SerDe<T>::deserialize_column_from_json_vector(
 }
 
 template <PrimitiveType T>
-Status DataTypeDate64SerDe<T>::deserialize_one_cell_from_json(
+Status DataTypeDateSerDe<T>::deserialize_one_cell_from_json(
         IColumn& column, Slice& slice,
         const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnVector<T>&>(column);
@@ -127,7 +127,7 @@ Status DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDate64SerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeDateSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                      arrow::ArrayBuilder* array_builder,
                                                      int64_t start, int64_t end,
                                                      const cctz::time_zone& ctz) const {
@@ -170,7 +170,7 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 
 template <PrimitiveType T>
 template <bool is_date>
-Status DataTypeDate64SerDe<T>::_read_column_from_arrow(IColumn& column,
+Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
                                                        const cctz::time_zone& ctz) const {
@@ -230,7 +230,7 @@ Status DataTypeDate64SerDe<T>::_read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDate64SerDe<T>::read_column_from_arrow(IColumn& column,
+Status DataTypeDateSerDe<T>::read_column_from_arrow(IColumn& column,
                                                       const arrow::Array* arrow_array,
                                                       int64_t start, int64_t end,
                                                       const cctz::time_zone& ctz) const {
@@ -239,7 +239,7 @@ Status DataTypeDate64SerDe<T>::read_column_from_arrow(IColumn& column,
 
 template <PrimitiveType T>
 template <bool is_binary_format>
-Status DataTypeDate64SerDe<T>::_write_column_to_mysql(
+Status DataTypeDateSerDe<T>::_write_column_to_mysql(
         const IColumn& column, MysqlRowBuffer<is_binary_format>& result, int64_t row_idx,
         bool col_const, const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnVector<T>&>(column).get_data();
@@ -265,21 +265,21 @@ Status DataTypeDate64SerDe<T>::_write_column_to_mysql(
 }
 
 template <PrimitiveType T>
-Status DataTypeDate64SerDe<T>::write_column_to_mysql(
+Status DataTypeDateSerDe<T>::write_column_to_mysql(
         const IColumn& column, MysqlRowBuffer<true>& row_buffer, int64_t row_idx, bool col_const,
         const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <PrimitiveType T>
-Status DataTypeDate64SerDe<T>::write_column_to_mysql(
+Status DataTypeDateSerDe<T>::write_column_to_mysql(
         const IColumn& column, MysqlRowBuffer<false>& row_buffer, int64_t row_idx, bool col_const,
         const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <PrimitiveType T>
-Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
+Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                    const IColumn& column, const NullMap* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch,
                                                    int64_t start, int64_t end,
@@ -310,7 +310,7 @@ Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
-template class DataTypeDate64SerDe<TYPE_DATE>;
-template class DataTypeDate64SerDe<TYPE_DATETIME>;
+template class DataTypeDateSerDe<TYPE_DATE>;
+template class DataTypeDateSerDe<TYPE_DATETIME>;
 
 } // namespace doris::vectorized

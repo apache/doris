@@ -35,9 +35,9 @@ namespace doris::vectorized {
 class Arena;
 
 template <PrimitiveType T = PrimitiveType::TYPE_DATE>
-class DataTypeDate64SerDe : public DataTypeNumberSerDe<T> {
+class DataTypeDateSerDe : public DataTypeNumberSerDe<T> {
 public:
-    DataTypeDate64SerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};
+    DataTypeDateSerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};
 
     Status serialize_one_cell_to_json(
             const IColumn& column, int64_t row_num, BufferWritable& bw,
@@ -84,10 +84,10 @@ private:
             bool col_const, const typename DataTypeNumberSerDe<T>::FormatOptions& options) const;
 };
 
-class DataTypeDateTimeSerDe : public DataTypeDate64SerDe<PrimitiveType::TYPE_DATETIME> {
+class DataTypeDateTimeSerDe : public DataTypeDateSerDe<PrimitiveType::TYPE_DATETIME> {
 public:
     DataTypeDateTimeSerDe(int nesting_level = 1)
-            : DataTypeDate64SerDe<PrimitiveType::TYPE_DATETIME>(nesting_level) {};
+            : DataTypeDateSerDe<PrimitiveType::TYPE_DATETIME>(nesting_level) {};
 
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;

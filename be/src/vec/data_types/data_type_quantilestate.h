@@ -91,8 +91,9 @@ public:
     static void serialize_as_stream(const QuantileState& value, BufferWritable& buf);
 
     static void deserialize_as_stream(QuantileState& value, BufferReadable& buf);
+    using SerDeType = DataTypeQuantileStateSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeQuantileStateSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 };
 } // namespace doris::vectorized
