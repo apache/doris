@@ -2590,7 +2590,7 @@ public class ShowExecutor {
                             = olapTable.getTableProperty().getDynamicPartitionProperty();
                     String tableName = olapTable.getDisplayName();
                     if (olapTable.isTemporary()) {
-                        if (!Util.isTempTableInCurrentSession(tableName)) {
+                        if (!Util.isTempTableInCurrentSession(olapTable.getName())) {
                             continue;
                         }
                     }
