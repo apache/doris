@@ -74,6 +74,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private class SplitStat {
         SplitReadType type = SplitReadType.JNI;
         private long rowCount = 0;
+        private Optional<Long> mergedRowCount = Optional.empty();
         private boolean rawFileConvertable = false;
         private boolean hasDeletionVector = false;
 
@@ -83,6 +84,10 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         public void setRowCount(long rowCount) {
             this.rowCount = rowCount;
+        }
+
+        public void setMergedRowCount(long mergedRowCount) {
+            this.mergedRowCount = Optional.of(mergedRowCount);
         }
 
         public void setRawFileConvertable(boolean rawFileConvertable) {
@@ -95,7 +100,10 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         @Override
         public String toString() {
-            return "SplitStat [type=" + type + ", rowCount=" + rowCount + ", rawFileConvertable=" + rawFileConvertable
+            return "SplitStat [type=" + type
+                    + ", rowCount=" + rowCount
+                    + ", mergedRowCount=" + (mergedRowCount.isPresent() ? mergedRowCount.get() : "NONE")
+                    + ", rawFileConvertable=" + rawFileConvertable
                     + ", hasDeletionVector=" + hasDeletionVector + "]";
         }
     }
@@ -216,133 +224,104 @@ public class PaimonScanNode extends FileQueryScanNode {
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
-    @VisibleForTesting
-    public static Optional<Long> calcuteTableLevelCount(List<org.apache.paimon.table.source.Split> paimonSplits) {
-        // check if all splits don't have deletion vector or cardinality of every
-        // deletion vector is not null
-        long totalCount = 0;
-        long deletionVectorCount = 0;
-
-        for (org.apache.paimon.table.source.Split s : paimonSplits) {
-            totalCount += s.rowCount();
-
-            Optional<List<DeletionFile>> deletionFiles = s.deletionFiles();
-            if (deletionFiles.isPresent()) {
-                for (DeletionFile dv : deletionFiles.get()) {
-                    if (dv != null) {
-                        Long cardinality = dv.cardinality();
-                        if (cardinality == null) {
-                            // if there is a null deletion vector, we can't calculate the table level count
-                            return Optional.empty();
-                        } else {
-                            deletionVectorCount += cardinality;
-                        }
-                    }
-                }
-            }
-        }
-        return Optional.of(totalCount - deletionVectorCount);
-    }
-
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
+        List<Split> pushDownCountSplits = new ArrayList<>();
+        long pushDownCountSum = 0;
 
         List<org.apache.paimon.table.source.Split> paimonSplits = getPaimonSplitFromAPI();
+        List<DataSplit> dataSplits = new ArrayList<>();
+        for (org.apache.paimon.table.source.Split split : paimonSplits) {
+            if (!(split instanceof DataSplit)) {
+                throw new UserException("PaimonSplit type should be DataSplit but got: " + split.getClass().getName());
+            }
+            dataSplits.add((DataSplit) split);
+        }
+
         boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
         // Just for counting the number of selected partitions for this paimon table
         Set<BinaryRow> selectedPartitionValues = Sets.newHashSet();
-        // if applyCountPushdown is true, we cannot to split the file
-        // because the raw file and deletion vector is one-to-one mapping
+        // if applyCountPushdown is true, we can't split the DataSplit
         long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
-        for (org.apache.paimon.table.source.Split split : paimonSplits) {
+        for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
-            splitStat.setRowCount(split.rowCount());
-            if (!forceJniScanner && split instanceof DataSplit) {
-                DataSplit dataSplit = (DataSplit) split;
-                BinaryRow partitionValue = dataSplit.partition();
-                selectedPartitionValues.add(partitionValue);
-                Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
-                Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
+            splitStat.setRowCount(dataSplit.rowCount());
 
-                if (supportNativeReader(optRawFiles)) {
-                    if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
-                        continue;
-                    }
-                    splitStat.setType(SplitReadType.NATIVE);
-                    splitStat.setRawFileConvertable(true);
-                    List<RawFile> rawFiles = optRawFiles.get();
-                    for (int i = 0; i < rawFiles.size(); i++) {
-                        RawFile file = rawFiles.get(i);
-                        LocationPath locationPath = new LocationPath(file.path(),
-                                source.getCatalog().getProperties());
-                        try {
-                            List<Split> dorisSplits = FileSplitter.splitFile(
-                                    locationPath,
-                                    realFileSplitSize,
-                                    null,
-                                    file.length(),
-                                    -1,
-                                    true,
-                                    null,
-                                    PaimonSplit.PaimonSplitCreator.DEFAULT);
-                            for (Split dorisSplit : dorisSplits) {
-                                // try to set deletion file
-                                if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
-                                    ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i));
-                                    splitStat.setHasDeletionVector(true);
-                                }
+            BinaryRow partitionValue = dataSplit.partition();
+            selectedPartitionValues.add(partitionValue);
+            Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
+            Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
+            if (applyCountPushdown && dataSplit.mergedRowCountAvailable()) {
+                splitStat.setMergedRowCount(dataSplit.mergedRowCount());
+                PaimonSplit split = new PaimonSplit(dataSplit);
+                split.setRowCount(dataSplit.mergedRowCount());
+                pushDownCountSplits.add(split);
+                pushDownCountSum += dataSplit.mergedRowCount();
+            } else if (!forceJniScanner && supportNativeReader(optRawFiles)) {
+                if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
+                    continue;
+                }
+                splitStat.setType(SplitReadType.NATIVE);
+                splitStat.setRawFileConvertable(true);
+                List<RawFile> rawFiles = optRawFiles.get();
+                for (int i = 0; i < rawFiles.size(); i++) {
+                    RawFile file = rawFiles.get(i);
+                    LocationPath locationPath = new LocationPath(file.path(),
+                            source.getCatalog().getProperties());
+                    try {
+                        List<Split> dorisSplits = FileSplitter.splitFile(
+                                locationPath,
+                                realFileSplitSize,
+                                null,
+                                file.length(),
+                                -1,
+                                true,
+                                null,
+                                PaimonSplit.PaimonSplitCreator.DEFAULT);
+                        for (Split dorisSplit : dorisSplits) {
+                            // try to set deletion file
+                            if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
+                                ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i));
+                                splitStat.setHasDeletionVector(true);
                             }
-                            splits.addAll(dorisSplits);
-                            ++rawFileSplitNum;
-                        } catch (IOException e) {
-                            throw new UserException("Paimon error to split file: " + e.getMessage(), e);
                         }
+                        splits.addAll(dorisSplits);
+                        ++rawFileSplitNum;
+                    } catch (IOException e) {
+                        throw new UserException("Paimon error to split file: " + e.getMessage(), e);
                     }
-                } else {
-                    if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
-                        continue;
-                    }
-                    splits.add(new PaimonSplit(split));
-                    ++paimonSplitNum;
                 }
             } else {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
                     continue;
                 }
-                splits.add(new PaimonSplit(split));
+                splits.add(new PaimonSplit(dataSplit));
                 ++paimonSplitNum;
             }
+
             splitStats.add(splitStat);
         }
 
-        // We need to set the target size for all splits so that we can calculate the proportion of each split later.
-        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
-
         // if applyCountPushdown is true, calcute row count for count pushdown
-        if (applyCountPushdown) {
-            // we can create a special empty split and skip the plan process
-            if (splits.isEmpty()) {
-                return splits;
+        if (applyCountPushdown && !pushDownCountSplits.isEmpty()) {
+            if (pushDownCountSum > COUNT_WITH_PARALLEL_SPLITS) {
+                int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
+                pushDownCountSplits = pushDownCountSplits.subList(0, Math.min(pushDownCountSplits.size(), minSplits));
+            } else {
+                pushDownCountSplits = Collections.singletonList(pushDownCountSplits.get(0));
             }
-            Optional<Long> optTableLevelCount = calcuteTableLevelCount(paimonSplits);
-            if (optTableLevelCount.isPresent()) {
-                long tableLevelRowCount = optTableLevelCount.get();
-                List<Split> pushDownCountSplits;
-                if (tableLevelRowCount > COUNT_WITH_PARALLEL_SPLITS) {
-                    int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
-                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), minSplits));
-                } else {
-                    pushDownCountSplits = Collections.singletonList(splits.get(0));
-                }
-                setPushDownCount(tableLevelRowCount);
-                assignCountToSplits(pushDownCountSplits, tableLevelRowCount);
-                return pushDownCountSplits;
-            }
+            setPushDownCount(pushDownCountSum);
+            assignCountToSplits(pushDownCountSplits, pushDownCountSum);
+            splits.addAll(pushDownCountSplits);
         }
+
+        // We need to set the target size for all splits so that we can calculate the
+        // proportion of each split later.
+        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
 
         this.selectedPartitionNum = selectedPartitionValues.size();
         return splits;
@@ -355,13 +334,13 @@ public class PaimonScanNode extends FileQueryScanNode {
             return Collections.emptyList();
         }
         int[] projected = desc.getSlots().stream().mapToInt(
-            slot -> source.getPaimonTable().rowType()
-                    .getFieldNames()
-                    .stream()
-                    .map(String::toLowerCase)
-                    .collect(Collectors.toList())
-                    .indexOf(slot.getColumn().getName()))
-                    .toArray();
+                slot -> source.getPaimonTable().rowType()
+                        .getFieldNames()
+                        .stream()
+                        .map(String::toLowerCase)
+                        .collect(Collectors.toList())
+                        .indexOf(slot.getColumn().getName()))
+                .toArray();
         ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
         return readBuilder.withFilter(predicates)
                 .withProjection(projected)
