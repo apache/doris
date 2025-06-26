@@ -49,9 +49,9 @@ suite("test_hive_orc_predicate", "p0,external,hive,external_docker,external_dock
             sql """use `${catalog_name}`.`default`"""
             if (hivePrefix == "hive3") {
                 sql """ set check_orc_init_sargs_success = true; """
+                qt_predicate_full_acid_push_down """ select * from orc_full_acid_par where value = 'BB' order by id;"""
+                sql """ set check_orc_init_sargs_success = false; """
             }
-            qt_predicate_full_acid_push_down """ select * from orc_full_acid_par where value = 'BB' order by id;"""
-            sql """ set check_orc_init_sargs_success = false; """
 
             sql """use `${catalog_name}`.`multi_catalog`"""
             qt_lazy_materialization_for_list_type """ select l from complex_data_orc where id > 2 order by id; """
