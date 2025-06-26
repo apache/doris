@@ -1224,14 +1224,14 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 1);
         ColumnPtr col = block.get_by_position(arguments[0]).column;
-        const auto* arg = assert_cast<const ColumnDateTimeV2*>(col.get());
+        const auto& arg = assert_cast<const ColumnDateTimeV2&>(*col.get());
         ColumnTimeV2::MutablePtr res = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res->get_data();
-        for (int i = 0; i < arg->size(); i++) {
-            const auto* v =
-                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>*>(&arg->get_element(i));
+        for (int i = 0; i < arg.size(); i++) {
+            const auto& v =
+                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(arg.get_element(i));
             // the arg is datetimev2 type, it's store as uint64, so we need to get arg's hour minute second part
-            res_data[i] = TimeValue::make_time(v->hour(), v->minute(), v->second());
+            res_data[i] = TimeValue::make_time(v.hour(), v.minute(), v.second());
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
