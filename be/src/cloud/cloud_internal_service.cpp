@@ -19,6 +19,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -169,7 +170,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         g_file_cache_warm_up_rowset_last_handle_unix_ts.set_value(handle_ts);
         int64_t request_ts = request->has_unix_ts_us() ? request->unix_ts_us() : 0;
         g_file_cache_warm_up_rowset_request_to_handle_latency << (handle_ts - request_ts);
-        if (request_ts > 0 && handle_ts - request_ts > 1L * 1000 * 1000) { // 1s
+        if (request_ts > 0 && handle_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
             LOG(INFO) << "warm up rowset (request to handle) took " << handle_ts - request_ts
                       << " us, tablet_id: " << rs_meta.tablet_id()
                       << ", rowset_id: " << rs_meta.rowset_id().to_string();
@@ -195,12 +196,13 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
                     g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
                     g_file_cache_warm_up_rowset_handle_to_finish_latency << (now_ts - handle_ts);
-                    if (request_ts > 0 && now_ts - request_ts > 1L * 1000 * 1000) { // 1s
+                    if (request_ts > 0 &&
+                        now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
                         LOG(INFO) << "warm up rowset took " << now_ts - request_ts
                                   << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id
                                   << ", segment_id: " << segment_id;
                     }
-                    if (now_ts - handle_ts > 1L * 1000 * 1000) { // 1s
+                    if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
                         LOG(INFO) << "warm up rowset (handle to finish) took " << now_ts - handle_ts
                                   << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id
                                   << ", segment_id: " << segment_id;
@@ -248,13 +250,14 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
                         g_file_cache_warm_up_rowset_handle_to_finish_latency
                                 << (now_ts - handle_ts);
-                        if (request_ts > 0 && now_ts - request_ts > 1L * 1000 * 1000) { // 1s
+                        if (request_ts > 0 &&
+                            now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
                             LOG(INFO) << "warm up rowset took " << now_ts - request_ts
                                       << " us, tablet_id: " << tablet_id
                                       << ", rowset_id: " << rowset_id
                                       << ", segment_id: " << segment_id;
                         }
-                        if (now_ts - handle_ts > 1L * 1000 * 1000) { // 1s
+                        if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
                             LOG(INFO) << "warm up rowset (handle to finish) took "
                                       << now_ts - handle_ts << " us, tablet_id: " << tablet_id
                                       << ", rowset_id: " << rowset_id
