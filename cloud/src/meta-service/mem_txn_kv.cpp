@@ -248,6 +248,7 @@ void Transaction::put(std::string_view key, std::string_view val) {
     writes_.insert_or_assign(k, v);
     op_list_.emplace_back(ModifyOpType::PUT, k, v);
     ++num_put_keys_;
+    kv_->put_count_++;
     put_bytes_ += key.size() + val.size();
     approximate_bytes_ += key.size() + val.size();
 }
@@ -270,6 +271,8 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
                               int limit) {
     TEST_SYNC_POINT_CALLBACK("memkv::Transaction::get", &limit);
     std::lock_guard<std::mutex> l(lock_);
+    num_get_keys_++;
+    kv_->get_count_++;
     std::string begin_k(begin.data(), begin.size());
     std::string end_k(end.data(), end.size());
     // TODO: figure out what happen if range_get has part of unreadable_keys
@@ -344,12 +347,15 @@ TxnErrorCode Transaction::inner_get(const std::string& begin, const std::string&
     }
 
     std::vector<std::pair<std::string, std::string>> kv_list(kv_map.begin(), kv_map.end());
+    num_get_keys_ += kv_list.size();
+    kv_->get_count_ += kv_list.size();
     *iter = std::make_unique<memkv::RangeGetIterator>(std::move(kv_list), more);
     return TxnErrorCode::TXN_OK;
 }
 
 void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_view val) {
     std::lock_guard<std::mutex> l(lock_);
+    kv_->put_count_++;
     std::string k(key_prefix.data(), key_prefix.size());
     std::string v(val.data(), val.size());
     unreadable_keys_.insert(k);
@@ -362,6 +368,7 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
 
 void Transaction::atomic_set_ver_value(std::string_view key, std::string_view value) {
     std::lock_guard<std::mutex> l(lock_);
+    kv_->put_count_++;
     std::string k(key.data(), key.size());
     std::string v(value.data(), value.size());
     unreadable_keys_.insert(k);
@@ -380,6 +387,7 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
     op_list_.emplace_back(ModifyOpType::ATOMIC_ADD, std::move(k), std::move(v));
 
     ++num_put_keys_;
+    kv_->put_count_++;
     put_bytes_ += key.size() + 8;
     approximate_bytes_ += key.size() + 8;
 }
@@ -402,6 +410,7 @@ void Transaction::remove(std::string_view key) {
     remove_ranges_.emplace_back(k, end_key);
     op_list_.emplace_back(ModifyOpType::REMOVE, k, "");
 
+    kv_->del_count_++;
     ++num_del_keys_;
     delete_bytes_ += key.size();
     approximate_bytes_ += key.size();
@@ -421,7 +430,9 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
         remove_ranges_.emplace_back(begin_k, end_k);
         op_list_.emplace_back(ModifyOpType::REMOVE_RANGE, begin_k, end_k);
     }
-    ++num_del_keys_;
+    kv_->del_count_ += 2;
+    // same as normal txn
+    num_del_keys_ += 2;
     delete_bytes_ += begin.size() + end.size();
     approximate_bytes_ += begin.size() + end.size();
 }
@@ -480,6 +491,8 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         auto ret = inner_get(k, &val, opts.snapshot);
         ret == TxnErrorCode::TXN_OK ? res->push_back(val) : res->push_back(std::nullopt);
     }
+    kv_->get_count_ += keys.size();
+    num_get_keys_ += keys.size();
     return TxnErrorCode::TXN_OK;
 }
 
