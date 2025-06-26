@@ -834,12 +834,8 @@ int InstanceRecycler::recycle_indexes() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("recycle indexes finished, cost={}s", cost)
-=======
         LOG_WARNING("recycle indexes finished, cost={}s", cost)
->>>>>>> master
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -1102,12 +1098,8 @@ int InstanceRecycler::recycle_partitions() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("recycle partitions finished, cost={}s", cost)
-=======
         LOG_WARNING("recycle partitions finished, cost={}s", cost)
->>>>>>> master
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -1303,24 +1295,16 @@ int InstanceRecycler::recycle_partitions() {
 int InstanceRecycler::recycle_versions() {
     int64_t num_scanned = 0;
     int64_t num_recycled = 0;
-<<<<<<< recycler_instance
     RecyclerMetricsContext metrics_context(instance_id_, "recycle_versions");
-    LOG_INFO("begin to recycle table and partition versions").tag("instance_id", instance_id_);
-=======
 
     LOG_WARNING("begin to recycle table and partition versions").tag("instance_id", instance_id_);
->>>>>>> master
 
     auto start_time = steady_clock::now();
 
     DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("recycle table and partition versions finished, cost={}s", cost)
-=======
         LOG_WARNING("recycle table and partition versions finished, cost={}s", cost)
->>>>>>> master
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_recycled", num_recycled);
@@ -2302,12 +2286,8 @@ int InstanceRecycler::recycle_rowsets() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("recycle rowsets finished, cost={}s", cost)
-=======
         LOG_WARNING("recycle rowsets finished, cost={}s", cost)
->>>>>>> master
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -2662,12 +2642,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("recycle tmp rowsets finished, cost={}s", cost)
-=======
         LOG_WARNING("recycle tmp rowsets finished, cost={}s", cost)
->>>>>>> master
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -2923,12 +2899,8 @@ int InstanceRecycler::abort_timeout_txn() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("end to abort timeout txn, cost={}s", cost)
-=======
         LOG_WARNING("end to abort timeout txn, cost={}s", cost)
->>>>>>> master
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_timeout", num_timeout)
@@ -3112,12 +3084,8 @@ int InstanceRecycler::recycle_expired_txn_label() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("end to recycle expired txn, cost={}s", cost)
-=======
         LOG_WARNING("end to recycle expired txn, cost={}s", cost)
->>>>>>> master
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -3437,12 +3405,8 @@ int InstanceRecycler::recycle_copy_jobs() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("recycle copy jobs finished, cost={}s", cost)
-=======
         LOG_WARNING("recycle copy jobs finished, cost={}s", cost)
->>>>>>> master
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_finished", num_finished)
@@ -3723,12 +3687,8 @@ int InstanceRecycler::recycle_stage() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("recycle stage, cost={}s", cost)
-=======
         LOG_WARNING("recycle stage, cost={}s", cost)
->>>>>>> master
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_recycled", num_recycled);
@@ -3873,13 +3833,9 @@ int InstanceRecycler::recycle_expired_stage_objects() {
     DORIS_CLOUD_DEFER {
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-<<<<<<< recycler_instance
         metrics_context.finish_report();
-        LOG_INFO("recycle expired stage objects, cost={}s", cost).tag("instance_id", instance_id_);
-=======
         LOG_WARNING("recycle expired stage objects, cost={}s", cost)
                 .tag("instance_id", instance_id_);
->>>>>>> master
     };
 
     int ret = 0;
