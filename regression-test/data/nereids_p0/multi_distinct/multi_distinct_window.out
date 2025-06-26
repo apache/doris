@@ -13,24 +13,24 @@
 
 -- !sum --
 1	2	2
-1	2	4
-2	2	6
-3	2	8
+1	2	2
+2	2	2
+3	2	2
 
 -- !sum_partition --
 3	2	2
 1	2	2
-1	2	4
+1	2	2
 2	2	2
 
 -- !distinct_group_concat --
 3	2	a
-1	2	a,a
-1	2	a,a,a
-2	2	a,a,a,a
+1	2	a
+1	2	a
+2	2	a
 
 -- !group_concat --
 2	2	a,a,a
-3	2	a,a,a
 1	2	a,a,a
+3	2	a,a,a
 
