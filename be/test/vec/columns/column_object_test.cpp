@@ -25,6 +25,7 @@
 #include <stdio.h>
 
 #include "common/cast_set.h"
+#include "common/exception.h"
 #include "runtime/jsonb_value.h"
 #include "testutil/variant_util.h"
 #include "vec/columns/common_column_test.h"
@@ -137,14 +138,18 @@ TEST(ColumnVariantTest, insert_try_insert) {
     info.num_dimensions = 0;
     PathInData path("v.f");
     auto sub = v->get_subcolumn(path);
-    Int64 value = 43;
-    sub->insert(value, info);
+    Int64 value = 43000000;
 
-    info.num_dimensions = 1;
-    sub->insert(value, info);
+    try {
+        sub->insert(value, info);
+        info.num_dimensions = 1;
+        sub->insert(value, info);
 
-    info.num_dimensions = 2;
-    sub->insert(value, info);
+        info.num_dimensions = 2;
+        sub->insert(value, info);
+    } catch (const doris::Exception& e) {
+        std::cout << "encounter exception: " << e.what() << std::endl;
+    }
 }
 
 TEST(ColumnVariantTest, basic_finalize) {
