@@ -330,7 +330,7 @@ public class PushDownEncodeSlot extends OneRewriteRuleFactory {
                 List<NamedExpression> projections =
                         notPushedAlias.stream().map(e -> (NamedExpression) e).collect(Collectors.toList());
                 projections.addAll(plan.getOutput());
-                plan = new LogicalProject<>(projections, plan, PlanUtils.getHintContext(plan));
+                plan = new LogicalProject<>(projections, plan, plan.getHintContext());
             }
             return plan;
         }

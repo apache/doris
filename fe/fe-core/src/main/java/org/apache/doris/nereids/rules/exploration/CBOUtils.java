@@ -54,7 +54,7 @@ public class CBOUtils {
         List<NamedExpression> projects = plan.getOutput().stream()
                 .filter(namedExpr -> requiredExprIds.contains(namedExpr.getExprId()))
                 .collect(Collectors.toList());
-        return new LogicalProject<>(projects, plan, PlanUtils.getHintContext(plan));
+        return new LogicalProject<>(projects, plan, plan.getHintContext());
     }
 
     /**

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeSource;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
@@ -75,9 +76,9 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
             List<Slot> materializedSlots,
             Map<CatalogRelation, List<Slot>> relationToLazySlotMap,
             BiMap<CatalogRelation, SlotReference> relationToRowId,
-            Map<Slot, MaterializeSource> materializeMap) {
+            Map<Slot, MaterializeSource> materializeMap, Optional<HintContext> hintContext) {
         this(child, materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, null, null);
+                relationToRowId, materializeMap, null, null, hintContext);
     }
 
     /**
@@ -89,9 +90,9 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
             Map<CatalogRelation, List<Slot>> relationToLazySlotMap,
             BiMap<CatalogRelation, SlotReference> relationToRowId,
             Map<Slot, MaterializeSource> materializeMap,
-            PhysicalProperties physicalProperties, Statistics statistics) {
+            PhysicalProperties physicalProperties, Statistics statistics, Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_MATERIALIZE, Optional.empty(),
-                null, physicalProperties, statistics, child);
+                null, physicalProperties, statistics, child, hintContext);
         this.materializeInput = materializeInput;
         this.relationToLazySlotMap = relationToLazySlotMap;
         this.relationToRowId = relationToRowId;
@@ -183,7 +184,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
     public Plan withChildren(List<Plan> children) {
         return new PhysicalLazyMaterialize<>(children.get(0),
                 materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, null, null);
+                relationToRowId, materializeMap, null, null, hintContext);
     }
 
     @Override
@@ -201,7 +202,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalLazyMaterialize(children.get(0), materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, physicalProperties, statistics);
+                relationToRowId, materializeMap, physicalProperties, statistics, hintContext);
     }
 
     @Override

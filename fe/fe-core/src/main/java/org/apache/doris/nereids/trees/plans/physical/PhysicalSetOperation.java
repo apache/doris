@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -51,8 +52,9 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
             List<NamedExpression> outputs,
             List<List<SlotReference>> regularChildrenOutputs,
             LogicalProperties logicalProperties,
-            List<Plan> children) {
-        super(planType, Optional.empty(), logicalProperties, children.toArray(new Plan[0]));
+            List<Plan> children,
+            Optional<HintContext> hintContext) {
+        super(planType, Optional.empty(), logicalProperties, hintContext, children.toArray(new Plan[0]));
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
@@ -64,8 +66,9 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
             List<List<SlotReference>> regularChildrenOutputs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
-            List<Plan> children) {
-        super(planType, groupExpression, logicalProperties, children.toArray(new Plan[0]));
+            List<Plan> children,
+            Optional<HintContext> hintContext) {
+        super(planType, groupExpression, logicalProperties, hintContext, children.toArray(new Plan[0]));
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
@@ -76,9 +79,10 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
             List<NamedExpression> outputs,
             List<List<SlotReference>> regularChildrenOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics, List<Plan> children) {
+            PhysicalProperties physicalProperties, Statistics statistics, List<Plan> children,
+            Optional<HintContext> hintContext) {
         super(planType, groupExpression, logicalProperties,
-                physicalProperties, statistics, children.toArray(new Plan[0]));
+                physicalProperties, statistics, hintContext, children.toArray(new Plan[0]));
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);

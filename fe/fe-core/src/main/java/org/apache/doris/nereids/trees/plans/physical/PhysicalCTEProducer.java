@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -45,20 +46,22 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
 
     private final CTEId cteId;
 
-    public PhysicalCTEProducer(CTEId cteId, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(cteId, Optional.empty(), logicalProperties, child);
+    public PhysicalCTEProducer(CTEId cteId, LogicalProperties logicalProperties, CHILD_TYPE child,
+                               Optional<HintContext> hintContext) {
+        this(cteId, Optional.empty(), logicalProperties, child, hintContext);
     }
 
     public PhysicalCTEProducer(CTEId cteId, Optional<GroupExpression> groupExpression,
-                               LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(cteId, groupExpression, logicalProperties, null, null, child);
+                               LogicalProperties logicalProperties, CHILD_TYPE child,
+                               Optional<HintContext> hintContext) {
+        this(cteId, groupExpression, logicalProperties, null, null, child, hintContext);
     }
 
     public PhysicalCTEProducer(CTEId cteId, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics, CHILD_TYPE child) {
+            Statistics statistics, CHILD_TYPE child, Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_CTE_PRODUCER, groupExpression,
-                logicalProperties, physicalProperties, statistics, child);
+                logicalProperties, physicalProperties, statistics, child, hintContext);
         this.cteId = cteId;
     }
 
@@ -104,25 +107,26 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     public PhysicalCTEProducer<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalCTEProducer<>(cteId, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), hintContext);
     }
 
     @Override
     public PhysicalCTEProducer<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalCTEProducer<>(cteId, groupExpression, getLogicalProperties(), child());
+        return new PhysicalCTEProducer<>(cteId, groupExpression, getLogicalProperties(), child(), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalCTEProducer<>(cteId, groupExpression, logicalProperties.get(), children.get(0));
+        return new PhysicalCTEProducer<>(cteId, groupExpression, logicalProperties.get(), children.get(0),
+                hintContext);
     }
 
     @Override
     public PhysicalCTEProducer<CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalCTEProducer<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
-            statistics, child());
+            statistics, child(), hintContext);
     }
 
     @Override
@@ -139,6 +143,6 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     @Override
     public PhysicalCTEProducer<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalCTEProducer<>(cteId, groupExpression, null, physicalProperties,
-                statistics, child());
+                statistics, child(), hintContext);
     }
 }

@@ -119,7 +119,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
 
     private Plan unCorrelatedNotExist(LogicalApply<?, ?> unapply) {
         LogicalLimit<?> newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right(),
-                PlanUtils.getHintContext(unapply.right()));
+                unapply.right().getHintContext());
         Alias alias = new Alias(new Count(), "count(*)");
         LogicalAggregate<?> newAgg = new LogicalAggregate<>(new ArrayList<>(),
                 ImmutableList.of(alias), newLimit, newLimit.getHintContext());
@@ -134,7 +134,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
 
     private Plan unCorrelatedExist(LogicalApply<?, ?> unapply) {
         LogicalLimit<?> newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right(),
-                PlanUtils.getHintContext(unapply.right()));
+                unapply.right().getHintContext());
         return new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE), unapply.getMarkJoinSlotReference(),

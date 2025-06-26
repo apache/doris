@@ -438,9 +438,9 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                     LogicalProject<Plan> childProject = (LogicalProject<Plan>) child;
                     List<NamedExpression> mergeProjections = PlanUtils.mergeProjections(
                             childProject.getProjects(), newProjectOutput);
-                    project = new LogicalProject<>(mergeProjections, childProject.child(), PlanUtils.getHintContext(child));
+                    project = new LogicalProject<>(mergeProjections, childProject.child(), child.getHintContext());
                 } else {
-                    project = new LogicalProject<>(newProjectOutput, child, PlanUtils.getHintContext(child));
+                    project = new LogicalProject<>(newProjectOutput, child, child.getHintContext());
                 }
                 regularChildrenOutputs.add((List) project.getOutput());
                 children.add(project);
@@ -527,12 +527,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             Plan prunedChild, RoaringBitmap childRequiredSlotIds, List<? extends Slot> childRequiredSlots) {
         if (childRequiredSlots.isEmpty()) {
             // change to `select 1` to prune columns
-            return new LogicalProject<>(ImmutableList.of(), prunedChild);
+            return new LogicalProject<>(ImmutableList.of(), prunedChild, prunedChild.getHintContext());
         }
         for (Slot prunedChildOutput : prunedChild.getOutput()) {
             if (!childRequiredSlotIds.contains(prunedChildOutput.getExprId().asInt())) {
                 prunedChild = new LogicalProject<>((List) childRequiredSlots, prunedChild,
-                        PlanUtils.getHintContext(prunedChild));
+                        prunedChild.getHintContext());
                 break;
             }
         }

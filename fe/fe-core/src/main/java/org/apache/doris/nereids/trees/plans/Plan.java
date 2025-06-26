@@ -319,4 +319,8 @@ public interface Plan extends TreeNode<Plan> {
     default Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
         return this;
     }
+
+    default Optional<HintContext> getHintContext() {
+        return Optional.empty();
+    }
 }

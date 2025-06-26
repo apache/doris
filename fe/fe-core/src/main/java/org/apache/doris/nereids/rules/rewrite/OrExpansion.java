@@ -89,7 +89,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         plan = plan.accept(this, ctx);
         for (int i = ctx.cteProducerList.size() - 1; i >= 0; i--) {
             LogicalCTEProducer<? extends Plan> producer = ctx.cteProducerList.get(i);
-            plan = new LogicalCTEAnchor<>(producer.getCteId(), producer, plan, PlanUtils.getHintContext(plan));
+            plan = new LogicalCTEAnchor<>(producer.getCteId(), producer, plan, plan.getHintContext());
         }
         return plan;
     }
@@ -114,7 +114,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         Plan child2 = anchor.child(1).accept(this, consumerContext);
         for (int i = consumerContext.cteProducerList.size() - 1; i >= 0; i--) {
             LogicalCTEProducer<? extends Plan> producer = consumerContext.cteProducerList.get(i);
-            child2 = new LogicalCTEAnchor<>(producer.getCteId(), producer, child2, PlanUtils.getHintContext(child2));
+            child2 = new LogicalCTEAnchor<>(producer.getCteId(), producer, child2, child2.getHintContext());
         }
         return anchor.withChildren(ImmutableList.of(child1, child2));
     }
@@ -141,11 +141,11 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         LogicalPlan leftClone = LogicalPlanDeepCopier.INSTANCE
                 .deepCopy((LogicalPlan) join.left(), new DeepCopierContext());
         LogicalCTEProducer<? extends Plan> leftProducer = new LogicalCTEProducer<>(
-                ctx.statementContext.getNextCTEId(), leftClone, PlanUtils.getHintContext(leftClone));
+                ctx.statementContext.getNextCTEId(), leftClone, leftClone.getHintContext());
         LogicalPlan rightClone = LogicalPlanDeepCopier.INSTANCE
                 .deepCopy((LogicalPlan) join.right(), new DeepCopierContext());
         LogicalCTEProducer<? extends Plan> rightProducer = new LogicalCTEProducer<>(
-                ctx.statementContext.getNextCTEId(), rightClone, PlanUtils.getHintContext(rightClone));
+                ctx.statementContext.getNextCTEId(), rightClone, rightClone.getHintContext());
         Map<Slot, Slot> leftCloneToLeft = new HashMap<>();
         for (int i = 0; i < leftClone.getOutput().size(); i++) {
             leftCloneToLeft.put(leftClone.getOutput().get(i), (join.left()).getOutput().get(i));
@@ -233,9 +233,9 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             LogicalCTEProducer<? extends org.apache.doris.nereids.trees.plans.Plan> rightProducer,
             Map<Slot, Slot> leftCloneToLeft, Map<Slot, Slot> rightCloneToRight) {
         LogicalCTEConsumer left = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
-                leftProducer.getCteId(), "", leftProducer, PlanUtils.getHintContext(originJoin.left()));
+                leftProducer.getCteId(), "", leftProducer, originJoin.left().getHintContext());
         LogicalCTEConsumer right = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
-                rightProducer.getCteId(), "", rightProducer, PlanUtils.getHintContext(originJoin.right()));
+                rightProducer.getCteId(), "", rightProducer, originJoin.right().getHintContext());
         ctx.putCTEIdToConsumer(left);
         ctx.putCTEIdToConsumer(right);
 
@@ -255,14 +255,14 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             Plan normalizedPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
                     (LogicalJoin<? extends Plan, ? extends Plan>) newPlan);
             newPlan = new LogicalProject<>(new ArrayList<>(newPlan.getOutput()), normalizedPlan,
-                    PlanUtils.getHintContext(normalizedPlan));
+                    normalizedPlan.getHintContext());
         }
 
         for (int i = 1; i < disjunctions.size(); i++) {
             hashCond = disjunctions.get(i);
             LogicalCTEConsumer newRight = new LogicalCTEConsumer(
                     ctx.getStatementContext().getNextRelationId(), rightProducer.getCteId(), "", rightProducer,
-                    PlanUtils.getHintContext(originJoin.right()));
+                    originJoin.right().getHintContext());
             ctx.putCTEIdToConsumer(newRight);
             Map<Slot, Slot> newReplaced = constructReplaceMap(left, leftCloneToLeft, newRight, rightCloneToRight);
             newOtherConditions = otherConditions.stream()
@@ -285,7 +285,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
                 .map(s -> finalNewPlan.getOutputSet().contains(s) ? s :
                         new Alias(new NullLiteral(s.getDataType()), s.getName()))
                 .collect(Collectors.toList());
-        return new LogicalProject<>(projects, newPlan, PlanUtils.getHintContext(newPlan));
+        return new LogicalProject<>(projects, newPlan, newPlan.getHintContext());
     }
 
     // expand Inner Join:
@@ -315,9 +315,9 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             pair.second.addAll(otherConditions);
 
             LogicalCTEConsumer left = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
-                    leftProducer.getCteId(), "", leftProducer, PlanUtils.getHintContext(join.left()));
+                    leftProducer.getCteId(), "", leftProducer, join.left().getHintContext());
             LogicalCTEConsumer right = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
-                    rightProducer.getCteId(), "", rightProducer, PlanUtils.getHintContext(join.right()));
+                    rightProducer.getCteId(), "", rightProducer, join.right().getHintContext());
             ctx.putCTEIdToConsumer(left);
             ctx.putCTEIdToConsumer(right);
 
@@ -336,8 +336,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             if (newJoin.getHashJoinConjuncts().stream()
                     .anyMatch(equalTo -> equalTo.children().stream().anyMatch(e -> !(e instanceof Slot)))) {
                 Plan plan = PushDownExpressionsInHashCondition.pushDownHashExpression(newJoin);
-                plan = new LogicalProject<>(new ArrayList<>(newJoin.getOutput()), plan,
-                        PlanUtils.getHintContext(plan));
+                plan = new LogicalProject<>(new ArrayList<>(newJoin.getOutput()), plan, plan.getHintContext());
                 joins.add(plan);
             } else {
                 joins.add(newJoin);

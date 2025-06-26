@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -51,8 +52,10 @@ public class PhysicalDeferMaterializeOlapScan extends PhysicalCatalogRelation im
 
     public PhysicalDeferMaterializeOlapScan(PhysicalOlapScan physicalOlapScan,
             Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
-        this(physicalOlapScan, deferMaterializeSlotIds, columnIdSlot, groupExpression, logicalProperties, null, null);
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            Optional<HintContext> hintContext) {
+        this(physicalOlapScan, deferMaterializeSlotIds, columnIdSlot, groupExpression, logicalProperties, null, null,
+                hintContext);
     }
 
     /**
@@ -61,11 +64,11 @@ public class PhysicalDeferMaterializeOlapScan extends PhysicalCatalogRelation im
     public PhysicalDeferMaterializeOlapScan(PhysicalOlapScan physicalOlapScan,
             Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics) {
+            PhysicalProperties physicalProperties, Statistics statistics, Optional<HintContext> hintContext) {
         super(physicalOlapScan.getRelationId(), physicalOlapScan.getType(),
                 physicalOlapScan.getTable(), physicalOlapScan.getQualifier(),
                 groupExpression, logicalProperties, physicalProperties, statistics,
-                ImmutableList.of());
+                ImmutableList.of(), hintContext);
         this.physicalOlapScan = physicalOlapScan;
         this.deferMaterializeSlotIds = deferMaterializeSlotIds;
         this.columnIdSlot = columnIdSlot;
@@ -111,20 +114,20 @@ public class PhysicalDeferMaterializeOlapScan extends PhysicalCatalogRelation im
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalDeferMaterializeOlapScan(physicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics);
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalDeferMaterializeOlapScan(physicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, logicalProperties.get(), physicalProperties, statistics);
+                groupExpression, logicalProperties.get(), physicalProperties, statistics, hintContext);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalDeferMaterializeOlapScan(physicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics);
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, hintContext);
     }
 
     @Override

@@ -93,17 +93,17 @@ public class PushDownFilterThroughProjectTest {
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1,
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
-                Optional.empty(), ImmutableList.of());
+                Optional.empty(), ImmutableList.of(), Optional.empty());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
-        PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);
+        PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan, Optional.empty());
         Alias y = new Alias(x.toSlot(), "y");
         Alias z = new Alias(b, "z");
         List<NamedExpression> projList2 = Lists.newArrayList(y, z, c);
-        PhysicalProject proj2 = new PhysicalProject(projList2, placeHolder, proj3);
+        PhysicalProject proj2 = new PhysicalProject(projList2, placeHolder, proj3, Optional.empty());
         Set<Expression> conjuncts = Sets.newHashSet();
         conjuncts.add(new EqualTo(y.toSlot(), Literal.of(0)));
-        PhysicalFilter filter = new PhysicalFilter(conjuncts, proj2.getLogicalProperties(), proj2);
+        PhysicalFilter filter = new PhysicalFilter(conjuncts, proj2.getLogicalProperties(), proj2, Optional.empty());
 
         PushDownFilterThroughProject processor = new PushDownFilterThroughProject();
         PhysicalPlan newPlan = (PhysicalPlan) filter.accept(processor, ctx);
@@ -132,19 +132,19 @@ public class PushDownFilterThroughProjectTest {
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1,
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
-                Optional.empty(), new ArrayList<>());
+                Optional.empty(), new ArrayList<>(), Optional.empty());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
-        PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);
+        PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan, Optional.empty());
         Alias y = new Alias(
                 new Add(x.toSlot(), new Random(new BigIntLiteral(1L), new BigIntLiteral(10L))),
                 "y");
         Alias z = new Alias(b, "z");
         List<NamedExpression> projList2 = Lists.newArrayList(y, z, c);
-        PhysicalProject proj2 = new PhysicalProject(projList2, placeHolder, proj3);
+        PhysicalProject proj2 = new PhysicalProject(projList2, placeHolder, proj3, Optional.empty());
         Set<Expression> conjuncts = Sets.newHashSet();
         conjuncts.add(new EqualTo(y.toSlot(), Literal.of(0)));
-        PhysicalFilter filter = new PhysicalFilter(conjuncts, proj2.getLogicalProperties(), proj2);
+        PhysicalFilter filter = new PhysicalFilter(conjuncts, proj2.getLogicalProperties(), proj2, Optional.empty());
 
         PushDownFilterThroughProject processor = new PushDownFilterThroughProject();
         PhysicalPlan newPlan = (PhysicalPlan) filter.accept(processor, ctx);

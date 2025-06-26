@@ -66,7 +66,7 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
             aliasQueries.add((LogicalSubQueryAlias<Plan>) alias);
             List<String> tableName = new ArrayList<>();
             tableName.add(alias.getAlias());
-            return new UnboundRelation(null, StatementScopeIdGenerator.newRelationId(), tableName, Optional.empty());
+            return new UnboundRelation(StatementScopeIdGenerator.newRelationId(), tableName, Optional.empty());
         }
         return alias;
     }

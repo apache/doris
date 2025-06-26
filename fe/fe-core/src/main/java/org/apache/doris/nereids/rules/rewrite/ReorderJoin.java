@@ -162,7 +162,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 inputs,
                 joinFilter,
                 join.getJoinType(),
-                notInnerJoinConditions, PlanUtils.getHintContext(plan));
+                notInnerJoinConditions, plan.getHintContext());
     }
 
     /**

@@ -68,7 +68,7 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                             setOperation, filter, constantExprs, cascadesContext, newChildren, newConstantExprs,
                             (rowIndex, columnIndex) -> constantExprs.get(rowIndex).get(columnIndex).toSlot(),
                             selectConstants -> new LogicalOneRowRelation(
-                                    statementContext.getNextRelationId(), selectConstants)
+                                    statementContext.getNextRelationId(), selectConstants, filter.getHintContext())
                     );
                     addFiltersToNewChildren(setOperation, filter, setOperation.children(),
                             cascadesContext, newChildren, newConstantExprs,

@@ -29,7 +29,7 @@ public class LogicalOneRowRelationToPhysicalOneRowRelation extends OneImplementa
     public Rule build() {
         return logicalOneRowRelation()
                 .then(relation -> new PhysicalOneRowRelation(relation.getRelationId(),
-                        relation.getProjects(), relation.getLogicalProperties()))
+                        relation.getProjects(), relation.getLogicalProperties(), relation.getHintContext()))
                 .toRule(RuleType.LOGICAL_ONE_ROW_RELATION_TO_PHYSICAL_ONE_ROW_RELATION);
     }
 }

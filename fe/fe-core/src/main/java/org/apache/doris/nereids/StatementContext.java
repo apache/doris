@@ -40,7 +40,6 @@ import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.QbNameTreeNode;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.properties.SelectHintQbName;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;

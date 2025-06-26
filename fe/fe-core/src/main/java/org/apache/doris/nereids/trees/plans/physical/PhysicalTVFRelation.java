@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -46,36 +47,38 @@ public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation
 
     private final TableValuedFunction function;
 
-    public PhysicalTVFRelation(RelationId id, TableValuedFunction function, LogicalProperties logicalProperties) {
-        super(id, PlanType.PHYSICAL_TVF_RELATION, Optional.empty(), logicalProperties);
+    public PhysicalTVFRelation(RelationId id, TableValuedFunction function, LogicalProperties logicalProperties,
+                               Optional<HintContext> hintContext) {
+        super(id, PlanType.PHYSICAL_TVF_RELATION, Optional.empty(), logicalProperties, hintContext);
         this.function = Objects.requireNonNull(function, "function can not be null");
     }
 
     public PhysicalTVFRelation(RelationId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
+            Optional<HintContext> hintContext) {
         super(id, PlanType.PHYSICAL_TVF_RELATION, groupExpression,
-                logicalProperties, physicalProperties, statistics);
+                logicalProperties, physicalProperties, statistics, hintContext);
         this.function = Objects.requireNonNull(function, "function can not be null");
     }
 
     @Override
     public PhysicalTVFRelation withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalTVFRelation(relationId, function, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics);
+                physicalProperties, statistics, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalTVFRelation(relationId, function, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics);
+                logicalProperties.get(), physicalProperties, statistics, hintContext);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalTVFRelation(relationId, function, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics);
+                getLogicalProperties(), physicalProperties, statistics, hintContext);
     }
 
     @Override

@@ -39,7 +39,8 @@ public class LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan e
                     logicalDeferOlapScan.getDeferMaterializeSlotIds(),
                     logicalDeferOlapScan.getColumnIdSlot(),
                     Optional.empty(),
-                    logicalDeferOlapScan.getLogicalProperties());
+                    logicalDeferOlapScan.getLogicalProperties(),
+                    logicalDeferOlapScan.getHintContext());
         }).toRule(RuleType.LOGICAL_DEFER_MATERIALIZE_OLAP_SCAN_TO_PHYSICAL_DEFER_MATERIALIZE_OLAP_SCAN_RULE);
     }
 }

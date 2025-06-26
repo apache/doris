@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -94,13 +95,13 @@ public class PlanUtils {
         return filter(predicates, plan).map(Plan.class::cast).orElse(plan);
     }
 
-    public static Optional<HintContext> getHintContext(Plan plan) {
-        if (plan instanceof AbstractLogicalPlan) {
-            return ((AbstractLogicalPlan) plan).getHintContext();
-        } else {
-            return Optional.empty();
-        }
-    }
+    // public static Optional<HintContext> getHintContext(Plan plan) {
+    //     if (plan instanceof AbstractLogicalPlan) {
+    //         return ((AbstractLogicalPlan) plan).getHintContext();
+    //     } else {
+    //         return Optional.empty();
+    //     }
+    // }
 
     /**
      * normalize comparison predicate on a binary plan to its two sides are corresponding to the child's output.
@@ -121,7 +122,7 @@ public class PlanUtils {
             return Optional.empty();
         }
         if (plan instanceof AbstractLogicalPlan) {
-            return Optional.of(new LogicalProject<>(projects, plan, ((AbstractLogicalPlan) plan).getHintContext()));
+            return Optional.of(new LogicalProject<>(projects, plan, plan.getHintContext()));
         } else {
             return Optional.of(new LogicalProject<>(projects, plan, Optional.empty()));
         }
@@ -138,8 +139,7 @@ public class PlanUtils {
         if (plan instanceof LogicalAggregate && ((LogicalAggregate<?>) plan).isDistinct()) {
             return (LogicalAggregate<Plan>) plan;
         } else {
-            return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), false, plan,
-                    PlanUtils.getHintContext(plan));
+            return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), false, plan, plan.getHintContext());
         }
     }
 
@@ -445,11 +445,11 @@ public class PlanUtils {
     /**
      * dump LogicalPlan tree With its current QbName
      */
-    public static String dumpLogicalPlanWithQbName(AbstractLogicalPlan root) {
+    public static String dumpPlanWithQbName(Plan root) {
         return TreeStringUtils.treeString(root,
-                plan -> String.format("%s_%d@%s", plan.getClass().getSimpleName(), ((AbstractLogicalPlan) plan).getId(),
-                        ((AbstractLogicalPlan) plan).getHintContext().isPresent()
-                                ? ((AbstractLogicalPlan) plan).getHintContext().get().getQbName()
+                plan -> String.format("%s_%d@%s", plan.getClass().getSimpleName(), ((AbstractPlan) plan).getId(),
+                        ((AbstractPlan) plan).getHintContext().isPresent()
+                                ? ((AbstractPlan) plan).getHintContext().get().getQbName()
                                 : "NO_QBNAME"),
                 plan -> ((AbstractTreeNode) plan).children(),
                 plan -> new ArrayList<>(),
@@ -459,11 +459,11 @@ public class PlanUtils {
     /**
      * dump LogicalPlan tree With its original QbName
      */
-    public static String dumpLogicalPlanWithOriginalQbName(AbstractLogicalPlan root) {
+    public static String dumpPlanWithOriginalQbName(Plan root) {
         return TreeStringUtils.treeString(root,
-                plan -> String.format("%s_%d@%s", plan.getClass().getSimpleName(), ((AbstractLogicalPlan) plan).getId(),
-                        ((AbstractLogicalPlan) plan).getHintContext().isPresent()
-                                ? ((AbstractLogicalPlan) plan).getHintContext().get().getOriginalQbName()
+                plan -> String.format("%s_%d@%s", plan.getClass().getSimpleName(), ((AbstractPlan) plan).getId(),
+                        ((AbstractPlan) plan).getHintContext().isPresent()
+                                ? ((AbstractPlan) plan).getHintContext().get().getOriginalQbName()
                                 : "NO_QBNAME"),
                 plan -> ((AbstractTreeNode) plan).children(),
                 plan -> new ArrayList<>(),
@@ -477,7 +477,7 @@ public class PlanUtils {
     }
 
     private static void createQbNameTree(Plan rootPlan, QbNameTreeNode rootNode) {
-        AbstractLogicalPlan parentPlan = (AbstractLogicalPlan) rootPlan;
+        AbstractPlan parentPlan = (AbstractPlan) rootPlan;
         Optional<HintContext> hintContext = parentPlan.getHintContext();
         QbNameTreeNode curNode = rootNode;
         if (hintContext.isPresent()) {

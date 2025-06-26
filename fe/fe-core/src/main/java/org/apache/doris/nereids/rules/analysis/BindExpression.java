@@ -347,7 +347,7 @@ public class BindExpression implements AnalysisRuleFactory {
             } else {
                 List<NamedExpression> parentProject = childrenProjections.get(i);
                 newChild = ProjectProcessor.tryProcessProject(parentProject, child)
-                        .orElseGet(() -> new LogicalProject<>(parentProject, PlanUtils.getHintContext(child)));
+                        .orElseGet(() -> new LogicalProject<>(parentProject, child, child.getHintContext()));
             }
             newChildren.add(newChild);
             childrenOutputs.add((List<SlotReference>) (List) newChild.getOutput());
@@ -381,7 +381,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 }
             }
             relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(), row,
-                    PlanUtils.getHintContext(inlineTable)));
+                    inlineTable.getHintContext()));
         }
         // construct union all tree
         return LogicalPlanBuilder.reduceToLogicalPlanTree(0, relations.size() - 1, relations, Qualifier.ALL);

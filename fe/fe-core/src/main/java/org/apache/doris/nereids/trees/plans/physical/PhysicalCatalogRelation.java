@@ -26,6 +26,7 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -69,8 +70,8 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
      */
     public PhysicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            Collection<Slot> operativeSlots) {
-        super(relationId, type, groupExpression, logicalProperties);
+            Collection<Slot> operativeSlots, Optional<HintContext> hintContext) {
+        super(relationId, type, groupExpression, logicalProperties, hintContext);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.operativeSlots = ImmutableList.copyOf(Objects.requireNonNull(operativeSlots,
@@ -87,8 +88,8 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties,
             Statistics statistics,
-            Collection<Slot> operativeSlots) {
-        super(relationId, type, groupExpression, logicalProperties, physicalProperties, statistics);
+            Collection<Slot> operativeSlots, Optional<HintContext> hintContext) {
+        super(relationId, type, groupExpression, logicalProperties, physicalProperties, statistics, hintContext);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.operativeSlots = ImmutableList.copyOf(Objects.requireNonNull(operativeSlots,

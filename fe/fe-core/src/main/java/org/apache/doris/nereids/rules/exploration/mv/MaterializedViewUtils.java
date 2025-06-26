@@ -117,7 +117,7 @@ public class MaterializedViewUtils {
             Expression dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
             columnExpr = new Alias(dateTrunc);
             materializedViewPlan = new LogicalProject<>(ImmutableList.of(columnExpr), materializedViewPlan,
-                    PlanUtils.getHintContext(materializedViewPlan));
+                    materializedViewPlan.getHintContext());
         }
         // Collect table relation map which is used to identify self join
         List<CatalogRelation> catalogRelations = materializedViewPlan.collectToList(CatalogRelation.class::isInstance);

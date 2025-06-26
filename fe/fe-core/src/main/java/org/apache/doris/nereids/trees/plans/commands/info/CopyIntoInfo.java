@@ -205,7 +205,7 @@ public class CopyIntoInfo {
         List<String> nameParts = Lists.newArrayList();
         nameParts.add(db);
         nameParts.add(tableName.getTbl());
-        Plan unboundRelation = new UnboundRelation(null, StatementScopeIdGenerator.newRelationId(), nameParts,
+        Plan unboundRelation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts,
                 Optional.empty());
         CascadesContext cascadesContext = CascadesContext.initContext(ConnectContext.get().getStatementContext(),
                 unboundRelation, PhysicalProperties.ANY);

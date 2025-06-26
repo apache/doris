@@ -59,7 +59,7 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
 
     public ExpressionRewriteTestHelper() {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
-                new UnboundRelation(null, new RelationId(1), ImmutableList.of("tbl"), Optional.empty()));
+                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl"), Optional.empty()));
         context = new ExpressionRewriteContext(cascadesContext);
     }
 

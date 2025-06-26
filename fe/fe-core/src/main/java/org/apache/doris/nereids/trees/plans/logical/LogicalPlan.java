@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
@@ -56,7 +55,4 @@ public interface LogicalPlan extends Plan {
         return StmtType.OTHER;
     }
 
-    default Optional<HintContext> getHintContext() {
-        return Optional.empty();
-    }
 }

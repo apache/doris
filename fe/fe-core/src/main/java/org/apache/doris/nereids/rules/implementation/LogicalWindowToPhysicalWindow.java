@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.annotation.DependsRules;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -95,11 +96,12 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         // todo: optimize the order of partitionKeyGroups when there exist group keys below LogicalWindow
 
         Plan newRoot = logicalWindow.child();
+        Optional<HintContext> hintContext = logicalWindow.getHintContext();
         for (PartitionKeyGroup partitionKeyGroup : partitionKeyGroupList) {
             for (OrderKeyGroup orderKeyGroup : partitionKeyGroup.groups) {
                 // in OrderKeyGroup, create PhysicalWindow for each WindowFrameGroup;
                 // each PhysicalWindow contains the same windowExpressions as WindowFrameGroup.groups
-                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup);
+                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, hintContext);
             }
         }
         return (PhysicalWindow) newRoot;
@@ -109,27 +111,29 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
      * create PhysicalWindow and PhysicalSort
      * ******************************************************************************************** */
 
-    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup) {
+    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup,
+                                                           Optional<HintContext> hintContext) {
         // PhysicalSort node for orderKeys; if there exists no orderKey, newRoot = root
         // Plan newRoot = createPhysicalSortNode(root, orderKeyGroup, ctx);
         Plan newRoot = root;
 
         // PhysicalWindow nodes for each different window frame, so at least one PhysicalWindow node will be added
         for (WindowFrameGroup windowFrameGroup : orderKeyGroup.groups) {
-            newRoot = createPhysicalWindow(newRoot, windowFrameGroup);
+            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, hintContext);
         }
 
         return newRoot;
     }
 
-    private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup) {
-        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root, Optional.empty());
+    private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup,
+                                                      Optional<HintContext> hintContext) {
+        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root, hintContext);
         PhysicalWindow<Plan> physicalWindow = new PhysicalWindow<>(
                 windowFrameGroup,
                 RequireProperties.followParent(),
                 tempLogicalWindow.getWindowExpressions(),
                 tempLogicalWindow.getLogicalProperties(),
-                root);
+                root, hintContext);
         return (PhysicalWindow) physicalWindow.withChildren(ImmutableList.of(root));
     }
 

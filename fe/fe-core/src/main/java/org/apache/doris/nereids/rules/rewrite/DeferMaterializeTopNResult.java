@@ -302,7 +302,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                 }
             }
             requiredSlots.add(columnId);
-            root = new LogicalProject<>(requiredSlots.build(), root, PlanUtils.getHintContext(root));
+            root = new LogicalProject<>(requiredSlots.build(), root, root.getHintContext());
         }
         root = new LogicalDeferMaterializeTopN<>((LogicalTopN<? extends Plan>) logicalTopN.withChildren(root),
                 deferredMaterializedExprIds, columnId, logicalTopN.getHintContext());
