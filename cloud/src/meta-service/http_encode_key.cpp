@@ -328,6 +328,36 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
     return http_text_reply(MetaServiceCode::OK, "", readable_value);
 }
 
+std::string handle_kv_output(std::string_view key, std::string_view value,
+                             std::string_view original_value_json,
+                             std::string_view serialized_value_to_save) {
+    std::stringstream final_output;
+    final_output << "original_value_hex=" << hex(value) << "\n"
+                 << "key_hex=" << hex(key) << "\n"
+                 << "original_value_json=" << original_value_json << "\n"
+                 << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
+    std::string final_json_str;
+
+    if (value.size() > 0 && value.size() < 25000) {
+        final_json_str = final_output.str();
+    } else {
+        std::string file_path = fmt::format("/tmp/{}.txt", hex(key));
+        final_json_str = "kv msg write to /tmp dir, path=" + file_path + "\n";
+        try {
+            std::ofstream kv_file(file_path);
+            if (kv_file.is_open()) {
+                kv_file << final_output.str();
+                kv_file.close();
+            }
+        } catch (...) {
+            LOG(INFO) << "write file failed, so write to ms log\n" << final_output.str();
+            final_json_str = "kv msg write to /tmp dir failed, write to ms log\n";
+        }
+    }
+
+    return final_json_str;
+}
+
 HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     const brpc::URI& uri = cntl->http_request().uri();
     std::string body = cntl->request_attachment().to_string();
@@ -428,29 +458,10 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     }
     LOG(WARNING) << "set_value saved, key=" << hex(key);
 
-    std::stringstream final_json;
-    if (value.value().size() > 0 && value.value().size() < 1024) {
-        final_json << "original_value_hex=" << hex(value.value()) << "\n"
-                   << "key_hex=" << hex(key) << "\n"
-                   << "original_value_json=" << original_value_json << "\n"
-                   << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
-    } else {
-        // more than 1024 bytes
-        std::string file_path = fmt::format("{}/{}.txt", doris::cloud::config::log_dir, hex(key));
-        final_json << "kv msg write to ms log dir, path=" << file_path << "\n";
-        std::ofstream kv_file(file_path);
-        if (kv_file.is_open()) {
-            kv_file << "original_value_hex=" << hex(value.value()) << "\n";
-            kv_file << "key_hex=" << hex(key) << "\n";
-            kv_file << "original_value_json=" << original_value_json << "\n";
-            kv_file << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
-            kv_file.close();
-        } else {
-            LOG(WARNING) << "Failed to open file for writing: " << file_path;
-        }
-    }
+    std::string final_json_str =
+            handle_kv_output(key, value.value(), original_value_json, serialized_value_to_save);
 
-    return http_text_reply(MetaServiceCode::OK, "", final_json.str());
+    return http_text_reply(MetaServiceCode::OK, "", final_json_str);
 }
 
 HttpResponse process_http_encode_key(const brpc::URI& uri) {
