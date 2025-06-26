@@ -85,7 +85,6 @@ suite("test_grant_priv") {
     sql """drop user if exists ${user2}"""
     sql """drop role if exists ${role1}"""
     sql """drop role if exists ${role2}"""
-    sql """DROP DATABASE IF EXISTS ${dbName}"""
 
     sql """CREATE ROLE ${role1}"""
     sql """CREATE ROLE ${role2}"""
