@@ -254,6 +254,7 @@ struct creator_with_type_base {
             case PrimitiveType::TYPE_CHAR:
             case PrimitiveType::TYPE_VARCHAR:
             case PrimitiveType::TYPE_STRING:
+            case PrimitiveType::TYPE_JSONB:
                 return creator_without_type::create<typename Class::template T<TYPE_STRING>>(
                         argument_types, result_is_nullable, std::forward<TArgs>(args)...);
             default:
