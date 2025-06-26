@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -349,6 +350,9 @@ public class DateTimeLiteral extends DateLiteral {
             return new DateV2Literal(year, month, day);
         } else if (targetType.isDateType()) {
             return new DateLiteral(year, month, day);
+        } else if (targetType.isTimeType()) {
+            return new TimeV2Literal((int) hour, (int) minute, (int) second, (int) microSecond,
+                    ((TimeV2Type) targetType).getScale(), false);
         } else if (targetType.isFloatType()) {
             if (strictCast) {
                 throw new AnalysisException("DateTimeType can't cast to FloatType in strict mode.");

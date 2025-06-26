@@ -737,15 +737,7 @@ public class ScalarType extends Type {
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-            case DATETIMEV2: {
-                if (precision < scale) {
-                    throw new IllegalArgumentException(
-                            String.format("given precision %d is out of scale bound %d", precision, scale));
-                }
-                scalarType.setScale(scale);
-                scalarType.setPrecision(precision);
-                break;
-            }
+            case DATETIMEV2:
             case TIMEV2: {
                 if (precision < scale) {
                     throw new IllegalArgumentException(
