@@ -341,6 +341,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
+    public static final String ENABLE_VISITOR_REWRITER_DEPTH_THRESHOLD = "enable_visitor_rewriter_depth_threshold";
     public static final String DISABLE_NEREIDS_EXPRESSION_RULES = "disable_nereids_expression_rules";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
     public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
@@ -1316,6 +1317,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true, fuzzy = true)
     private boolean enableSyncRuntimeFilterSize = true;
 
+    @VariableMgr.VarAttr(name = "runtime_filter_max_build_row_count", needForward = true, fuzzy = false)
+    public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
+
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = false;
 
@@ -1557,6 +1561,14 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
     public String enableNereidsRules = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_VISITOR_REWRITER_DEPTH_THRESHOLD, needForward = true, description = {
+            "当查询计划的深度小于或等于这个阈值时，使用visitor rewriter去加速改写，否则使用stack rewriter去改写，"
+                    + "防止StackOverflowError",
+            "When the depth of the query plan is less than or equal to this threshold, use visitor rewriter to "
+                    + "speed up rewriting, otherwise use stack rewriter to rewrite to prevent StackOverflowError"
+    })
+    public int enableVisitorRewriterDepthThreshold = 100;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_EXPRESSION_RULES, needForward = true,
             setter = "setDisableNereidsExpressionRules")
@@ -2087,7 +2099,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_AUTO_ANALYZE,
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
-    public boolean enableAutoAnalyze = true;
+    public volatile boolean enableAutoAnalyze = true;
 
     @VariableMgr.VarAttr(name = FORCE_SAMPLE_ANALYZE, needForward = true,
             description = {"是否将 full analyze 自动转换成 sample analyze", "Set true to force sample analyze"},

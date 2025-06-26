@@ -107,11 +107,8 @@ public class LogicalIntersect extends LogicalSetOperation {
     Map<Slot, Slot> constructReplaceMap() {
         Map<Slot, Slot> replaceMap = new HashMap<>();
         for (int i = 0; i < children.size(); i++) {
-            List<? extends Slot> originOutputs = this.regularChildrenOutputs.size() == children.size()
-                    ? child(i).getOutput()
-                    : regularChildrenOutputs.get(i);
-            for (int j = 0; j < originOutputs.size(); j++) {
-                replaceMap.put(originOutputs.get(j), getOutput().get(j));
+            for (int j = 0; j < regularChildrenOutputs.get(i).size(); j++) {
+                replaceMap.put(regularChildrenOutputs.get(i).get(j), getOutput().get(j));
             }
         }
         return replaceMap;

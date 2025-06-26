@@ -157,9 +157,10 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
+        StringBuilder jrfBuilder = new StringBuilder();
         if (!getAppliedRuntimeFilters().isEmpty()) {
-            getAppliedRuntimeFilters().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
+            getAppliedRuntimeFilters().forEach(
+                    jrf -> jrfBuilder.append(" RF").append(jrf.getId().asInt()));
         }
         String index = "";
         if (selectedIndexId != getTable().getBaseIndexId()) {
@@ -170,13 +171,19 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         if (selectedPartitionIds.size() != partitionCount) {
             partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
         }
+        String rfV2 = "";
+        if (!runtimeFiltersV2.isEmpty()) {
+            rfV2 = runtimeFiltersV2.toString();
+        }
+
         String operativeCol = "";
         if (!operativeSlots.isEmpty()) {
             operativeCol = " operativeSlots(" + operativeSlots + ")";
         }
         return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + index + partitions + operativeCol + "]"
                         + getGroupIdWithPrefix(),
-                "stats", statistics, "RFs", builder
+                "stats", statistics, "JRFs", jrfBuilder,
+                "RFV2", rfV2
         );
     }
 
@@ -201,9 +208,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), distributionSpec, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds,
-                preAggStatus, baseOutputs);
+        return relationId.asInt();
     }
 
     @Override

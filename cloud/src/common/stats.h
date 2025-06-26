@@ -15,23 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+#pragma once
 
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
-import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+#include <bvar/reducer.h>
 
-import com.google.common.base.Preconditions;
+#include <cstdint>
 
-/**
- * This class uses the JDBC protocol to directly access the relational databases under HMS
- * to obtain Hive metadata information
- */
-public abstract class JdbcHMSCachedClient extends JdbcClient implements HMSCachedClient {
-    protected JdbcClientConfig jdbcClientConfig;
+namespace doris::cloud {
+struct KVStats {
+    int64_t get_counter {};
+    int64_t put_counter {};
+    int64_t del_counter {};
+};
 
-    protected JdbcHMSCachedClient(JdbcClientConfig jdbcClientConfig) {
-        super(jdbcClientConfig);
-        Preconditions.checkNotNull(jdbcClientConfig, "JdbcClientConfig can not be null");
-        this.jdbcClientConfig = jdbcClientConfig;
-    }
-}
+} // namespace doris::cloud

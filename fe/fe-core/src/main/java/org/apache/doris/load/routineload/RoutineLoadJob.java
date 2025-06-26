@@ -56,6 +56,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -1950,6 +1951,8 @@ public abstract class RoutineLoadJob
             userIdentity.setIsAnalyzed();
         }
     }
+
+    public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
 
     public abstract void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
 

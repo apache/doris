@@ -167,10 +167,12 @@ public class PlanUtils {
      */
     public static boolean canReplaceWithProjections(List<? extends NamedExpression> childProjects,
             List<? extends Expression> targetExpressions) {
-        Set<Slot> nonfoldableSlots = ExpressionUtils.generateReplaceMap(childProjects).entrySet().stream()
-                .filter(entry -> entry.getValue().containsNonfoldable())
-                .map(Entry::getKey)
-                .collect(Collectors.toSet());
+        Set<Slot> nonfoldableSlots = Sets.newHashSet();
+        for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
+            if (kv.getValue().containsNonfoldable()) {
+                nonfoldableSlots.add(kv.getKey());
+            }
+        }
         if (nonfoldableSlots.isEmpty()) {
             return true;
         }

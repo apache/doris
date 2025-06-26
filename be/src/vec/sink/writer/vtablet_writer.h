@@ -206,6 +206,19 @@ public:
     int64_t append_node_channel_ns = 0;
 };
 
+struct WriterStats {
+    int64_t serialize_batch_ns = 0;
+    int64_t queue_push_lock_ns = 0;
+    int64_t actual_consume_ns = 0;
+    int64_t total_add_batch_exec_time_ns = 0;
+    int64_t max_add_batch_exec_time_ns = 0;
+    int64_t total_wait_exec_time_ns = 0;
+    int64_t max_wait_exec_time_ns = 0;
+    int64_t total_add_batch_num = 0;
+    int64_t num_node_channels = 0;
+    VNodeChannelStat channel_stat;
+};
+
 // pair<row_id,tablet_id>
 using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
 
@@ -273,27 +286,31 @@ public:
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
-    Status close_wait(RuntimeState* state);
+    Status close_wait(RuntimeState* state, bool* is_closed);
+
+    Status after_close_handle(
+            RuntimeState* state, WriterStats* writer_stats,
+            std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map);
 
     void cancel(const std::string& cancel_msg);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
-                     int64_t* serialize_batch_ns, VNodeChannelStat* stat,
-                     int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
-                     int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
-                     int64_t* total_wait_exec_time_ns, int64_t* wait_exec_time_ns,
-                     int64_t* total_add_batch_num) const {
-        (*add_batch_counter_map)[_node_id] += _add_batch_counter;
-        (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
-        *serialize_batch_ns += _serialize_batch_ns;
-        *stat += _stat;
-        *queue_push_lock_ns += _queue_push_lock_ns;
-        *actual_consume_ns += _actual_consume_ns;
-        *add_batch_exec_time_ns = (_add_batch_counter.add_batch_execution_time_us * 1000);
-        *total_add_batch_exec_time_ns += *add_batch_exec_time_ns;
-        *wait_exec_time_ns = (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
-        *total_wait_exec_time_ns += *wait_exec_time_ns;
-        *total_add_batch_num += _add_batch_counter.add_batch_num;
+                     WriterStats* writer_stats) const {
+        if (add_batch_counter_map != nullptr) {
+            (*add_batch_counter_map)[_node_id] += _add_batch_counter;
+            (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
+        }
+        if (writer_stats != nullptr) {
+            writer_stats->serialize_batch_ns += _serialize_batch_ns;
+            writer_stats->channel_stat += _stat;
+            writer_stats->queue_push_lock_ns += _queue_push_lock_ns;
+            writer_stats->actual_consume_ns += _actual_consume_ns;
+            writer_stats->total_add_batch_exec_time_ns +=
+                    (_add_batch_counter.add_batch_execution_time_us * 1000);
+            writer_stats->total_wait_exec_time_ns +=
+                    (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
+            writer_stats->total_add_batch_num += _add_batch_counter.add_batch_num;
+        }
     }
 
     int64_t node_id() const { return _node_id; }
@@ -452,11 +469,48 @@ public:
         }
     }
 
+    std::unordered_set<int64_t> init_node_channel_ids() {
+        std::unordered_set<int64_t> node_channel_ids;
+        for (auto& it : _node_channels) {
+            if (!it.second->is_incremental()) {
+                node_channel_ids.insert(it.first);
+            }
+        }
+        return node_channel_ids;
+    }
+
+    std::unordered_set<int64_t> inc_node_channel_ids() {
+        std::unordered_set<int64_t> node_channel_ids;
+        for (auto& it : _node_channels) {
+            if (it.second->is_incremental()) {
+                node_channel_ids.insert(it.first);
+            }
+        }
+        return node_channel_ids;
+    }
+
+    std::unordered_set<int64_t> each_node_channel_ids() {
+        std::unordered_set<int64_t> node_channel_ids;
+        for (auto& it : _node_channels) {
+            node_channel_ids.insert(it.first);
+        }
+        return node_channel_ids;
+    }
+
     bool has_incremental_node_channel() const { return _has_inc_node; }
 
     void mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
                         int64_t tablet_id = -1);
     Status check_intolerable_failure();
+
+    Status close_wait(RuntimeState* state, WriterStats* writer_stats,
+                      std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
+                      std::unordered_set<int64_t> unfinished_node_channel_ids);
+
+    Status check_each_node_channel_close(
+            std::unordered_set<int64_t>* unfinished_node_channel_ids,
+            std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
+            WriterStats* writer_stats, Status status);
 
     // set error tablet info in runtime state, so that it can be returned to FE.
     void set_error_tablet_in_state(RuntimeState* state);
