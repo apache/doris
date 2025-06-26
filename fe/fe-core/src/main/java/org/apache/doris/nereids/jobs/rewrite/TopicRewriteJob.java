@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /** TopicRewriteJob */
@@ -30,15 +33,20 @@ public class TopicRewriteJob implements RewriteJob {
 
     public final String topicName;
     public final List<RewriteJob> jobs;
+    public final Optional<Predicate<CascadesContext>> condition;
 
     /** constructor */
-    public TopicRewriteJob(String topicName, List<RewriteJob> jobs) {
+    public TopicRewriteJob(String topicName, List<RewriteJob> jobs, Predicate<CascadesContext> condition) {
         this.topicName = topicName;
+        this.condition = Optional.ofNullable(condition);
         this.jobs = jobs.stream()
-                .flatMap(job -> job instanceof TopicRewriteJob
-                        ? ((TopicRewriteJob) job).jobs.stream()
-                        : Stream.of(job)
-                )
+                .flatMap(job -> {
+                    if (job instanceof TopicRewriteJob && !((TopicRewriteJob) job).condition.isPresent()) {
+                        return ((TopicRewriteJob) job).jobs.stream();
+                    } else {
+                        return Stream.of(job);
+                    }
+                })
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -51,5 +59,4 @@ public class TopicRewriteJob implements RewriteJob {
     public boolean isOnce() {
         return true;
     }
-
 }
