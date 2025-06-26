@@ -186,7 +186,7 @@ public class LocationPath {
      * @throws IllegalArgumentException if the scheme is missing or URI is malformed
      */
     private static String extractScheme(String location) {
-        if (StringUtils.isBlank(location)) {
+        if (Strings.isNullOrEmpty(location)) {
             return null;
         }
         return parseScheme(location);

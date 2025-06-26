@@ -42,7 +42,7 @@ import java.util.Map;
  * - Differentiates storage types clearly to locate implementations quickly during runtime.
  * - Case insensitive mapping using lowercase keys to avoid mismatch errors.
  * - This enum serves as a critical helper component in the filesystem access layer,
- *   simplifying schema-to-storage conversions.
+ * simplifying schema-to-storage conversions.
  * <p>
  * Example usage:
  * StorageProperties.Type storageType = SchemaTypeMapper.fromSchema("s3a");
@@ -140,14 +140,14 @@ public enum SchemaTypeMapper {
     }
 
     public static FileSystemType fromSchemaToFileSystemType(String schema) {
-        if (StringUtils.isBlank(schema)) {
+        if (schema == null) {
             return FileSystemType.HDFS;
         }
         return SCHEMA_TO_FS_TYPE_MAP.get(schema.toLowerCase());
     }
 
     public static TFileType fromSchemaToFileType(String schema) {
-        if (StringUtils.isBlank(schema)) {
+        if (schema == null) {
             return TFileType.FILE_HDFS;
         }
         return SCHEMA_TO_FILE_TYPE_MAP.get(schema.toLowerCase());
