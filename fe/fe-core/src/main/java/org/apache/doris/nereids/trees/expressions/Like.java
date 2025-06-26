@@ -65,7 +65,7 @@ public class Like extends StringRegexPredicate {
         if (arity() == 2) {
             return super.computeToSql();
         }
-        return '(' + left().toSql() + ' ' + getName() + ' ' + right().toSql() + " ESCAPE " + child(2).toSql()
+        return '(' + left().toSql() + ' ' + getName() + ' ' + right().toSql() + " escape " + child(2).toSql()
                 + ')';
     }
 
@@ -74,7 +74,7 @@ public class Like extends StringRegexPredicate {
         if (arity() == 2) {
             return super.computeToSql();
         }
-        return "(" + left() + " " + getName() + " " + right() + " ESCAPE " + child(2)
+        return "(" + left() + " " + getName() + " " + right() + " escape " + child(2)
                 + ")";
     }
 
