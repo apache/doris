@@ -95,7 +95,10 @@ import org.apache.doris.nereids.rules.rewrite.MaxMinFilterPushDown;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
+import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
+import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.PushDownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
@@ -112,6 +115,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -151,12 +155,17 @@ public class RuleSet {
             new PushDownExpressionsInHashCondition(),
             new PushDownFilterThroughAggregation(),
             new PushDownFilterThroughRepeat(),
+            new MergeOneRowRelationIntoUnion(),
+            // PushProjectThroughUnion should invoke before PushDownFilterThroughSetOperation
+            new PushProjectThroughUnion(),
+            new MergeSetOperations(),
+            new MergeSetOperationsExcept(),
             new PushDownFilterThroughSetOperation(),
             new PushDownFilterThroughGenerate(),
             new PushDownProjectThroughLimit(),
             new EliminateOuterJoin(),
             new ConvertOuterJoinToAntiJoin(),
-            new MergeProjects(),
+            new MergeProjectable(),
             new MergeFilters(),
             new MergeGenerates(),
             new MergeLimits(),

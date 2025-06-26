@@ -244,10 +244,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
-        if (!runtimeFilters.isEmpty()) {
-            output.append(detailPrefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(true));
-        }
+
         output.append(detailPrefix).append("is output left side only: ").append(isOutputLeftSideOnly).append("\n");
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
 

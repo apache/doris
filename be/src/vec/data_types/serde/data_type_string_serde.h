@@ -95,6 +95,8 @@ class DataTypeStringSerDeBase : public DataTypeSerDe {
 public:
     DataTypeStringSerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
+    std::string get_name() const override { return "String"; }
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 

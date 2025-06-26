@@ -894,12 +894,7 @@ public class StatisticsUtil {
     }
 
     public static boolean enableAutoAnalyze() {
-        try {
-            return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_AUTO_ANALYZE).enableAutoAnalyze;
-        } catch (Exception e) {
-            LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
-        }
-        return false;
+        return VariableMgr.getDefaultSessionVariable().enableAutoAnalyze;
     }
 
     public static boolean enableAutoAnalyzeInternalCatalog() {

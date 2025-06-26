@@ -78,9 +78,9 @@ public class FastInsertIntoValuesPlanner extends NereidsPlanner {
     }
 
     @Override
-    protected void optimize() {
+    protected void optimize(boolean showPlanProcess) {
         if (!fastInsertIntoValues) {
-            super.optimize();
+            super.optimize(showPlanProcess);
             return;
         }
 

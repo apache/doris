@@ -376,6 +376,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
 
+    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
+    S3ClientFactory::instance();
     return Status::OK();
 }
 
@@ -467,7 +469,7 @@ Status ExecEnv::_init_mem_env() {
         storage_cache_limit = storage_cache_limit / 2;
     }
     int32_t index_percentage = config::index_page_cache_percentage;
-    int32 num_shards = config::storage_page_cache_shard_size;
+    int32_t num_shards = config::storage_page_cache_shard_size;
     if ((num_shards & (num_shards - 1)) != 0) {
         int old_num_shards = num_shards;
         num_shards = cast_set<int>(BitUtil::RoundUpToPowerOfTwo(num_shards));

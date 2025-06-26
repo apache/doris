@@ -102,7 +102,7 @@ public abstract class ConnectProcessor {
 
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
     protected final ConnectContext ctx;
-    protected StmtExecutor executor = null;
+    protected StmtExecutor executor;
     protected ConnectType connectType;
     protected ArrayList<StmtExecutor> returnResultFromRemoteExecutor = new ArrayList<>();
 
@@ -376,7 +376,9 @@ public abstract class ConnectProcessor {
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
                     // execute failed, skip remaining stmts
-                    if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                    if (ctx.getState().getStateType() == MysqlStateType.ERR || (!Env.getCurrentEnv().isMaster()
+                            && ctx.executor != null && ctx.executor.isForwardToMaster()
+                            && ctx.executor.getProxyStatusCode() != 0)) {
                         break;
                     }
                 } catch (Throwable throwable) {
