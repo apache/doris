@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <list>
 #include <map>
@@ -56,6 +57,10 @@ public:
     TxnErrorCode get_kv(const std::string& key, std::string* val, int64_t version);
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
                         int limit, bool* more, std::map<std::string, std::string>* kv_list);
+
+    int64_t get_count_ {};
+    int64_t put_count_ {};
+    int64_t del_count_ {};
 
 private:
     using OpTuple = std::tuple<memkv::ModifyOpType, std::string, std::string>;
@@ -189,6 +194,8 @@ public:
 
     size_t approximate_bytes() const override { return approximate_bytes_; }
 
+    size_t num_get_keys() const override { return num_get_keys_; }
+
     size_t num_del_keys() const override { return num_del_keys_; }
 
     size_t num_put_keys() const override { return num_put_keys_; }
@@ -218,6 +225,7 @@ private:
     int64_t read_version_ = -1;
 
     size_t approximate_bytes_ {0};
+    size_t num_get_keys_ {0};
     size_t num_del_keys_ {0};
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};

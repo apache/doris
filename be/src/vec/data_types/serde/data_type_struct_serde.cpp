@@ -43,6 +43,23 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
     return std::nullopt;
 }
 
+std::string DataTypeStructSerDe::get_name() const {
+    size_t size = elem_names.size();
+    std::stringstream s;
+
+    s << "Struct(";
+    for (size_t i = 0; i < size; ++i) {
+        if (i != 0) {
+            s << ", ";
+        }
+        s << elem_names[i] << ":";
+        s << elem_serdes_ptrs[i]->get_name();
+    }
+    s << ")";
+
+    return s.str();
+}
+
 Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {

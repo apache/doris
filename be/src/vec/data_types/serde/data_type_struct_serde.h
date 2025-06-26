@@ -114,6 +114,8 @@ public:
               elem_serdes_ptrs(_elem_serdes_ptrs),
               elem_names(names) {}
 
+    std::string get_name() const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 
