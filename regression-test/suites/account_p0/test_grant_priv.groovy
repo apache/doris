@@ -95,16 +95,16 @@ suite("test_grant_priv") {
     sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
     sql """grant grant_priv on *.*.* to role ${role1}"""
     sql """grant select_priv on *.*.* to role ${role2}"""
-    sql """grant '${role1}' to ${user1}""
+    sql """grant '${role1}' to ${user1}"""
     // test only have role1 can not grant
     connect(user1, "${pwd}", url) {
         test {
-                    sql """grant select_priv on *.*.* to ${user2}"""
+                 sql """grant select_priv on *.*.* to ${user2}"""
                   exception "denide"
               }
     }
-    sql """revoke '${role1}' from ${user1}""
-    sql """grant '${role2}' to ${user1}""
+    sql """revoke '${role1}' from ${user1}"""
+    sql """grant '${role2}' to ${user1}"""
     // test only have role2 can not grant
     connect(user1, "${pwd}", url) {
         test {
@@ -113,7 +113,7 @@ suite("test_grant_priv") {
               }
     }
     // test both have role1 and role2 can grant to other
-    sql """grant '${role1}' to ${user1}""
+    sql """grant '${role1}' to ${user1}"""
     connect(user1, "${pwd}", url) {
             sql """grant select_priv on *.*.* to ${user2}"""
         }
