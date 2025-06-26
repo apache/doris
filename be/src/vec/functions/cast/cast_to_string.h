@@ -23,7 +23,8 @@ class CastToString {
 public:
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
+                               size_t input_rows_count,
+                               const NullMap::value_type* null_map = nullptr) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IDataType& type = *col_with_type_and_name.type;
         const IColumn& col_from = *col_with_type_and_name.column;
@@ -40,8 +41,10 @@ namespace CastWrapper {
 
 WrapperType create_string_wrapper(const DataTypePtr& from_type) {
     return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              const uint32_t result, size_t input_rows_count) {
-        return CastToString::execute_impl(context, block, arguments, result, input_rows_count);
+              uint32_t result, size_t input_rows_count,
+              const NullMap::value_type* null_map = nullptr) {
+        return CastToString::execute_impl(context, block, arguments, result, input_rows_count,
+                                          null_map);
     };
 }
 

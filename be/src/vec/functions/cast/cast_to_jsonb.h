@@ -17,7 +17,9 @@
 
 #include "cast_base.h"
 #include "util/jsonb_utils.h"
+#include "util/jsonb_writer.h"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/reader_buffer.h"
 
@@ -25,7 +27,8 @@ namespace doris::vectorized::CastWrapper {
 
 struct ConvertNothingToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         auto data_type_to = block.get_by_position(result).type;
@@ -40,7 +43,8 @@ struct ConvertNothingToJsonb {
 
 struct ConvertImplStringToJsonbAsJsonbString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
         auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
@@ -66,7 +70,8 @@ struct ConvertImplStringToJsonbAsJsonbString {
 template <typename ColumnType>
 struct ConvertImplNumberToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
 
         auto column_string = ColumnString::create();
@@ -114,7 +119,8 @@ struct ConvertImplNumberToJsonb {
 
 struct ConvertImplGenericFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
         auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
@@ -196,7 +202,8 @@ struct ConvertImplGenericFromJsonb {
 template <PrimitiveType type, typename ColumnType>
 struct ConvertImplFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         // result column must set type

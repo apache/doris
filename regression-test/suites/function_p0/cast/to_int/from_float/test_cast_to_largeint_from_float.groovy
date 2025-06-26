@@ -21,16 +21,29 @@ suite("test_cast_to_largeint_from_float") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_largeint_from_float_0;"
-    sql "create table test_cast_to_largeint_from_float_0(f1 int, f2 float) properties('replication_num'='1');"
-    sql """insert into test_cast_to_largeint_from_float_0 values (0, "0"),(1, "-0"),(2, "0"),(3, "1"),(4, "9"),(5, "123"),(6, "127.9"),(7, "-1"),(8, "-9"),(9, "-123"),(10, "-128.9"),(11, "-1.7014118e+38"),(12, "1.9"),(13, "-1.9"),(14, "0.9999"),(15, "-0.9999"),(16, "1e-45"),(17, "-1e-45"),(18, "1.8446744e+19"),(19, "-1.8446744e+19"),
+    sql "drop table if exists test_cast_to_largeint_from_float_0_nullable;"
+    sql "create table test_cast_to_largeint_from_float_0_nullable(f1 int, f2 float) properties('replication_num'='1');"
+    sql """insert into test_cast_to_largeint_from_float_0_nullable values (0, "0"),(1, "-0"),(2, "0"),(3, "1"),(4, "9"),(5, "123"),(6, "127.9"),(7, "-1"),(8, "-9"),(9, "-123"),(10, "-128.9"),(11, "-1.7014118e+38"),(12, "1.9"),(13, "-1.9"),(14, "0.9999"),(15, "-0.9999"),(16, "1e-45"),(17, "-1e-45"),(18, "1.8446744e+19"),(19, "-1.8446744e+19"),
+      (20, "8.507059e+37"),(21, "-8.507059e+37"),(22, "4294967300"),(23, "-4294967300"),(24, "4.611686e+18"),(25, "-4.611686e+18"),(26, "32768.9"),(27, "-32769.9"),(28, "999999.9"),(29, "-999999.9"),(30, "1073741800"),(31, "-1073741800"),(32, "32767.9"),(33, "-32768.9")
+      ,(34, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_0_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_float_0_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_0_non_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_float_0_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_largeint_from_float_0_not_nullable;"
+    sql "create table test_cast_to_largeint_from_float_0_not_nullable(f1 int, f2 float) properties('replication_num'='1');"
+    sql """insert into test_cast_to_largeint_from_float_0_not_nullable values (0, "0"),(1, "-0"),(2, "0"),(3, "1"),(4, "9"),(5, "123"),(6, "127.9"),(7, "-1"),(8, "-9"),(9, "-123"),(10, "-128.9"),(11, "-1.7014118e+38"),(12, "1.9"),(13, "-1.9"),(14, "0.9999"),(15, "-0.9999"),(16, "1e-45"),(17, "-1e-45"),(18, "1.8446744e+19"),(19, "-1.8446744e+19"),
       (20, "8.507059e+37"),(21, "-8.507059e+37"),(22, "4294967300"),(23, "-4294967300"),(24, "4.611686e+18"),(25, "-4.611686e+18"),(26, "32768.9"),(27, "-32769.9"),(28, "999999.9"),(29, "-999999.9"),(30, "1073741800"),(31, "-1073741800"),(32, "32767.9"),(33, "-32768.9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_float_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_float_0_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_float_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_float_0_not_nullable order by 1;'
 
 }

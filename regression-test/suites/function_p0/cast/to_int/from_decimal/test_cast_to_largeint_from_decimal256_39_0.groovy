@@ -22,15 +22,27 @@ suite("test_cast_to_largeint_from_decimal256_39_0") {
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
     sql "set enable_decimal256 = true;"
-    sql "drop table if exists test_cast_to_largeint_from_decimal256_39_0_0;"
-    sql "create table test_cast_to_largeint_from_decimal256_39_0_0(f1 int, f2 decimalv3(39, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_largeint_from_decimal256_39_0_0 values (0, "0"),(1, "1"),(2, "9"),(3, "170141183460469231731687303715884105727"),(4, "170141183460469231731687303715884105726"),(5, "-170141183460469231731687303715884105728"),(6, "-170141183460469231731687303715884105727");
+    sql "drop table if exists test_cast_to_largeint_from_decimal256_39_0_0_nullable;"
+    sql "create table test_cast_to_largeint_from_decimal256_39_0_0_nullable(f1 int, f2 decimalv3(39, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_largeint_from_decimal256_39_0_0_nullable values (0, "0"),(1, "1"),(2, "9"),(3, "170141183460469231731687303715884105727"),(4, "170141183460469231731687303715884105726"),(5, "-170141183460469231731687303715884105728"),(6, "-170141183460469231731687303715884105727")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal256_39_0_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal256_39_0_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal256_39_0_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal256_39_0_0_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_largeint_from_decimal256_39_0_0_not_nullable;"
+    sql "create table test_cast_to_largeint_from_decimal256_39_0_0_not_nullable(f1 int, f2 decimalv3(39, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_largeint_from_decimal256_39_0_0_not_nullable values (0, "0"),(1, "1"),(2, "9"),(3, "170141183460469231731687303715884105727"),(4, "170141183460469231731687303715884105726"),(5, "-170141183460469231731687303715884105728"),(6, "-170141183460469231731687303715884105727");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_0_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal256_39_0_0_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_0_non_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal256_39_0_0_not_nullable order by 1;'
 
 }

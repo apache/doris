@@ -39,7 +39,7 @@ void FunctionCastToDecimalTest::from_string_to_decimal64_overflow_test_func() {
     if (FLAGS_gen_regression_case) {
         setup_regression_case_output(regression_case_name, ofs_const_case_uptr,
                                      ofs_const_expected_result_uptr, ofs_case_uptr,
-                                     ofs_expected_result_uptr);
+                                     ofs_expected_result_uptr, "to_decimal/from_str");
     }
     auto* ofs_const_case = ofs_const_case_uptr.get();
     auto* ofs_const_expected_result = ofs_const_expected_result_uptr.get();

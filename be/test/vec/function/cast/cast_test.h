@@ -208,7 +208,7 @@ struct FunctionCastTest : public testing::Test {
                 {nullptr, to_type, "to"},
         };
 
-        EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows()));
+        EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
 
         auto result = block.get_by_position(1).column;
         auto expected = to.column;
@@ -479,54 +479,67 @@ struct FunctionCastTest : public testing::Test {
             const_test_with_strict_arg(false);
         }
         if (gen_table_case) {
-            (*ofs_case) << fmt::format("    sql \"drop table if exists {};\"\n", table_name);
-            (*ofs_case) << fmt::format(
-                    "    sql \"create table {}(f1 int, f2 {}) "
-                    "properties('replication_num'='1');\"\n",
-                    table_name, src_sql_type_name);
-            std::string table_test_expected_results;
-            (*ofs_case) << fmt::format("    sql \"\"\"insert into {} values ", table_name);
-            for (int i = 0; i != value_count;) {
-                (*ofs_case) << fmt::format("({}, \"{}\")", i, test_data_set[i].first);
-                table_test_expected_results += fmt::format("{}\t{}\n", i, test_data_set[i].second);
-                ++i;
-                if (i != value_count) {
-                    (*ofs_case) << ",";
+            auto table_test_func_with_nullable = [&](bool enable_nullable) {
+                auto test_table_name = fmt::format("{}_{}", table_name,
+                                                   enable_nullable ? "nullable" : "not_nullable");
+                (*ofs_case) << fmt::format("    sql \"drop table if exists {};\"\n",
+                                           test_table_name);
+                (*ofs_case) << fmt::format(
+                        "    sql \"create table {}(f1 int, f2 {}) "
+                        "properties('replication_num'='1');\"\n",
+                        test_table_name, src_sql_type_name);
+                std::string table_test_expected_results;
+                (*ofs_case) << fmt::format("    sql \"\"\"insert into {} values ", test_table_name);
+                int i = 0;
+                for (i = 0; i != value_count;) {
+                    (*ofs_case) << fmt::format("({}, \"{}\")", i, test_data_set[i].first);
+                    table_test_expected_results +=
+                            fmt::format("{}\t{}\n", i, test_data_set[i].second);
+                    ++i;
+                    if (i != value_count) {
+                        (*ofs_case) << ",";
+                    }
+                    if (i % 20 == 0 && i != value_count) {
+                        (*ofs_case) << "\n      ";
+                    }
                 }
-                if (i % 20 == 0 && i != value_count) {
-                    (*ofs_case) << "\n      ";
+                if (enable_nullable) {
+                    (*ofs_case) << fmt::format("\n      ,({}, null)", i);
+                    table_test_expected_results += fmt::format("{}\t\\N\n", i);
                 }
-            }
-            (*ofs_case) << ";\n    \"\"\"\n\n";
+                (*ofs_case) << ";\n    \"\"\"\n\n";
 
-            auto table_test_with_strict_arg = [&](bool enable_strict_cast) {
-                (*ofs_case) << fmt::format("    sql \"set enable_strict_cast={};\"\n",
-                                           enable_strict_cast);
-                if (expect_error_in_strict_mode & enable_strict_cast) {
-                    (*ofs_case) << fmt::format(R"(
+                auto table_test_with_strict_arg = [&](bool enable_strict_cast) {
+                    (*ofs_case) << fmt::format("    sql \"set enable_strict_cast={};\"\n",
+                                               enable_strict_cast);
+                    if (expect_error_in_strict_mode & enable_strict_cast) {
+                        (*ofs_case) << fmt::format(R"(
     test {{
         sql """select f1, cast(f2 as {}) from {} order by 1;"""
         exception "{}"
     }}
 )",
-                                               to_sql_type_name, table_name, "");
-                } else {
-                    (*ofs_case) << fmt::format(
-                            "    qt_sql_{}_{} 'select f1, cast(f2 as {}) from {} "
-                            "order by "
-                            "1;'\n\n",
-                            table_index, enable_strict_cast ? "strict" : "non_strict",
-                            to_sql_type_name, table_name);
+                                                   to_sql_type_name, test_table_name, "");
+                    } else {
+                        (*ofs_case) << fmt::format(
+                                "    qt_sql_{}_{} 'select f1, cast(f2 as {}) from {} "
+                                "order by "
+                                "1;'\n\n",
+                                table_index, enable_strict_cast ? "strict" : "non_strict",
+                                to_sql_type_name, test_table_name);
 
-                    (*ofs_expected_result)
-                            << fmt::format("-- !sql_{}_{} --\n", table_index,
-                                           enable_strict_cast ? "strict" : "non_strict");
-                    (*ofs_expected_result) << table_test_expected_results;
-                    (*ofs_expected_result) << "\n";
-                }
+                        (*ofs_expected_result)
+                                << fmt::format("-- !sql_{}_{} --\n", table_index,
+                                               enable_strict_cast ? "strict" : "non_strict");
+                        (*ofs_expected_result) << table_test_expected_results;
+                        (*ofs_expected_result) << "\n";
+                    }
+                };
+                table_test_with_strict_arg(true);
+                table_test_with_strict_arg(false);
             };
-            table_test_with_strict_arg(true);
-            table_test_with_strict_arg(false);
+            table_test_func_with_nullable(true);
+            table_test_func_with_nullable(false);
         }
     }
 

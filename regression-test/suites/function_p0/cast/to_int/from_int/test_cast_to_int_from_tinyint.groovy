@@ -21,15 +21,27 @@ suite("test_cast_to_int_from_tinyint") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_int_from_tinyint_0;"
-    sql "create table test_cast_to_int_from_tinyint_0(f1 int, f2 tinyint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_int_from_tinyint_0 values (0, "0"),(1, "1"),(2, "9"),(3, "123"),(4, "127"),(5, "-1"),(6, "-9"),(7, "-123"),(8, "-128"),(9, "126"),(10, "-127");
+    sql "drop table if exists test_cast_to_int_from_tinyint_0_nullable;"
+    sql "create table test_cast_to_int_from_tinyint_0_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_int_from_tinyint_0_nullable values (0, "0"),(1, "1"),(2, "9"),(3, "123"),(4, "127"),(5, "-1"),(6, "-9"),(7, "-123"),(8, "-128"),(9, "126"),(10, "-127")
+      ,(11, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_tinyint_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_tinyint_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_tinyint_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_tinyint_0_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_int_from_tinyint_0_not_nullable;"
+    sql "create table test_cast_to_int_from_tinyint_0_not_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_int_from_tinyint_0_not_nullable values (0, "0"),(1, "1"),(2, "9"),(3, "123"),(4, "127"),(5, "-1"),(6, "-9"),(7, "-123"),(8, "-128"),(9, "126"),(10, "-127");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_0_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_tinyint_0_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_0_non_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_tinyint_0_not_nullable order by 1;'
 
 }

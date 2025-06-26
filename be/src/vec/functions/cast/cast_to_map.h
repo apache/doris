@@ -17,6 +17,7 @@
 
 #include "cast_base.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_map.h"
 
 namespace doris::vectorized::CastWrapper {
@@ -46,7 +47,8 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
     auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
     return [kv_wrappers, from_kv_types, to_kv_types](
                    FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   const uint32_t result, size_t /*input_rows_count*/) -> Status {
+                   uint32_t result, size_t /*input_rows_count*/,
+                   const NullMap::value_type* null_map = nullptr) -> Status {
         auto& from_column = block.get_by_position(arguments.front()).column;
         const auto* from_col_map = check_and_get_column<ColumnMap>(from_column.get());
         if (!from_col_map) {
@@ -65,7 +67,7 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
             size_t element_result = block.columns();
             block.insert({to_kv_types[i], ""});
             RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
-                                           columnsWithTypeAndName[i].column->size()));
+                                           columnsWithTypeAndName[i].column->size(), null_map));
             converted_columns[i] = block.get_by_position(element_result).column;
         }
 

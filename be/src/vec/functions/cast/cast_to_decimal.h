@@ -29,7 +29,8 @@ template <CastModeType Mode, typename ToDataType>
     requires(IsDataTypeDecimal<ToDataType>)
 class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
 
@@ -70,7 +71,8 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         using FromFieldType = typename FromDataType::FieldType;
         using ToFieldType = typename ToDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
@@ -86,8 +88,13 @@ public:
 
         if constexpr (IsDataTypeDecimal<FromDataType>) {
             const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
-            from_precision = from_decimal_type.get_precision();
-            from_scale = from_decimal_type.get_scale();
+            if constexpr (IsDataTypeDecimalV2<FromDataType>) {
+                from_precision = from_decimal_type.get_original_precision();
+                from_scale = from_decimal_type.get_original_scale();
+            } else {
+                from_precision = from_decimal_type.get_precision();
+                from_scale = from_decimal_type.get_scale();
+            }
         }
         UInt32 to_max_digits = NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
 
@@ -101,7 +108,11 @@ public:
         ToFieldType max_result = ToDataType::get_max_digits_number(to_precision);
         ToFieldType min_result = -max_result;
 
-        bool narrow_integral = (to_precision - to_scale) <= (from_precision - from_scale);
+        auto from_max_int_digit_count = from_precision - from_scale;
+        auto to_max_int_digit_count = to_precision - to_scale;
+        bool narrow_integral =
+                (to_max_int_digit_count < from_max_int_digit_count) ||
+                (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
         bool multiply_may_overflow = false;
         if (to_scale > from_scale || IsDataTypeInt<FromDataType>) {
             multiply_may_overflow = (from_precision + to_scale - from_scale) >= to_max_digits;
@@ -177,8 +188,10 @@ WrapperType create_decimal_wrapper(FunctionContext* context, const DataTypePtr& 
     }
 
     return [cast_impl](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const uint32_t result, size_t input_rows_count) {
-        return cast_impl->execute_impl(context, block, arguments, result, input_rows_count);
+                       uint32_t result, size_t input_rows_count,
+                       const NullMap::value_type* null_map = nullptr) {
+        return cast_impl->execute_impl(context, block, arguments, result, input_rows_count,
+                                       null_map);
     };
 }
 } // namespace CastWrapper

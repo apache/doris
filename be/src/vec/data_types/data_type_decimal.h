@@ -233,6 +233,8 @@ public:
 
     [[nodiscard]] UInt32 get_precision() const override { return precision; }
     [[nodiscard]] UInt32 get_scale() const override { return scale; }
+    [[nodiscard]] UInt32 get_original_precision() const { return original_precision; }
+    [[nodiscard]] UInt32 get_original_scale() const { return original_scale; }
     [[nodiscard]] UInt32 get_format_scale() const {
         return UINT32_MAX == original_scale ? scale : original_scale;
     }
@@ -710,6 +712,9 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
             }
         }
         for (size_t i = 0; i < size; ++i) {
+            // For decimal256, we need to use long double to avoid overflow when
+            // static casting the multiplier to floating type, and also to be as precise as possible;
+            // For other decimal types, we use double to be as precise as possible.
             using DoubleType =
                     std::conditional_t<IsDataTypeDecimal256<ToDataType>, long double, double>;
             dst[i].value = typename ToDataType::FieldType::NativeType(

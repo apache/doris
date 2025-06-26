@@ -16,8 +16,10 @@
 // under the License.
 
 #pragma once
+#include <cstddef>
+#include <cstdint>
+
 #include "vec/core/block.h"
-#include "vec/core/call_on_type_index.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
@@ -137,8 +139,8 @@ constexpr static bool is_base_cast_from_type = is_base_cast_to_type<T> || is_str
 
 namespace CastWrapper {
 
-using WrapperType =
-        std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, uint32_t, size_t)>;
+using WrapperType = std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, uint32_t,
+                                         size_t, const NullMap::value_type*)>;
 
 using ElementWrappers = std::vector<WrapperType>;
 
@@ -147,17 +149,15 @@ WrapperType create_unsupport_wrapper(const String error_msg);
 WrapperType create_unsupport_wrapper(const String from_type_name, const String to_type_name);
 //// Generic conversion of any type to String.
 
-Status cast_from_generic_to_string(FunctionContext* context, Block& block,
-                                   const ColumnNumbers& arguments, const uint32_t result,
-                                   size_t input_rows_count);
-
 Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
-                                  const ColumnNumbers& arguments, const uint32_t result,
-                                  size_t input_rows_count);
+                                  const ColumnNumbers& arguments, uint32_t result,
+                                  size_t input_rows_count,
+                                  const NullMap::value_type* null_map = nullptr);
 
 Status cast_from_string_to_generic(FunctionContext* context, Block& block,
-                                   const ColumnNumbers& arguments, const uint32_t result,
-                                   size_t input_rows_count);
+                                   const ColumnNumbers& arguments, uint32_t result,
+                                   size_t input_rows_count,
+                                   const NullMap::value_type* null_map = nullptr);
 
 // prepare_unpack_dictionaries -> prepare_remove_nullable -> prepare_impl
 
@@ -202,14 +202,16 @@ public:
     virtual ~CastToBase() = default;
     virtual Status execute_impl(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, uint32_t result,
-                                size_t input_rows_count) const = 0;
+                                size_t input_rows_count,
+                                const NullMap::value_type* null_map = nullptr) const = 0;
 };
 
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         return Status::RuntimeError(
                 "not support  {} ",
                 cast_mode_type_to_string(CastMode, block.get_by_position(arguments[0]).type,

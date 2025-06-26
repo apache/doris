@@ -21,15 +21,27 @@ suite("test_cast_to_bigint_from_decimal128i_19_0") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_bigint_from_decimal128i_19_0_0;"
-    sql "create table test_cast_to_bigint_from_decimal128i_19_0_0(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_bigint_from_decimal128i_19_0_0 values (0, "0"),(1, "1"),(2, "9"),(3, "9223372036854775807"),(4, "9223372036854775806"),(5, "-9223372036854775808"),(6, "-9223372036854775807");
+    sql "drop table if exists test_cast_to_bigint_from_decimal128i_19_0_0_nullable;"
+    sql "create table test_cast_to_bigint_from_decimal128i_19_0_0_nullable(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_bigint_from_decimal128i_19_0_0_nullable values (0, "0"),(1, "1"),(2, "9"),(3, "9223372036854775807"),(4, "9223372036854775806"),(5, "-9223372036854775808"),(6, "-9223372036854775807")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as bigint) from test_cast_to_bigint_from_decimal128i_19_0_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as bigint) from test_cast_to_bigint_from_decimal128i_19_0_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as bigint) from test_cast_to_bigint_from_decimal128i_19_0_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as bigint) from test_cast_to_bigint_from_decimal128i_19_0_0_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_bigint_from_decimal128i_19_0_0_not_nullable;"
+    sql "create table test_cast_to_bigint_from_decimal128i_19_0_0_not_nullable(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_bigint_from_decimal128i_19_0_0_not_nullable values (0, "0"),(1, "1"),(2, "9"),(3, "9223372036854775807"),(4, "9223372036854775806"),(5, "-9223372036854775808"),(6, "-9223372036854775807");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_0_strict 'select f1, cast(f2 as bigint) from test_cast_to_bigint_from_decimal128i_19_0_0_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_0_non_strict 'select f1, cast(f2 as bigint) from test_cast_to_bigint_from_decimal128i_19_0_0_not_nullable order by 1;'
 
 }

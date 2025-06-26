@@ -21,15 +21,27 @@ suite("test_cast_to_double_from_decimal128i_38_0") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_double_from_decimal128i_38_0_0;"
-    sql "create table test_cast_to_double_from_decimal128i_38_0_0(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_double_from_decimal128i_38_0_0 values (0, "0"),(1, "0"),(2, "1"),(3, "-1"),(4, "9"),(5, "-9"),(6, "9999999999999999999999999999999999999"),(7, "-9999999999999999999999999999999999999"),(8, "90000000000000000000000000000000000000"),(9, "-90000000000000000000000000000000000000"),(10, "90000000000000000000000000000000000001"),(11, "-90000000000000000000000000000000000001"),(12, "99999999999999999999999999999999999998"),(13, "-99999999999999999999999999999999999998"),(14, "99999999999999999999999999999999999999"),(15, "-99999999999999999999999999999999999999");
+    sql "drop table if exists test_cast_to_double_from_decimal128i_38_0_0_nullable;"
+    sql "create table test_cast_to_double_from_decimal128i_38_0_0_nullable(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_double_from_decimal128i_38_0_0_nullable values (0, "0"),(1, "0"),(2, "1"),(3, "-1"),(4, "9"),(5, "-9"),(6, "9999999999999999999999999999999999999"),(7, "-9999999999999999999999999999999999999"),(8, "90000000000000000000000000000000000000"),(9, "-90000000000000000000000000000000000000"),(10, "90000000000000000000000000000000000001"),(11, "-90000000000000000000000000000000000001"),(12, "99999999999999999999999999999999999998"),(13, "-99999999999999999999999999999999999998"),(14, "99999999999999999999999999999999999999"),(15, "-99999999999999999999999999999999999999")
+      ,(16, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal128i_38_0_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal128i_38_0_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal128i_38_0_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal128i_38_0_0_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_double_from_decimal128i_38_0_0_not_nullable;"
+    sql "create table test_cast_to_double_from_decimal128i_38_0_0_not_nullable(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_double_from_decimal128i_38_0_0_not_nullable values (0, "0"),(1, "0"),(2, "1"),(3, "-1"),(4, "9"),(5, "-9"),(6, "9999999999999999999999999999999999999"),(7, "-9999999999999999999999999999999999999"),(8, "90000000000000000000000000000000000000"),(9, "-90000000000000000000000000000000000000"),(10, "90000000000000000000000000000000000001"),(11, "-90000000000000000000000000000000000001"),(12, "99999999999999999999999999999999999998"),(13, "-99999999999999999999999999999999999998"),(14, "99999999999999999999999999999999999999"),(15, "-99999999999999999999999999999999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_0_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal128i_38_0_0_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_0_non_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal128i_38_0_0_not_nullable order by 1;'
 
 }

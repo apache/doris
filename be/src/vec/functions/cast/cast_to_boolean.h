@@ -18,7 +18,6 @@
 #pragma once
 
 #include "cast_base.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
@@ -26,7 +25,8 @@ template <CastModeType Mode>
 class CastToImpl<Mode, DataTypeString, DataTypeBool> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
 
@@ -64,7 +64,8 @@ template <CastModeType AllMode, typename NumberOrDecimalType>
 class CastToImpl<AllMode, NumberOrDecimalType, DataTypeBool> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<typename NumberOrDecimalType::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
         DataTypeBool::ColumnType::MutablePtr col_to =
@@ -111,8 +112,10 @@ WrapperType create_boolean_wrapper(FunctionContext* context, const DataTypePtr& 
     }
 
     return [cast_to_bool](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
-        return cast_to_bool->execute_impl(context, block, arguments, result, input_rows_count);
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
+        return cast_to_bool->execute_impl(context, block, arguments, result, input_rows_count,
+                                          null_map);
     };
 }
 

@@ -21,394 +21,809 @@ suite("test_cast_to_decimal128i_from_int") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_decimal128i_1_0_from_tinyint;"
-    sql "create table test_cast_to_decimal128i_1_0_from_tinyint(f1 int, f2 tinyint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_1_0_from_tinyint values (0, -9),(1, -8),(2, -1),(3, 0),(4, 1),(5, 8),(6, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_0_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_0_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_0_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_tinyint order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_tinyint order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_0_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_0_from_tinyint;"
-    sql "create table test_cast_to_decimal128i_19_0_from_tinyint(f1 int, f2 tinyint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_0_from_tinyint values (7, -128),(8, -127),(9, -9),(10, -1),(11, 0),(12, 1),(13, 9),(14, 126),(15, 127);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_0_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_0_not_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_0_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_tinyint order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_0_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_tinyint order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_0_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_9_from_tinyint;"
-    sql "create table test_cast_to_decimal128i_19_9_from_tinyint(f1 int, f2 tinyint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_9_from_tinyint values (16, -128),(17, -127),(18, -9),(19, -1),(20, 0),(21, 1),(22, 9),(23, 126),(24, 127);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_1_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_1_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_1_nullable values (0, "-128"),(1, "-127"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "126"),(8, "127")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_2_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_tinyint order by 1;'
+    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_1_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_2_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_tinyint order by 1;'
+    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_1_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_18_from_tinyint;"
-    sql "create table test_cast_to_decimal128i_19_18_from_tinyint(f1 int, f2 tinyint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_18_from_tinyint values (25, -9),(26, -8),(27, -1),(28, 0),(29, 1),(30, 8),(31, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_1_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_1_not_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_1_not_nullable values (0, "-128"),(1, "-127"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "126"),(8, "127");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_3_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_tinyint order by 1;'
+    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_1_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_3_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_tinyint order by 1;'
+    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_1_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_0_from_tinyint;"
-    sql "create table test_cast_to_decimal128i_38_0_from_tinyint(f1 int, f2 tinyint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_0_from_tinyint values (32, -128),(33, -127),(34, -9),(35, -1),(36, 0),(37, 1),(38, 9),(39, 126),(40, 127);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_2_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_2_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_2_nullable values (0, "-128"),(1, "-127"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "126"),(8, "127")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_4_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_tinyint order by 1;'
+    qt_sql_2_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_2_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_4_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_tinyint order by 1;'
+    qt_sql_2_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_2_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_19_from_tinyint;"
-    sql "create table test_cast_to_decimal128i_38_19_from_tinyint(f1 int, f2 tinyint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_19_from_tinyint values (41, -128),(42, -127),(43, -9),(44, -1),(45, 0),(46, 1),(47, 9),(48, 126),(49, 127);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_2_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_2_not_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_2_not_nullable values (0, "-128"),(1, "-127"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "126"),(8, "127");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_5_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_tinyint order by 1;'
+    qt_sql_2_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_2_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_tinyint order by 1;'
+    qt_sql_2_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_2_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_37_from_tinyint;"
-    sql "create table test_cast_to_decimal128i_38_37_from_tinyint(f1 int, f2 tinyint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_37_from_tinyint values (50, -9),(51, -8),(52, -1),(53, 0),(54, 1),(55, 8),(56, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_3_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_3_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_3_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_6_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_tinyint order by 1;'
+    qt_sql_3_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_3_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_tinyint order by 1;'
+    qt_sql_3_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_3_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_1_0_from_smallint;"
-    sql "create table test_cast_to_decimal128i_1_0_from_smallint(f1 int, f2 smallint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_1_0_from_smallint values (57, -9),(58, -8),(59, -1),(60, 0),(61, 1),(62, 8),(63, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_3_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_3_not_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_3_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_smallint order by 1;'
+    qt_sql_3_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_3_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_smallint order by 1;'
+    qt_sql_3_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_3_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_0_from_smallint;"
-    sql "create table test_cast_to_decimal128i_19_0_from_smallint(f1 int, f2 smallint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_0_from_smallint values (64, -32768),(65, -32767),(66, -9),(67, -1),(68, 0),(69, 1),(70, 9),(71, 32766),(72, 32767);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_4_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_4_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_4_nullable values (0, "-128"),(1, "-127"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "126"),(8, "127")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_8_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_smallint order by 1;'
+    qt_sql_4_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_4_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_8_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_smallint order by 1;'
+    qt_sql_4_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_4_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_9_from_smallint;"
-    sql "create table test_cast_to_decimal128i_19_9_from_smallint(f1 int, f2 smallint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_9_from_smallint values (73, -32768),(74, -32767),(75, -9),(76, -1),(77, 0),(78, 1),(79, 9),(80, 32766),(81, 32767);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_4_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_4_not_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_4_not_nullable values (0, "-128"),(1, "-127"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "126"),(8, "127");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_9_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_smallint order by 1;'
+    qt_sql_4_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_4_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_9_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_smallint order by 1;'
+    qt_sql_4_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_4_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_18_from_smallint;"
-    sql "create table test_cast_to_decimal128i_19_18_from_smallint(f1 int, f2 smallint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_18_from_smallint values (82, -9),(83, -8),(84, -1),(85, 0),(86, 1),(87, 8),(88, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_5_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_5_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_5_nullable values (0, "-128"),(1, "-127"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "126"),(8, "127")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_10_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_smallint order by 1;'
+    qt_sql_5_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_5_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_smallint order by 1;'
+    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_5_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_0_from_smallint;"
-    sql "create table test_cast_to_decimal128i_38_0_from_smallint(f1 int, f2 smallint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_0_from_smallint values (89, -32768),(90, -32767),(91, -9),(92, -1),(93, 0),(94, 1),(95, 9),(96, 32766),(97, 32767);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_5_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_5_not_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_5_not_nullable values (0, "-128"),(1, "-127"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "126"),(8, "127");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_11_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_smallint order by 1;'
+    qt_sql_5_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_5_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_smallint order by 1;'
+    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_5_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_19_from_smallint;"
-    sql "create table test_cast_to_decimal128i_38_19_from_smallint(f1 int, f2 smallint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_19_from_smallint values (98, -32768),(99, -32767),(100, -9),(101, -1),(102, 0),(103, 1),(104, 9),(105, 32766),(106, 32767);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_6_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_6_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_6_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_12_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_smallint order by 1;'
+    qt_sql_6_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_6_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_smallint order by 1;'
+    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_6_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_37_from_smallint;"
-    sql "create table test_cast_to_decimal128i_38_37_from_smallint(f1 int, f2 smallint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_37_from_smallint values (107, -9),(108, -8),(109, -1),(110, 0),(111, 1),(112, 8),(113, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_6_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_6_not_nullable(f1 int, f2 tinyint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_6_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_13_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_smallint order by 1;'
+    qt_sql_6_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_6_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_13_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_smallint order by 1;'
+    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_6_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_1_0_from_int;"
-    sql "create table test_cast_to_decimal128i_1_0_from_int(f1 int, f2 int) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_1_0_from_int values (114, -9),(115, -8),(116, -1),(117, 0),(118, 1),(119, 8),(120, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_7_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_7_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_7_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_14_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_int order by 1;'
+    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_7_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_14_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_int order by 1;'
+    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_7_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_0_from_int;"
-    sql "create table test_cast_to_decimal128i_19_0_from_int(f1 int, f2 int) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_0_from_int values (121, -2147483648),(122, -2147483647),(123, -9),(124, -1),(125, 0),(126, 1),(127, 9),(128, 2147483646),(129, 2147483647);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_7_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_7_not_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_7_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_15_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_int order by 1;'
+    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_7_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_15_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_int order by 1;'
+    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_7_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_9_from_int;"
-    sql "create table test_cast_to_decimal128i_19_9_from_int(f1 int, f2 int) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_9_from_int values (130, -2147483648),(131, -2147483647),(132, -9),(133, -1),(134, 0),(135, 1),(136, 9),(137, 2147483646),(138, 2147483647);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_8_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_8_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_8_nullable values (0, "-32768"),(1, "-32767"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "32766"),(8, "32767")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_16_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_int order by 1;'
+    qt_sql_8_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_8_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_16_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_int order by 1;'
+    qt_sql_8_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_8_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_18_from_int;"
-    sql "create table test_cast_to_decimal128i_19_18_from_int(f1 int, f2 int) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_18_from_int values (139, -9),(140, -8),(141, -1),(142, 0),(143, 1),(144, 8),(145, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_8_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_8_not_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_8_not_nullable values (0, "-32768"),(1, "-32767"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "32766"),(8, "32767");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_17_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_int order by 1;'
+    qt_sql_8_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_8_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_17_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_int order by 1;'
+    qt_sql_8_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_8_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_0_from_int;"
-    sql "create table test_cast_to_decimal128i_38_0_from_int(f1 int, f2 int) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_0_from_int values (146, -2147483648),(147, -2147483647),(148, -9),(149, -1),(150, 0),(151, 1),(152, 9),(153, 2147483646),(154, 2147483647);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_9_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_9_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_9_nullable values (0, "-32768"),(1, "-32767"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "32766"),(8, "32767")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_18_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_int order by 1;'
+    qt_sql_9_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_9_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_18_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_int order by 1;'
+    qt_sql_9_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_9_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_19_from_int;"
-    sql "create table test_cast_to_decimal128i_38_19_from_int(f1 int, f2 int) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_19_from_int values (155, -2147483648),(156, -2147483647),(157, -9),(158, -1),(159, 0),(160, 1),(161, 9),(162, 2147483646),(163, 2147483647);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_9_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_9_not_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_9_not_nullable values (0, "-32768"),(1, "-32767"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "32766"),(8, "32767");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_19_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_int order by 1;'
+    qt_sql_9_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_9_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_19_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_int order by 1;'
+    qt_sql_9_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_9_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_37_from_int;"
-    sql "create table test_cast_to_decimal128i_38_37_from_int(f1 int, f2 int) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_37_from_int values (164, -9),(165, -8),(166, -1),(167, 0),(168, 1),(169, 8),(170, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_10_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_10_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_10_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_20_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_int order by 1;'
+    qt_sql_10_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_10_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_20_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_int order by 1;'
+    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_10_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_1_0_from_bigint;"
-    sql "create table test_cast_to_decimal128i_1_0_from_bigint(f1 int, f2 bigint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_1_0_from_bigint values (171, -9),(172, -8),(173, -1),(174, 0),(175, 1),(176, 8),(177, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_10_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_10_not_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_10_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_21_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_bigint order by 1;'
+    qt_sql_10_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_10_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_21_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_bigint order by 1;'
+    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_10_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_0_from_bigint;"
-    sql "create table test_cast_to_decimal128i_19_0_from_bigint(f1 int, f2 bigint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_0_from_bigint values (178, -9223372036854775808),(179, -9223372036854775807),(180, -9),(181, -1),(182, 0),(183, 1),(184, 9),(185, 9223372036854775806),(186, 9223372036854775807);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_11_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_11_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_11_nullable values (0, "-32768"),(1, "-32767"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "32766"),(8, "32767")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_22_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_bigint order by 1;'
+    qt_sql_11_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_11_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_22_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_bigint order by 1;'
+    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_11_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_9_from_bigint;"
-    sql "create table test_cast_to_decimal128i_19_9_from_bigint(f1 int, f2 bigint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_9_from_bigint values (187, -9999999999),(188, -9000000001),(189, -9000000000),(190, -999999999),(191, -9),(192, -1),(193, 0),(194, 1),(195, 9),(196, 999999999),
-      (197, 9000000000),(198, 9000000001),(199, 9999999999);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_11_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_11_not_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_11_not_nullable values (0, "-32768"),(1, "-32767"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "32766"),(8, "32767");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_23_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_bigint order by 1;'
+    qt_sql_11_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_11_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_23_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_bigint order by 1;'
+    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_11_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_18_from_bigint;"
-    sql "create table test_cast_to_decimal128i_19_18_from_bigint(f1 int, f2 bigint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_18_from_bigint values (200, -9),(201, -8),(202, -1),(203, 0),(204, 1),(205, 8),(206, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_12_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_12_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_12_nullable values (0, "-32768"),(1, "-32767"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "32766"),(8, "32767")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_24_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_bigint order by 1;'
+    qt_sql_12_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_12_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_24_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_bigint order by 1;'
+    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_12_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_0_from_bigint;"
-    sql "create table test_cast_to_decimal128i_38_0_from_bigint(f1 int, f2 bigint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_0_from_bigint values (207, -9223372036854775808),(208, -9223372036854775807),(209, -9),(210, -1),(211, 0),(212, 1),(213, 9),(214, 9223372036854775806),(215, 9223372036854775807);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_12_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_12_not_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_12_not_nullable values (0, "-32768"),(1, "-32767"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "32766"),(8, "32767");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_25_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_bigint order by 1;'
+    qt_sql_12_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_12_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_25_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_bigint order by 1;'
+    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_12_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_19_from_bigint;"
-    sql "create table test_cast_to_decimal128i_38_19_from_bigint(f1 int, f2 bigint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_19_from_bigint values (216, -9223372036854775808),(217, -9223372036854775807),(218, -9),(219, -1),(220, 0),(221, 1),(222, 9),(223, 9223372036854775806),(224, 9223372036854775807);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_13_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_13_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_13_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_26_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_bigint order by 1;'
+    qt_sql_13_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_13_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_26_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_bigint order by 1;'
+    qt_sql_13_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_13_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_37_from_bigint;"
-    sql "create table test_cast_to_decimal128i_38_37_from_bigint(f1 int, f2 bigint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_37_from_bigint values (225, -9),(226, -8),(227, -1),(228, 0),(229, 1),(230, 8),(231, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_13_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_13_not_nullable(f1 int, f2 smallint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_13_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_27_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_bigint order by 1;'
+    qt_sql_13_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_13_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_27_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_bigint order by 1;'
+    qt_sql_13_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_13_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_1_0_from_largeint;"
-    sql "create table test_cast_to_decimal128i_1_0_from_largeint(f1 int, f2 largeint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_1_0_from_largeint values (232, -9),(233, -8),(234, -1),(235, 0),(236, 1),(237, 8),(238, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_14_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_14_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_14_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_28_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_largeint order by 1;'
+    qt_sql_14_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_14_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_28_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_1_0_from_largeint order by 1;'
+    qt_sql_14_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_14_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_0_from_largeint;"
-    sql "create table test_cast_to_decimal128i_19_0_from_largeint(f1 int, f2 largeint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_0_from_largeint values (239, -9999999999999999999),(240, -9000000000000000001),(241, -9000000000000000000),(242, -999999999999999999),(243, -9),(244, -1),(245, 0),(246, 1),(247, 9),(248, 999999999999999999),
-      (249, 9000000000000000000),(250, 9000000000000000001),(251, 9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_14_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_14_not_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_14_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_29_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_largeint order by 1;'
+    qt_sql_14_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_14_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_29_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_19_0_from_largeint order by 1;'
+    qt_sql_14_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_14_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_9_from_largeint;"
-    sql "create table test_cast_to_decimal128i_19_9_from_largeint(f1 int, f2 largeint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_9_from_largeint values (252, -9999999999),(253, -9000000001),(254, -9000000000),(255, -999999999),(256, -9),(257, -1),(258, 0),(259, 1),(260, 9),(261, 999999999),
-      (262, 9000000000),(263, 9000000001),(264, 9999999999);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_15_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_15_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_15_nullable values (0, "-2147483648"),(1, "-2147483647"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "2147483646"),(8, "2147483647")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_30_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_largeint order by 1;'
+    qt_sql_15_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_15_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_30_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_19_9_from_largeint order by 1;'
+    qt_sql_15_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_15_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_19_18_from_largeint;"
-    sql "create table test_cast_to_decimal128i_19_18_from_largeint(f1 int, f2 largeint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_19_18_from_largeint values (265, -9),(266, -8),(267, -1),(268, 0),(269, 1),(270, 8),(271, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_15_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_15_not_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_15_not_nullable values (0, "-2147483648"),(1, "-2147483647"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "2147483646"),(8, "2147483647");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_31_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_largeint order by 1;'
+    qt_sql_15_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_15_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_31_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_19_18_from_largeint order by 1;'
+    qt_sql_15_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_15_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_0_from_largeint;"
-    sql "create table test_cast_to_decimal128i_38_0_from_largeint(f1 int, f2 largeint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_0_from_largeint values (272, -99999999999999999999999999999999999999),(273, -90000000000000000000000000000000000001),(274, -90000000000000000000000000000000000000),(275, -9999999999999999999999999999999999999),(276, -9),(277, -1),(278, 0),(279, 1),(280, 9),(281, 9999999999999999999999999999999999999),
-      (282, 90000000000000000000000000000000000000),(283, 90000000000000000000000000000000000001),(284, 99999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_16_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_16_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_16_nullable values (0, "-2147483648"),(1, "-2147483647"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "2147483646"),(8, "2147483647")
+      ,(9, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_32_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_largeint order by 1;'
+    qt_sql_16_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_16_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_32_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_38_0_from_largeint order by 1;'
+    qt_sql_16_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_16_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_19_from_largeint;"
-    sql "create table test_cast_to_decimal128i_38_19_from_largeint(f1 int, f2 largeint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_19_from_largeint values (285, -9999999999999999999),(286, -9000000000000000001),(287, -9000000000000000000),(288, -999999999999999999),(289, -9),(290, -1),(291, 0),(292, 1),(293, 9),(294, 999999999999999999),
-      (295, 9000000000000000000),(296, 9000000000000000001),(297, 9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_16_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_16_not_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_16_not_nullable values (0, "-2147483648"),(1, "-2147483647"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "2147483646"),(8, "2147483647");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_33_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_largeint order by 1;'
+    qt_sql_16_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_16_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_33_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_38_19_from_largeint order by 1;'
+    qt_sql_16_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_16_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal128i_38_37_from_largeint;"
-    sql "create table test_cast_to_decimal128i_38_37_from_largeint(f1 int, f2 largeint) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal128i_38_37_from_largeint values (298, -9),(299, -8),(300, -1),(301, 0),(302, 1),(303, 8),(304, 9);
+    sql "drop table if exists test_cast_to_decimal128i_from_int_17_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_17_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_17_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_34_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_largeint order by 1;'
+    qt_sql_17_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_17_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_34_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_38_37_from_largeint order by 1;'
+    qt_sql_17_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_17_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_17_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_17_not_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_17_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_17_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_17_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_17_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_17_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_18_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_18_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_18_nullable values (0, "-2147483648"),(1, "-2147483647"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "2147483646"),(8, "2147483647")
+      ,(9, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_18_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_18_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_18_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_18_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_18_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_18_not_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_18_not_nullable values (0, "-2147483648"),(1, "-2147483647"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "2147483646"),(8, "2147483647");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_18_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_18_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_18_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_18_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_19_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_19_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_19_nullable values (0, "-2147483648"),(1, "-2147483647"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "2147483646"),(8, "2147483647")
+      ,(9, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_19_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_19_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_19_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_19_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_19_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_19_not_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_19_not_nullable values (0, "-2147483648"),(1, "-2147483647"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "2147483646"),(8, "2147483647");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_19_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_19_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_19_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_19_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_20_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_20_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_20_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_20_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_20_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_20_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_20_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_20_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_20_not_nullable(f1 int, f2 int) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_20_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_20_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_20_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_20_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_20_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_21_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_21_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_21_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_21_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_21_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_21_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_21_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_21_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_21_not_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_21_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_21_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_21_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_21_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_21_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_22_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_22_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_22_nullable values (0, "-9223372036854775808"),(1, "-9223372036854775807"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "9223372036854775806"),(8, "9223372036854775807")
+      ,(9, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_22_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_22_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_22_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_22_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_22_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_22_not_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_22_not_nullable values (0, "-9223372036854775808"),(1, "-9223372036854775807"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "9223372036854775806"),(8, "9223372036854775807");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_22_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_22_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_22_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_22_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_23_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_23_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_23_nullable values (0, "-9999999999"),(1, "-9000000001"),(2, "-9000000000"),(3, "-999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "999999999"),(10, "9000000000"),(11, "9000000001"),(12, "9999999999")
+      ,(13, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_23_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_23_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_23_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_23_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_23_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_23_not_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_23_not_nullable values (0, "-9999999999"),(1, "-9000000001"),(2, "-9000000000"),(3, "-999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "999999999"),(10, "9000000000"),(11, "9000000001"),(12, "9999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_23_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_23_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_23_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_23_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_24_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_24_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_24_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_24_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_24_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_24_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_24_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_24_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_24_not_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_24_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_24_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_24_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_24_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_24_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_25_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_25_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_25_nullable values (0, "-9223372036854775808"),(1, "-9223372036854775807"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "9223372036854775806"),(8, "9223372036854775807")
+      ,(9, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_25_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_25_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_25_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_25_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_25_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_25_not_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_25_not_nullable values (0, "-9223372036854775808"),(1, "-9223372036854775807"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "9223372036854775806"),(8, "9223372036854775807");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_25_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_25_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_25_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_25_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_26_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_26_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_26_nullable values (0, "-9223372036854775808"),(1, "-9223372036854775807"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "9223372036854775806"),(8, "9223372036854775807")
+      ,(9, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_26_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_26_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_26_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_26_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_26_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_26_not_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_26_not_nullable values (0, "-9223372036854775808"),(1, "-9223372036854775807"),(2, "-9"),(3, "-1"),(4, "0"),(5, "1"),(6, "9"),(7, "9223372036854775806"),(8, "9223372036854775807");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_26_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_26_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_26_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_26_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_27_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_27_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_27_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_27_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_27_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_27_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_27_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_27_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_27_not_nullable(f1 int, f2 bigint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_27_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_27_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_27_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_27_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_27_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_28_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_28_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_28_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_28_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_28_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_28_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_28_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_28_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_28_not_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_28_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_28_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_28_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_28_non_strict 'select f1, cast(f2 as decimalv3(1, 0)) from test_cast_to_decimal128i_from_int_28_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_29_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_29_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_29_nullable values (0, "-9999999999999999999"),(1, "-9000000000000000001"),(2, "-9000000000000000000"),(3, "-999999999999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "999999999999999999"),(10, "9000000000000000000"),(11, "9000000000000000001"),(12, "9999999999999999999")
+      ,(13, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_29_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_29_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_29_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_29_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_29_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_29_not_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_29_not_nullable values (0, "-9999999999999999999"),(1, "-9000000000000000001"),(2, "-9000000000000000000"),(3, "-999999999999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "999999999999999999"),(10, "9000000000000000000"),(11, "9000000000000000001"),(12, "9999999999999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_29_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_29_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_29_non_strict 'select f1, cast(f2 as decimalv3(19, 0)) from test_cast_to_decimal128i_from_int_29_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_30_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_30_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_30_nullable values (0, "-9999999999"),(1, "-9000000001"),(2, "-9000000000"),(3, "-999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "999999999"),(10, "9000000000"),(11, "9000000001"),(12, "9999999999")
+      ,(13, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_30_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_30_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_30_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_30_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_30_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_30_not_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_30_not_nullable values (0, "-9999999999"),(1, "-9000000001"),(2, "-9000000000"),(3, "-999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "999999999"),(10, "9000000000"),(11, "9000000001"),(12, "9999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_30_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_30_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_30_non_strict 'select f1, cast(f2 as decimalv3(19, 9)) from test_cast_to_decimal128i_from_int_30_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_31_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_31_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_31_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_31_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_31_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_31_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_31_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_31_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_31_not_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_31_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_31_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_31_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_31_non_strict 'select f1, cast(f2 as decimalv3(19, 18)) from test_cast_to_decimal128i_from_int_31_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_32_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_32_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_32_nullable values (0, "-99999999999999999999999999999999999999"),(1, "-90000000000000000000000000000000000001"),(2, "-90000000000000000000000000000000000000"),(3, "-9999999999999999999999999999999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "9999999999999999999999999999999999999"),(10, "90000000000000000000000000000000000000"),(11, "90000000000000000000000000000000000001"),(12, "99999999999999999999999999999999999999")
+      ,(13, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_32_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_32_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_32_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_32_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_32_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_32_not_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_32_not_nullable values (0, "-99999999999999999999999999999999999999"),(1, "-90000000000000000000000000000000000001"),(2, "-90000000000000000000000000000000000000"),(3, "-9999999999999999999999999999999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "9999999999999999999999999999999999999"),(10, "90000000000000000000000000000000000000"),(11, "90000000000000000000000000000000000001"),(12, "99999999999999999999999999999999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_32_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_32_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_32_non_strict 'select f1, cast(f2 as decimalv3(38, 0)) from test_cast_to_decimal128i_from_int_32_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_33_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_33_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_33_nullable values (0, "-9999999999999999999"),(1, "-9000000000000000001"),(2, "-9000000000000000000"),(3, "-999999999999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "999999999999999999"),(10, "9000000000000000000"),(11, "9000000000000000001"),(12, "9999999999999999999")
+      ,(13, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_33_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_33_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_33_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_33_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_33_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_33_not_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_33_not_nullable values (0, "-9999999999999999999"),(1, "-9000000000000000001"),(2, "-9000000000000000000"),(3, "-999999999999999999"),(4, "-9"),(5, "-1"),(6, "0"),(7, "1"),(8, "9"),(9, "999999999999999999"),(10, "9000000000000000000"),(11, "9000000000000000001"),(12, "9999999999999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_33_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_33_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_33_non_strict 'select f1, cast(f2 as decimalv3(38, 19)) from test_cast_to_decimal128i_from_int_33_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_34_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_34_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_34_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9")
+      ,(7, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_34_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_34_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_34_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_34_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal128i_from_int_34_not_nullable;"
+    sql "create table test_cast_to_decimal128i_from_int_34_not_nullable(f1 int, f2 largeint) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal128i_from_int_34_not_nullable values (0, "-9"),(1, "-8"),(2, "-1"),(3, "0"),(4, "1"),(5, "8"),(6, "9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_34_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_34_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_34_non_strict 'select f1, cast(f2 as decimalv3(38, 37)) from test_cast_to_decimal128i_from_int_34_not_nullable order by 1;'
 
 }
