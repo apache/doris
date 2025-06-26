@@ -774,7 +774,7 @@ public class CacheHotspotManager extends MasterDaemon {
         return beToWarmUpTablets;
     }
 
-    public long createJob(WarmUpClusterStmt stmt) throws AnalysisException {
+    public long createJob(WarmUpClusterCommand stmt) throws AnalysisException {
         long jobId = Env.getCurrentEnv().getNextId();
         CloudWarmUpJob warmUpJob;
         if (stmt.isWarmUpWithTable()) {
@@ -834,7 +834,7 @@ public class CacheHotspotManager extends MasterDaemon {
         return jobId;
     }
 
-    public void cancel(CancelCloudWarmUpStmt stmt) throws DdlException {
+    public void cancel(CancelWarmUpJobCommand stmt) throws DdlException {
         cancel(stmt.getJobId());
     }
 
