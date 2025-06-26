@@ -33,7 +33,7 @@ suite("test_show_transaction_auth","p0,auth") {
     }
     sql """grant load_priv on regression_test.* to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        sql "SHOW TRANSACTION;"
+        sql "SHOW TRANSACTION WHERE ID=4005;"
     }
     try_sql("DROP USER ${user}")
 }
