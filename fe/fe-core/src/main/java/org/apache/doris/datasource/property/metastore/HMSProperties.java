@@ -18,11 +18,18 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.CatalogConfigFileUtils;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.KerberosAuthenticationConfig;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.ParamRules;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.paimon.options.Options;
 
@@ -32,7 +39,8 @@ import java.util.Map;
 @Slf4j
 public class HMSProperties extends MetastoreProperties {
 
-    @ConnectorProperty(names = {"hive.metastore.uris"},
+    @Getter
+    @ConnectorProperty(names = {"hive.metastore.uris", "uri"},
             description = "The uri of the hive metastore.")
     private String hiveMetastoreUri = "";
 
@@ -61,9 +69,44 @@ public class HMSProperties extends MetastoreProperties {
             description = "The client keytab of the hive metastore.")
     private String hiveMetastoreClientKeytab = "";
 
-    private Map<String, String> hiveConfParams;
+    @ConnectorProperty(names = {"hadoop.security.authentication"},
+            required = false,
+            description = "The authentication type of HDFS. The default value is 'none'.")
+    private String hdfsAuthenticationType = "";
 
-    private Map<String, String> hmsConnectionProperties;
+    @ConnectorProperty(names = {"hadoop.kerberos.principal"},
+            required = false,
+            description = "The principal of the kerberos authentication.")
+    private String hdfsKerberosPrincipal = "";
+
+    @ConnectorProperty(names = {"hadoop.kerberos.keytab"},
+            required = false,
+            description = "The keytab of the kerberos authentication.")
+    private String hdfsKerberosKeytab = "";
+
+    @ConnectorProperty(names = {"hive.enable_hms_events_incremental_sync"},
+            required = false,
+            description = "Whether to enable incremental sync of hms events.")
+    private String hmsEventsIncrementalSyncEnabledStr;
+
+    @ConnectorProperty(names = {"hive.hms_events_batch_size_per_rpc"},
+            required = false,
+            description = "The batch size of hms events per rpc.")
+    private String hmsEventisBatchSizePerRpcString;
+
+    @Getter
+    private boolean hmsEventsIncrementalSyncEnabled = Config.enable_hms_events_incremental_sync;
+
+    @Getter
+    private int hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
+
+    @Getter
+    private HiveConf hiveConf;
+
+    @Getter
+    private HadoopAuthenticator hdfsAuthenticator;
+
+    private Map<String, String> userOverriddenHiveConfig = new HashMap<>();
 
     public HMSProperties(Map<String, String> origProps) {
         super(Type.HMS, origProps);
@@ -80,36 +123,45 @@ public class HMSProperties extends MetastoreProperties {
         if (!Strings.isNullOrEmpty(hiveConfResourcesConfig)) {
             checkHiveConfResourcesConfig();
         }
-        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
-            if (Strings.isNullOrEmpty(hiveMetastoreServicePrincipal)
-                    || Strings.isNullOrEmpty(hiveMetastoreClientPrincipal)
-                    || Strings.isNullOrEmpty(hiveMetastoreClientKeytab)) {
-                throw new IllegalArgumentException("Hive metastore authentication type is kerberos, "
-                        + "but service principal, client principal or client keytab is not set.");
-            }
-        }
-        if (Strings.isNullOrEmpty(hiveMetastoreUri)) {
-            throw new IllegalArgumentException("Hive metastore uri is required.");
-        }
+        buildRules().validate();
     }
 
     @Override
     protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        hiveConfParams = loadConfigFromFile(hiveConfResourcesConfig);
-        initHmsConnectionProperties();
+        initHiveConf();
+        initHadoopAuthenticator();
+        initRefreshParams();
     }
 
-    private void initHmsConnectionProperties() {
-        hmsConnectionProperties = new HashMap<>();
-        hmsConnectionProperties.putAll(hiveConfParams);
-        hmsConnectionProperties.put("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
-        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
-            hmsConnectionProperties.put("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
-            hmsConnectionProperties.put("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
-            hmsConnectionProperties.put("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
+    private void initUserHiveConfig(Map<String, String> origProps) {
+        if (origProps == null || origProps.isEmpty()) {
+            return;
         }
-        hmsConnectionProperties.put("uri", hiveMetastoreUri);
+        origProps.forEach((key, value) -> {
+            if (key.startsWith("hive.")) {
+                userOverriddenHiveConfig.put(key, value);
+            }
+        });
+    }
+
+
+    private void initRefreshParams() {
+        if (StringUtils.isNotBlank(hmsEventsIncrementalSyncEnabledStr)) {
+            this.hmsEventsIncrementalSyncEnabled = BooleanUtils.toBoolean(hmsEventsIncrementalSyncEnabledStr);
+        }
+        if (StringUtils.isNotBlank(hmsEventisBatchSizePerRpcString)) {
+            this.hmsEventsBatchSizePerRpc = Integer.parseInt(hmsEventisBatchSizePerRpcString);
+        }
+    }
+
+    private void initHiveConf() {
+        hiveConf = loadHiveConfFromFile(hiveConfResourcesConfig);
+        initUserHiveConfig(origProps);
+        userOverriddenHiveConfig.forEach(hiveConf::set);
+        hiveConf.set("hive.metastore.uris", hiveMetastoreUri);
+        HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
+                String.valueOf(Config.hive_metastore_client_timeout_second));
     }
 
     private void checkHiveConfResourcesConfig() {
@@ -117,23 +169,61 @@ public class HMSProperties extends MetastoreProperties {
     }
 
     public void toPaimonOptionsAndConf(Options options) {
-        hmsConnectionProperties.forEach(options::set);
+        //hmsConnectionProperties.forEach(options::set);
     }
 
     public void toIcebergHiveCatalogProperties(Map<String, String> catalogProps) {
-        hmsConnectionProperties.forEach(catalogProps::put);
+        // hmsConnectionProperties.forEach(catalogProps::put);
     }
 
-    protected Map<String, String> loadConfigFromFile(String resourceConfig) {
+    protected HiveConf loadHiveConfFromFile(String resourceConfig) {
         if (Strings.isNullOrEmpty(resourceConfig)) {
-            return Maps.newHashMap();
+            return new HiveConf();
         }
-        HiveConf conf = CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(resourceConfig);
-        Map<String, String> confMap = Maps.newHashMap();
-        for (Map.Entry<String, String> entry : conf) {
-            confMap.put(entry.getKey(), entry.getValue());
+        return CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(resourceConfig);
+    }
+
+    private ParamRules buildRules() {
+
+        return new ParamRules()
+                // required
+                // .require(this.hiveMetastoreUri, "hive.metastore.uris is required")
+                .require(this.hiveMetastoreAuthenticationType, "hive.metastore.authentication.type is required")
+                // mutually exclusive
+                .mutuallyExclusive(hiveMetastoreClientKeytab, hdfsKerberosKeytab,
+                        "hive.metastore.client.keytab and hadoop.kerberos.keytab can not be set at the same time")
+                .mutuallyExclusive(hiveMetastoreClientPrincipal, hdfsKerberosPrincipal,
+                        "hive.metastore.client.principal and hadoop.kerberos.principal can not be set at the same time")
+                .requireIf(hiveMetastoreAuthenticationType, "kerberos", hiveMetastoreClientKeytab,
+                        "hive.metastore.client.keytab is required when hive.metastore.authentication.type is kerberos")
+                .requireIf(hiveMetastoreAuthenticationType, "kerberos", hiveMetastoreClientPrincipal,
+                        "hive.metastore.client.principal is required when hive.metastore.authentication"
+                                + ".type is kerberos");
+
+    }
+
+    private void initHadoopAuthenticator() {
+        if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("kerberos")) {
+            KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
+                    this.hiveMetastoreClientPrincipal, this.hiveMetastoreClientKeytab, hiveConf);
+            this.hdfsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+            return;
         }
-        return confMap;
+        if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("simple")) {
+            AuthenticationConfig authenticationConfig = AuthenticationConfig.getSimpleAuthenticationConfig(hiveConf);
+            this.hdfsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+            return;
+        }
+
+        if (StringUtils.isNotBlank(this.hdfsAuthenticationType)
+                && this.hdfsAuthenticationType.equalsIgnoreCase("kerberos")) {
+            KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
+                    this.hdfsKerberosPrincipal, this.hdfsKerberosKeytab, hiveConf);
+            this.hdfsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+            return;
+        }
+        AuthenticationConfig simpleAuthenticationConfig = AuthenticationConfig.getSimpleAuthenticationConfig(hiveConf);
+        this.hdfsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(simpleAuthenticationConfig);
     }
 
 }

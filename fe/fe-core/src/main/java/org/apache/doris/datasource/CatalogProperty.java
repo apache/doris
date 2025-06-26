@@ -19,12 +19,15 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.commons.collections.MapUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,6 +46,8 @@ public class CatalogProperty {
     private String resource;
     @SerializedName(value = "properties")
     private Map<String, String> properties;
+
+    private MetastoreProperties metastoreProperties;
 
     private volatile Resource catalogResource = null;
 
@@ -111,5 +116,19 @@ public class CatalogProperty {
 
     public void deleteProperty(String key) {
         this.properties.remove(key);
+    }
+
+    public MetastoreProperties getMetastoreProperties() {
+        if (MapUtils.isEmpty(getProperties())) {
+            return null;
+        }
+        if (metastoreProperties == null) {
+            try {
+                metastoreProperties = MetastoreProperties.create(getProperties());
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return metastoreProperties;
     }
 }

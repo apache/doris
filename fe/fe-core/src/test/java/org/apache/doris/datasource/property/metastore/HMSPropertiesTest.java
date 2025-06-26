@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ public class HMSPropertiesTest {
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params));
         params.put("hive.metastore.uris", "thrift://default:9083");
         hmsProperties = (HMSProperties) MetastoreProperties.create(params);
-        Map<String, String> hiveConf = hmsProperties.loadConfigFromFile("/hive-conf/hive1/hive-site.xml");
+        HiveConf hiveConf = hmsProperties.getHiveConf();
         Assertions.assertNotNull(hiveConf);
         Assertions.assertEquals("/user/hive/default", hiveConf.get("hive.metastore.warehouse.dir"));
     }

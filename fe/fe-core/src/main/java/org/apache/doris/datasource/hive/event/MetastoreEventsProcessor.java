@@ -115,7 +115,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
             if (catalog instanceof HMSExternalCatalog) {
                 HMSExternalCatalog hmsExternalCatalog = (HMSExternalCatalog) catalog;
-                if (!hmsExternalCatalog.isEnableHmsEventsIncrementalSync()) {
+                if (!hmsExternalCatalog.getHmsProperties().isHmsEventsIncrementalSyncEnabled()) {
                     continue;
                 }
                 try {
@@ -212,7 +212,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             return null;
         }
 
-        int batchSize = hmsExternalCatalog.getHmsEventsBatchSizePerRpc();
+        int batchSize = hmsExternalCatalog.getHmsProperties().getHmsEventsBatchSizePerRpc();
         try {
             NotificationEventResponse notificationEventResponse =
                     hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, batchSize, null);
@@ -269,7 +269,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
 
         // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
         int maxEventSize = Math.min((int) (masterLastSyncedEventId - lastSyncedEventId),
-                hmsExternalCatalog.getHmsEventsBatchSizePerRpc());
+                hmsExternalCatalog.getHmsProperties().getHmsEventsBatchSizePerRpc());
         try {
             return hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, maxEventSize, null);
         } catch (MetastoreNotificationFetchException e) {
