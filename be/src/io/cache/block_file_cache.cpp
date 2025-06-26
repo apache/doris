@@ -1126,17 +1126,17 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
                         if (cell.queue_iterator) {
                             ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
                             record_queue_event(get_lru_log_queue(FileCacheType::TTL),
-                                                CacheLRULogType::REMOVE,
-                                                cell.file_block->get_hash_value(),
-                                                cell.file_block->offset(), cell.size());
+                                               CacheLRULogType::REMOVE,
+                                               cell.file_block->get_hash_value(),
+                                               cell.file_block->offset(), cell.size());
                         }
                         auto& queue = get_queue(FileCacheType::NORMAL);
                         cell.queue_iterator = queue.add(
                                 cell.file_block->get_hash_value(), cell.file_block->offset(),
                                 cell.file_block->range().size(), cache_lock);
                         record_queue_event(get_lru_log_queue(FileCacheType::NORMAL),
-                                            CacheLRULogType::ADD, cell.file_block->get_hash_value(),
-                                            cell.file_block->offset(), cell.size());
+                                           CacheLRULogType::ADD, cell.file_block->get_hash_value(),
+                                           cell.file_block->offset(), cell.size());
                     } else {
                         LOG_WARNING("Failed to change cache type to normal").error(st);
                     }
