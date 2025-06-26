@@ -2017,6 +2017,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brotli
         icu
         pugixml
+        openblas
+        faiss
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
