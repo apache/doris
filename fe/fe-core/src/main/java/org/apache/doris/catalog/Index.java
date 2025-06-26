@@ -189,8 +189,8 @@ public class Index implements Writable {
             return enableAddIndexForNewData;
         } else if (indexType == IndexDef.IndexType.INVERTED) {
             // For INVERTED type:
-            // - In cloud mode (with enableAddIndexForNewData enabled), only support non-tokenized indexes (parser="none").
-            // - In local mode or when add-index for new data is disabled, light add is always supported.
+            // - In cloud mode (with enableAddIndexForNewData enabled), only support non-tokenized indexes.
+            // - In local mode light add is always supported for inverted index.
             return (Config.isCloudMode() && enableAddIndexForNewData) ? isInvertedIndexParserNone() : true;
         }
         // Other index types do not support light add.

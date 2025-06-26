@@ -2667,7 +2667,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, fuzzy = true, description = {
             "是否启用仅对新数据生效的索引添加模式，开启时新建索引只对后续写入的数据生效，关闭时对全部数据重建索引",
             "Whether to enable add index mode that only affects new data, "
-                    + "when enabled new indexes only affect subsequently written data, when disabled rebuild indexes for all data"
+                    + "when enabled new indexes only affect subsequently written data, "
+                    + "when disabled rebuild indexes for all data"
     })
     public boolean enableAddIndexForNewData = false;
 
