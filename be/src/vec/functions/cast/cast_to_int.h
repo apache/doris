@@ -36,7 +36,8 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         // may overflow if:
         // 1. from wider int to narrower int
         // 2. from float/double to int
@@ -145,7 +146,8 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         return static_cast_no_overflow<FromDataType, ToDataType>(context, block, arguments, result,
                                                                  input_rows_count);
     }
@@ -179,8 +181,10 @@ WrapperType create_int_wrapper(FunctionContext* context, const DataTypePtr& from
     }
 
     return [cast_impl](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const uint32_t result, size_t input_rows_count) {
-        return cast_impl->execute_impl(context, block, arguments, result, input_rows_count);
+                       size_t result, size_t input_rows_count,
+                       const NullMap::value_type* null_map = nullptr) {
+        return cast_impl->execute_impl(context, block, arguments, result, input_rows_count,
+                                       null_map);
     };
 }
 } // namespace CastWrapper

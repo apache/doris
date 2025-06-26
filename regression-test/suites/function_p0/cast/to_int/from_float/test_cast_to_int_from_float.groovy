@@ -21,16 +21,29 @@ suite("test_cast_to_int_from_float") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_int_from_float_0;"
-    sql "create table test_cast_to_int_from_float_0(f1 int, f2 float) properties('replication_num'='1');"
-    sql """insert into test_cast_to_int_from_float_0 values (0, "0"),(1, "-0"),(2, "0"),(3, "1"),(4, "9"),(5, "123"),(6, "127.9"),(7, "-1"),(8, "-9"),(9, "-123"),(10, "-128.9"),(11, "-2147483600"),(12, "1.9"),(13, "-1.9"),(14, "0.9999"),(15, "-0.9999"),(16, "1e-45"),(17, "-1e-45"),(18, "32768.9"),(19, "-32769.9"),
+    sql "drop table if exists test_cast_to_int_from_float_0_nullable;"
+    sql "create table test_cast_to_int_from_float_0_nullable(f1 int, f2 float) properties('replication_num'='1');"
+    sql """insert into test_cast_to_int_from_float_0_nullable values (0, "0"),(1, "-0"),(2, "0"),(3, "1"),(4, "9"),(5, "123"),(6, "127.9"),(7, "-1"),(8, "-9"),(9, "-123"),(10, "-128.9"),(11, "-2147483600"),(12, "1.9"),(13, "-1.9"),(14, "0.9999"),(15, "-0.9999"),(16, "1e-45"),(17, "-1e-45"),(18, "32768.9"),(19, "-32769.9"),
+      (20, "999999.9"),(21, "-999999.9"),(22, "1073741800"),(23, "-1073741800"),(24, "32767.9"),(25, "-32768.9")
+      ,(26, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_0_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_float_0_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_0_non_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_float_0_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_int_from_float_0_not_nullable;"
+    sql "create table test_cast_to_int_from_float_0_not_nullable(f1 int, f2 float) properties('replication_num'='1');"
+    sql """insert into test_cast_to_int_from_float_0_not_nullable values (0, "0"),(1, "-0"),(2, "0"),(3, "1"),(4, "9"),(5, "123"),(6, "127.9"),(7, "-1"),(8, "-9"),(9, "-123"),(10, "-128.9"),(11, "-2147483600"),(12, "1.9"),(13, "-1.9"),(14, "0.9999"),(15, "-0.9999"),(16, "1e-45"),(17, "-1e-45"),(18, "32768.9"),(19, "-32769.9"),
       (20, "999999.9"),(21, "-999999.9"),(22, "1073741800"),(23, "-1073741800"),(24, "32767.9"),(25, "-32768.9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_float_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_float_0_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_float_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as int) from test_cast_to_int_from_float_0_not_nullable order by 1;'
 
 }

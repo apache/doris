@@ -22,191 +22,395 @@ suite("test_cast_to_decimal256_76_76_from_decimal32") {
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
     sql "set enable_decimal256 = true;"
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_1_0;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_1_0(f1 int, f2 decimalv3(1, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_1_0 values (0, "0");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_1_0_0_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_1_0_0_nullable(f1 int, f2 decimalv3(1, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_1_0_0_nullable values (0, "0")
+      ,(1, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_1_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_1_0_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_1_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_1_0_0_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_1_1;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_1_1(f1 int, f2 decimalv3(1, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_1_1 values (1, "0.0"),(2, "0.1"),(3, "0.8"),(4, "0.9");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_1_0_0_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_1_0_0_not_nullable(f1 int, f2 decimalv3(1, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_1_0_0_not_nullable values (0, "0");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_1_1 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_1_0_0_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_1_1 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_1_0_0_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_4_0;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_4_0(f1 int, f2 decimalv3(4, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_4_0 values (5, "0");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_1_1_1_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_1_1_1_nullable(f1 int, f2 decimalv3(1, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_1_1_1_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9")
+      ,(4, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_2_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_0 order by 1;'
+    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_1_1_1_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_2_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_0 order by 1;'
+    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_1_1_1_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_4_1;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_4_1(f1 int, f2 decimalv3(4, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_4_1 values (6, "0.0"),(7, "0.1"),(8, "0.8"),(9, "0.9");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_1_1_1_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_1_1_1_not_nullable(f1 int, f2 decimalv3(1, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_1_1_1_not_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_3_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_1 order by 1;'
+    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_1_1_1_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_3_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_1 order by 1;'
+    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_1_1_1_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_4_2;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_4_2(f1 int, f2 decimalv3(4, 2)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_4_2 values (10, "0.00"),(11, "0.01"),(12, "0.09"),(13, "0.90"),(14, "0.91"),(15, "0.98"),(16, "0.99");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_0_2_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_0_2_nullable(f1 int, f2 decimalv3(4, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_0_2_nullable values (0, "0")
+      ,(1, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_4_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_2 order by 1;'
+    qt_sql_2_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_0_2_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_4_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_2 order by 1;'
+    qt_sql_2_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_0_2_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_4_3;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_4_3(f1 int, f2 decimalv3(4, 3)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_4_3 values (17, "0.000"),(18, "0.001"),(19, "0.009"),(20, "0.099"),(21, "0.900"),(22, "0.901"),(23, "0.998"),(24, "0.999");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_0_2_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_0_2_not_nullable(f1 int, f2 decimalv3(4, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_0_2_not_nullable values (0, "0");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_5_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_3 order by 1;'
+    qt_sql_2_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_0_2_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_3 order by 1;'
+    qt_sql_2_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_0_2_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_4_4;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_4_4(f1 int, f2 decimalv3(4, 4)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_4_4 values (25, "0.0000"),(26, "0.0001"),(27, "0.0009"),(28, "0.0999"),(29, "0.9000"),(30, "0.9001"),(31, "0.9998"),(32, "0.9999");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_1_3_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_1_3_nullable(f1 int, f2 decimalv3(4, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_1_3_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9")
+      ,(4, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_6_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_4 order by 1;'
+    qt_sql_3_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_1_3_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_4_4 order by 1;'
+    qt_sql_3_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_1_3_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_8_0;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_8_0(f1 int, f2 decimalv3(8, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_8_0 values (33, "0");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_1_3_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_1_3_not_nullable(f1 int, f2 decimalv3(4, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_1_3_not_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_0 order by 1;'
+    qt_sql_3_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_1_3_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_0 order by 1;'
+    qt_sql_3_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_1_3_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_8_1;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_8_1(f1 int, f2 decimalv3(8, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_8_1 values (34, "0.0"),(35, "0.1"),(36, "0.8"),(37, "0.9");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_2_4_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_2_4_nullable(f1 int, f2 decimalv3(4, 2)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_2_4_nullable values (0, "0.00"),(1, "0.01"),(2, "0.09"),(3, "0.90"),(4, "0.91"),(5, "0.98"),(6, "0.99")
+      ,(7, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_8_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_1 order by 1;'
+    qt_sql_4_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_2_4_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_8_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_1 order by 1;'
+    qt_sql_4_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_2_4_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_8_4;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_8_4(f1 int, f2 decimalv3(8, 4)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_8_4 values (38, "0.0000"),(39, "0.0001"),(40, "0.0009"),(41, "0.0999"),(42, "0.9000"),(43, "0.9001"),(44, "0.9998"),(45, "0.9999");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_2_4_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_2_4_not_nullable(f1 int, f2 decimalv3(4, 2)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_2_4_not_nullable values (0, "0.00"),(1, "0.01"),(2, "0.09"),(3, "0.90"),(4, "0.91"),(5, "0.98"),(6, "0.99");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_9_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_4 order by 1;'
+    qt_sql_4_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_2_4_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_9_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_4 order by 1;'
+    qt_sql_4_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_2_4_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_8_7;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_8_7(f1 int, f2 decimalv3(8, 7)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_8_7 values (46, "0.0000000"),(47, "0.0000001"),(48, "0.0000009"),(49, "0.0999999"),(50, "0.9000000"),(51, "0.9000001"),(52, "0.9999998"),(53, "0.9999999");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_3_5_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_3_5_nullable(f1 int, f2 decimalv3(4, 3)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_3_5_nullable values (0, "0.000"),(1, "0.001"),(2, "0.009"),(3, "0.099"),(4, "0.900"),(5, "0.901"),(6, "0.998"),(7, "0.999")
+      ,(8, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_10_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_7 order by 1;'
+    qt_sql_5_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_3_5_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_7 order by 1;'
+    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_3_5_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_8_8;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_8_8(f1 int, f2 decimalv3(8, 8)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_8_8 values (54, "0.00000000"),(55, "0.00000001"),(56, "0.00000009"),(57, "0.09999999"),(58, "0.90000000"),(59, "0.90000001"),(60, "0.99999998"),(61, "0.99999999");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_3_5_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_3_5_not_nullable(f1 int, f2 decimalv3(4, 3)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_3_5_not_nullable values (0, "0.000"),(1, "0.001"),(2, "0.009"),(3, "0.099"),(4, "0.900"),(5, "0.901"),(6, "0.998"),(7, "0.999");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_11_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_8 order by 1;'
+    qt_sql_5_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_3_5_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_8_8 order by 1;'
+    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_3_5_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_9_0;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_9_0(f1 int, f2 decimalv3(9, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_9_0 values (62, "0");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_4_6_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_4_6_nullable(f1 int, f2 decimalv3(4, 4)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_4_6_nullable values (0, "0.0000"),(1, "0.0001"),(2, "0.0009"),(3, "0.0999"),(4, "0.9000"),(5, "0.9001"),(6, "0.9998"),(7, "0.9999")
+      ,(8, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_12_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_0 order by 1;'
+    qt_sql_6_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_4_6_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_0 order by 1;'
+    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_4_6_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_9_1;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_9_1(f1 int, f2 decimalv3(9, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_9_1 values (63, "0.0"),(64, "0.1"),(65, "0.8"),(66, "0.9");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_4_4_6_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_4_4_6_not_nullable(f1 int, f2 decimalv3(4, 4)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_4_4_6_not_nullable values (0, "0.0000"),(1, "0.0001"),(2, "0.0009"),(3, "0.0999"),(4, "0.9000"),(5, "0.9001"),(6, "0.9998"),(7, "0.9999");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_13_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_1 order by 1;'
+    qt_sql_6_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_4_6_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_13_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_1 order by 1;'
+    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_4_4_6_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_9_4;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_9_4(f1 int, f2 decimalv3(9, 4)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_9_4 values (67, "0.0000"),(68, "0.0001"),(69, "0.0009"),(70, "0.0999"),(71, "0.9000"),(72, "0.9001"),(73, "0.9998"),(74, "0.9999");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_0_7_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_0_7_nullable(f1 int, f2 decimalv3(8, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_0_7_nullable values (0, "0")
+      ,(1, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_14_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_4 order by 1;'
+    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_0_7_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_14_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_4 order by 1;'
+    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_0_7_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_9_8;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_9_8(f1 int, f2 decimalv3(9, 8)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_9_8 values (75, "0.00000000"),(76, "0.00000001"),(77, "0.00000009"),(78, "0.09999999"),(79, "0.90000000"),(80, "0.90000001"),(81, "0.99999998"),(82, "0.99999999");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_0_7_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_0_7_not_nullable(f1 int, f2 decimalv3(8, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_0_7_not_nullable values (0, "0");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_15_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_8 order by 1;'
+    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_0_7_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_15_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_8 order by 1;'
+    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_0_7_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal256_76_76_from_decimal32_9_9;"
-    sql "create table test_cast_to_decimal256_76_76_from_decimal32_9_9(f1 int, f2 decimalv3(9, 9)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal256_76_76_from_decimal32_9_9 values (83, "0.000000000"),(84, "0.000000001"),(85, "0.000000009"),(86, "0.099999999"),(87, "0.900000000"),(88, "0.900000001"),(89, "0.999999998"),(90, "0.999999999");
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_1_8_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_1_8_nullable(f1 int, f2 decimalv3(8, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_1_8_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9")
+      ,(4, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_16_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_9 order by 1;'
+    qt_sql_8_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_1_8_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_16_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal256_76_76_from_decimal32_9_9 order by 1;'
+    qt_sql_8_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_1_8_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_1_8_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_1_8_not_nullable(f1 int, f2 decimalv3(8, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_1_8_not_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_8_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_1_8_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_8_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_1_8_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_4_9_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_4_9_nullable(f1 int, f2 decimalv3(8, 4)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_4_9_nullable values (0, "0.0000"),(1, "0.0001"),(2, "0.0009"),(3, "0.0999"),(4, "0.9000"),(5, "0.9001"),(6, "0.9998"),(7, "0.9999")
+      ,(8, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_9_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_4_9_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_9_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_4_9_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_4_9_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_4_9_not_nullable(f1 int, f2 decimalv3(8, 4)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_4_9_not_nullable values (0, "0.0000"),(1, "0.0001"),(2, "0.0009"),(3, "0.0999"),(4, "0.9000"),(5, "0.9001"),(6, "0.9998"),(7, "0.9999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_9_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_4_9_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_9_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_4_9_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_7_10_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_7_10_nullable(f1 int, f2 decimalv3(8, 7)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_7_10_nullable values (0, "0.0000000"),(1, "0.0000001"),(2, "0.0000009"),(3, "0.0999999"),(4, "0.9000000"),(5, "0.9000001"),(6, "0.9999998"),(7, "0.9999999")
+      ,(8, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_10_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_7_10_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_7_10_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_7_10_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_7_10_not_nullable(f1 int, f2 decimalv3(8, 7)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_7_10_not_nullable values (0, "0.0000000"),(1, "0.0000001"),(2, "0.0000009"),(3, "0.0999999"),(4, "0.9000000"),(5, "0.9000001"),(6, "0.9999998"),(7, "0.9999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_10_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_7_10_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_7_10_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_8_11_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_8_11_nullable(f1 int, f2 decimalv3(8, 8)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_8_11_nullable values (0, "0.00000000"),(1, "0.00000001"),(2, "0.00000009"),(3, "0.09999999"),(4, "0.90000000"),(5, "0.90000001"),(6, "0.99999998"),(7, "0.99999999")
+      ,(8, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_11_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_8_11_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_8_11_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_8_8_11_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_8_8_11_not_nullable(f1 int, f2 decimalv3(8, 8)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_8_8_11_not_nullable values (0, "0.00000000"),(1, "0.00000001"),(2, "0.00000009"),(3, "0.09999999"),(4, "0.90000000"),(5, "0.90000001"),(6, "0.99999998"),(7, "0.99999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_11_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_8_11_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_8_8_11_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_0_12_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_0_12_nullable(f1 int, f2 decimalv3(9, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_0_12_nullable values (0, "0")
+      ,(1, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_12_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_0_12_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_0_12_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_0_12_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_0_12_not_nullable(f1 int, f2 decimalv3(9, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_0_12_not_nullable values (0, "0");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_12_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_0_12_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_0_12_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_1_13_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_1_13_nullable(f1 int, f2 decimalv3(9, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_1_13_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9")
+      ,(4, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_13_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_1_13_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_13_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_1_13_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_1_13_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_1_13_not_nullable(f1 int, f2 decimalv3(9, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_1_13_not_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_13_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_1_13_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_13_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_1_13_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_4_14_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_4_14_nullable(f1 int, f2 decimalv3(9, 4)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_4_14_nullable values (0, "0.0000"),(1, "0.0001"),(2, "0.0009"),(3, "0.0999"),(4, "0.9000"),(5, "0.9001"),(6, "0.9998"),(7, "0.9999")
+      ,(8, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_14_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_4_14_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_14_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_4_14_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_4_14_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_4_14_not_nullable(f1 int, f2 decimalv3(9, 4)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_4_14_not_nullable values (0, "0.0000"),(1, "0.0001"),(2, "0.0009"),(3, "0.0999"),(4, "0.9000"),(5, "0.9001"),(6, "0.9998"),(7, "0.9999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_14_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_4_14_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_14_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_4_14_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_8_15_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_8_15_nullable(f1 int, f2 decimalv3(9, 8)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_8_15_nullable values (0, "0.00000000"),(1, "0.00000001"),(2, "0.00000009"),(3, "0.09999999"),(4, "0.90000000"),(5, "0.90000001"),(6, "0.99999998"),(7, "0.99999999")
+      ,(8, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_15_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_8_15_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_15_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_8_15_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_8_15_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_8_15_not_nullable(f1 int, f2 decimalv3(9, 8)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_8_15_not_nullable values (0, "0.00000000"),(1, "0.00000001"),(2, "0.00000009"),(3, "0.09999999"),(4, "0.90000000"),(5, "0.90000001"),(6, "0.99999998"),(7, "0.99999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_15_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_8_15_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_15_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_8_15_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_9_16_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_9_16_nullable(f1 int, f2 decimalv3(9, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_9_16_nullable values (0, "0.000000000"),(1, "0.000000001"),(2, "0.000000009"),(3, "0.099999999"),(4, "0.900000000"),(5, "0.900000001"),(6, "0.999999998"),(7, "0.999999999")
+      ,(8, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_16_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_9_16_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_16_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_9_16_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_76_76_from_decimal_9_9_16_not_nullable;"
+    sql "create table test_cast_to_decimal_76_76_from_decimal_9_9_16_not_nullable(f1 int, f2 decimalv3(9, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_76_76_from_decimal_9_9_16_not_nullable values (0, "0.000000000"),(1, "0.000000001"),(2, "0.000000009"),(3, "0.099999999"),(4, "0.900000000"),(5, "0.900000001"),(6, "0.999999998"),(7, "0.999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_16_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_9_16_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_16_non_strict 'select f1, cast(f2 as decimalv3(76, 76)) from test_cast_to_decimal_76_76_from_decimal_9_9_16_not_nullable order by 1;'
 
 }

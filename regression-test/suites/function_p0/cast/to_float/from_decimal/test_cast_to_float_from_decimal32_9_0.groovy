@@ -21,15 +21,27 @@ suite("test_cast_to_float_from_decimal32_9_0") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_float_from_decimal32_9_0_0;"
-    sql "create table test_cast_to_float_from_decimal32_9_0_0(f1 int, f2 decimalv3(9, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_float_from_decimal32_9_0_0 values (0, "0"),(1, "0"),(2, "1"),(3, "-1"),(4, "9"),(5, "-9"),(6, "99999999"),(7, "-99999999"),(8, "900000000"),(9, "-900000000"),(10, "900000001"),(11, "-900000001"),(12, "999999998"),(13, "-999999998"),(14, "999999999"),(15, "-999999999");
+    sql "drop table if exists test_cast_to_float_from_decimal32_9_0_0_nullable;"
+    sql "create table test_cast_to_float_from_decimal32_9_0_0_nullable(f1 int, f2 decimalv3(9, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_float_from_decimal32_9_0_0_nullable values (0, "0"),(1, "0"),(2, "1"),(3, "-1"),(4, "9"),(5, "-9"),(6, "99999999"),(7, "-99999999"),(8, "900000000"),(9, "-900000000"),(10, "900000001"),(11, "-900000001"),(12, "999999998"),(13, "-999999998"),(14, "999999999"),(15, "-999999999")
+      ,(16, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as float) from test_cast_to_float_from_decimal32_9_0_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as float) from test_cast_to_float_from_decimal32_9_0_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as float) from test_cast_to_float_from_decimal32_9_0_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as float) from test_cast_to_float_from_decimal32_9_0_0_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_float_from_decimal32_9_0_0_not_nullable;"
+    sql "create table test_cast_to_float_from_decimal32_9_0_0_not_nullable(f1 int, f2 decimalv3(9, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_float_from_decimal32_9_0_0_not_nullable values (0, "0"),(1, "0"),(2, "1"),(3, "-1"),(4, "9"),(5, "-9"),(6, "99999999"),(7, "-99999999"),(8, "900000000"),(9, "-900000000"),(10, "900000001"),(11, "-900000001"),(12, "999999998"),(13, "-999999998"),(14, "999999999"),(15, "-999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_0_strict 'select f1, cast(f2 as float) from test_cast_to_float_from_decimal32_9_0_0_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_0_non_strict 'select f1, cast(f2 as float) from test_cast_to_float_from_decimal32_9_0_0_not_nullable order by 1;'
 
 }

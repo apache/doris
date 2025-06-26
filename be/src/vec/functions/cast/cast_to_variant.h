@@ -24,7 +24,8 @@ namespace doris::vectorized::CastWrapper {
 
 struct CastFromVariant {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
         auto& data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& col_from = col_with_type_and_name.column;
@@ -56,7 +57,7 @@ struct CastFromVariant {
             Block tmp_block {{remove_nullable(nested), remove_nullable(nested_from_type), ""}};
             tmp_block.insert({nullptr, data_type_to, ""});
             /// Perform the requested conversion.
-            Status st = wrapper(new_context.get(), tmp_block, {0}, 1, input_rows_count);
+            Status st = wrapper(new_context.get(), tmp_block, {0}, 1, input_rows_count, nullptr);
             if (!st.ok()) {
                 // Fill with default values, which is null
                 col_to->assume_mutable()->insert_many_defaults(input_rows_count);
@@ -103,7 +104,8 @@ struct CastFromVariant {
 
 struct CastToVariant {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
         // auto& data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& from_type = col_with_type_and_name.type;

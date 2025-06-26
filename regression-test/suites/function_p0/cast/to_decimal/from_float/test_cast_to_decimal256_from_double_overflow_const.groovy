@@ -23,13 +23,13 @@ suite("test_cast_to_decimal256_from_double_overflow_const") {
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
     sql "set debug_skip_fold_constant = true;"
     sql "set enable_decimal256 = true;"
-    def test_cast_to_decimal256_76_0_from_double_overflow_vals = [("1.1e+76"),("-1.1e+76"),("inf"),("-inf"),("nan"),
-        ("-nan")]
+    sql "set debug_skip_fold_constant = true;"
+    def test_cast_to_decimal_76_0_from_double_invalid_0_test_data = ["""1.1e+76""","""-1.1e+76""","""inf""","""-inf""","""nan""","""-nan"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal256_76_0_from_double_overflow_vals) {
+        for (test_str in test_cast_to_decimal_76_0_from_double_invalid_0_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as double) as decimalv3(76, 0));"""
                 exception ""
@@ -38,20 +38,17 @@ suite("test_cast_to_decimal256_from_double_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal256_76_0_from_double_overflow_vals) {
-        qt_sql_test_cast_to_decimal256_76_0_from_double_overflow """select cast(cast("${test_str}" as double) as decimalv3(76, 0));"""
-    }
-
-    for (test_str in test_cast_to_decimal256_76_0_from_double_overflow_vals) {
+    for (test_str in test_cast_to_decimal_76_0_from_double_invalid_0_test_data) {
+        qt_sql_test_cast_to_decimal_76_0_from_double_invalid_0 """select cast(cast("${test_str}" as double) as decimalv3(76, 0));"""
         testFoldConst("""select cast(cast("${test_str}" as double) as decimalv3(76, 0));""")
     }
-    def test_cast_to_decimal256_76_38_from_double_overflow_vals = [("1.1e+38"),("-1.1e+38"),("inf"),("-inf"),("nan"),
-        ("-nan")]
+    sql "set debug_skip_fold_constant = true;"
+    def test_cast_to_decimal_76_38_from_double_invalid_1_test_data = ["""1.1e+38""","""-1.1e+38""","""inf""","""-inf""","""nan""","""-nan"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal256_76_38_from_double_overflow_vals) {
+        for (test_str in test_cast_to_decimal_76_38_from_double_invalid_1_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as double) as decimalv3(76, 38));"""
                 exception ""
@@ -60,20 +57,17 @@ suite("test_cast_to_decimal256_from_double_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal256_76_38_from_double_overflow_vals) {
-        qt_sql_test_cast_to_decimal256_76_38_from_double_overflow """select cast(cast("${test_str}" as double) as decimalv3(76, 38));"""
-    }
-
-    for (test_str in test_cast_to_decimal256_76_38_from_double_overflow_vals) {
+    for (test_str in test_cast_to_decimal_76_38_from_double_invalid_1_test_data) {
+        qt_sql_test_cast_to_decimal_76_38_from_double_invalid_1 """select cast(cast("${test_str}" as double) as decimalv3(76, 38));"""
         testFoldConst("""select cast(cast("${test_str}" as double) as decimalv3(76, 38));""")
     }
-    def test_cast_to_decimal256_76_75_from_double_overflow_vals = [("10"),("-10"),("inf"),("-inf"),("nan"),
-        ("-nan")]
+    sql "set debug_skip_fold_constant = true;"
+    def test_cast_to_decimal_76_75_from_double_invalid_2_test_data = ["""10""","""-10""","""inf""","""-inf""","""nan""","""-nan"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal256_76_75_from_double_overflow_vals) {
+        for (test_str in test_cast_to_decimal_76_75_from_double_invalid_2_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as double) as decimalv3(76, 75));"""
                 exception ""
@@ -82,11 +76,8 @@ suite("test_cast_to_decimal256_from_double_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal256_76_75_from_double_overflow_vals) {
-        qt_sql_test_cast_to_decimal256_76_75_from_double_overflow """select cast(cast("${test_str}" as double) as decimalv3(76, 75));"""
-    }
-
-    for (test_str in test_cast_to_decimal256_76_75_from_double_overflow_vals) {
+    for (test_str in test_cast_to_decimal_76_75_from_double_invalid_2_test_data) {
+        qt_sql_test_cast_to_decimal_76_75_from_double_invalid_2 """select cast(cast("${test_str}" as double) as decimalv3(76, 75));"""
         testFoldConst("""select cast(cast("${test_str}" as double) as decimalv3(76, 75));""")
     }
 }

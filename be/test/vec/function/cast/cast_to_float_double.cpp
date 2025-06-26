@@ -790,10 +790,10 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         constexpr auto large_integral3 =
                 large_integral2 > 9 ? large_integral2 + 1 : large_integral2 - 1;
         // constexpr auto min_integral = -max_integral;
-        std::cout << "max_integral:\t" << fmt::format("{}", max_integral) << std::endl;
-        std::cout << "large_integral1:\t" << fmt::format("{}", large_integral1) << std::endl;
-        std::cout << "large_integral2:\t" << fmt::format("{}", large_integral2) << std::endl;
-        std::cout << "large_integral3:\t" << fmt::format("{}", large_integral3) << std::endl;
+        // std::cout << "max_integral:\t" << fmt::format("{}", max_integral) << std::endl;
+        // std::cout << "large_integral1:\t" << fmt::format("{}", large_integral1) << std::endl;
+        // std::cout << "large_integral2:\t" << fmt::format("{}", large_integral2) << std::endl;
+        // std::cout << "large_integral3:\t" << fmt::format("{}", large_integral3) << std::endl;
 
         // max_fractional:    99999999
         // large_fractional1: 9999999
@@ -806,10 +806,10 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         constexpr auto large_fractional2 = max_fractional - large_fractional1;
         constexpr auto large_fractional3 =
                 large_fractional2 > 9 ? large_fractional2 + 1 : large_fractional2 - 1;
-        std::cout << "max_fractional:\t" << fmt::format("{}", max_fractional) << std::endl;
-        std::cout << "large_fractional1:\t" << fmt::format("{}", large_fractional1) << std::endl;
-        std::cout << "large_fractional2:\t" << fmt::format("{}", large_fractional2) << std::endl;
-        std::cout << "large_fractional3:\t" << fmt::format("{}", large_fractional3) << std::endl;
+        // std::cout << "max_fractional:\t" << fmt::format("{}", max_fractional) << std::endl;
+        // std::cout << "large_fractional1:\t" << fmt::format("{}", large_fractional1) << std::endl;
+        // std::cout << "large_fractional2:\t" << fmt::format("{}", large_fractional2) << std::endl;
+        // std::cout << "large_fractional3:\t" << fmt::format("{}", large_fractional3) << std::endl;
         std::set<typename FromT::NativeType> integral_part = {0, max_integral};
         if (max_integral > 0) {
             integral_part.emplace(1);
@@ -830,9 +830,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         }
         DataTypeDecimal<FromT::PType> dt(FromPrecision, FromScale);
         DataSet data_set;
-        std::string dbg_str = fmt::format(
-                "test cast {}({}, {}) to {}: ", type_to_string(FromT::PType), FromPrecision,
-                FromScale, std::is_same_v<FloatType, Float32> ? "float" : "double");
+        std::string dbg_str = fmt::format("test cast to {} from {}({}, {})\n",
+                                          std::is_same_v<FloatType, Float32> ? "float" : "double",
+                                          type_to_string(FromT::PType), FromPrecision, FromScale);
 
         auto scale_multiplier = decimal_scale_multiplier<typename FromT::NativeType>(FromScale);
         constexpr bool expect_inf =
@@ -892,13 +892,12 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                              dt.to_string(decimal_num));
                     have_inf = true;
                 }
-                dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
+                // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
                 data_set.push_back({{decimal_num}, float_v});
                 test_data_set.emplace_back(num_str, float_v);
 
                 decimal_num = decimal_ctor(-i, 0, FromScale);
                 num_str = dt.to_string(decimal_num);
-                // float_v = static_cast<FloatType>(-i);
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
@@ -912,7 +911,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                              dt.to_string(decimal_num));
                     have_inf = true;
                 }
-                dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), -i);
+                // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), -i);
                 data_set.push_back({{decimal_num}, FloatType(-i)});
                 test_data_set.emplace_back(num_str, FloatType(-i));
             }
@@ -928,7 +927,6 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             for (const auto& f : fractional_part) {
                 auto decimal_num = decimal_ctor(0, f, FromScale);
                 auto num_str = dt.to_string(decimal_num);
-                // auto float_v = FloatType(f) / scale_multiplier;
                 FloatType float_v;
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
@@ -937,13 +935,12 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                     float_v = static_cast<double>(decimal_num.value) /
                               static_cast<double>(scale_multiplier);
                 }
-                dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
+                // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
                 data_set.push_back({{decimal_num}, float_v});
                 test_data_set.emplace_back(num_str, float_v);
 
                 decimal_num = decimal_ctor(0, -f, FromScale);
                 num_str = dt.to_string(decimal_num);
-                // float_v = FloatType(-f) / scale_multiplier;
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
@@ -951,7 +948,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                     float_v = static_cast<double>(decimal_num.value) /
                               static_cast<double>(scale_multiplier);
                 }
-                dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
+                // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
                 data_set.push_back({{decimal_num}, float_v});
                 test_data_set.emplace_back(num_str, float_v);
             }
@@ -968,7 +965,6 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             for (const auto& f : fractional_part) {
                 auto decimal_num = decimal_ctor(i, f, FromScale);
                 auto num_str = dt.to_string(decimal_num);
-                /// auto float_v = static_cast<FloatType>(decimal_num.value) / scale_multiplier;
                 FloatType float_v;
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
@@ -983,13 +979,12 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                              dt.to_string(decimal_num));
                     have_inf = true;
                 }
-                dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
+                // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
                 data_set.push_back({{decimal_num}, float_v});
                 test_data_set.emplace_back(num_str, float_v);
 
                 decimal_num = decimal_ctor(-i, -f, FromScale);
                 num_str = dt.to_string(decimal_num);
-                // float_v = static_cast<FloatType>(decimal_num.value) / scale_multiplier;
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
@@ -1069,10 +1064,10 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         constexpr auto large_integral2 = max_integral - large_integral1;
         constexpr auto large_integral3 =
                 large_integral2 > 9 ? large_integral2 + 1 : large_integral2 - 1;
-        std::cout << "max_integral:\t" << fmt::format("{}", max_integral) << std::endl;
-        std::cout << "large_integral1:\t" << fmt::format("{}", large_integral1) << std::endl;
-        std::cout << "large_integral2:\t" << fmt::format("{}", large_integral2) << std::endl;
-        std::cout << "large_integral3:\t" << fmt::format("{}", large_integral3) << std::endl;
+        // std::cout << "max_integral:\t" << fmt::format("{}", max_integral) << std::endl;
+        // std::cout << "large_integral1:\t" << fmt::format("{}", large_integral1) << std::endl;
+        // std::cout << "large_integral2:\t" << fmt::format("{}", large_integral2) << std::endl;
+        // std::cout << "large_integral3:\t" << fmt::format("{}", large_integral3) << std::endl;
 
         constexpr auto max_fractional =
                 decimal_scale_multiplier<typename FromT::NativeType>(FromScale) - 1;
@@ -1081,10 +1076,10 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         constexpr auto large_fractional2 = max_fractional - large_fractional1;
         constexpr auto large_fractional3 =
                 large_fractional2 > 9 ? large_fractional2 + 1 : large_fractional2 - 1;
-        std::cout << "max_fractional:\t" << fmt::format("{}", max_fractional) << std::endl;
-        std::cout << "large_fractional1:\t" << fmt::format("{}", large_fractional1) << std::endl;
-        std::cout << "large_fractional2:\t" << fmt::format("{}", large_fractional2) << std::endl;
-        std::cout << "large_fractional3:\t" << fmt::format("{}", large_fractional3) << std::endl;
+        // std::cout << "max_fractional:\t" << fmt::format("{}", max_fractional) << std::endl;
+        // std::cout << "large_fractional1:\t" << fmt::format("{}", large_fractional1) << std::endl;
+        // std::cout << "large_fractional2:\t" << fmt::format("{}", large_fractional2) << std::endl;
+        // std::cout << "large_fractional3:\t" << fmt::format("{}", large_fractional3) << std::endl;
 
         std::set<typename FromT::NativeType> integral_part = {max_integral, large_integral2,
                                                               large_integral3};
@@ -1092,9 +1087,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 0, max_fractional, large_fractional1, large_fractional2, large_fractional3,
         };
         DataSet data_set;
-        std::string dbg_str = fmt::format(
-                "test cast {}({}, {}) to {} overflow: ", type_to_string(FromT::PType),
-                FromPrecision, FromScale, std::is_same_v<FloatType, Float32> ? "float" : "double");
+        std::string dbg_str = fmt::format("test cast to {} from {}({}, {}) overflow\n",
+                                          std::is_same_v<FloatType, Float32> ? "float" : "double",
+                                          type_to_string(FromT::PType), FromPrecision, FromScale);
 
         std::vector<std::pair<std::string, FloatType>> test_data_set;
         Defer defer {[&]() {
@@ -1113,13 +1108,13 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             for (const auto& i : integral_part) {
                 auto decimal_num = decimal_ctor(i, 0, FromScale);
                 auto num_str = dt_from.to_string(decimal_num);
-                dbg_str += fmt::format("{}, ", num_str);
+                // dbg_str += fmt::format("{}, ", num_str);
                 data_set.push_back({{decimal_num}, std::numeric_limits<FloatType>::infinity()});
                 test_data_set.emplace_back(num_str, std::numeric_limits<FloatType>::infinity());
 
                 decimal_num = decimal_ctor(-i, 0, FromScale);
                 num_str = dt_from.to_string(decimal_num);
-                dbg_str += fmt::format("{}, ", num_str);
+                // dbg_str += fmt::format("{}, ", num_str);
                 data_set.push_back({{decimal_num}, -std::numeric_limits<FloatType>::infinity()});
                 test_data_set.emplace_back(num_str, -std::numeric_limits<FloatType>::infinity());
             }
@@ -1138,13 +1133,13 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             for (const auto& f : fractional_part) {
                 auto decimal_num = decimal_ctor(i, f, FromScale);
                 auto num_str = dt_from.to_string(decimal_num);
-                dbg_str += fmt::format("{}, ", num_str);
+                // dbg_str += fmt::format("{}, ", num_str);
                 data_set.push_back({{decimal_num}, std::numeric_limits<FloatType>::infinity()});
                 test_data_set.emplace_back(num_str, std::numeric_limits<FloatType>::infinity());
 
                 decimal_num = decimal_ctor(-i, -f, FromScale);
                 num_str = dt_from.to_string(decimal_num);
-                dbg_str += fmt::format("{}, ", num_str);
+                // dbg_str += fmt::format("{}, ", num_str);
                 data_set.push_back({{decimal_num}, -std::numeric_limits<FloatType>::infinity()});
                 test_data_set.emplace_back(num_str, -std::numeric_limits<FloatType>::infinity());
             }
@@ -1223,7 +1218,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         std::vector<uint8_t> days = {1, 2, 9, 10, 11, 28};
         DataTypeDateV2 dt;
         std::string to_sql_type_name = get_sql_type_name(FloatPType);
-        std::string dbg_str = fmt::format("test cast date to {}: ", to_sql_type_name);
+        std::string dbg_str = fmt::format("test cast to {} from date\n", to_sql_type_name);
         DataSet data_set;
         std::vector<std::pair<std::string, FloatType>> regression_test_data_set;
         for (auto year : years) {
@@ -1231,8 +1226,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 for (auto day : days) {
                     DateV2Value<DateV2ValueType> date_val(year, month, day, 0, 0, 0, 0);
                     FloatType expect_cast_result = year * 10000 + month * 100 + day;
-                    dbg_str += fmt::format("({}, {})|", dt.to_string(date_val.to_date_int_val()),
-                                           expect_cast_result);
+                    // dbg_str += fmt::format("({}, {})|", dt.to_string(date_val.to_date_int_val()),
+                    //                        expect_cast_result);
                     data_set.push_back({{date_val}, expect_cast_result});
                     if (FLAGS_gen_regression_case) {
                         regression_test_data_set.push_back(
@@ -1291,7 +1286,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         DataTypeDateTimeV2 dt(Scale);
         std::string to_sql_type_name = get_sql_type_name(FloatPType);
         std::string dbg_str =
-                fmt::format("test cast datetimev2({}) to {}: ", Scale, to_sql_type_name);
+                fmt::format("test cast to {} from datetimev2({})\n", Scale, to_sql_type_name);
         DataSet data_set;
         std::vector<std::pair<std::string, FloatType>> regression_test_data_set;
         for (auto year : years) {
@@ -1386,7 +1381,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         std::vector<int64_t> seconds = {0, 1, 10, 59};
 
         std::string to_sql_type_name = get_sql_type_name(ToPT);
-        std::string dbg_str = fmt::format("test cast time to {}: ", to_sql_type_name);
+        std::string dbg_str = fmt::format("test cast to {} from time\n", to_sql_type_name);
         std::vector<std::pair<std::string, ToT>> regression_test_data_set;
         auto test_func = [&](bool negative) {
             DataSet data_set;
@@ -1397,9 +1392,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                 doris::TimeValue::make_time_with_negative(negative, h, m, s);
                         auto expect_cast_result = static_cast<ToT>(time_val);
                         data_set.push_back({{time_val}, expect_cast_result});
-                        dbg_str +=
-                                fmt::format("({}, {})|", doris::TimeValue::to_string(time_val, 6),
-                                            expect_cast_result);
+                        // dbg_str +=
+                        //         fmt::format("({}, {})|", doris::TimeValue::to_string(time_val, 6),
+                        //                     expect_cast_result);
                         if (FLAGS_gen_regression_case) {
                             regression_test_data_set.emplace_back(
                                     doris::TimeValue::to_string(time_val, 6), expect_cast_result);

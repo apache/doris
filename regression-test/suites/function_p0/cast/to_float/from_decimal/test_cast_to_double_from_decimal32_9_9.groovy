@@ -21,15 +21,27 @@ suite("test_cast_to_double_from_decimal32_9_9") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_double_from_decimal32_9_9_0;"
-    sql "create table test_cast_to_double_from_decimal32_9_9_0(f1 int, f2 decimalv3(9, 9)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_double_from_decimal32_9_9_0 values (0, "0.000000000"),(1, "0.000000000"),(2, "0.000000001"),(3, "-0.000000001"),(4, "0.000000009"),(5, "-0.000000009"),(6, "0.099999999"),(7, "-0.099999999"),(8, "0.900000000"),(9, "-0.900000000"),(10, "0.900000001"),(11, "-0.900000001"),(12, "0.999999998"),(13, "-0.999999998"),(14, "0.999999999"),(15, "-0.999999999");
+    sql "drop table if exists test_cast_to_double_from_decimal32_9_9_0_nullable;"
+    sql "create table test_cast_to_double_from_decimal32_9_9_0_nullable(f1 int, f2 decimalv3(9, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_double_from_decimal32_9_9_0_nullable values (0, "0.000000000"),(1, "0.000000000"),(2, "0.000000001"),(3, "-0.000000001"),(4, "0.000000009"),(5, "-0.000000009"),(6, "0.099999999"),(7, "-0.099999999"),(8, "0.900000000"),(9, "-0.900000000"),(10, "0.900000001"),(11, "-0.900000001"),(12, "0.999999998"),(13, "-0.999999998"),(14, "0.999999999"),(15, "-0.999999999")
+      ,(16, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal32_9_9_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal32_9_9_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal32_9_9_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal32_9_9_0_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_double_from_decimal32_9_9_0_not_nullable;"
+    sql "create table test_cast_to_double_from_decimal32_9_9_0_not_nullable(f1 int, f2 decimalv3(9, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_double_from_decimal32_9_9_0_not_nullable values (0, "0.000000000"),(1, "0.000000000"),(2, "0.000000001"),(3, "-0.000000001"),(4, "0.000000009"),(5, "-0.000000009"),(6, "0.099999999"),(7, "-0.099999999"),(8, "0.900000000"),(9, "-0.900000000"),(10, "0.900000001"),(11, "-0.900000001"),(12, "0.999999998"),(13, "-0.999999998"),(14, "0.999999999"),(15, "-0.999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_0_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal32_9_9_0_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_0_non_strict 'select f1, cast(f2 as double) from test_cast_to_double_from_decimal32_9_9_0_not_nullable order by 1;'
 
 }

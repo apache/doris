@@ -22,176 +22,179 @@ suite("test_cast_to_decimal64_18_18_from_str_const") {
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
     sql "set debug_skip_fold_constant = true;"
+    sql "set debug_skip_fold_constant = true;"
+
     sql "set enable_strict_cast=true;"
-    def const_sql_5134 = """select cast("0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647" as decimalv3(18, 18));"""
-    qt_sql_5134_strict "${const_sql_5134}"
-    testFoldConst("${const_sql_5134}")
-    def const_sql_5135 = """select cast("-0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647" as decimalv3(18, 18));"""
-    qt_sql_5135_strict "${const_sql_5135}"
-    testFoldConst("${const_sql_5135}")
-    def const_sql_5136 = """select cast(".0000000000000000004" as decimalv3(18, 18));"""
-    qt_sql_5136_strict "${const_sql_5136}"
-    testFoldConst("${const_sql_5136}")
-    def const_sql_5137 = """select cast(".0000000000000000014" as decimalv3(18, 18));"""
-    qt_sql_5137_strict "${const_sql_5137}"
-    testFoldConst("${const_sql_5137}")
-    def const_sql_5138 = """select cast(".0000000000000000094" as decimalv3(18, 18));"""
-    qt_sql_5138_strict "${const_sql_5138}"
-    testFoldConst("${const_sql_5138}")
-    def const_sql_5139 = """select cast(".0999999999999999994" as decimalv3(18, 18));"""
-    qt_sql_5139_strict "${const_sql_5139}"
-    testFoldConst("${const_sql_5139}")
-    def const_sql_5140 = """select cast(".9000000000000000004" as decimalv3(18, 18));"""
-    qt_sql_5140_strict "${const_sql_5140}"
-    testFoldConst("${const_sql_5140}")
-    def const_sql_5141 = """select cast(".9000000000000000014" as decimalv3(18, 18));"""
-    qt_sql_5141_strict "${const_sql_5141}"
-    testFoldConst("${const_sql_5141}")
-    def const_sql_5142 = """select cast(".9999999999999999984" as decimalv3(18, 18));"""
-    qt_sql_5142_strict "${const_sql_5142}"
-    testFoldConst("${const_sql_5142}")
-    def const_sql_5143 = """select cast(".9999999999999999994" as decimalv3(18, 18));"""
-    qt_sql_5143_strict "${const_sql_5143}"
-    testFoldConst("${const_sql_5143}")
-    def const_sql_5144 = """select cast(".0000000000000000005" as decimalv3(18, 18));"""
-    qt_sql_5144_strict "${const_sql_5144}"
-    testFoldConst("${const_sql_5144}")
-    def const_sql_5145 = """select cast(".0000000000000000015" as decimalv3(18, 18));"""
-    qt_sql_5145_strict "${const_sql_5145}"
-    testFoldConst("${const_sql_5145}")
-    def const_sql_5146 = """select cast(".0000000000000000095" as decimalv3(18, 18));"""
-    qt_sql_5146_strict "${const_sql_5146}"
-    testFoldConst("${const_sql_5146}")
-    def const_sql_5147 = """select cast(".0999999999999999995" as decimalv3(18, 18));"""
-    qt_sql_5147_strict "${const_sql_5147}"
-    testFoldConst("${const_sql_5147}")
-    def const_sql_5148 = """select cast(".9000000000000000005" as decimalv3(18, 18));"""
-    qt_sql_5148_strict "${const_sql_5148}"
-    testFoldConst("${const_sql_5148}")
-    def const_sql_5149 = """select cast(".9000000000000000015" as decimalv3(18, 18));"""
-    qt_sql_5149_strict "${const_sql_5149}"
-    testFoldConst("${const_sql_5149}")
-    def const_sql_5150 = """select cast(".9999999999999999985" as decimalv3(18, 18));"""
-    qt_sql_5150_strict "${const_sql_5150}"
-    testFoldConst("${const_sql_5150}")
-    def const_sql_5151 = """select cast(".9999999999999999994" as decimalv3(18, 18));"""
-    qt_sql_5151_strict "${const_sql_5151}"
-    testFoldConst("${const_sql_5151}")
-    def const_sql_5152 = """select cast("-.0000000000000000004" as decimalv3(18, 18));"""
-    qt_sql_5152_strict "${const_sql_5152}"
-    testFoldConst("${const_sql_5152}")
-    def const_sql_5153 = """select cast("-.0000000000000000014" as decimalv3(18, 18));"""
-    qt_sql_5153_strict "${const_sql_5153}"
-    testFoldConst("${const_sql_5153}")
-    def const_sql_5154 = """select cast("-.0000000000000000094" as decimalv3(18, 18));"""
-    qt_sql_5154_strict "${const_sql_5154}"
-    testFoldConst("${const_sql_5154}")
-    def const_sql_5155 = """select cast("-.0999999999999999994" as decimalv3(18, 18));"""
-    qt_sql_5155_strict "${const_sql_5155}"
-    testFoldConst("${const_sql_5155}")
-    def const_sql_5156 = """select cast("-.9000000000000000004" as decimalv3(18, 18));"""
-    qt_sql_5156_strict "${const_sql_5156}"
-    testFoldConst("${const_sql_5156}")
-    def const_sql_5157 = """select cast("-.9000000000000000014" as decimalv3(18, 18));"""
-    qt_sql_5157_strict "${const_sql_5157}"
-    testFoldConst("${const_sql_5157}")
-    def const_sql_5158 = """select cast("-.9999999999999999984" as decimalv3(18, 18));"""
-    qt_sql_5158_strict "${const_sql_5158}"
-    testFoldConst("${const_sql_5158}")
-    def const_sql_5159 = """select cast("-.9999999999999999994" as decimalv3(18, 18));"""
-    qt_sql_5159_strict "${const_sql_5159}"
-    testFoldConst("${const_sql_5159}")
-    def const_sql_5160 = """select cast("-.0000000000000000005" as decimalv3(18, 18));"""
-    qt_sql_5160_strict "${const_sql_5160}"
-    testFoldConst("${const_sql_5160}")
-    def const_sql_5161 = """select cast("-.0000000000000000015" as decimalv3(18, 18));"""
-    qt_sql_5161_strict "${const_sql_5161}"
-    testFoldConst("${const_sql_5161}")
-    def const_sql_5162 = """select cast("-.0000000000000000095" as decimalv3(18, 18));"""
-    qt_sql_5162_strict "${const_sql_5162}"
-    testFoldConst("${const_sql_5162}")
-    def const_sql_5163 = """select cast("-.0999999999999999995" as decimalv3(18, 18));"""
-    qt_sql_5163_strict "${const_sql_5163}"
-    testFoldConst("${const_sql_5163}")
-    def const_sql_5164 = """select cast("-.9000000000000000005" as decimalv3(18, 18));"""
-    qt_sql_5164_strict "${const_sql_5164}"
-    testFoldConst("${const_sql_5164}")
-    def const_sql_5165 = """select cast("-.9000000000000000015" as decimalv3(18, 18));"""
-    qt_sql_5165_strict "${const_sql_5165}"
-    testFoldConst("${const_sql_5165}")
-    def const_sql_5166 = """select cast("-.9999999999999999985" as decimalv3(18, 18));"""
-    qt_sql_5166_strict "${const_sql_5166}"
-    testFoldConst("${const_sql_5166}")
-    def const_sql_5167 = """select cast("-.9999999999999999994" as decimalv3(18, 18));"""
-    qt_sql_5167_strict "${const_sql_5167}"
-    testFoldConst("${const_sql_5167}")
+    def const_sql_23_0 = """select "0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647", cast(cast("0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647" as string) as decimalv3(18, 18));"""
+    qt_sql_23_0_strict "${const_sql_23_0}"
+    testFoldConst("${const_sql_23_0}")
+    def const_sql_23_1 = """select "-0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647", cast(cast("-0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647" as string) as decimalv3(18, 18));"""
+    qt_sql_23_1_strict "${const_sql_23_1}"
+    testFoldConst("${const_sql_23_1}")
+    def const_sql_23_2 = """select ".0000000000000000004", cast(cast(".0000000000000000004" as string) as decimalv3(18, 18));"""
+    qt_sql_23_2_strict "${const_sql_23_2}"
+    testFoldConst("${const_sql_23_2}")
+    def const_sql_23_3 = """select ".0000000000000000014", cast(cast(".0000000000000000014" as string) as decimalv3(18, 18));"""
+    qt_sql_23_3_strict "${const_sql_23_3}"
+    testFoldConst("${const_sql_23_3}")
+    def const_sql_23_4 = """select ".0000000000000000094", cast(cast(".0000000000000000094" as string) as decimalv3(18, 18));"""
+    qt_sql_23_4_strict "${const_sql_23_4}"
+    testFoldConst("${const_sql_23_4}")
+    def const_sql_23_5 = """select ".0999999999999999994", cast(cast(".0999999999999999994" as string) as decimalv3(18, 18));"""
+    qt_sql_23_5_strict "${const_sql_23_5}"
+    testFoldConst("${const_sql_23_5}")
+    def const_sql_23_6 = """select ".9000000000000000004", cast(cast(".9000000000000000004" as string) as decimalv3(18, 18));"""
+    qt_sql_23_6_strict "${const_sql_23_6}"
+    testFoldConst("${const_sql_23_6}")
+    def const_sql_23_7 = """select ".9000000000000000014", cast(cast(".9000000000000000014" as string) as decimalv3(18, 18));"""
+    qt_sql_23_7_strict "${const_sql_23_7}"
+    testFoldConst("${const_sql_23_7}")
+    def const_sql_23_8 = """select ".9999999999999999984", cast(cast(".9999999999999999984" as string) as decimalv3(18, 18));"""
+    qt_sql_23_8_strict "${const_sql_23_8}"
+    testFoldConst("${const_sql_23_8}")
+    def const_sql_23_9 = """select ".9999999999999999994", cast(cast(".9999999999999999994" as string) as decimalv3(18, 18));"""
+    qt_sql_23_9_strict "${const_sql_23_9}"
+    testFoldConst("${const_sql_23_9}")
+    def const_sql_23_10 = """select ".0000000000000000005", cast(cast(".0000000000000000005" as string) as decimalv3(18, 18));"""
+    qt_sql_23_10_strict "${const_sql_23_10}"
+    testFoldConst("${const_sql_23_10}")
+    def const_sql_23_11 = """select ".0000000000000000015", cast(cast(".0000000000000000015" as string) as decimalv3(18, 18));"""
+    qt_sql_23_11_strict "${const_sql_23_11}"
+    testFoldConst("${const_sql_23_11}")
+    def const_sql_23_12 = """select ".0000000000000000095", cast(cast(".0000000000000000095" as string) as decimalv3(18, 18));"""
+    qt_sql_23_12_strict "${const_sql_23_12}"
+    testFoldConst("${const_sql_23_12}")
+    def const_sql_23_13 = """select ".0999999999999999995", cast(cast(".0999999999999999995" as string) as decimalv3(18, 18));"""
+    qt_sql_23_13_strict "${const_sql_23_13}"
+    testFoldConst("${const_sql_23_13}")
+    def const_sql_23_14 = """select ".9000000000000000005", cast(cast(".9000000000000000005" as string) as decimalv3(18, 18));"""
+    qt_sql_23_14_strict "${const_sql_23_14}"
+    testFoldConst("${const_sql_23_14}")
+    def const_sql_23_15 = """select ".9000000000000000015", cast(cast(".9000000000000000015" as string) as decimalv3(18, 18));"""
+    qt_sql_23_15_strict "${const_sql_23_15}"
+    testFoldConst("${const_sql_23_15}")
+    def const_sql_23_16 = """select ".9999999999999999985", cast(cast(".9999999999999999985" as string) as decimalv3(18, 18));"""
+    qt_sql_23_16_strict "${const_sql_23_16}"
+    testFoldConst("${const_sql_23_16}")
+    def const_sql_23_17 = """select ".9999999999999999994", cast(cast(".9999999999999999994" as string) as decimalv3(18, 18));"""
+    qt_sql_23_17_strict "${const_sql_23_17}"
+    testFoldConst("${const_sql_23_17}")
+    def const_sql_23_18 = """select "-.0000000000000000004", cast(cast("-.0000000000000000004" as string) as decimalv3(18, 18));"""
+    qt_sql_23_18_strict "${const_sql_23_18}"
+    testFoldConst("${const_sql_23_18}")
+    def const_sql_23_19 = """select "-.0000000000000000014", cast(cast("-.0000000000000000014" as string) as decimalv3(18, 18));"""
+    qt_sql_23_19_strict "${const_sql_23_19}"
+    testFoldConst("${const_sql_23_19}")
+    def const_sql_23_20 = """select "-.0000000000000000094", cast(cast("-.0000000000000000094" as string) as decimalv3(18, 18));"""
+    qt_sql_23_20_strict "${const_sql_23_20}"
+    testFoldConst("${const_sql_23_20}")
+    def const_sql_23_21 = """select "-.0999999999999999994", cast(cast("-.0999999999999999994" as string) as decimalv3(18, 18));"""
+    qt_sql_23_21_strict "${const_sql_23_21}"
+    testFoldConst("${const_sql_23_21}")
+    def const_sql_23_22 = """select "-.9000000000000000004", cast(cast("-.9000000000000000004" as string) as decimalv3(18, 18));"""
+    qt_sql_23_22_strict "${const_sql_23_22}"
+    testFoldConst("${const_sql_23_22}")
+    def const_sql_23_23 = """select "-.9000000000000000014", cast(cast("-.9000000000000000014" as string) as decimalv3(18, 18));"""
+    qt_sql_23_23_strict "${const_sql_23_23}"
+    testFoldConst("${const_sql_23_23}")
+    def const_sql_23_24 = """select "-.9999999999999999984", cast(cast("-.9999999999999999984" as string) as decimalv3(18, 18));"""
+    qt_sql_23_24_strict "${const_sql_23_24}"
+    testFoldConst("${const_sql_23_24}")
+    def const_sql_23_25 = """select "-.9999999999999999994", cast(cast("-.9999999999999999994" as string) as decimalv3(18, 18));"""
+    qt_sql_23_25_strict "${const_sql_23_25}"
+    testFoldConst("${const_sql_23_25}")
+    def const_sql_23_26 = """select "-.0000000000000000005", cast(cast("-.0000000000000000005" as string) as decimalv3(18, 18));"""
+    qt_sql_23_26_strict "${const_sql_23_26}"
+    testFoldConst("${const_sql_23_26}")
+    def const_sql_23_27 = """select "-.0000000000000000015", cast(cast("-.0000000000000000015" as string) as decimalv3(18, 18));"""
+    qt_sql_23_27_strict "${const_sql_23_27}"
+    testFoldConst("${const_sql_23_27}")
+    def const_sql_23_28 = """select "-.0000000000000000095", cast(cast("-.0000000000000000095" as string) as decimalv3(18, 18));"""
+    qt_sql_23_28_strict "${const_sql_23_28}"
+    testFoldConst("${const_sql_23_28}")
+    def const_sql_23_29 = """select "-.0999999999999999995", cast(cast("-.0999999999999999995" as string) as decimalv3(18, 18));"""
+    qt_sql_23_29_strict "${const_sql_23_29}"
+    testFoldConst("${const_sql_23_29}")
+    def const_sql_23_30 = """select "-.9000000000000000005", cast(cast("-.9000000000000000005" as string) as decimalv3(18, 18));"""
+    qt_sql_23_30_strict "${const_sql_23_30}"
+    testFoldConst("${const_sql_23_30}")
+    def const_sql_23_31 = """select "-.9000000000000000015", cast(cast("-.9000000000000000015" as string) as decimalv3(18, 18));"""
+    qt_sql_23_31_strict "${const_sql_23_31}"
+    testFoldConst("${const_sql_23_31}")
+    def const_sql_23_32 = """select "-.9999999999999999985", cast(cast("-.9999999999999999985" as string) as decimalv3(18, 18));"""
+    qt_sql_23_32_strict "${const_sql_23_32}"
+    testFoldConst("${const_sql_23_32}")
+    def const_sql_23_33 = """select "-.9999999999999999994", cast(cast("-.9999999999999999994" as string) as decimalv3(18, 18));"""
+    qt_sql_23_33_strict "${const_sql_23_33}"
+    testFoldConst("${const_sql_23_33}")
+
     sql "set enable_strict_cast=false;"
-    qt_sql_5134_non_strict "${const_sql_5134}"
-    testFoldConst("${const_sql_5134}")
-    qt_sql_5135_non_strict "${const_sql_5135}"
-    testFoldConst("${const_sql_5135}")
-    qt_sql_5136_non_strict "${const_sql_5136}"
-    testFoldConst("${const_sql_5136}")
-    qt_sql_5137_non_strict "${const_sql_5137}"
-    testFoldConst("${const_sql_5137}")
-    qt_sql_5138_non_strict "${const_sql_5138}"
-    testFoldConst("${const_sql_5138}")
-    qt_sql_5139_non_strict "${const_sql_5139}"
-    testFoldConst("${const_sql_5139}")
-    qt_sql_5140_non_strict "${const_sql_5140}"
-    testFoldConst("${const_sql_5140}")
-    qt_sql_5141_non_strict "${const_sql_5141}"
-    testFoldConst("${const_sql_5141}")
-    qt_sql_5142_non_strict "${const_sql_5142}"
-    testFoldConst("${const_sql_5142}")
-    qt_sql_5143_non_strict "${const_sql_5143}"
-    testFoldConst("${const_sql_5143}")
-    qt_sql_5144_non_strict "${const_sql_5144}"
-    testFoldConst("${const_sql_5144}")
-    qt_sql_5145_non_strict "${const_sql_5145}"
-    testFoldConst("${const_sql_5145}")
-    qt_sql_5146_non_strict "${const_sql_5146}"
-    testFoldConst("${const_sql_5146}")
-    qt_sql_5147_non_strict "${const_sql_5147}"
-    testFoldConst("${const_sql_5147}")
-    qt_sql_5148_non_strict "${const_sql_5148}"
-    testFoldConst("${const_sql_5148}")
-    qt_sql_5149_non_strict "${const_sql_5149}"
-    testFoldConst("${const_sql_5149}")
-    qt_sql_5150_non_strict "${const_sql_5150}"
-    testFoldConst("${const_sql_5150}")
-    qt_sql_5151_non_strict "${const_sql_5151}"
-    testFoldConst("${const_sql_5151}")
-    qt_sql_5152_non_strict "${const_sql_5152}"
-    testFoldConst("${const_sql_5152}")
-    qt_sql_5153_non_strict "${const_sql_5153}"
-    testFoldConst("${const_sql_5153}")
-    qt_sql_5154_non_strict "${const_sql_5154}"
-    testFoldConst("${const_sql_5154}")
-    qt_sql_5155_non_strict "${const_sql_5155}"
-    testFoldConst("${const_sql_5155}")
-    qt_sql_5156_non_strict "${const_sql_5156}"
-    testFoldConst("${const_sql_5156}")
-    qt_sql_5157_non_strict "${const_sql_5157}"
-    testFoldConst("${const_sql_5157}")
-    qt_sql_5158_non_strict "${const_sql_5158}"
-    testFoldConst("${const_sql_5158}")
-    qt_sql_5159_non_strict "${const_sql_5159}"
-    testFoldConst("${const_sql_5159}")
-    qt_sql_5160_non_strict "${const_sql_5160}"
-    testFoldConst("${const_sql_5160}")
-    qt_sql_5161_non_strict "${const_sql_5161}"
-    testFoldConst("${const_sql_5161}")
-    qt_sql_5162_non_strict "${const_sql_5162}"
-    testFoldConst("${const_sql_5162}")
-    qt_sql_5163_non_strict "${const_sql_5163}"
-    testFoldConst("${const_sql_5163}")
-    qt_sql_5164_non_strict "${const_sql_5164}"
-    testFoldConst("${const_sql_5164}")
-    qt_sql_5165_non_strict "${const_sql_5165}"
-    testFoldConst("${const_sql_5165}")
-    qt_sql_5166_non_strict "${const_sql_5166}"
-    testFoldConst("${const_sql_5166}")
-    qt_sql_5167_non_strict "${const_sql_5167}"
-    testFoldConst("${const_sql_5167}")
+    qt_sql_23_0_non_strict "${const_sql_23_0}"
+    testFoldConst("${const_sql_23_0}")
+    qt_sql_23_1_non_strict "${const_sql_23_1}"
+    testFoldConst("${const_sql_23_1}")
+    qt_sql_23_2_non_strict "${const_sql_23_2}"
+    testFoldConst("${const_sql_23_2}")
+    qt_sql_23_3_non_strict "${const_sql_23_3}"
+    testFoldConst("${const_sql_23_3}")
+    qt_sql_23_4_non_strict "${const_sql_23_4}"
+    testFoldConst("${const_sql_23_4}")
+    qt_sql_23_5_non_strict "${const_sql_23_5}"
+    testFoldConst("${const_sql_23_5}")
+    qt_sql_23_6_non_strict "${const_sql_23_6}"
+    testFoldConst("${const_sql_23_6}")
+    qt_sql_23_7_non_strict "${const_sql_23_7}"
+    testFoldConst("${const_sql_23_7}")
+    qt_sql_23_8_non_strict "${const_sql_23_8}"
+    testFoldConst("${const_sql_23_8}")
+    qt_sql_23_9_non_strict "${const_sql_23_9}"
+    testFoldConst("${const_sql_23_9}")
+    qt_sql_23_10_non_strict "${const_sql_23_10}"
+    testFoldConst("${const_sql_23_10}")
+    qt_sql_23_11_non_strict "${const_sql_23_11}"
+    testFoldConst("${const_sql_23_11}")
+    qt_sql_23_12_non_strict "${const_sql_23_12}"
+    testFoldConst("${const_sql_23_12}")
+    qt_sql_23_13_non_strict "${const_sql_23_13}"
+    testFoldConst("${const_sql_23_13}")
+    qt_sql_23_14_non_strict "${const_sql_23_14}"
+    testFoldConst("${const_sql_23_14}")
+    qt_sql_23_15_non_strict "${const_sql_23_15}"
+    testFoldConst("${const_sql_23_15}")
+    qt_sql_23_16_non_strict "${const_sql_23_16}"
+    testFoldConst("${const_sql_23_16}")
+    qt_sql_23_17_non_strict "${const_sql_23_17}"
+    testFoldConst("${const_sql_23_17}")
+    qt_sql_23_18_non_strict "${const_sql_23_18}"
+    testFoldConst("${const_sql_23_18}")
+    qt_sql_23_19_non_strict "${const_sql_23_19}"
+    testFoldConst("${const_sql_23_19}")
+    qt_sql_23_20_non_strict "${const_sql_23_20}"
+    testFoldConst("${const_sql_23_20}")
+    qt_sql_23_21_non_strict "${const_sql_23_21}"
+    testFoldConst("${const_sql_23_21}")
+    qt_sql_23_22_non_strict "${const_sql_23_22}"
+    testFoldConst("${const_sql_23_22}")
+    qt_sql_23_23_non_strict "${const_sql_23_23}"
+    testFoldConst("${const_sql_23_23}")
+    qt_sql_23_24_non_strict "${const_sql_23_24}"
+    testFoldConst("${const_sql_23_24}")
+    qt_sql_23_25_non_strict "${const_sql_23_25}"
+    testFoldConst("${const_sql_23_25}")
+    qt_sql_23_26_non_strict "${const_sql_23_26}"
+    testFoldConst("${const_sql_23_26}")
+    qt_sql_23_27_non_strict "${const_sql_23_27}"
+    testFoldConst("${const_sql_23_27}")
+    qt_sql_23_28_non_strict "${const_sql_23_28}"
+    testFoldConst("${const_sql_23_28}")
+    qt_sql_23_29_non_strict "${const_sql_23_29}"
+    testFoldConst("${const_sql_23_29}")
+    qt_sql_23_30_non_strict "${const_sql_23_30}"
+    testFoldConst("${const_sql_23_30}")
+    qt_sql_23_31_non_strict "${const_sql_23_31}"
+    testFoldConst("${const_sql_23_31}")
+    qt_sql_23_32_non_strict "${const_sql_23_32}"
+    testFoldConst("${const_sql_23_32}")
+    qt_sql_23_33_non_strict "${const_sql_23_33}"
+    testFoldConst("${const_sql_23_33}")
 }

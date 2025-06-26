@@ -57,8 +57,6 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         test_vals.push_back(min_val_plus_1);
 
         std::vector<std::pair<std::string, T>> data_pairs;
-        std::string table_test_expected_results;
-        int data_index = 0;
 
         // test leading zeros, sign, leading and trailing white spaces for positive values
         auto tmp_test_func = [&](bool with_spaces, bool with_sign, bool leading_zeros) {
@@ -107,7 +105,6 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                 } else {
                     data_set.push_back({{v_str}, v});
                     data_pairs.emplace_back(v_str, v);
-                    table_test_expected_results += fmt::format("{}\t{}\n", data_index++, v);
                 }
             }
             std::string dbg_str;

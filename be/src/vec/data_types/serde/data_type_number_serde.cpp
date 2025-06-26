@@ -580,9 +580,9 @@ Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(const ColumnString& str,
-                                                             IColumn& column,
-                                                             const FormatOptions& options) const {
+Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
+        const ColumnString& str, IColumn& column, const FormatOptions& options,
+        const NullMap::value_type* null_map) const {
     const auto size = str.size();
     column.resize(size);
 
@@ -594,6 +594,9 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(const ColumnString&
     auto& vec_to = column_to.get_data();
 
     for (size_t i = 0; i < size; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         size_t next_offset = (*offsets)[i];
         size_t string_size = next_offset - current_offset;
 

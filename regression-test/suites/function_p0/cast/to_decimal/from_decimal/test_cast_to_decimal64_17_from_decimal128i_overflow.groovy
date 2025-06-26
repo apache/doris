@@ -21,957 +21,940 @@ suite("test_cast_to_decimal64_17_from_decimal128i_overflow") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_decimal64_17_0_from_decimal128i_19_0;"
-    sql "create table test_cast_to_decimal64_17_0_from_decimal128i_19_0(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_0_from_decimal128i_19_0 values (0, 100000000000000000),(1, 9999999999999999998),(2, 9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_0_from_decimal_19_0_overflow_0;"
+    sql "create table test_cast_to_decimal_17_0_from_decimal_19_0_overflow_0(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_0_from_decimal_19_0_overflow_0 values (0, "100000000000000000"),(1, "9999999999999999998"),(2, "9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_0_from_decimal128i_19_0_data_start_index = 0
-    def test_cast_to_decimal64_17_0_from_decimal128i_19_0_data_end_index = 3
-    for (int data_index = test_cast_to_decimal64_17_0_from_decimal128i_19_0_data_start_index; data_index < test_cast_to_decimal64_17_0_from_decimal128i_19_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_0_from_decimal_19_0_overflow_0_data_start_index = 0
+    def test_cast_to_decimal_17_0_from_decimal_19_0_overflow_0_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_0_from_decimal_19_0_overflow_0_data_start_index; data_index < test_cast_to_decimal_17_0_from_decimal_19_0_overflow_0_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_19_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_19_0_overflow_0 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_0 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_19_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_19_0_overflow_0 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_0_from_decimal128i_19_1;"
-    sql "create table test_cast_to_decimal64_17_0_from_decimal128i_19_1(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_0_from_decimal128i_19_1 values (3, 99999999999999999.9),(4, 99999999999999999.9),(5, 100000000000000000.9),(6, 100000000000000000.9),(7, 999999999999999998.9),
-      (8, 999999999999999998.9),(9, 999999999999999999.9),(10, 999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_0_from_decimal_19_1_overflow_1;"
+    sql "create table test_cast_to_decimal_17_0_from_decimal_19_1_overflow_1(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_0_from_decimal_19_1_overflow_1 values (0, "99999999999999999.9"),(1, "99999999999999999.9"),(2, "100000000000000000.9"),(3, "100000000000000000.9"),(4, "999999999999999998.9"),(5, "999999999999999998.9"),(6, "999999999999999999.9"),(7, "999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_0_from_decimal128i_19_1_data_start_index = 3
-    def test_cast_to_decimal64_17_0_from_decimal128i_19_1_data_end_index = 11
-    for (int data_index = test_cast_to_decimal64_17_0_from_decimal128i_19_1_data_start_index; data_index < test_cast_to_decimal64_17_0_from_decimal128i_19_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_0_from_decimal_19_1_overflow_1_data_start_index = 0
+    def test_cast_to_decimal_17_0_from_decimal_19_1_overflow_1_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_0_from_decimal_19_1_overflow_1_data_start_index; data_index < test_cast_to_decimal_17_0_from_decimal_19_1_overflow_1_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_19_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_19_1_overflow_1 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_1 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_19_1 order by 1;'
+    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_19_1_overflow_1 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_0_from_decimal128i_37_0;"
-    sql "create table test_cast_to_decimal64_17_0_from_decimal128i_37_0(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_0_from_decimal128i_37_0 values (11, 100000000000000000),(12, 9999999999999999999999999999999999998),(13, 9999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_0_from_decimal_37_0_overflow_5;"
+    sql "create table test_cast_to_decimal_17_0_from_decimal_37_0_overflow_5(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_0_from_decimal_37_0_overflow_5 values (0, "100000000000000000"),(1, "9999999999999999999999999999999999998"),(2, "9999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_0_from_decimal128i_37_0_data_start_index = 11
-    def test_cast_to_decimal64_17_0_from_decimal128i_37_0_data_end_index = 14
-    for (int data_index = test_cast_to_decimal64_17_0_from_decimal128i_37_0_data_start_index; data_index < test_cast_to_decimal64_17_0_from_decimal128i_37_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_0_from_decimal_37_0_overflow_5_data_start_index = 0
+    def test_cast_to_decimal_17_0_from_decimal_37_0_overflow_5_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_0_from_decimal_37_0_overflow_5_data_start_index; data_index < test_cast_to_decimal_17_0_from_decimal_37_0_overflow_5_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_37_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_37_0_overflow_5 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_5 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_37_0 order by 1;'
+    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_37_0_overflow_5 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_0_from_decimal128i_37_1;"
-    sql "create table test_cast_to_decimal64_17_0_from_decimal128i_37_1(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_0_from_decimal128i_37_1 values (14, 99999999999999999.9),(15, 99999999999999999.9),(16, 100000000000000000.9),(17, 100000000000000000.9),(18, 999999999999999999999999999999999998.9),
-      (19, 999999999999999999999999999999999998.9),(20, 999999999999999999999999999999999999.9),(21, 999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_0_from_decimal_37_1_overflow_6;"
+    sql "create table test_cast_to_decimal_17_0_from_decimal_37_1_overflow_6(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_0_from_decimal_37_1_overflow_6 values (0, "99999999999999999.9"),(1, "99999999999999999.9"),(2, "100000000000000000.9"),(3, "100000000000000000.9"),(4, "999999999999999999999999999999999998.9"),(5, "999999999999999999999999999999999998.9"),(6, "999999999999999999999999999999999999.9"),(7, "999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_0_from_decimal128i_37_1_data_start_index = 14
-    def test_cast_to_decimal64_17_0_from_decimal128i_37_1_data_end_index = 22
-    for (int data_index = test_cast_to_decimal64_17_0_from_decimal128i_37_1_data_start_index; data_index < test_cast_to_decimal64_17_0_from_decimal128i_37_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_0_from_decimal_37_1_overflow_6_data_start_index = 0
+    def test_cast_to_decimal_17_0_from_decimal_37_1_overflow_6_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_0_from_decimal_37_1_overflow_6_data_start_index; data_index < test_cast_to_decimal_17_0_from_decimal_37_1_overflow_6_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_37_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_37_1_overflow_6 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_6 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_37_1 order by 1;'
+    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_37_1_overflow_6 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_0_from_decimal128i_37_18;"
-    sql "create table test_cast_to_decimal64_17_0_from_decimal128i_37_18(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_0_from_decimal128i_37_18 values (22, 99999999999999999.999999999999999999),(23, 99999999999999999.999999999999999999),(24, 100000000000000000.999999999999999999),(25, 100000000000000000.999999999999999999),(26, 9999999999999999998.999999999999999999),
-      (27, 9999999999999999998.999999999999999999),(28, 9999999999999999999.999999999999999999),(29, 9999999999999999999.999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_0_from_decimal_37_18_overflow_7;"
+    sql "create table test_cast_to_decimal_17_0_from_decimal_37_18_overflow_7(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_0_from_decimal_37_18_overflow_7 values (0, "99999999999999999.999999999999999999"),(1, "99999999999999999.999999999999999999"),(2, "100000000000000000.999999999999999999"),(3, "100000000000000000.999999999999999999"),(4, "9999999999999999998.999999999999999999"),(5, "9999999999999999998.999999999999999999"),(6, "9999999999999999999.999999999999999999"),(7, "9999999999999999999.999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_0_from_decimal128i_37_18_data_start_index = 22
-    def test_cast_to_decimal64_17_0_from_decimal128i_37_18_data_end_index = 30
-    for (int data_index = test_cast_to_decimal64_17_0_from_decimal128i_37_18_data_start_index; data_index < test_cast_to_decimal64_17_0_from_decimal128i_37_18_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_0_from_decimal_37_18_overflow_7_data_start_index = 0
+    def test_cast_to_decimal_17_0_from_decimal_37_18_overflow_7_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_0_from_decimal_37_18_overflow_7_data_start_index; data_index < test_cast_to_decimal_17_0_from_decimal_37_18_overflow_7_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_37_18 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_37_18_overflow_7 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_7 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_37_18 order by 1;'
+    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_37_18_overflow_7 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_0_from_decimal128i_38_0;"
-    sql "create table test_cast_to_decimal64_17_0_from_decimal128i_38_0(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_0_from_decimal128i_38_0 values (30, 100000000000000000),(31, 99999999999999999999999999999999999998),(32, 99999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_0_from_decimal_38_0_overflow_10;"
+    sql "create table test_cast_to_decimal_17_0_from_decimal_38_0_overflow_10(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_0_from_decimal_38_0_overflow_10 values (0, "100000000000000000"),(1, "99999999999999999999999999999999999998"),(2, "99999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_0_from_decimal128i_38_0_data_start_index = 30
-    def test_cast_to_decimal64_17_0_from_decimal128i_38_0_data_end_index = 33
-    for (int data_index = test_cast_to_decimal64_17_0_from_decimal128i_38_0_data_start_index; data_index < test_cast_to_decimal64_17_0_from_decimal128i_38_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_0_from_decimal_38_0_overflow_10_data_start_index = 0
+    def test_cast_to_decimal_17_0_from_decimal_38_0_overflow_10_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_0_from_decimal_38_0_overflow_10_data_start_index; data_index < test_cast_to_decimal_17_0_from_decimal_38_0_overflow_10_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_38_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_38_0_overflow_10 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_10 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_38_0 order by 1;'
+    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_38_0_overflow_10 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_0_from_decimal128i_38_1;"
-    sql "create table test_cast_to_decimal64_17_0_from_decimal128i_38_1(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_0_from_decimal128i_38_1 values (33, 99999999999999999.9),(34, 99999999999999999.9),(35, 100000000000000000.9),(36, 100000000000000000.9),(37, 9999999999999999999999999999999999998.9),
-      (38, 9999999999999999999999999999999999998.9),(39, 9999999999999999999999999999999999999.9),(40, 9999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_0_from_decimal_38_1_overflow_11;"
+    sql "create table test_cast_to_decimal_17_0_from_decimal_38_1_overflow_11(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_0_from_decimal_38_1_overflow_11 values (0, "99999999999999999.9"),(1, "99999999999999999.9"),(2, "100000000000000000.9"),(3, "100000000000000000.9"),(4, "9999999999999999999999999999999999998.9"),(5, "9999999999999999999999999999999999998.9"),(6, "9999999999999999999999999999999999999.9"),(7, "9999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_0_from_decimal128i_38_1_data_start_index = 33
-    def test_cast_to_decimal64_17_0_from_decimal128i_38_1_data_end_index = 41
-    for (int data_index = test_cast_to_decimal64_17_0_from_decimal128i_38_1_data_start_index; data_index < test_cast_to_decimal64_17_0_from_decimal128i_38_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_0_from_decimal_38_1_overflow_11_data_start_index = 0
+    def test_cast_to_decimal_17_0_from_decimal_38_1_overflow_11_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_0_from_decimal_38_1_overflow_11_data_start_index; data_index < test_cast_to_decimal_17_0_from_decimal_38_1_overflow_11_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_38_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_38_1_overflow_11 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_11 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_38_1 order by 1;'
+    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_38_1_overflow_11 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_0_from_decimal128i_38_19;"
-    sql "create table test_cast_to_decimal64_17_0_from_decimal128i_38_19(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_0_from_decimal128i_38_19 values (41, 99999999999999999.9999999999999999999),(42, 99999999999999999.9999999999999999999),(43, 100000000000000000.9999999999999999999),(44, 100000000000000000.9999999999999999999),(45, 9999999999999999998.9999999999999999999),
-      (46, 9999999999999999998.9999999999999999999),(47, 9999999999999999999.9999999999999999999),(48, 9999999999999999999.9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_0_from_decimal_38_19_overflow_12;"
+    sql "create table test_cast_to_decimal_17_0_from_decimal_38_19_overflow_12(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_0_from_decimal_38_19_overflow_12 values (0, "99999999999999999.9999999999999999999"),(1, "99999999999999999.9999999999999999999"),(2, "100000000000000000.9999999999999999999"),(3, "100000000000000000.9999999999999999999"),(4, "9999999999999999998.9999999999999999999"),(5, "9999999999999999998.9999999999999999999"),(6, "9999999999999999999.9999999999999999999"),(7, "9999999999999999999.9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_0_from_decimal128i_38_19_data_start_index = 41
-    def test_cast_to_decimal64_17_0_from_decimal128i_38_19_data_end_index = 49
-    for (int data_index = test_cast_to_decimal64_17_0_from_decimal128i_38_19_data_start_index; data_index < test_cast_to_decimal64_17_0_from_decimal128i_38_19_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_0_from_decimal_38_19_overflow_12_data_start_index = 0
+    def test_cast_to_decimal_17_0_from_decimal_38_19_overflow_12_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_0_from_decimal_38_19_overflow_12_data_start_index; data_index < test_cast_to_decimal_17_0_from_decimal_38_19_overflow_12_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_38_19 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_38_19_overflow_12 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_12 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal64_17_0_from_decimal128i_38_19 order by 1;'
+    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(17, 0)) from test_cast_to_decimal_17_0_from_decimal_38_19_overflow_12 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_1_from_decimal128i_19_0;"
-    sql "create table test_cast_to_decimal64_17_1_from_decimal128i_19_0(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_1_from_decimal128i_19_0 values (49, 10000000000000000),(50, 9999999999999999998),(51, 9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_1_from_decimal_19_0_overflow_15;"
+    sql "create table test_cast_to_decimal_17_1_from_decimal_19_0_overflow_15(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_1_from_decimal_19_0_overflow_15 values (0, "10000000000000000"),(1, "9999999999999999998"),(2, "9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_1_from_decimal128i_19_0_data_start_index = 49
-    def test_cast_to_decimal64_17_1_from_decimal128i_19_0_data_end_index = 52
-    for (int data_index = test_cast_to_decimal64_17_1_from_decimal128i_19_0_data_start_index; data_index < test_cast_to_decimal64_17_1_from_decimal128i_19_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_1_from_decimal_19_0_overflow_15_data_start_index = 0
+    def test_cast_to_decimal_17_1_from_decimal_19_0_overflow_15_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_1_from_decimal_19_0_overflow_15_data_start_index; data_index < test_cast_to_decimal_17_1_from_decimal_19_0_overflow_15_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_19_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_19_0_overflow_15 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_15 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_19_0 order by 1;'
+    qt_sql_15_non_strict 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_19_0_overflow_15 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_1_from_decimal128i_19_1;"
-    sql "create table test_cast_to_decimal64_17_1_from_decimal128i_19_1(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_1_from_decimal128i_19_1 values (52, 10000000000000000.9),(53, 999999999999999998.9),(54, 999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_1_from_decimal_19_1_overflow_16;"
+    sql "create table test_cast_to_decimal_17_1_from_decimal_19_1_overflow_16(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_1_from_decimal_19_1_overflow_16 values (0, "10000000000000000.9"),(1, "999999999999999998.9"),(2, "999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_1_from_decimal128i_19_1_data_start_index = 52
-    def test_cast_to_decimal64_17_1_from_decimal128i_19_1_data_end_index = 55
-    for (int data_index = test_cast_to_decimal64_17_1_from_decimal128i_19_1_data_start_index; data_index < test_cast_to_decimal64_17_1_from_decimal128i_19_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_1_from_decimal_19_1_overflow_16_data_start_index = 0
+    def test_cast_to_decimal_17_1_from_decimal_19_1_overflow_16_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_1_from_decimal_19_1_overflow_16_data_start_index; data_index < test_cast_to_decimal_17_1_from_decimal_19_1_overflow_16_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_19_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_19_1_overflow_16 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_16 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_19_1 order by 1;'
+    qt_sql_16_non_strict 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_19_1_overflow_16 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_1_from_decimal128i_37_0;"
-    sql "create table test_cast_to_decimal64_17_1_from_decimal128i_37_0(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_1_from_decimal128i_37_0 values (55, 10000000000000000),(56, 9999999999999999999999999999999999998),(57, 9999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_1_from_decimal_37_0_overflow_20;"
+    sql "create table test_cast_to_decimal_17_1_from_decimal_37_0_overflow_20(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_1_from_decimal_37_0_overflow_20 values (0, "10000000000000000"),(1, "9999999999999999999999999999999999998"),(2, "9999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_1_from_decimal128i_37_0_data_start_index = 55
-    def test_cast_to_decimal64_17_1_from_decimal128i_37_0_data_end_index = 58
-    for (int data_index = test_cast_to_decimal64_17_1_from_decimal128i_37_0_data_start_index; data_index < test_cast_to_decimal64_17_1_from_decimal128i_37_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_1_from_decimal_37_0_overflow_20_data_start_index = 0
+    def test_cast_to_decimal_17_1_from_decimal_37_0_overflow_20_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_1_from_decimal_37_0_overflow_20_data_start_index; data_index < test_cast_to_decimal_17_1_from_decimal_37_0_overflow_20_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_37_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_37_0_overflow_20 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_20 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_37_0 order by 1;'
+    qt_sql_20_non_strict 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_37_0_overflow_20 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_1_from_decimal128i_37_1;"
-    sql "create table test_cast_to_decimal64_17_1_from_decimal128i_37_1(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_1_from_decimal128i_37_1 values (58, 10000000000000000.9),(59, 999999999999999999999999999999999998.9),(60, 999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_1_from_decimal_37_1_overflow_21;"
+    sql "create table test_cast_to_decimal_17_1_from_decimal_37_1_overflow_21(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_1_from_decimal_37_1_overflow_21 values (0, "10000000000000000.9"),(1, "999999999999999999999999999999999998.9"),(2, "999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_1_from_decimal128i_37_1_data_start_index = 58
-    def test_cast_to_decimal64_17_1_from_decimal128i_37_1_data_end_index = 61
-    for (int data_index = test_cast_to_decimal64_17_1_from_decimal128i_37_1_data_start_index; data_index < test_cast_to_decimal64_17_1_from_decimal128i_37_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_1_from_decimal_37_1_overflow_21_data_start_index = 0
+    def test_cast_to_decimal_17_1_from_decimal_37_1_overflow_21_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_1_from_decimal_37_1_overflow_21_data_start_index; data_index < test_cast_to_decimal_17_1_from_decimal_37_1_overflow_21_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_37_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_37_1_overflow_21 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_21 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_37_1 order by 1;'
+    qt_sql_21_non_strict 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_37_1_overflow_21 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_1_from_decimal128i_37_18;"
-    sql "create table test_cast_to_decimal64_17_1_from_decimal128i_37_18(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_1_from_decimal128i_37_18 values (61, 9999999999999999.999999999999999999),(62, 9999999999999999.999999999999999999),(63, 10000000000000000.999999999999999999),(64, 10000000000000000.999999999999999999),(65, 9999999999999999998.999999999999999999),
-      (66, 9999999999999999998.999999999999999999),(67, 9999999999999999999.999999999999999999),(68, 9999999999999999999.999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_1_from_decimal_37_18_overflow_22;"
+    sql "create table test_cast_to_decimal_17_1_from_decimal_37_18_overflow_22(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_1_from_decimal_37_18_overflow_22 values (0, "9999999999999999.999999999999999999"),(1, "9999999999999999.999999999999999999"),(2, "10000000000000000.999999999999999999"),(3, "10000000000000000.999999999999999999"),(4, "9999999999999999998.999999999999999999"),(5, "9999999999999999998.999999999999999999"),(6, "9999999999999999999.999999999999999999"),(7, "9999999999999999999.999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_1_from_decimal128i_37_18_data_start_index = 61
-    def test_cast_to_decimal64_17_1_from_decimal128i_37_18_data_end_index = 69
-    for (int data_index = test_cast_to_decimal64_17_1_from_decimal128i_37_18_data_start_index; data_index < test_cast_to_decimal64_17_1_from_decimal128i_37_18_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_1_from_decimal_37_18_overflow_22_data_start_index = 0
+    def test_cast_to_decimal_17_1_from_decimal_37_18_overflow_22_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_1_from_decimal_37_18_overflow_22_data_start_index; data_index < test_cast_to_decimal_17_1_from_decimal_37_18_overflow_22_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_37_18 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_37_18_overflow_22 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_22 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_37_18 order by 1;'
+    qt_sql_22_non_strict 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_37_18_overflow_22 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_1_from_decimal128i_38_0;"
-    sql "create table test_cast_to_decimal64_17_1_from_decimal128i_38_0(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_1_from_decimal128i_38_0 values (69, 10000000000000000),(70, 99999999999999999999999999999999999998),(71, 99999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_1_from_decimal_38_0_overflow_25;"
+    sql "create table test_cast_to_decimal_17_1_from_decimal_38_0_overflow_25(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_1_from_decimal_38_0_overflow_25 values (0, "10000000000000000"),(1, "99999999999999999999999999999999999998"),(2, "99999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_1_from_decimal128i_38_0_data_start_index = 69
-    def test_cast_to_decimal64_17_1_from_decimal128i_38_0_data_end_index = 72
-    for (int data_index = test_cast_to_decimal64_17_1_from_decimal128i_38_0_data_start_index; data_index < test_cast_to_decimal64_17_1_from_decimal128i_38_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_1_from_decimal_38_0_overflow_25_data_start_index = 0
+    def test_cast_to_decimal_17_1_from_decimal_38_0_overflow_25_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_1_from_decimal_38_0_overflow_25_data_start_index; data_index < test_cast_to_decimal_17_1_from_decimal_38_0_overflow_25_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_38_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_38_0_overflow_25 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_25 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_38_0 order by 1;'
+    qt_sql_25_non_strict 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_38_0_overflow_25 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_1_from_decimal128i_38_1;"
-    sql "create table test_cast_to_decimal64_17_1_from_decimal128i_38_1(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_1_from_decimal128i_38_1 values (72, 10000000000000000.9),(73, 9999999999999999999999999999999999998.9),(74, 9999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_1_from_decimal_38_1_overflow_26;"
+    sql "create table test_cast_to_decimal_17_1_from_decimal_38_1_overflow_26(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_1_from_decimal_38_1_overflow_26 values (0, "10000000000000000.9"),(1, "9999999999999999999999999999999999998.9"),(2, "9999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_1_from_decimal128i_38_1_data_start_index = 72
-    def test_cast_to_decimal64_17_1_from_decimal128i_38_1_data_end_index = 75
-    for (int data_index = test_cast_to_decimal64_17_1_from_decimal128i_38_1_data_start_index; data_index < test_cast_to_decimal64_17_1_from_decimal128i_38_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_1_from_decimal_38_1_overflow_26_data_start_index = 0
+    def test_cast_to_decimal_17_1_from_decimal_38_1_overflow_26_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_1_from_decimal_38_1_overflow_26_data_start_index; data_index < test_cast_to_decimal_17_1_from_decimal_38_1_overflow_26_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_38_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_38_1_overflow_26 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_26 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_38_1 order by 1;'
+    qt_sql_26_non_strict 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_38_1_overflow_26 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_1_from_decimal128i_38_19;"
-    sql "create table test_cast_to_decimal64_17_1_from_decimal128i_38_19(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_1_from_decimal128i_38_19 values (75, 9999999999999999.9999999999999999999),(76, 9999999999999999.9999999999999999999),(77, 10000000000000000.9999999999999999999),(78, 10000000000000000.9999999999999999999),(79, 9999999999999999998.9999999999999999999),
-      (80, 9999999999999999998.9999999999999999999),(81, 9999999999999999999.9999999999999999999),(82, 9999999999999999999.9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_1_from_decimal_38_19_overflow_27;"
+    sql "create table test_cast_to_decimal_17_1_from_decimal_38_19_overflow_27(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_1_from_decimal_38_19_overflow_27 values (0, "9999999999999999.9999999999999999999"),(1, "9999999999999999.9999999999999999999"),(2, "10000000000000000.9999999999999999999"),(3, "10000000000000000.9999999999999999999"),(4, "9999999999999999998.9999999999999999999"),(5, "9999999999999999998.9999999999999999999"),(6, "9999999999999999999.9999999999999999999"),(7, "9999999999999999999.9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_1_from_decimal128i_38_19_data_start_index = 75
-    def test_cast_to_decimal64_17_1_from_decimal128i_38_19_data_end_index = 83
-    for (int data_index = test_cast_to_decimal64_17_1_from_decimal128i_38_19_data_start_index; data_index < test_cast_to_decimal64_17_1_from_decimal128i_38_19_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_1_from_decimal_38_19_overflow_27_data_start_index = 0
+    def test_cast_to_decimal_17_1_from_decimal_38_19_overflow_27_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_1_from_decimal_38_19_overflow_27_data_start_index; data_index < test_cast_to_decimal_17_1_from_decimal_38_19_overflow_27_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_38_19 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_38_19_overflow_27 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_27 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal64_17_1_from_decimal128i_38_19 order by 1;'
+    qt_sql_27_non_strict 'select f1, cast(f2 as decimalv3(17, 1)) from test_cast_to_decimal_17_1_from_decimal_38_19_overflow_27 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_8_from_decimal128i_19_0;"
-    sql "create table test_cast_to_decimal64_17_8_from_decimal128i_19_0(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_8_from_decimal128i_19_0 values (83, 1000000000),(84, 9999999999999999998),(85, 9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_8_from_decimal_19_0_overflow_30;"
+    sql "create table test_cast_to_decimal_17_8_from_decimal_19_0_overflow_30(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_8_from_decimal_19_0_overflow_30 values (0, "1000000000"),(1, "9999999999999999998"),(2, "9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_8_from_decimal128i_19_0_data_start_index = 83
-    def test_cast_to_decimal64_17_8_from_decimal128i_19_0_data_end_index = 86
-    for (int data_index = test_cast_to_decimal64_17_8_from_decimal128i_19_0_data_start_index; data_index < test_cast_to_decimal64_17_8_from_decimal128i_19_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_8_from_decimal_19_0_overflow_30_data_start_index = 0
+    def test_cast_to_decimal_17_8_from_decimal_19_0_overflow_30_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_8_from_decimal_19_0_overflow_30_data_start_index; data_index < test_cast_to_decimal_17_8_from_decimal_19_0_overflow_30_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_19_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_19_0_overflow_30 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_30 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_19_0 order by 1;'
+    qt_sql_30_non_strict 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_19_0_overflow_30 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_8_from_decimal128i_19_1;"
-    sql "create table test_cast_to_decimal64_17_8_from_decimal128i_19_1(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_8_from_decimal128i_19_1 values (86, 1000000000.9),(87, 999999999999999998.9),(88, 999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_8_from_decimal_19_1_overflow_31;"
+    sql "create table test_cast_to_decimal_17_8_from_decimal_19_1_overflow_31(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_8_from_decimal_19_1_overflow_31 values (0, "1000000000.9"),(1, "999999999999999998.9"),(2, "999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_8_from_decimal128i_19_1_data_start_index = 86
-    def test_cast_to_decimal64_17_8_from_decimal128i_19_1_data_end_index = 89
-    for (int data_index = test_cast_to_decimal64_17_8_from_decimal128i_19_1_data_start_index; data_index < test_cast_to_decimal64_17_8_from_decimal128i_19_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_8_from_decimal_19_1_overflow_31_data_start_index = 0
+    def test_cast_to_decimal_17_8_from_decimal_19_1_overflow_31_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_8_from_decimal_19_1_overflow_31_data_start_index; data_index < test_cast_to_decimal_17_8_from_decimal_19_1_overflow_31_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_19_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_19_1_overflow_31 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_31 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_19_1 order by 1;'
+    qt_sql_31_non_strict 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_19_1_overflow_31 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_8_from_decimal128i_19_9;"
-    sql "create table test_cast_to_decimal64_17_8_from_decimal128i_19_9(f1 int, f2 decimalv3(19, 9)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_8_from_decimal128i_19_9 values (89, 999999999.999999999),(90, 999999999.999999999),(91, 1000000000.999999999),(92, 1000000000.999999999),(93, 9999999998.999999999),
-      (94, 9999999998.999999999),(95, 9999999999.999999999),(96, 9999999999.999999999);
+    sql "drop table if exists test_cast_to_decimal_17_8_from_decimal_19_9_overflow_32;"
+    sql "create table test_cast_to_decimal_17_8_from_decimal_19_9_overflow_32(f1 int, f2 decimalv3(19, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_8_from_decimal_19_9_overflow_32 values (0, "999999999.999999999"),(1, "999999999.999999999"),(2, "1000000000.999999999"),(3, "1000000000.999999999"),(4, "9999999998.999999999"),(5, "9999999998.999999999"),(6, "9999999999.999999999"),(7, "9999999999.999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_8_from_decimal128i_19_9_data_start_index = 89
-    def test_cast_to_decimal64_17_8_from_decimal128i_19_9_data_end_index = 97
-    for (int data_index = test_cast_to_decimal64_17_8_from_decimal128i_19_9_data_start_index; data_index < test_cast_to_decimal64_17_8_from_decimal128i_19_9_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_8_from_decimal_19_9_overflow_32_data_start_index = 0
+    def test_cast_to_decimal_17_8_from_decimal_19_9_overflow_32_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_8_from_decimal_19_9_overflow_32_data_start_index; data_index < test_cast_to_decimal_17_8_from_decimal_19_9_overflow_32_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_19_9 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_19_9_overflow_32 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_32 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_19_9 order by 1;'
+    qt_sql_32_non_strict 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_19_9_overflow_32 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_8_from_decimal128i_37_0;"
-    sql "create table test_cast_to_decimal64_17_8_from_decimal128i_37_0(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_8_from_decimal128i_37_0 values (97, 1000000000),(98, 9999999999999999999999999999999999998),(99, 9999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_8_from_decimal_37_0_overflow_35;"
+    sql "create table test_cast_to_decimal_17_8_from_decimal_37_0_overflow_35(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_8_from_decimal_37_0_overflow_35 values (0, "1000000000"),(1, "9999999999999999999999999999999999998"),(2, "9999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_8_from_decimal128i_37_0_data_start_index = 97
-    def test_cast_to_decimal64_17_8_from_decimal128i_37_0_data_end_index = 100
-    for (int data_index = test_cast_to_decimal64_17_8_from_decimal128i_37_0_data_start_index; data_index < test_cast_to_decimal64_17_8_from_decimal128i_37_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_8_from_decimal_37_0_overflow_35_data_start_index = 0
+    def test_cast_to_decimal_17_8_from_decimal_37_0_overflow_35_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_8_from_decimal_37_0_overflow_35_data_start_index; data_index < test_cast_to_decimal_17_8_from_decimal_37_0_overflow_35_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_37_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_37_0_overflow_35 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_35 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_37_0 order by 1;'
+    qt_sql_35_non_strict 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_37_0_overflow_35 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_8_from_decimal128i_37_1;"
-    sql "create table test_cast_to_decimal64_17_8_from_decimal128i_37_1(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_8_from_decimal128i_37_1 values (100, 1000000000.9),(101, 999999999999999999999999999999999998.9),(102, 999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_8_from_decimal_37_1_overflow_36;"
+    sql "create table test_cast_to_decimal_17_8_from_decimal_37_1_overflow_36(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_8_from_decimal_37_1_overflow_36 values (0, "1000000000.9"),(1, "999999999999999999999999999999999998.9"),(2, "999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_8_from_decimal128i_37_1_data_start_index = 100
-    def test_cast_to_decimal64_17_8_from_decimal128i_37_1_data_end_index = 103
-    for (int data_index = test_cast_to_decimal64_17_8_from_decimal128i_37_1_data_start_index; data_index < test_cast_to_decimal64_17_8_from_decimal128i_37_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_8_from_decimal_37_1_overflow_36_data_start_index = 0
+    def test_cast_to_decimal_17_8_from_decimal_37_1_overflow_36_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_8_from_decimal_37_1_overflow_36_data_start_index; data_index < test_cast_to_decimal_17_8_from_decimal_37_1_overflow_36_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_37_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_37_1_overflow_36 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_36 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_37_1 order by 1;'
+    qt_sql_36_non_strict 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_37_1_overflow_36 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_8_from_decimal128i_37_18;"
-    sql "create table test_cast_to_decimal64_17_8_from_decimal128i_37_18(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_8_from_decimal128i_37_18 values (103, 999999999.999999999999999999),(104, 999999999.999999999999999999),(105, 1000000000.999999999999999999),(106, 1000000000.999999999999999999),(107, 9999999999999999998.999999999999999999),
-      (108, 9999999999999999998.999999999999999999),(109, 9999999999999999999.999999999999999999),(110, 9999999999999999999.999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_8_from_decimal_37_18_overflow_37;"
+    sql "create table test_cast_to_decimal_17_8_from_decimal_37_18_overflow_37(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_8_from_decimal_37_18_overflow_37 values (0, "999999999.999999999999999999"),(1, "999999999.999999999999999999"),(2, "1000000000.999999999999999999"),(3, "1000000000.999999999999999999"),(4, "9999999999999999998.999999999999999999"),(5, "9999999999999999998.999999999999999999"),(6, "9999999999999999999.999999999999999999"),(7, "9999999999999999999.999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_8_from_decimal128i_37_18_data_start_index = 103
-    def test_cast_to_decimal64_17_8_from_decimal128i_37_18_data_end_index = 111
-    for (int data_index = test_cast_to_decimal64_17_8_from_decimal128i_37_18_data_start_index; data_index < test_cast_to_decimal64_17_8_from_decimal128i_37_18_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_8_from_decimal_37_18_overflow_37_data_start_index = 0
+    def test_cast_to_decimal_17_8_from_decimal_37_18_overflow_37_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_8_from_decimal_37_18_overflow_37_data_start_index; data_index < test_cast_to_decimal_17_8_from_decimal_37_18_overflow_37_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_37_18 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_37_18_overflow_37 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_37 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_37_18 order by 1;'
+    qt_sql_37_non_strict 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_37_18_overflow_37 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_8_from_decimal128i_38_0;"
-    sql "create table test_cast_to_decimal64_17_8_from_decimal128i_38_0(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_8_from_decimal128i_38_0 values (111, 1000000000),(112, 99999999999999999999999999999999999998),(113, 99999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_8_from_decimal_38_0_overflow_40;"
+    sql "create table test_cast_to_decimal_17_8_from_decimal_38_0_overflow_40(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_8_from_decimal_38_0_overflow_40 values (0, "1000000000"),(1, "99999999999999999999999999999999999998"),(2, "99999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_8_from_decimal128i_38_0_data_start_index = 111
-    def test_cast_to_decimal64_17_8_from_decimal128i_38_0_data_end_index = 114
-    for (int data_index = test_cast_to_decimal64_17_8_from_decimal128i_38_0_data_start_index; data_index < test_cast_to_decimal64_17_8_from_decimal128i_38_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_8_from_decimal_38_0_overflow_40_data_start_index = 0
+    def test_cast_to_decimal_17_8_from_decimal_38_0_overflow_40_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_8_from_decimal_38_0_overflow_40_data_start_index; data_index < test_cast_to_decimal_17_8_from_decimal_38_0_overflow_40_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_38_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_38_0_overflow_40 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_40 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_38_0 order by 1;'
+    qt_sql_40_non_strict 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_38_0_overflow_40 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_8_from_decimal128i_38_1;"
-    sql "create table test_cast_to_decimal64_17_8_from_decimal128i_38_1(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_8_from_decimal128i_38_1 values (114, 1000000000.9),(115, 9999999999999999999999999999999999998.9),(116, 9999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_8_from_decimal_38_1_overflow_41;"
+    sql "create table test_cast_to_decimal_17_8_from_decimal_38_1_overflow_41(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_8_from_decimal_38_1_overflow_41 values (0, "1000000000.9"),(1, "9999999999999999999999999999999999998.9"),(2, "9999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_8_from_decimal128i_38_1_data_start_index = 114
-    def test_cast_to_decimal64_17_8_from_decimal128i_38_1_data_end_index = 117
-    for (int data_index = test_cast_to_decimal64_17_8_from_decimal128i_38_1_data_start_index; data_index < test_cast_to_decimal64_17_8_from_decimal128i_38_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_8_from_decimal_38_1_overflow_41_data_start_index = 0
+    def test_cast_to_decimal_17_8_from_decimal_38_1_overflow_41_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_8_from_decimal_38_1_overflow_41_data_start_index; data_index < test_cast_to_decimal_17_8_from_decimal_38_1_overflow_41_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_38_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_38_1_overflow_41 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_41 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_38_1 order by 1;'
+    qt_sql_41_non_strict 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_38_1_overflow_41 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_8_from_decimal128i_38_19;"
-    sql "create table test_cast_to_decimal64_17_8_from_decimal128i_38_19(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_8_from_decimal128i_38_19 values (117, 999999999.9999999999999999999),(118, 999999999.9999999999999999999),(119, 1000000000.9999999999999999999),(120, 1000000000.9999999999999999999),(121, 9999999999999999998.9999999999999999999),
-      (122, 9999999999999999998.9999999999999999999),(123, 9999999999999999999.9999999999999999999),(124, 9999999999999999999.9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_8_from_decimal_38_19_overflow_42;"
+    sql "create table test_cast_to_decimal_17_8_from_decimal_38_19_overflow_42(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_8_from_decimal_38_19_overflow_42 values (0, "999999999.9999999999999999999"),(1, "999999999.9999999999999999999"),(2, "1000000000.9999999999999999999"),(3, "1000000000.9999999999999999999"),(4, "9999999999999999998.9999999999999999999"),(5, "9999999999999999998.9999999999999999999"),(6, "9999999999999999999.9999999999999999999"),(7, "9999999999999999999.9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_8_from_decimal128i_38_19_data_start_index = 117
-    def test_cast_to_decimal64_17_8_from_decimal128i_38_19_data_end_index = 125
-    for (int data_index = test_cast_to_decimal64_17_8_from_decimal128i_38_19_data_start_index; data_index < test_cast_to_decimal64_17_8_from_decimal128i_38_19_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_8_from_decimal_38_19_overflow_42_data_start_index = 0
+    def test_cast_to_decimal_17_8_from_decimal_38_19_overflow_42_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_8_from_decimal_38_19_overflow_42_data_start_index; data_index < test_cast_to_decimal_17_8_from_decimal_38_19_overflow_42_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_38_19 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_38_19_overflow_42 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_42 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal64_17_8_from_decimal128i_38_19 order by 1;'
+    qt_sql_42_non_strict 'select f1, cast(f2 as decimalv3(17, 8)) from test_cast_to_decimal_17_8_from_decimal_38_19_overflow_42 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_19_0;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_19_0(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_19_0 values (125, 10),(126, 9999999999999999998),(127, 9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_19_0_overflow_45;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_19_0_overflow_45(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_19_0_overflow_45 values (0, "10"),(1, "9999999999999999998"),(2, "9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_19_0_data_start_index = 125
-    def test_cast_to_decimal64_17_16_from_decimal128i_19_0_data_end_index = 128
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_19_0_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_19_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_19_0_overflow_45_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_19_0_overflow_45_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_19_0_overflow_45_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_19_0_overflow_45_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_19_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_19_0_overflow_45 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_45 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_19_0 order by 1;'
+    qt_sql_45_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_19_0_overflow_45 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_19_1;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_19_1(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_19_1 values (128, 10.9),(129, 999999999999999998.9),(130, 999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_19_1_overflow_46;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_19_1_overflow_46(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_19_1_overflow_46 values (0, "10.9"),(1, "999999999999999998.9"),(2, "999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_19_1_data_start_index = 128
-    def test_cast_to_decimal64_17_16_from_decimal128i_19_1_data_end_index = 131
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_19_1_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_19_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_19_1_overflow_46_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_19_1_overflow_46_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_19_1_overflow_46_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_19_1_overflow_46_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_19_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_19_1_overflow_46 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_46 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_19_1 order by 1;'
+    qt_sql_46_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_19_1_overflow_46 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_19_9;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_19_9(f1 int, f2 decimalv3(19, 9)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_19_9 values (131, 10.999999999),(132, 9999999998.999999999),(133, 9999999999.999999999);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_19_9_overflow_47;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_19_9_overflow_47(f1 int, f2 decimalv3(19, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_19_9_overflow_47 values (0, "10.999999999"),(1, "9999999998.999999999"),(2, "9999999999.999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_19_9_data_start_index = 131
-    def test_cast_to_decimal64_17_16_from_decimal128i_19_9_data_end_index = 134
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_19_9_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_19_9_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_19_9_overflow_47_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_19_9_overflow_47_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_19_9_overflow_47_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_19_9_overflow_47_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_19_9 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_19_9_overflow_47 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_47 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_19_9 order by 1;'
+    qt_sql_47_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_19_9_overflow_47 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_19_18;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_19_18(f1 int, f2 decimalv3(19, 18)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_19_18 values (134, 9.999999999999999999),(135, 9.999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_19_18_overflow_48;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_19_18_overflow_48(f1 int, f2 decimalv3(19, 18)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_19_18_overflow_48 values (0, "9.999999999999999999"),(1, "9.999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_19_18_data_start_index = 134
-    def test_cast_to_decimal64_17_16_from_decimal128i_19_18_data_end_index = 136
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_19_18_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_19_18_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_19_18_overflow_48_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_19_18_overflow_48_data_end_index = 2
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_19_18_overflow_48_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_19_18_overflow_48_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_19_18 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_19_18_overflow_48 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_48 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_19_18 order by 1;'
+    qt_sql_48_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_19_18_overflow_48 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_37_0;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_37_0(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_37_0 values (136, 10),(137, 9999999999999999999999999999999999998),(138, 9999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_37_0_overflow_50;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_37_0_overflow_50(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_37_0_overflow_50 values (0, "10"),(1, "9999999999999999999999999999999999998"),(2, "9999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_37_0_data_start_index = 136
-    def test_cast_to_decimal64_17_16_from_decimal128i_37_0_data_end_index = 139
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_37_0_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_37_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_37_0_overflow_50_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_37_0_overflow_50_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_37_0_overflow_50_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_37_0_overflow_50_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_37_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_37_0_overflow_50 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_50 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_37_0 order by 1;'
+    qt_sql_50_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_37_0_overflow_50 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_37_1;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_37_1(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_37_1 values (139, 10.9),(140, 999999999999999999999999999999999998.9),(141, 999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_37_1_overflow_51;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_37_1_overflow_51(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_37_1_overflow_51 values (0, "10.9"),(1, "999999999999999999999999999999999998.9"),(2, "999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_37_1_data_start_index = 139
-    def test_cast_to_decimal64_17_16_from_decimal128i_37_1_data_end_index = 142
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_37_1_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_37_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_37_1_overflow_51_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_37_1_overflow_51_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_37_1_overflow_51_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_37_1_overflow_51_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_37_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_37_1_overflow_51 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_51 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_37_1 order by 1;'
+    qt_sql_51_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_37_1_overflow_51 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_37_18;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_37_18(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_37_18 values (142, 9.999999999999999999),(143, 9.999999999999999999),(144, 10.999999999999999999),(145, 10.999999999999999999),(146, 9999999999999999998.999999999999999999),
-      (147, 9999999999999999998.999999999999999999),(148, 9999999999999999999.999999999999999999),(149, 9999999999999999999.999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_37_18_overflow_52;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_37_18_overflow_52(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_37_18_overflow_52 values (0, "9.999999999999999999"),(1, "9.999999999999999999"),(2, "10.999999999999999999"),(3, "10.999999999999999999"),(4, "9999999999999999998.999999999999999999"),(5, "9999999999999999998.999999999999999999"),(6, "9999999999999999999.999999999999999999"),(7, "9999999999999999999.999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_37_18_data_start_index = 142
-    def test_cast_to_decimal64_17_16_from_decimal128i_37_18_data_end_index = 150
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_37_18_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_37_18_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_37_18_overflow_52_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_37_18_overflow_52_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_37_18_overflow_52_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_37_18_overflow_52_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_37_18 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_37_18_overflow_52 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_52 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_37_18 order by 1;'
+    qt_sql_52_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_37_18_overflow_52 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_37_36;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_37_36(f1 int, f2 decimalv3(37, 36)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_37_36 values (150, 9.999999999999999999999999999999999999),(151, 9.999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_37_36_overflow_53;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_37_36_overflow_53(f1 int, f2 decimalv3(37, 36)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_37_36_overflow_53 values (0, "9.999999999999999999999999999999999999"),(1, "9.999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_37_36_data_start_index = 150
-    def test_cast_to_decimal64_17_16_from_decimal128i_37_36_data_end_index = 152
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_37_36_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_37_36_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_37_36_overflow_53_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_37_36_overflow_53_data_end_index = 2
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_37_36_overflow_53_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_37_36_overflow_53_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_37_36 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_37_36_overflow_53 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_53 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_37_36 order by 1;'
+    qt_sql_53_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_37_36_overflow_53 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_38_0;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_38_0(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_38_0 values (152, 10),(153, 99999999999999999999999999999999999998),(154, 99999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_38_0_overflow_55;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_38_0_overflow_55(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_38_0_overflow_55 values (0, "10"),(1, "99999999999999999999999999999999999998"),(2, "99999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_38_0_data_start_index = 152
-    def test_cast_to_decimal64_17_16_from_decimal128i_38_0_data_end_index = 155
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_38_0_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_38_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_38_0_overflow_55_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_38_0_overflow_55_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_38_0_overflow_55_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_38_0_overflow_55_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_38_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_38_0_overflow_55 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_55 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_38_0 order by 1;'
+    qt_sql_55_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_38_0_overflow_55 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_38_1;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_38_1(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_38_1 values (155, 10.9),(156, 9999999999999999999999999999999999998.9),(157, 9999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_38_1_overflow_56;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_38_1_overflow_56(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_38_1_overflow_56 values (0, "10.9"),(1, "9999999999999999999999999999999999998.9"),(2, "9999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_38_1_data_start_index = 155
-    def test_cast_to_decimal64_17_16_from_decimal128i_38_1_data_end_index = 158
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_38_1_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_38_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_38_1_overflow_56_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_38_1_overflow_56_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_38_1_overflow_56_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_38_1_overflow_56_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_38_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_38_1_overflow_56 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_56 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_38_1 order by 1;'
+    qt_sql_56_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_38_1_overflow_56 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_38_19;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_38_19(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_38_19 values (158, 9.9999999999999999999),(159, 9.9999999999999999999),(160, 10.9999999999999999999),(161, 10.9999999999999999999),(162, 9999999999999999998.9999999999999999999),
-      (163, 9999999999999999998.9999999999999999999),(164, 9999999999999999999.9999999999999999999),(165, 9999999999999999999.9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_38_19_overflow_57;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_38_19_overflow_57(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_38_19_overflow_57 values (0, "9.9999999999999999999"),(1, "9.9999999999999999999"),(2, "10.9999999999999999999"),(3, "10.9999999999999999999"),(4, "9999999999999999998.9999999999999999999"),(5, "9999999999999999998.9999999999999999999"),(6, "9999999999999999999.9999999999999999999"),(7, "9999999999999999999.9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_38_19_data_start_index = 158
-    def test_cast_to_decimal64_17_16_from_decimal128i_38_19_data_end_index = 166
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_38_19_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_38_19_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_38_19_overflow_57_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_38_19_overflow_57_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_38_19_overflow_57_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_38_19_overflow_57_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_38_19 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_38_19_overflow_57 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_57 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_38_19 order by 1;'
+    qt_sql_57_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_38_19_overflow_57 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_16_from_decimal128i_38_37;"
-    sql "create table test_cast_to_decimal64_17_16_from_decimal128i_38_37(f1 int, f2 decimalv3(38, 37)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_16_from_decimal128i_38_37 values (166, 9.9999999999999999999999999999999999999),(167, 9.9999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_16_from_decimal_38_37_overflow_58;"
+    sql "create table test_cast_to_decimal_17_16_from_decimal_38_37_overflow_58(f1 int, f2 decimalv3(38, 37)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_16_from_decimal_38_37_overflow_58 values (0, "9.9999999999999999999999999999999999999"),(1, "9.9999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_16_from_decimal128i_38_37_data_start_index = 166
-    def test_cast_to_decimal64_17_16_from_decimal128i_38_37_data_end_index = 168
-    for (int data_index = test_cast_to_decimal64_17_16_from_decimal128i_38_37_data_start_index; data_index < test_cast_to_decimal64_17_16_from_decimal128i_38_37_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_16_from_decimal_38_37_overflow_58_data_start_index = 0
+    def test_cast_to_decimal_17_16_from_decimal_38_37_overflow_58_data_end_index = 2
+    for (int data_index = test_cast_to_decimal_17_16_from_decimal_38_37_overflow_58_data_start_index; data_index < test_cast_to_decimal_17_16_from_decimal_38_37_overflow_58_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_38_37 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_38_37_overflow_58 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_58 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal64_17_16_from_decimal128i_38_37 order by 1;'
+    qt_sql_58_non_strict 'select f1, cast(f2 as decimalv3(17, 16)) from test_cast_to_decimal_17_16_from_decimal_38_37_overflow_58 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_19_0;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_19_0(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_19_0 values (168, 1),(169, 9999999999999999998),(170, 9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_19_0_overflow_60;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_19_0_overflow_60(f1 int, f2 decimalv3(19, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_19_0_overflow_60 values (0, "1"),(1, "9999999999999999998"),(2, "9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_0_data_start_index = 168
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_0_data_end_index = 171
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_19_0_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_19_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_19_0_overflow_60_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_19_0_overflow_60_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_19_0_overflow_60_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_19_0_overflow_60_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_0_overflow_60 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_60 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_0 order by 1;'
+    qt_sql_60_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_0_overflow_60 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_19_1;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_19_1(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_19_1 values (171, 1.9),(172, 999999999999999998.9),(173, 999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_19_1_overflow_61;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_19_1_overflow_61(f1 int, f2 decimalv3(19, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_19_1_overflow_61 values (0, "1.9"),(1, "999999999999999998.9"),(2, "999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_1_data_start_index = 171
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_1_data_end_index = 174
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_19_1_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_19_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_19_1_overflow_61_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_19_1_overflow_61_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_19_1_overflow_61_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_19_1_overflow_61_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_1_overflow_61 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_61 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_1 order by 1;'
+    qt_sql_61_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_1_overflow_61 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_19_9;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_19_9(f1 int, f2 decimalv3(19, 9)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_19_9 values (174, 1.999999999),(175, 9999999998.999999999),(176, 9999999999.999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_19_9_overflow_62;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_19_9_overflow_62(f1 int, f2 decimalv3(19, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_19_9_overflow_62 values (0, "1.999999999"),(1, "9999999998.999999999"),(2, "9999999999.999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_9_data_start_index = 174
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_9_data_end_index = 177
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_19_9_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_19_9_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_19_9_overflow_62_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_19_9_overflow_62_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_19_9_overflow_62_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_19_9_overflow_62_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_9 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_9_overflow_62 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_62 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_9 order by 1;'
+    qt_sql_62_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_9_overflow_62 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_19_18;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_19_18(f1 int, f2 decimalv3(19, 18)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_19_18 values (177, 0.999999999999999999),(178, 0.999999999999999999),(179, 1.999999999999999999),(180, 1.999999999999999999),(181, 8.999999999999999999),
-      (182, 8.999999999999999999),(183, 9.999999999999999999),(184, 9.999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_19_18_overflow_63;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_19_18_overflow_63(f1 int, f2 decimalv3(19, 18)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_19_18_overflow_63 values (0, "0.999999999999999999"),(1, "0.999999999999999999"),(2, "1.999999999999999999"),(3, "1.999999999999999999"),(4, "8.999999999999999999"),(5, "8.999999999999999999"),(6, "9.999999999999999999"),(7, "9.999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_18_data_start_index = 177
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_18_data_end_index = 185
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_19_18_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_19_18_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_19_18_overflow_63_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_19_18_overflow_63_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_19_18_overflow_63_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_19_18_overflow_63_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_18 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_18_overflow_63 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_63 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_18 order by 1;'
+    qt_sql_63_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_18_overflow_63 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_19_19;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_19_19(f1 int, f2 decimalv3(19, 19)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_19_19 values (185, 0.9999999999999999999),(186, 0.9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_19_19_overflow_64;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_19_19_overflow_64(f1 int, f2 decimalv3(19, 19)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_19_19_overflow_64 values (0, "0.9999999999999999999"),(1, "0.9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_19_data_start_index = 185
-    def test_cast_to_decimal64_17_17_from_decimal128i_19_19_data_end_index = 187
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_19_19_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_19_19_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_19_19_overflow_64_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_19_19_overflow_64_data_end_index = 2
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_19_19_overflow_64_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_19_19_overflow_64_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_19 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_19_overflow_64 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_64 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_19_19 order by 1;'
+    qt_sql_64_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_19_19_overflow_64 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_37_0;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_37_0(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_37_0 values (187, 1),(188, 9999999999999999999999999999999999998),(189, 9999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_37_0_overflow_65;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_37_0_overflow_65(f1 int, f2 decimalv3(37, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_37_0_overflow_65 values (0, "1"),(1, "9999999999999999999999999999999999998"),(2, "9999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_0_data_start_index = 187
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_0_data_end_index = 190
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_37_0_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_37_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_37_0_overflow_65_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_37_0_overflow_65_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_37_0_overflow_65_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_37_0_overflow_65_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_0_overflow_65 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_65 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_0 order by 1;'
+    qt_sql_65_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_0_overflow_65 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_37_1;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_37_1(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_37_1 values (190, 1.9),(191, 999999999999999999999999999999999998.9),(192, 999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_37_1_overflow_66;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_37_1_overflow_66(f1 int, f2 decimalv3(37, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_37_1_overflow_66 values (0, "1.9"),(1, "999999999999999999999999999999999998.9"),(2, "999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_1_data_start_index = 190
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_1_data_end_index = 193
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_37_1_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_37_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_37_1_overflow_66_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_37_1_overflow_66_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_37_1_overflow_66_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_37_1_overflow_66_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_1_overflow_66 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_66 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_1 order by 1;'
+    qt_sql_66_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_1_overflow_66 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_37_18;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_37_18(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_37_18 values (193, 0.999999999999999999),(194, 0.999999999999999999),(195, 1.999999999999999999),(196, 1.999999999999999999),(197, 9999999999999999998.999999999999999999),
-      (198, 9999999999999999998.999999999999999999),(199, 9999999999999999999.999999999999999999),(200, 9999999999999999999.999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_37_18_overflow_67;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_37_18_overflow_67(f1 int, f2 decimalv3(37, 18)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_37_18_overflow_67 values (0, "0.999999999999999999"),(1, "0.999999999999999999"),(2, "1.999999999999999999"),(3, "1.999999999999999999"),(4, "9999999999999999998.999999999999999999"),(5, "9999999999999999998.999999999999999999"),(6, "9999999999999999999.999999999999999999"),(7, "9999999999999999999.999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_18_data_start_index = 193
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_18_data_end_index = 201
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_37_18_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_37_18_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_37_18_overflow_67_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_37_18_overflow_67_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_37_18_overflow_67_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_37_18_overflow_67_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_18 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_18_overflow_67 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_67 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_18 order by 1;'
+    qt_sql_67_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_18_overflow_67 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_37_36;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_37_36(f1 int, f2 decimalv3(37, 36)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_37_36 values (201, 0.999999999999999999999999999999999999),(202, 0.999999999999999999999999999999999999),(203, 1.999999999999999999999999999999999999),(204, 1.999999999999999999999999999999999999),(205, 8.999999999999999999999999999999999999),
-      (206, 8.999999999999999999999999999999999999),(207, 9.999999999999999999999999999999999999),(208, 9.999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_37_36_overflow_68;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_37_36_overflow_68(f1 int, f2 decimalv3(37, 36)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_37_36_overflow_68 values (0, "0.999999999999999999999999999999999999"),(1, "0.999999999999999999999999999999999999"),(2, "1.999999999999999999999999999999999999"),(3, "1.999999999999999999999999999999999999"),(4, "8.999999999999999999999999999999999999"),(5, "8.999999999999999999999999999999999999"),(6, "9.999999999999999999999999999999999999"),(7, "9.999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_36_data_start_index = 201
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_36_data_end_index = 209
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_37_36_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_37_36_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_37_36_overflow_68_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_37_36_overflow_68_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_37_36_overflow_68_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_37_36_overflow_68_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_36 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_36_overflow_68 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_68 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_36 order by 1;'
+    qt_sql_68_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_36_overflow_68 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_37_37;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_37_37(f1 int, f2 decimalv3(37, 37)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_37_37 values (209, 0.9999999999999999999999999999999999999),(210, 0.9999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_37_37_overflow_69;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_37_37_overflow_69(f1 int, f2 decimalv3(37, 37)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_37_37_overflow_69 values (0, "0.9999999999999999999999999999999999999"),(1, "0.9999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_37_data_start_index = 209
-    def test_cast_to_decimal64_17_17_from_decimal128i_37_37_data_end_index = 211
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_37_37_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_37_37_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_37_37_overflow_69_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_37_37_overflow_69_data_end_index = 2
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_37_37_overflow_69_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_37_37_overflow_69_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_37 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_37_overflow_69 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_69 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_37_37 order by 1;'
+    qt_sql_69_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_37_37_overflow_69 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_38_0;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_38_0(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_38_0 values (211, 1),(212, 99999999999999999999999999999999999998),(213, 99999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_38_0_overflow_70;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_38_0_overflow_70(f1 int, f2 decimalv3(38, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_38_0_overflow_70 values (0, "1"),(1, "99999999999999999999999999999999999998"),(2, "99999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_0_data_start_index = 211
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_0_data_end_index = 214
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_38_0_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_38_0_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_38_0_overflow_70_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_38_0_overflow_70_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_38_0_overflow_70_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_38_0_overflow_70_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_0 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_0_overflow_70 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_70 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_0 order by 1;'
+    qt_sql_70_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_0_overflow_70 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_38_1;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_38_1(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_38_1 values (214, 1.9),(215, 9999999999999999999999999999999999998.9),(216, 9999999999999999999999999999999999999.9);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_38_1_overflow_71;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_38_1_overflow_71(f1 int, f2 decimalv3(38, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_38_1_overflow_71 values (0, "1.9"),(1, "9999999999999999999999999999999999998.9"),(2, "9999999999999999999999999999999999999.9");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_1_data_start_index = 214
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_1_data_end_index = 217
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_38_1_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_38_1_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_38_1_overflow_71_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_38_1_overflow_71_data_end_index = 3
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_38_1_overflow_71_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_38_1_overflow_71_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_1 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_1_overflow_71 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_71 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_1 order by 1;'
+    qt_sql_71_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_1_overflow_71 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_38_19;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_38_19(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_38_19 values (217, 0.9999999999999999999),(218, 0.9999999999999999999),(219, 1.9999999999999999999),(220, 1.9999999999999999999),(221, 9999999999999999998.9999999999999999999),
-      (222, 9999999999999999998.9999999999999999999),(223, 9999999999999999999.9999999999999999999),(224, 9999999999999999999.9999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_38_19_overflow_72;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_38_19_overflow_72(f1 int, f2 decimalv3(38, 19)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_38_19_overflow_72 values (0, "0.9999999999999999999"),(1, "0.9999999999999999999"),(2, "1.9999999999999999999"),(3, "1.9999999999999999999"),(4, "9999999999999999998.9999999999999999999"),(5, "9999999999999999998.9999999999999999999"),(6, "9999999999999999999.9999999999999999999"),(7, "9999999999999999999.9999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_19_data_start_index = 217
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_19_data_end_index = 225
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_38_19_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_38_19_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_38_19_overflow_72_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_38_19_overflow_72_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_38_19_overflow_72_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_38_19_overflow_72_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_19 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_19_overflow_72 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_72 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_19 order by 1;'
+    qt_sql_72_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_19_overflow_72 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_38_37;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_38_37(f1 int, f2 decimalv3(38, 37)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_38_37 values (225, 0.9999999999999999999999999999999999999),(226, 0.9999999999999999999999999999999999999),(227, 1.9999999999999999999999999999999999999),(228, 1.9999999999999999999999999999999999999),(229, 8.9999999999999999999999999999999999999),
-      (230, 8.9999999999999999999999999999999999999),(231, 9.9999999999999999999999999999999999999),(232, 9.9999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_38_37_overflow_73;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_38_37_overflow_73(f1 int, f2 decimalv3(38, 37)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_38_37_overflow_73 values (0, "0.9999999999999999999999999999999999999"),(1, "0.9999999999999999999999999999999999999"),(2, "1.9999999999999999999999999999999999999"),(3, "1.9999999999999999999999999999999999999"),(4, "8.9999999999999999999999999999999999999"),(5, "8.9999999999999999999999999999999999999"),(6, "9.9999999999999999999999999999999999999"),(7, "9.9999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_37_data_start_index = 225
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_37_data_end_index = 233
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_38_37_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_38_37_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_38_37_overflow_73_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_38_37_overflow_73_data_end_index = 8
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_38_37_overflow_73_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_38_37_overflow_73_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_37 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_37_overflow_73 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_73 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_37 order by 1;'
+    qt_sql_73_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_37_overflow_73 order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal64_17_17_from_decimal128i_38_38;"
-    sql "create table test_cast_to_decimal64_17_17_from_decimal128i_38_38(f1 int, f2 decimalv3(38, 38)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal64_17_17_from_decimal128i_38_38 values (233, 0.99999999999999999999999999999999999999),(234, 0.99999999999999999999999999999999999999);
+    sql "drop table if exists test_cast_to_decimal_17_17_from_decimal_38_38_overflow_74;"
+    sql "create table test_cast_to_decimal_17_17_from_decimal_38_38_overflow_74(f1 int, f2 decimalv3(38, 38)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_17_17_from_decimal_38_38_overflow_74 values (0, "0.99999999999999999999999999999999999999"),(1, "0.99999999999999999999999999999999999999");
     """
 
     sql "set enable_strict_cast=true;"
 
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_38_data_start_index = 233
-    def test_cast_to_decimal64_17_17_from_decimal128i_38_38_data_end_index = 235
-    for (int data_index = test_cast_to_decimal64_17_17_from_decimal128i_38_38_data_start_index; data_index < test_cast_to_decimal64_17_17_from_decimal128i_38_38_data_end_index; data_index++) {
+    def test_cast_to_decimal_17_17_from_decimal_38_38_overflow_74_data_start_index = 0
+    def test_cast_to_decimal_17_17_from_decimal_38_38_overflow_74_data_end_index = 2
+    for (int data_index = test_cast_to_decimal_17_17_from_decimal_38_38_overflow_74_data_start_index; data_index < test_cast_to_decimal_17_17_from_decimal_38_38_overflow_74_data_end_index; data_index++) {
         test {
-            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_38 where f1 = ${data_index}"
+            sql "select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_38_overflow_74 where f1 = ${data_index}"
             exception ""
         }
     }
     sql "set enable_strict_cast=false;"
-    qt_sql_74 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal64_17_17_from_decimal128i_38_38 order by 1;'
+    qt_sql_74_non_strict 'select f1, cast(f2 as decimalv3(17, 17)) from test_cast_to_decimal_17_17_from_decimal_38_38_overflow_74 order by 1;'
 
 }

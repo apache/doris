@@ -68,9 +68,9 @@ Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, Colum
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(const ColumnString& str,
-                                                              IColumn& column,
-                                                              const FormatOptions& options) const {
+Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
+        const ColumnString& str, IColumn& column, const FormatOptions& options,
+        const NullMap::value_type* null_map) const {
     const auto row = str.size();
     column.resize(row);
 
@@ -83,6 +83,9 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(const ColumnString
     PrecisionScaleArg scale_arg {.precision = static_cast<UInt32>(precision),
                                  .scale = static_cast<UInt32>(scale)};
     for (size_t i = 0; i < row; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         size_t next_offset = (*offsets)[i];
         size_t string_size = next_offset - current_offset;
 

@@ -86,7 +86,8 @@ ysql> select cast('1111111111111111111111111111111111111111111111111111111111111
 
 */
 TEST_F(FunctionCastToDecimalTest, test_from_string_invalid_input) {
-    from_string_invalid_input_test_func<Decimal32, 9, 3>();
+    int table_index = 0;
+    from_string_invalid_input_test_func<Decimal32, 9, 3>(table_index++);
 }
 TEST_F(FunctionCastToDecimalTest, test_from_bool) {
     from_bool_test_func<Decimal32, 9, 0>();

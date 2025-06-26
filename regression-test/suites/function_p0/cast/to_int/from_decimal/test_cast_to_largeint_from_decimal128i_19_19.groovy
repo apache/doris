@@ -21,15 +21,27 @@ suite("test_cast_to_largeint_from_decimal128i_19_19") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_largeint_from_decimal128i_19_19_0;"
-    sql "create table test_cast_to_largeint_from_decimal128i_19_19_0(f1 int, f2 decimalv3(19, 19)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_largeint_from_decimal128i_19_19_0 values (0, "0.0000000000000000000"),(1, "0.0000000000000000000"),(2, "0.0000000000000000001"),(3, "-0.0000000000000000001"),(4, "0.0000000000000000009"),(5, "-0.0000000000000000009"),(6, "0.9999999999999999999"),(7, "-0.9999999999999999999"),(8, "0.9999999999999999998"),(9, "-0.9999999999999999998"),(10, "0.0999999999999999999"),(11, "-0.0999999999999999999"),(12, "0.9000000000000000000"),(13, "-0.9000000000000000000"),(14, "0.9000000000000000001"),(15, "-0.9000000000000000001");
+    sql "drop table if exists test_cast_to_largeint_from_decimal128i_19_19_0_nullable;"
+    sql "create table test_cast_to_largeint_from_decimal128i_19_19_0_nullable(f1 int, f2 decimalv3(19, 19)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_largeint_from_decimal128i_19_19_0_nullable values (0, "0.0000000000000000000"),(1, "0.0000000000000000000"),(2, "0.0000000000000000001"),(3, "-0.0000000000000000001"),(4, "0.0000000000000000009"),(5, "-0.0000000000000000009"),(6, "0.9999999999999999999"),(7, "-0.9999999999999999999"),(8, "0.9999999999999999998"),(9, "-0.9999999999999999998"),(10, "0.0999999999999999999"),(11, "-0.0999999999999999999"),(12, "0.9000000000000000000"),(13, "-0.9000000000000000000"),(14, "0.9000000000000000001"),(15, "-0.9000000000000000001")
+      ,(16, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal128i_19_19_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal128i_19_19_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal128i_19_19_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal128i_19_19_0_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_largeint_from_decimal128i_19_19_0_not_nullable;"
+    sql "create table test_cast_to_largeint_from_decimal128i_19_19_0_not_nullable(f1 int, f2 decimalv3(19, 19)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_largeint_from_decimal128i_19_19_0_not_nullable values (0, "0.0000000000000000000"),(1, "0.0000000000000000000"),(2, "0.0000000000000000001"),(3, "-0.0000000000000000001"),(4, "0.0000000000000000009"),(5, "-0.0000000000000000009"),(6, "0.9999999999999999999"),(7, "-0.9999999999999999999"),(8, "0.9999999999999999998"),(9, "-0.9999999999999999998"),(10, "0.0999999999999999999"),(11, "-0.0999999999999999999"),(12, "0.9000000000000000000"),(13, "-0.9000000000000000000"),(14, "0.9000000000000000001"),(15, "-0.9000000000000000001");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_0_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal128i_19_19_0_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_0_non_strict 'select f1, cast(f2 as largeint) from test_cast_to_largeint_from_decimal128i_19_19_0_not_nullable order by 1;'
 
 }

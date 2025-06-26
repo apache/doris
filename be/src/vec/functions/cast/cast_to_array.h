@@ -17,6 +17,7 @@
 
 #include "cast_base.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_array.h"
 
 namespace doris::vectorized::CastWrapper {
@@ -55,7 +56,8 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
 
     return [nested_function, from_nested_type, to_nested_type](
                    FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   const uint32_t result, size_t /*input_rows_count*/) -> Status {
+                   uint32_t result, size_t /*input_rows_count*/,
+                   const NullMap::value_type* null_map = nullptr) -> Status {
         ColumnPtr from_column = block.get_by_position(arguments.front()).column;
 
         const auto* from_col_array = check_and_get_column<ColumnArray>(from_column.get());
@@ -72,7 +74,7 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
             size_t nested_result = block.columns();
             block.insert({to_nested_type, ""});
             RETURN_IF_ERROR(nested_function(context, block, new_arguments, nested_result,
-                                            from_col_array->get_data_ptr()->size()));
+                                            from_col_array->get_data_ptr()->size(), null_map));
             auto nested_result_column = block.get_by_position(nested_result).column;
 
             /// set converted nested column to result

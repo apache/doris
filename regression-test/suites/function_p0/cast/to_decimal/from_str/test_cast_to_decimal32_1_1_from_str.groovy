@@ -21,16 +21,27 @@ suite("test_cast_to_decimal32_1_1_from_str") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_decimal32_1_1_from_str_1_1_1;"
-    sql "create table test_cast_to_decimal32_1_1_from_str_1_1_1(f1 int, f2 string) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_1_1_from_str_1_1_1 values (34, "0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647"),(35, "-0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647"),(36, ".04"),(37, ".14"),(38, ".84"),(39, ".94"),(40, ".05"),(41, ".15"),(42, ".85"),(43, ".94"),
-      (44, "-.04"),(45, "-.14"),(46, "-.84"),(47, "-.94"),(48, "-.05"),(49, "-.15"),(50, "-.85"),(51, "-.94");
+    sql "drop table if exists test_cast_to_decimal32_1_1_from_str_1_nullable;"
+    sql "create table test_cast_to_decimal32_1_1_from_str_1_nullable(f1 int, f2 string) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal32_1_1_from_str_1_nullable values (0, "0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647"),(1, "-0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647"),(2, ".04"),(3, ".14"),(4, ".84"),(5, ".94"),(6, ".05"),(7, ".15"),(8, ".85"),(9, ".94"),(10, "-.04"),(11, "-.14"),(12, "-.84"),(13, "-.94"),(14, "-.05"),(15, "-.15"),(16, "-.85"),(17, "-.94")
+      ,(18, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(1, 1)) from test_cast_to_decimal32_1_1_from_str_1_1_1 order by 1;'
+    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(1, 1)) from test_cast_to_decimal32_1_1_from_str_1_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(1, 1)) from test_cast_to_decimal32_1_1_from_str_1_1_1 order by 1;'
+    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(1, 1)) from test_cast_to_decimal32_1_1_from_str_1_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal32_1_1_from_str_1_not_nullable;"
+    sql "create table test_cast_to_decimal32_1_1_from_str_1_not_nullable(f1 int, f2 string) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal32_1_1_from_str_1_not_nullable values (0, "0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647"),(1, "-0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e2147483647"),(2, ".04"),(3, ".14"),(4, ".84"),(5, ".94"),(6, ".05"),(7, ".15"),(8, ".85"),(9, ".94"),(10, "-.04"),(11, "-.14"),(12, "-.84"),(13, "-.94"),(14, "-.05"),(15, "-.15"),(16, "-.85"),(17, "-.94");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(1, 1)) from test_cast_to_decimal32_1_1_from_str_1_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(1, 1)) from test_cast_to_decimal32_1_1_from_str_1_not_nullable order by 1;'
 
 }

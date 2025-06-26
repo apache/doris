@@ -17,6 +17,7 @@
 
 #include "cast_base.h"
 #include "vec/columns/column_struct.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized::CastWrapper {
@@ -51,7 +52,8 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
     auto element_wrappers = get_element_wrappers(context, from_element_types, to_element_types);
     return [element_wrappers, from_element_types, to_element_types](
                    FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   const uint32_t result, size_t /*input_rows_count*/) -> Status {
+                   uint32_t result, size_t /*input_rows_count*/,
+                   const NullMap::value_type* null_map = nullptr) -> Status {
         auto& from_column = block.get_by_position(arguments.front()).column;
         const auto* from_col_struct = check_and_get_column<ColumnStruct>(from_column.get());
         if (!from_col_struct) {
@@ -71,7 +73,7 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
             block.insert({to_element_types[i], ""});
 
             RETURN_IF_ERROR(element_wrappers[i](context, block, element_arguments, element_result,
-                                                from_col_struct->get_column(i).size()));
+                                                from_col_struct->get_column(i).size(), null_map));
             converted_columns[i] = block.get_by_position(element_result).column;
         }
 

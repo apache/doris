@@ -17,12 +17,14 @@
 
 #include "cast_base.h"
 
+#include <cstdint>
+
 #include "util/jsonb_writer.h"
 namespace doris::vectorized::CastWrapper {
 
 Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
-                                  const ColumnNumbers& arguments, const uint32_t result,
-                                  size_t input_rows_count) {
+                                  const ColumnNumbers& arguments, uint32_t result,
+                                  size_t input_rows_count, const NullMap::value_type* null_map) {
     auto data_type_to = block.get_by_position(result).type;
     const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
     const IDataType& type = *col_with_type_and_name.type;
@@ -72,8 +74,8 @@ Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
 }
 
 Status cast_from_string_to_generic(FunctionContext* context, Block& block,
-                                   const ColumnNumbers& arguments, const uint32_t result,
-                                   size_t input_rows_count) {
+                                   const ColumnNumbers& arguments, uint32_t result,
+                                   size_t input_rows_count, const NullMap::value_type* null_map) {
     const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
     const IColumn& col_from = *col_with_type_and_name.column;
     // result column must set type
@@ -138,8 +140,10 @@ ElementWrappers get_element_wrappers(FunctionContext* context, const DataTypes& 
 
 WrapperType create_unsupport_wrapper(const String error_msg) {
     return [error_msg](FunctionContext* /*context*/, Block& /*block*/,
-                       const ColumnNumbers& /*arguments*/, const uint32_t /*result*/,
-                       size_t /*input_rows_count*/) { return Status::InvalidArgument(error_msg); };
+                       const ColumnNumbers& /*arguments*/, uint32_t /*result*/,
+                       size_t /*input_rows_count*/, const NullMap::value_type* null_map = nullptr) {
+        return Status::InvalidArgument(error_msg);
+    };
 }
 
 WrapperType create_unsupport_wrapper(const String from_type_name, const String to_type_name) {
@@ -150,7 +154,8 @@ WrapperType create_unsupport_wrapper(const String from_type_name, const String t
 
 WrapperType create_identity_wrapper(const DataTypePtr&) {
     return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              const uint32_t result, size_t /*input_rows_count*/) {
+              uint32_t result, size_t /*input_rows_count*/,
+              const NullMap::value_type* null_map = nullptr) {
         block.get_by_position(result).column = block.get_by_position(arguments.front()).column;
         return Status::OK();
     };
@@ -158,8 +163,8 @@ WrapperType create_identity_wrapper(const DataTypePtr&) {
 
 WrapperType create_nothing_wrapper(const IDataType* to_type) {
     ColumnPtr res = to_type->create_column_const_with_default_value(1);
-    return [res](FunctionContext* context, Block& block, const ColumnNumbers&,
-                 const uint32_t result, size_t input_rows_count) {
+    return [res](FunctionContext* context, Block& block, const ColumnNumbers&, uint32_t result,
+                 size_t input_rows_count, const NullMap::value_type* null_map = nullptr) {
         /// Column of Nothing type is trivially convertible to any other column
         block.get_by_position(result).column =
                 res->clone_resized(input_rows_count)->convert_to_full_column_if_const();

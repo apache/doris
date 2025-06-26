@@ -28,9 +28,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <cstdint>
-#include <functional>
 #include <memory>
-#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -41,21 +39,12 @@
 #include "runtime/runtime_state.h"
 #include "runtime/type_limit.h"
 #include "udf/udf.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_stream.h"
-#include "util/jsonb_writer.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_common.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/call_on_type_index.h"
@@ -454,7 +443,8 @@ struct ConvertImpl<DataTypeString, ToDataType> {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
-        return Status::RuntimeError("not support convert from string");
+        return Status::RuntimeError("not support convert from string to {}",
+                                    type_to_string(ToDataType::PType));
     }
 };
 
@@ -717,7 +707,8 @@ class FunctionConvert : public CastToBase {
 public:
     static FunctionPtr create() { return std::make_shared<FunctionConvert>(); }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         if (!arguments.size()) {
             return Status::RuntimeError("Function cast expects at least 1 arguments");
         }

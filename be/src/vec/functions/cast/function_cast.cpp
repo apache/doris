@@ -40,7 +40,8 @@ WrapperType create_wrapper(const DataTypePtr& from_type, const ToDataType* const
         /// that will not throw an exception but return NULL in case of malformed input.
         auto function = FunctionConvertFromString<ToDataType>::create();
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
             return function->execute(context, block, arguments, result, input_rows_count);
         };
     } else if (requested_result_is_nullable &&
@@ -52,12 +53,14 @@ WrapperType create_wrapper(const DataTypePtr& from_type, const ToDataType* const
         FunctionPtr function;
         function = FunctionConvertToTimeType<ToDataType, NameCast>::create();
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count,
+                          const NullMap::value_type* null_map = nullptr) {
             return function->execute(context, block, arguments, result, input_rows_count);
         };
     } else {
         return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                  const uint32_t result, size_t input_rows_count) {
+                  uint32_t result, size_t input_rows_count,
+                  const NullMap::value_type* null_map = nullptr) {
             FunctionConvert<ToDataType> function;
             return function.execute_impl(context, block, arguments, result, input_rows_count);
         };
@@ -113,8 +116,8 @@ WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataType
                     "Cannot convert NULL to a non-nullable type");
         }
 
-        return [](FunctionContext* context, Block& block, const ColumnNumbers&,
-                  const uint32_t result, size_t input_rows_count) {
+        return [](FunctionContext* context, Block& block, const ColumnNumbers&, uint32_t result,
+                  size_t input_rows_count, const NullMap::value_type* null_map = nullptr) {
             auto& res = block.get_by_position(result);
             res.column = res.type->create_column_const_with_default_value(input_rows_count)
                                  ->convert_to_full_column_if_const();
@@ -218,8 +221,9 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
 
     if (result_is_nullable) {
         return [from_type, to_type](FunctionContext* context, Block& block,
-                                    const ColumnNumbers& arguments, const uint32_t result,
-                                    size_t input_rows_count) {
+                                    const ColumnNumbers& arguments, uint32_t result,
+                                    size_t input_rows_count,
+                                    const NullMap::value_type* null_map = nullptr) {
             auto from_type_not_nullable = remove_nullable(from_type);
             auto to_type_not_nullable = remove_nullable(to_type);
 
@@ -232,9 +236,15 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
             block.insert(
                     block.get_by_position(arguments[0]).get_nested(replace_null_data_to_default));
 
+            const auto& arg_col = block.get_by_position(arguments[0]);
+            const NullMap::value_type* arg_null_map = nullptr;
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_col.column)) {
+                arg_null_map = nullable->get_null_map_data().data();
+            }
             RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable,
                                          true)(context, block, {nested_source_index},
-                                               nested_result_index, input_rows_count));
+                                               nested_result_index, input_rows_count,
+                                               arg_null_map));
 
             block.get_by_position(result).column =
                     wrap_in_nullable(block.get_by_position(nested_result_index).column, block,
@@ -358,7 +368,7 @@ public:
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return wrapper_function(context, block, arguments, result, input_rows_count);
+        return wrapper_function(context, block, arguments, result, input_rows_count, nullptr);
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }

@@ -21,193 +21,373 @@ suite("test_cast_to_decimal32_8_0_from_decimal64") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_10_0;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_10_0(f1 int, f2 decimalv3(10, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_10_0 values (0, "0"),(1, "9999999"),(2, "90000000"),(3, "90000001"),(4, "99999998"),(5, "99999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_0_0_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_0_0_nullable(f1 int, f2 decimalv3(10, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_0_0_nullable values (0, "0"),(1, "9999999"),(2, "90000000"),(3, "90000001"),(4, "99999998"),(5, "99999999")
+      ,(6, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_0_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_0 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_0_0_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_0 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_0_0_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_10_1;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_10_1(f1 int, f2 decimalv3(10, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_10_1 values (6, "0.0"),(7, "0.1"),(8, "0.8"),(9, "0.9"),(10, "9999999.0"),(11, "9999999.1"),(12, "9999999.8"),(13, "9999999.9"),(14, "90000000.0"),(15, "90000000.1"),
-      (16, "90000000.8"),(17, "90000000.9"),(18, "90000001.0"),(19, "90000001.1"),(20, "90000001.8"),(21, "90000001.9"),(22, "99999998.0"),(23, "99999998.1"),(24, "99999998.8"),(25, "99999998.9"),
-      (26, "99999999.0"),(27, "99999999.1");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_0_0_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_0_0_not_nullable(f1 int, f2 decimalv3(10, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_0_0_not_nullable values (0, "0"),(1, "9999999"),(2, "90000000"),(3, "90000001"),(4, "99999998"),(5, "99999999");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_1 order by 1;'
+    qt_sql_0_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_0_0_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_1 order by 1;'
+    qt_sql_0_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_0_0_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_10_5;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_10_5(f1 int, f2 decimalv3(10, 5)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_10_5 values (28, "0.00000"),(29, "0.00001"),(30, "0.00009"),(31, "0.09999"),(32, "0.90000"),(33, "0.90001"),(34, "0.99998"),(35, "0.99999"),(36, "9999.00000"),(37, "9999.00001"),
-      (38, "9999.00009"),(39, "9999.09999"),(40, "9999.90000"),(41, "9999.90001"),(42, "9999.99998"),(43, "9999.99999"),(44, "90000.00000"),(45, "90000.00001"),(46, "90000.00009"),(47, "90000.09999"),
-      (48, "90000.90000"),(49, "90000.90001"),(50, "90000.99998"),(51, "90000.99999"),(52, "90001.00000"),(53, "90001.00001"),(54, "90001.00009"),(55, "90001.09999"),(56, "90001.90000"),(57, "90001.90001"),
-      (58, "90001.99998"),(59, "90001.99999"),(60, "99998.00000"),(61, "99998.00001"),(62, "99998.00009"),(63, "99998.09999"),(64, "99998.90000"),(65, "99998.90001"),(66, "99998.99998"),(67, "99998.99999"),
-      (68, "99999.00000"),(69, "99999.00001"),(70, "99999.00009"),(71, "99999.09999"),(72, "99999.90000"),(73, "99999.90001"),(74, "99999.99998"),(75, "99999.99999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_1_1_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_1_1_nullable(f1 int, f2 decimalv3(10, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_1_1_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9"),(4, "9999999.0"),(5, "9999999.1"),(6, "9999999.8"),(7, "9999999.9"),(8, "90000000.0"),(9, "90000000.1"),(10, "90000000.8"),(11, "90000000.9"),(12, "90000001.0"),(13, "90000001.1"),(14, "90000001.8"),(15, "90000001.9"),(16, "99999998.0"),(17, "99999998.1"),(18, "99999998.8"),(19, "99999998.9"),
+      (20, "99999999.0"),(21, "99999999.1")
+      ,(22, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_2_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_5 order by 1;'
+    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_1_1_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_2_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_5 order by 1;'
+    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_1_1_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_10_9;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_10_9(f1 int, f2 decimalv3(10, 9)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_10_9 values (76, "0.000000000"),(77, "0.000000001"),(78, "0.000000009"),(79, "0.099999999"),(80, "0.900000000"),(81, "0.900000001"),(82, "0.999999998"),(83, "0.999999999"),(84, "8.000000000"),(85, "8.000000001"),
-      (86, "8.000000009"),(87, "8.099999999"),(88, "8.900000000"),(89, "8.900000001"),(90, "8.999999998"),(91, "8.999999999"),(92, "9.000000000"),(93, "9.000000001"),(94, "9.000000009"),(95, "9.099999999"),
-      (96, "9.900000000"),(97, "9.900000001"),(98, "9.999999998"),(99, "9.999999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_1_1_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_1_1_not_nullable(f1 int, f2 decimalv3(10, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_1_1_not_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9"),(4, "9999999.0"),(5, "9999999.1"),(6, "9999999.8"),(7, "9999999.9"),(8, "90000000.0"),(9, "90000000.1"),(10, "90000000.8"),(11, "90000000.9"),(12, "90000001.0"),(13, "90000001.1"),(14, "90000001.8"),(15, "90000001.9"),(16, "99999998.0"),(17, "99999998.1"),(18, "99999998.8"),(19, "99999998.9"),
+      (20, "99999999.0"),(21, "99999999.1");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_3_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_9 order by 1;'
+    qt_sql_1_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_1_1_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_3_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_9 order by 1;'
+    qt_sql_1_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_1_1_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_10_10;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_10_10(f1 int, f2 decimalv3(10, 10)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_10_10 values (100, "0.0000000000"),(101, "0.0000000001"),(102, "0.0000000009"),(103, "0.0999999999"),(104, "0.9000000000"),(105, "0.9000000001"),(106, "0.9999999998"),(107, "0.9999999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_5_2_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_5_2_nullable(f1 int, f2 decimalv3(10, 5)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_5_2_nullable values (0, "0.00000"),(1, "0.00001"),(2, "0.00009"),(3, "0.09999"),(4, "0.90000"),(5, "0.90001"),(6, "0.99998"),(7, "0.99999"),(8, "9999.00000"),(9, "9999.00001"),(10, "9999.00009"),(11, "9999.09999"),(12, "9999.90000"),(13, "9999.90001"),(14, "9999.99998"),(15, "9999.99999"),(16, "90000.00000"),(17, "90000.00001"),(18, "90000.00009"),(19, "90000.09999"),
+      (20, "90000.90000"),(21, "90000.90001"),(22, "90000.99998"),(23, "90000.99999"),(24, "90001.00000"),(25, "90001.00001"),(26, "90001.00009"),(27, "90001.09999"),(28, "90001.90000"),(29, "90001.90001"),(30, "90001.99998"),(31, "90001.99999"),(32, "99998.00000"),(33, "99998.00001"),(34, "99998.00009"),(35, "99998.09999"),(36, "99998.90000"),(37, "99998.90001"),(38, "99998.99998"),(39, "99998.99999"),
+      (40, "99999.00000"),(41, "99999.00001"),(42, "99999.00009"),(43, "99999.09999"),(44, "99999.90000"),(45, "99999.90001"),(46, "99999.99998"),(47, "99999.99999")
+      ,(48, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_4_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_10 order by 1;'
+    qt_sql_2_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_5_2_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_4_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_10_10 order by 1;'
+    qt_sql_2_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_5_2_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_17_0;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_17_0(f1 int, f2 decimalv3(17, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_17_0 values (108, "0"),(109, "9999999"),(110, "90000000"),(111, "90000001"),(112, "99999998"),(113, "99999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_5_2_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_5_2_not_nullable(f1 int, f2 decimalv3(10, 5)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_5_2_not_nullable values (0, "0.00000"),(1, "0.00001"),(2, "0.00009"),(3, "0.09999"),(4, "0.90000"),(5, "0.90001"),(6, "0.99998"),(7, "0.99999"),(8, "9999.00000"),(9, "9999.00001"),(10, "9999.00009"),(11, "9999.09999"),(12, "9999.90000"),(13, "9999.90001"),(14, "9999.99998"),(15, "9999.99999"),(16, "90000.00000"),(17, "90000.00001"),(18, "90000.00009"),(19, "90000.09999"),
+      (20, "90000.90000"),(21, "90000.90001"),(22, "90000.99998"),(23, "90000.99999"),(24, "90001.00000"),(25, "90001.00001"),(26, "90001.00009"),(27, "90001.09999"),(28, "90001.90000"),(29, "90001.90001"),(30, "90001.99998"),(31, "90001.99999"),(32, "99998.00000"),(33, "99998.00001"),(34, "99998.00009"),(35, "99998.09999"),(36, "99998.90000"),(37, "99998.90001"),(38, "99998.99998"),(39, "99998.99999"),
+      (40, "99999.00000"),(41, "99999.00001"),(42, "99999.00009"),(43, "99999.09999"),(44, "99999.90000"),(45, "99999.90001"),(46, "99999.99998"),(47, "99999.99999");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_5_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_0 order by 1;'
+    qt_sql_2_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_5_2_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_0 order by 1;'
+    qt_sql_2_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_5_2_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_17_1;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_17_1(f1 int, f2 decimalv3(17, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_17_1 values (114, "0.0"),(115, "0.1"),(116, "0.8"),(117, "0.9"),(118, "9999999.0"),(119, "9999999.1"),(120, "9999999.8"),(121, "9999999.9"),(122, "90000000.0"),(123, "90000000.1"),
-      (124, "90000000.8"),(125, "90000000.9"),(126, "90000001.0"),(127, "90000001.1"),(128, "90000001.8"),(129, "90000001.9"),(130, "99999998.0"),(131, "99999998.1"),(132, "99999998.8"),(133, "99999998.9"),
-      (134, "99999999.0"),(135, "99999999.1");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_9_3_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_9_3_nullable(f1 int, f2 decimalv3(10, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_9_3_nullable values (0, "0.000000000"),(1, "0.000000001"),(2, "0.000000009"),(3, "0.099999999"),(4, "0.900000000"),(5, "0.900000001"),(6, "0.999999998"),(7, "0.999999999"),(8, "8.000000000"),(9, "8.000000001"),(10, "8.000000009"),(11, "8.099999999"),(12, "8.900000000"),(13, "8.900000001"),(14, "8.999999998"),(15, "8.999999999"),(16, "9.000000000"),(17, "9.000000001"),(18, "9.000000009"),(19, "9.099999999"),
+      (20, "9.900000000"),(21, "9.900000001"),(22, "9.999999998"),(23, "9.999999999")
+      ,(24, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_6_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_1 order by 1;'
+    qt_sql_3_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_9_3_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_1 order by 1;'
+    qt_sql_3_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_9_3_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_17_8;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_17_8(f1 int, f2 decimalv3(17, 8)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_17_8 values (136, "0.00000000"),(137, "0.00000001"),(138, "0.00000009"),(139, "0.09999999"),(140, "0.90000000"),(141, "0.90000001"),(142, "0.99999998"),(143, "0.99999999"),(144, "9999999.00000000"),(145, "9999999.00000001"),
-      (146, "9999999.00000009"),(147, "9999999.09999999"),(148, "9999999.90000000"),(149, "9999999.90000001"),(150, "9999999.99999998"),(151, "9999999.99999999"),(152, "90000000.00000000"),(153, "90000000.00000001"),(154, "90000000.00000009"),(155, "90000000.09999999"),
-      (156, "90000000.90000000"),(157, "90000000.90000001"),(158, "90000000.99999998"),(159, "90000000.99999999"),(160, "90000001.00000000"),(161, "90000001.00000001"),(162, "90000001.00000009"),(163, "90000001.09999999"),(164, "90000001.90000000"),(165, "90000001.90000001"),
-      (166, "90000001.99999998"),(167, "90000001.99999999"),(168, "99999998.00000000"),(169, "99999998.00000001"),(170, "99999998.00000009"),(171, "99999998.09999999"),(172, "99999998.90000000"),(173, "99999998.90000001"),(174, "99999998.99999998"),(175, "99999998.99999999"),
-      (176, "99999999.00000000"),(177, "99999999.00000001"),(178, "99999999.00000009"),(179, "99999999.09999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_9_3_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_9_3_not_nullable(f1 int, f2 decimalv3(10, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_9_3_not_nullable values (0, "0.000000000"),(1, "0.000000001"),(2, "0.000000009"),(3, "0.099999999"),(4, "0.900000000"),(5, "0.900000001"),(6, "0.999999998"),(7, "0.999999999"),(8, "8.000000000"),(9, "8.000000001"),(10, "8.000000009"),(11, "8.099999999"),(12, "8.900000000"),(13, "8.900000001"),(14, "8.999999998"),(15, "8.999999999"),(16, "9.000000000"),(17, "9.000000001"),(18, "9.000000009"),(19, "9.099999999"),
+      (20, "9.900000000"),(21, "9.900000001"),(22, "9.999999998"),(23, "9.999999999");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_8 order by 1;'
+    qt_sql_3_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_9_3_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_8 order by 1;'
+    qt_sql_3_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_9_3_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_17_16;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_17_16(f1 int, f2 decimalv3(17, 16)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_17_16 values (180, "0.0000000000000000"),(181, "0.0000000000000001"),(182, "0.0000000000000009"),(183, "0.0999999999999999"),(184, "0.9000000000000000"),(185, "0.9000000000000001"),(186, "0.9999999999999998"),(187, "0.9999999999999999"),(188, "8.0000000000000000"),(189, "8.0000000000000001"),
-      (190, "8.0000000000000009"),(191, "8.0999999999999999"),(192, "8.9000000000000000"),(193, "8.9000000000000001"),(194, "8.9999999999999998"),(195, "8.9999999999999999"),(196, "9.0000000000000000"),(197, "9.0000000000000001"),(198, "9.0000000000000009"),(199, "9.0999999999999999"),
-      (200, "9.9000000000000000"),(201, "9.9000000000000001"),(202, "9.9999999999999998"),(203, "9.9999999999999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_10_4_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_10_4_nullable(f1 int, f2 decimalv3(10, 10)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_10_4_nullable values (0, "0.0000000000"),(1, "0.0000000001"),(2, "0.0000000009"),(3, "0.0999999999"),(4, "0.9000000000"),(5, "0.9000000001"),(6, "0.9999999998"),(7, "0.9999999999")
+      ,(8, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_8_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_16 order by 1;'
+    qt_sql_4_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_10_4_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_8_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_16 order by 1;'
+    qt_sql_4_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_10_4_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_17_17;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_17_17(f1 int, f2 decimalv3(17, 17)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_17_17 values (204, "0.00000000000000000"),(205, "0.00000000000000001"),(206, "0.00000000000000009"),(207, "0.09999999999999999"),(208, "0.90000000000000000"),(209, "0.90000000000000001"),(210, "0.99999999999999998"),(211, "0.99999999999999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_10_10_4_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_10_10_4_not_nullable(f1 int, f2 decimalv3(10, 10)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_10_10_4_not_nullable values (0, "0.0000000000"),(1, "0.0000000001"),(2, "0.0000000009"),(3, "0.0999999999"),(4, "0.9000000000"),(5, "0.9000000001"),(6, "0.9999999998"),(7, "0.9999999999");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_9_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_17 order by 1;'
+    qt_sql_4_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_10_4_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_9_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_17_17 order by 1;'
+    qt_sql_4_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_10_10_4_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_18_0;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_18_0(f1 int, f2 decimalv3(18, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_18_0 values (212, "0"),(213, "9999999"),(214, "90000000"),(215, "90000001"),(216, "99999998"),(217, "99999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_0_5_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_0_5_nullable(f1 int, f2 decimalv3(17, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_0_5_nullable values (0, "0"),(1, "9999999"),(2, "90000000"),(3, "90000001"),(4, "99999998"),(5, "99999999")
+      ,(6, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_10_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_0 order by 1;'
+    qt_sql_5_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_0_5_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_0 order by 1;'
+    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_0_5_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_18_1;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_18_1(f1 int, f2 decimalv3(18, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_18_1 values (218, "0.0"),(219, "0.1"),(220, "0.8"),(221, "0.9"),(222, "9999999.0"),(223, "9999999.1"),(224, "9999999.8"),(225, "9999999.9"),(226, "90000000.0"),(227, "90000000.1"),
-      (228, "90000000.8"),(229, "90000000.9"),(230, "90000001.0"),(231, "90000001.1"),(232, "90000001.8"),(233, "90000001.9"),(234, "99999998.0"),(235, "99999998.1"),(236, "99999998.8"),(237, "99999998.9"),
-      (238, "99999999.0"),(239, "99999999.1");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_0_5_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_0_5_not_nullable(f1 int, f2 decimalv3(17, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_0_5_not_nullable values (0, "0"),(1, "9999999"),(2, "90000000"),(3, "90000001"),(4, "99999998"),(5, "99999999");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_11_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_1 order by 1;'
+    qt_sql_5_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_0_5_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_1 order by 1;'
+    qt_sql_5_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_0_5_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_18_9;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_18_9(f1 int, f2 decimalv3(18, 9)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_18_9 values (240, "0.000000000"),(241, "0.000000001"),(242, "0.000000009"),(243, "0.099999999"),(244, "0.900000000"),(245, "0.900000001"),(246, "0.999999998"),(247, "0.999999999"),(248, "9999999.000000000"),(249, "9999999.000000001"),
-      (250, "9999999.000000009"),(251, "9999999.099999999"),(252, "9999999.900000000"),(253, "9999999.900000001"),(254, "9999999.999999998"),(255, "9999999.999999999"),(256, "90000000.000000000"),(257, "90000000.000000001"),(258, "90000000.000000009"),(259, "90000000.099999999"),
-      (260, "90000000.900000000"),(261, "90000000.900000001"),(262, "90000000.999999998"),(263, "90000000.999999999"),(264, "90000001.000000000"),(265, "90000001.000000001"),(266, "90000001.000000009"),(267, "90000001.099999999"),(268, "90000001.900000000"),(269, "90000001.900000001"),
-      (270, "90000001.999999998"),(271, "90000001.999999999"),(272, "99999998.000000000"),(273, "99999998.000000001"),(274, "99999998.000000009"),(275, "99999998.099999999"),(276, "99999998.900000000"),(277, "99999998.900000001"),(278, "99999998.999999998"),(279, "99999998.999999999"),
-      (280, "99999999.000000000"),(281, "99999999.000000001"),(282, "99999999.000000009"),(283, "99999999.099999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_1_6_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_1_6_nullable(f1 int, f2 decimalv3(17, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_1_6_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9"),(4, "9999999.0"),(5, "9999999.1"),(6, "9999999.8"),(7, "9999999.9"),(8, "90000000.0"),(9, "90000000.1"),(10, "90000000.8"),(11, "90000000.9"),(12, "90000001.0"),(13, "90000001.1"),(14, "90000001.8"),(15, "90000001.9"),(16, "99999998.0"),(17, "99999998.1"),(18, "99999998.8"),(19, "99999998.9"),
+      (20, "99999999.0"),(21, "99999999.1")
+      ,(22, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_12_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_9 order by 1;'
+    qt_sql_6_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_1_6_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_9 order by 1;'
+    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_1_6_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_18_17;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_18_17(f1 int, f2 decimalv3(18, 17)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_18_17 values (284, "0.00000000000000000"),(285, "0.00000000000000001"),(286, "0.00000000000000009"),(287, "0.09999999999999999"),(288, "0.90000000000000000"),(289, "0.90000000000000001"),(290, "0.99999999999999998"),(291, "0.99999999999999999"),(292, "8.00000000000000000"),(293, "8.00000000000000001"),
-      (294, "8.00000000000000009"),(295, "8.09999999999999999"),(296, "8.90000000000000000"),(297, "8.90000000000000001"),(298, "8.99999999999999998"),(299, "8.99999999999999999"),(300, "9.00000000000000000"),(301, "9.00000000000000001"),(302, "9.00000000000000009"),(303, "9.09999999999999999"),
-      (304, "9.90000000000000000"),(305, "9.90000000000000001"),(306, "9.99999999999999998"),(307, "9.99999999999999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_1_6_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_1_6_not_nullable(f1 int, f2 decimalv3(17, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_1_6_not_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9"),(4, "9999999.0"),(5, "9999999.1"),(6, "9999999.8"),(7, "9999999.9"),(8, "90000000.0"),(9, "90000000.1"),(10, "90000000.8"),(11, "90000000.9"),(12, "90000001.0"),(13, "90000001.1"),(14, "90000001.8"),(15, "90000001.9"),(16, "99999998.0"),(17, "99999998.1"),(18, "99999998.8"),(19, "99999998.9"),
+      (20, "99999999.0"),(21, "99999999.1");
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_13_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_17 order by 1;'
+    qt_sql_6_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_1_6_not_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_13_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_17 order by 1;'
+    qt_sql_6_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_1_6_not_nullable order by 1;'
 
-    sql "drop table if exists test_cast_to_decimal32_8_0_from_decimal64_18_18;"
-    sql "create table test_cast_to_decimal32_8_0_from_decimal64_18_18(f1 int, f2 decimalv3(18, 18)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal32_8_0_from_decimal64_18_18 values (308, "0.000000000000000000"),(309, "0.000000000000000001"),(310, "0.000000000000000009"),(311, "0.099999999999999999"),(312, "0.900000000000000000"),(313, "0.900000000000000001"),(314, "0.999999999999999998"),(315, "0.999999999999999999");
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_8_7_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_8_7_nullable(f1 int, f2 decimalv3(17, 8)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_8_7_nullable values (0, "0.00000000"),(1, "0.00000001"),(2, "0.00000009"),(3, "0.09999999"),(4, "0.90000000"),(5, "0.90000001"),(6, "0.99999998"),(7, "0.99999999"),(8, "9999999.00000000"),(9, "9999999.00000001"),(10, "9999999.00000009"),(11, "9999999.09999999"),(12, "9999999.90000000"),(13, "9999999.90000001"),(14, "9999999.99999998"),(15, "9999999.99999999"),(16, "90000000.00000000"),(17, "90000000.00000001"),(18, "90000000.00000009"),(19, "90000000.09999999"),
+      (20, "90000000.90000000"),(21, "90000000.90000001"),(22, "90000000.99999998"),(23, "90000000.99999999"),(24, "90000001.00000000"),(25, "90000001.00000001"),(26, "90000001.00000009"),(27, "90000001.09999999"),(28, "90000001.90000000"),(29, "90000001.90000001"),(30, "90000001.99999998"),(31, "90000001.99999999"),(32, "99999998.00000000"),(33, "99999998.00000001"),(34, "99999998.00000009"),(35, "99999998.09999999"),(36, "99999998.90000000"),(37, "99999998.90000001"),(38, "99999998.99999998"),(39, "99999998.99999999"),
+      (40, "99999999.00000000"),(41, "99999999.00000001"),(42, "99999999.00000009"),(43, "99999999.09999999")
+      ,(44, null);
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_14_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_18 order by 1;'
+    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_8_7_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
-    qt_sql_14_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal32_8_0_from_decimal64_18_18 order by 1;'
+    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_8_7_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_8_7_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_8_7_not_nullable(f1 int, f2 decimalv3(17, 8)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_8_7_not_nullable values (0, "0.00000000"),(1, "0.00000001"),(2, "0.00000009"),(3, "0.09999999"),(4, "0.90000000"),(5, "0.90000001"),(6, "0.99999998"),(7, "0.99999999"),(8, "9999999.00000000"),(9, "9999999.00000001"),(10, "9999999.00000009"),(11, "9999999.09999999"),(12, "9999999.90000000"),(13, "9999999.90000001"),(14, "9999999.99999998"),(15, "9999999.99999999"),(16, "90000000.00000000"),(17, "90000000.00000001"),(18, "90000000.00000009"),(19, "90000000.09999999"),
+      (20, "90000000.90000000"),(21, "90000000.90000001"),(22, "90000000.99999998"),(23, "90000000.99999999"),(24, "90000001.00000000"),(25, "90000001.00000001"),(26, "90000001.00000009"),(27, "90000001.09999999"),(28, "90000001.90000000"),(29, "90000001.90000001"),(30, "90000001.99999998"),(31, "90000001.99999999"),(32, "99999998.00000000"),(33, "99999998.00000001"),(34, "99999998.00000009"),(35, "99999998.09999999"),(36, "99999998.90000000"),(37, "99999998.90000001"),(38, "99999998.99999998"),(39, "99999998.99999999"),
+      (40, "99999999.00000000"),(41, "99999999.00000001"),(42, "99999999.00000009"),(43, "99999999.09999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_8_7_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_8_7_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_16_8_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_16_8_nullable(f1 int, f2 decimalv3(17, 16)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_16_8_nullable values (0, "0.0000000000000000"),(1, "0.0000000000000001"),(2, "0.0000000000000009"),(3, "0.0999999999999999"),(4, "0.9000000000000000"),(5, "0.9000000000000001"),(6, "0.9999999999999998"),(7, "0.9999999999999999"),(8, "8.0000000000000000"),(9, "8.0000000000000001"),(10, "8.0000000000000009"),(11, "8.0999999999999999"),(12, "8.9000000000000000"),(13, "8.9000000000000001"),(14, "8.9999999999999998"),(15, "8.9999999999999999"),(16, "9.0000000000000000"),(17, "9.0000000000000001"),(18, "9.0000000000000009"),(19, "9.0999999999999999"),
+      (20, "9.9000000000000000"),(21, "9.9000000000000001"),(22, "9.9999999999999998"),(23, "9.9999999999999999")
+      ,(24, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_8_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_16_8_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_8_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_16_8_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_16_8_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_16_8_not_nullable(f1 int, f2 decimalv3(17, 16)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_16_8_not_nullable values (0, "0.0000000000000000"),(1, "0.0000000000000001"),(2, "0.0000000000000009"),(3, "0.0999999999999999"),(4, "0.9000000000000000"),(5, "0.9000000000000001"),(6, "0.9999999999999998"),(7, "0.9999999999999999"),(8, "8.0000000000000000"),(9, "8.0000000000000001"),(10, "8.0000000000000009"),(11, "8.0999999999999999"),(12, "8.9000000000000000"),(13, "8.9000000000000001"),(14, "8.9999999999999998"),(15, "8.9999999999999999"),(16, "9.0000000000000000"),(17, "9.0000000000000001"),(18, "9.0000000000000009"),(19, "9.0999999999999999"),
+      (20, "9.9000000000000000"),(21, "9.9000000000000001"),(22, "9.9999999999999998"),(23, "9.9999999999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_8_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_16_8_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_8_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_16_8_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_17_9_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_17_9_nullable(f1 int, f2 decimalv3(17, 17)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_17_9_nullable values (0, "0.00000000000000000"),(1, "0.00000000000000001"),(2, "0.00000000000000009"),(3, "0.09999999999999999"),(4, "0.90000000000000000"),(5, "0.90000000000000001"),(6, "0.99999999999999998"),(7, "0.99999999999999999")
+      ,(8, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_9_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_17_9_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_9_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_17_9_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_17_17_9_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_17_17_9_not_nullable(f1 int, f2 decimalv3(17, 17)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_17_17_9_not_nullable values (0, "0.00000000000000000"),(1, "0.00000000000000001"),(2, "0.00000000000000009"),(3, "0.09999999999999999"),(4, "0.90000000000000000"),(5, "0.90000000000000001"),(6, "0.99999999999999998"),(7, "0.99999999999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_9_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_17_9_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_9_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_17_17_9_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_0_10_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_0_10_nullable(f1 int, f2 decimalv3(18, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_0_10_nullable values (0, "0"),(1, "9999999"),(2, "90000000"),(3, "90000001"),(4, "99999998"),(5, "99999999")
+      ,(6, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_10_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_0_10_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_0_10_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_0_10_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_0_10_not_nullable(f1 int, f2 decimalv3(18, 0)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_0_10_not_nullable values (0, "0"),(1, "9999999"),(2, "90000000"),(3, "90000001"),(4, "99999998"),(5, "99999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_10_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_0_10_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_10_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_0_10_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_1_11_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_1_11_nullable(f1 int, f2 decimalv3(18, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_1_11_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9"),(4, "9999999.0"),(5, "9999999.1"),(6, "9999999.8"),(7, "9999999.9"),(8, "90000000.0"),(9, "90000000.1"),(10, "90000000.8"),(11, "90000000.9"),(12, "90000001.0"),(13, "90000001.1"),(14, "90000001.8"),(15, "90000001.9"),(16, "99999998.0"),(17, "99999998.1"),(18, "99999998.8"),(19, "99999998.9"),
+      (20, "99999999.0"),(21, "99999999.1")
+      ,(22, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_11_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_1_11_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_1_11_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_1_11_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_1_11_not_nullable(f1 int, f2 decimalv3(18, 1)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_1_11_not_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9"),(4, "9999999.0"),(5, "9999999.1"),(6, "9999999.8"),(7, "9999999.9"),(8, "90000000.0"),(9, "90000000.1"),(10, "90000000.8"),(11, "90000000.9"),(12, "90000001.0"),(13, "90000001.1"),(14, "90000001.8"),(15, "90000001.9"),(16, "99999998.0"),(17, "99999998.1"),(18, "99999998.8"),(19, "99999998.9"),
+      (20, "99999999.0"),(21, "99999999.1");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_11_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_1_11_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_11_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_1_11_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_9_12_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_9_12_nullable(f1 int, f2 decimalv3(18, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_9_12_nullable values (0, "0.000000000"),(1, "0.000000001"),(2, "0.000000009"),(3, "0.099999999"),(4, "0.900000000"),(5, "0.900000001"),(6, "0.999999998"),(7, "0.999999999"),(8, "9999999.000000000"),(9, "9999999.000000001"),(10, "9999999.000000009"),(11, "9999999.099999999"),(12, "9999999.900000000"),(13, "9999999.900000001"),(14, "9999999.999999998"),(15, "9999999.999999999"),(16, "90000000.000000000"),(17, "90000000.000000001"),(18, "90000000.000000009"),(19, "90000000.099999999"),
+      (20, "90000000.900000000"),(21, "90000000.900000001"),(22, "90000000.999999998"),(23, "90000000.999999999"),(24, "90000001.000000000"),(25, "90000001.000000001"),(26, "90000001.000000009"),(27, "90000001.099999999"),(28, "90000001.900000000"),(29, "90000001.900000001"),(30, "90000001.999999998"),(31, "90000001.999999999"),(32, "99999998.000000000"),(33, "99999998.000000001"),(34, "99999998.000000009"),(35, "99999998.099999999"),(36, "99999998.900000000"),(37, "99999998.900000001"),(38, "99999998.999999998"),(39, "99999998.999999999"),
+      (40, "99999999.000000000"),(41, "99999999.000000001"),(42, "99999999.000000009"),(43, "99999999.099999999")
+      ,(44, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_12_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_9_12_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_9_12_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_9_12_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_9_12_not_nullable(f1 int, f2 decimalv3(18, 9)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_9_12_not_nullable values (0, "0.000000000"),(1, "0.000000001"),(2, "0.000000009"),(3, "0.099999999"),(4, "0.900000000"),(5, "0.900000001"),(6, "0.999999998"),(7, "0.999999999"),(8, "9999999.000000000"),(9, "9999999.000000001"),(10, "9999999.000000009"),(11, "9999999.099999999"),(12, "9999999.900000000"),(13, "9999999.900000001"),(14, "9999999.999999998"),(15, "9999999.999999999"),(16, "90000000.000000000"),(17, "90000000.000000001"),(18, "90000000.000000009"),(19, "90000000.099999999"),
+      (20, "90000000.900000000"),(21, "90000000.900000001"),(22, "90000000.999999998"),(23, "90000000.999999999"),(24, "90000001.000000000"),(25, "90000001.000000001"),(26, "90000001.000000009"),(27, "90000001.099999999"),(28, "90000001.900000000"),(29, "90000001.900000001"),(30, "90000001.999999998"),(31, "90000001.999999999"),(32, "99999998.000000000"),(33, "99999998.000000001"),(34, "99999998.000000009"),(35, "99999998.099999999"),(36, "99999998.900000000"),(37, "99999998.900000001"),(38, "99999998.999999998"),(39, "99999998.999999999"),
+      (40, "99999999.000000000"),(41, "99999999.000000001"),(42, "99999999.000000009"),(43, "99999999.099999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_12_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_9_12_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_12_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_9_12_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_17_13_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_17_13_nullable(f1 int, f2 decimalv3(18, 17)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_17_13_nullable values (0, "0.00000000000000000"),(1, "0.00000000000000001"),(2, "0.00000000000000009"),(3, "0.09999999999999999"),(4, "0.90000000000000000"),(5, "0.90000000000000001"),(6, "0.99999999999999998"),(7, "0.99999999999999999"),(8, "8.00000000000000000"),(9, "8.00000000000000001"),(10, "8.00000000000000009"),(11, "8.09999999999999999"),(12, "8.90000000000000000"),(13, "8.90000000000000001"),(14, "8.99999999999999998"),(15, "8.99999999999999999"),(16, "9.00000000000000000"),(17, "9.00000000000000001"),(18, "9.00000000000000009"),(19, "9.09999999999999999"),
+      (20, "9.90000000000000000"),(21, "9.90000000000000001"),(22, "9.99999999999999998"),(23, "9.99999999999999999")
+      ,(24, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_13_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_17_13_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_13_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_17_13_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_17_13_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_17_13_not_nullable(f1 int, f2 decimalv3(18, 17)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_17_13_not_nullable values (0, "0.00000000000000000"),(1, "0.00000000000000001"),(2, "0.00000000000000009"),(3, "0.09999999999999999"),(4, "0.90000000000000000"),(5, "0.90000000000000001"),(6, "0.99999999999999998"),(7, "0.99999999999999999"),(8, "8.00000000000000000"),(9, "8.00000000000000001"),(10, "8.00000000000000009"),(11, "8.09999999999999999"),(12, "8.90000000000000000"),(13, "8.90000000000000001"),(14, "8.99999999999999998"),(15, "8.99999999999999999"),(16, "9.00000000000000000"),(17, "9.00000000000000001"),(18, "9.00000000000000009"),(19, "9.09999999999999999"),
+      (20, "9.90000000000000000"),(21, "9.90000000000000001"),(22, "9.99999999999999998"),(23, "9.99999999999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_13_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_17_13_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_13_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_17_13_not_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_18_14_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_18_14_nullable(f1 int, f2 decimalv3(18, 18)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_18_14_nullable values (0, "0.000000000000000000"),(1, "0.000000000000000001"),(2, "0.000000000000000009"),(3, "0.099999999999999999"),(4, "0.900000000000000000"),(5, "0.900000000000000001"),(6, "0.999999999999999998"),(7, "0.999999999999999999")
+      ,(8, null);
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_14_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_18_14_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_14_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_18_14_nullable order by 1;'
+
+    sql "drop table if exists test_cast_to_decimal_8_0_from_decimal_18_18_14_not_nullable;"
+    sql "create table test_cast_to_decimal_8_0_from_decimal_18_18_14_not_nullable(f1 int, f2 decimalv3(18, 18)) properties('replication_num'='1');"
+    sql """insert into test_cast_to_decimal_8_0_from_decimal_18_18_14_not_nullable values (0, "0.000000000000000000"),(1, "0.000000000000000001"),(2, "0.000000000000000009"),(3, "0.099999999999999999"),(4, "0.900000000000000000"),(5, "0.900000000000000001"),(6, "0.999999999999999998"),(7, "0.999999999999999999");
+    """
+
+    sql "set enable_strict_cast=true;"
+    qt_sql_14_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_18_14_not_nullable order by 1;'
+
+    sql "set enable_strict_cast=false;"
+    qt_sql_14_non_strict 'select f1, cast(f2 as decimalv3(8, 0)) from test_cast_to_decimal_8_0_from_decimal_18_18_14_not_nullable order by 1;'
 
 }

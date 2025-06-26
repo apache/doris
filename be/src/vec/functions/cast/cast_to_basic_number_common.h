@@ -21,12 +21,10 @@
 
 #include "cast_base.h"
 #include "common/status.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
@@ -79,7 +77,8 @@ template <CastModeType Mode, typename ToDataType>
     requires(IsDataTypeNumber<ToDataType>)
 class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
         auto to_type = block.get_by_position(result).type;
@@ -119,7 +118,8 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         using ToFieldType = typename ToDataType::FieldType;
 
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
