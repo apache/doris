@@ -76,8 +76,19 @@ suite("test_agg_state_nereids") {
     qt_union """ select max_by_merge(kstate) from (select k1,max_by_union(k2) kstate from a_table group by k1 order by k1) t; """
     qt_max_by_null """ select max_by_merge(max_by_state(k1,null)),min_by_merge(min_by_state(null,k3)) from d_table; """
 
-    sql """CREATE TABLE `a_table_300` (`market_place_id` tinyint NOT NULL COMMENT "ID", `na_exposure` agg_state<group_concat(text null)> GENERIC NOT NULL, ) ENGINE=OLAP 
-        AGGREGATE KEY(`market_place_id`) DISTRIBUTED BY HASH(`market_place_id`) BUCKETS 3
+    sql "drop table if exists a_table_300"
+    sql "drop table if exists t_source"
+    sql """CREATE TABLE `a_table_300` (`mp` tinyint NOT NULL COMMENT "ID", `na` agg_state<group_concat(text null)> GENERIC NOT NULL, ) ENGINE=OLAP 
+        AGGREGATE KEY(`mp`) DISTRIBUTED BY HASH(`mp`) BUCKETS 3
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1" );"""
-    sql "INSERT INTO a_table_300 SELECT market_place_id, group_concat_state(DATE_FORMAT(sync_time, '%y')) na_exposure FROM amz_asin_info_day ORDER BY sync_time"
+    sql """CREATE TABLE `t_source` (
+          `mk` tinyint NULL,
+          `st` datetime NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`mk`, `st`)
+        DISTRIBUTED BY HASH(`mk`) BUCKETS 16
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );"""
+    sql "INSERT INTO a_table_300 SELECT mk, group_concat_state(DATE_FORMAT(st, '%y')) na FROM t_source ORDER BY st"
 }
