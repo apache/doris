@@ -29,7 +29,7 @@
 
 #include "util/sse_util.hpp"
 #include "vec/common/string_ref.h"
-#include "vec/common/string_utils/string_utils.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 

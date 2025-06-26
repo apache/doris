@@ -183,7 +183,7 @@ public:
          *       ["abc", "def", "", "hig"]
          */
         const char* nested_string_wrapper;
-        int wrapper_len;
+        int wrapper_len = 0;
 
         /**
          * mysql_collection_delim is used to separate elements in collection, such as array, map, struct
@@ -199,6 +199,8 @@ public:
          *      [true]
          */
         bool is_bool_value_num = true;
+
+        const cctz::time_zone* timezone = nullptr;
 
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
@@ -264,6 +266,7 @@ public:
 
     // All types can override this function
     // When this function is called, column should be of the corresponding type
+    // everytime call this, should insert new cell to the end of column
     virtual Status from_string(StringRef& str, IColumn& column,
                                const FormatOptions& options) const {
         return Status::NotSupported("from_string is not supported");

@@ -290,6 +290,7 @@ concept DecimalNativeTypeConcept = std::is_same_v<T, Int32> || std::is_same_v<T,
 struct Decimal128V3;
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
+//TODO: split to individual file of Decimal
 template <DecimalNativeTypeConcept T>
 struct Decimal {
     using NativeType = T;

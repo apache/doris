@@ -22,7 +22,7 @@
 
 #include <cstring>
 
-#include "vec/common/string_utils/string_utils.h"
+#include "util/string_parser.hpp"
 #include "vec/functions/url/find_symbols.h"
 #include "vec/functions/url/protocol.h"
 #include "vec/functions/url/tldLookup.h"

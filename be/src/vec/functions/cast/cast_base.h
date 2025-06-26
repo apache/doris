@@ -32,6 +32,7 @@
 #include "vec/data_types/data_type_time.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+
 namespace doris::vectorized {
 
 struct NameCast {
@@ -59,81 +60,18 @@ void static_cast_set(ToFieldType& to, const FromFieldType& from) {
         to = static_cast<ToFieldType>(from);
     }
 }
-template <typename T>
-constexpr static bool is_signed_integer = false;
-template <>
-inline constexpr bool is_signed_integer<DataTypeInt8> = true;
-template <>
-inline constexpr bool is_signed_integer<DataTypeInt16> = true;
-template <>
-inline constexpr bool is_signed_integer<DataTypeInt32> = true;
-template <>
-inline constexpr bool is_signed_integer<DataTypeInt64> = true;
-template <>
-inline constexpr bool is_signed_integer<DataTypeInt128> = true;
 
 template <typename T>
-constexpr static bool is_bool = false;
-template <>
-inline constexpr bool is_bool<DataTypeUInt8> = true;
+constexpr static bool IsPureDigitType =
+        (IsDataTypeNumber<T> || IsDataTypeDecimal<T>)&&!IsDataTypeBool<T>;
+
+// IsDataTypeNumber include integer, float and boolean.
+template <typename T>
+constexpr static bool IsBaseCastToType =
+        IsDataTypeNumber<T> || IsDataTypeDecimal<T> || IsDatelikeTypes<T> || IsIPType<T>;
 
 template <typename T>
-constexpr static bool is_integer_or_bool = is_signed_integer<T> || is_bool<T>;
-
-template <typename T>
-constexpr static bool is_floating_point = false;
-template <>
-inline constexpr bool is_floating_point<DataTypeFloat32> = true;
-template <>
-inline constexpr bool is_floating_point<DataTypeFloat64> = true;
-
-template <typename T>
-constexpr static bool is_number = is_integer_or_bool<T> || is_floating_point<T>;
-
-template <typename T>
-constexpr static bool is_decimal = false;
-template <>
-inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMAL32>> = true;
-template <>
-inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMAL64>> = true;
-template <>
-inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMALV2>> = true;
-template <>
-inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMAL128I>> = true;
-template <>
-inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMAL256>> = true;
-
-template <typename T>
-constexpr static bool is_date_time = false;
-template <>
-inline constexpr bool is_date_time<DataTypeDate> = true;
-template <>
-inline constexpr bool is_date_time<DataTypeDateTime> = true;
-template <>
-inline constexpr bool is_date_time<DataTypeDateV2> = true;
-template <>
-inline constexpr bool is_date_time<DataTypeDateTimeV2> = true;
-template <>
-inline constexpr bool is_date_time<DataTypeTimeV2> = true;
-
-template <typename T>
-constexpr static bool is_ip = false;
-
-template <>
-inline constexpr bool is_ip<DataTypeIPv4> = true;
-template <>
-inline constexpr bool is_ip<DataTypeIPv6> = true;
-template <typename T>
-constexpr static bool is_string = false;
-template <>
-inline constexpr bool is_string<DataTypeString> = true;
-
-template <typename T>
-constexpr static bool is_base_cast_to_type = is_integer_or_bool<T> || is_floating_point<T> ||
-                                             is_decimal<T> || is_date_time<T> || is_ip<T>;
-
-template <typename T>
-constexpr static bool is_base_cast_from_type = is_base_cast_to_type<T> || is_string<T>;
+constexpr static bool IsBaseCastFromType = IsBaseCastToType<T> || IsStringType<T>;
 
 } // namespace CastUtil
 
@@ -154,6 +92,7 @@ Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
                                   size_t input_rows_count,
                                   const NullMap::value_type* null_map = nullptr);
 
+// string to bitmap or hll object
 Status cast_from_string_to_generic(FunctionContext* context, Block& block,
                                    const ColumnNumbers& arguments, uint32_t result,
                                    size_t input_rows_count,
@@ -226,5 +165,4 @@ inline CastWrapper::WrapperType get_cast_wrapper(FunctionContext* context,
     return CastWrapper::prepare_unpack_dictionaries(context, from_type, to_type);
 }
 #endif
-
 } // namespace doris::vectorized
