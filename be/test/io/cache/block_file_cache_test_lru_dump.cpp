@@ -26,6 +26,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     config::enable_evict_file_cache_in_advance = false;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     config::file_cache_background_lru_dump_interval_ms = 3000;
+    config::file_cache_background_lru_dump_update_cnt_threshold = 1;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
