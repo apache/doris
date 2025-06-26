@@ -24,6 +24,8 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
+
+#include "runtime/thread_context.h"
 #if defined(__APPLE__)
 #include <sys/mount.h>
 #else
@@ -31,6 +33,8 @@
 #endif
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <gtest/gtest.h>
+
 #include <chrono> // IWYU pragma: keep
 #include <condition_variable>
 #include <filesystem>
@@ -42,6 +46,7 @@
 #include <optional>
 #include <random>
 #include <ranges>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
