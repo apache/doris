@@ -780,17 +780,17 @@ public class CacheHotspotManager extends MasterDaemon {
         if (stmt.isWarmUpWithTable()) {
             Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
             if (!FeConstants.runningUnitTest) {
-                beToWarmUpTablets = warmUpNewClusterByTable(jobId, stmt.getDstClusterName(), stmt.getTables(),
+                beToWarmUpTablets = warmUpNewClusterByTable(jobId, stmt.getDstCluster(), stmt.getTables(),
                                                             stmt.isForce());
             }
             Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
-            warmUpJob = new CloudWarmUpJob(jobId, null, stmt.getDstClusterName(),
+            warmUpJob = new CloudWarmUpJob(jobId, null, stmt.getDstCluster(),
                     beToTabletIdBatches, JobType.TABLE);
         } else {
             CloudWarmUpJob.Builder builder = new CloudWarmUpJob.Builder()
                     .setJobId(jobId)
-                    .setSrcClusterName(stmt.getSrcClusterName())
-                    .setDstClusterName(stmt.getDstClusterName())
+                    .setSrcClusterName(stmt.getSrcCluster())
+                    .setDstClusterName(stmt.getDstCluster())
                     .setJobType(JobType.CLUSTER);
 
             Map<String, String> properties = stmt.getProperties();
