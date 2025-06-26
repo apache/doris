@@ -29,19 +29,26 @@ suite("expression_depth_check", "nonConcurrent") {
             "replication_num" = "1"
         );
         select floor(abs(ceil(1+k1))) from tbl1;
-
+    """
+    sql """
         admin set frontend config("expr_depth_limit" = "3");
     """
+    def depthCheckFailed = true;
     try {
         sql """ 
         select floor(abs(ceil(1+k1))) from tbl1
         """
     } catch (Exception e) {
-        e.printStackTrace();
+        if (e.getMessage().contains("Exceeded the maximum depth of an expression tree (3)")) {
+            depthCheckFailed = false;
+        }
     } finally {
         sql """
         admin set frontend config("expr_depth_limit" = "3000");
         """
+        if (depthCheckFailed) {
+            throw new RuntimeException("check expression depth failed")
+        }
     }
 
      
