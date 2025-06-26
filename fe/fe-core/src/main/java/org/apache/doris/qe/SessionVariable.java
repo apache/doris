@@ -2733,7 +2733,7 @@ public class SessionVariable implements Serializable, Writable {
         if (Config.fuzzy_test_type.equals("p0")) {
             if (random.nextInt(2) == 1) {
                 this.batchSize = 4064;
-                this.enableFoldConstantByBe = true;
+                this.enableFoldConstantByBe = false;
             } else {
                 this.batchSize = 1024;
                 this.enableFoldConstantByBe = false;
