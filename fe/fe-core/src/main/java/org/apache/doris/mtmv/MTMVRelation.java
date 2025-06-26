@@ -65,13 +65,13 @@ public class MTMVRelation {
                 + '}';
     }
 
-    public void compatible(CatalogMgr catalogMgr) {
+    public void compatible(CatalogMgr catalogMgr) throws Exception {
         compatible(catalogMgr, baseTables);
         compatible(catalogMgr, baseViews);
         compatible(catalogMgr, baseTablesOneLevel);
     }
 
-    private void compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) {
+    private void compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
         if (CollectionUtils.isEmpty(infos)) {
             return;
         }

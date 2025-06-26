@@ -152,7 +152,7 @@ public class MTMVPartitionInfo {
         }
     }
 
-    public void compatible(CatalogMgr catalogMgr) {
+    public void compatible(CatalogMgr catalogMgr) throws Exception {
         if (relatedTable == null) {
             return;
         }
