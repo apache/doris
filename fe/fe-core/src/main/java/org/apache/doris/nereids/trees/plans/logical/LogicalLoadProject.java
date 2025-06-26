@@ -286,4 +286,9 @@ public class LogicalLoadProject<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
         }
     }
+
+    @Override
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return false;
+    }
 }

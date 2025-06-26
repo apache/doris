@@ -62,9 +62,11 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<Slot> computeOutput() {
-        return outputExprs.stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<Slot> slotOutput = ImmutableList.builderWithExpectedSize(outputExprs.size());
+        for (NamedExpression outputExpr : outputExprs) {
+            slotOutput.add(outputExpr.toSlot());
+        }
+        return slotOutput.build();
     }
 
     @Override
@@ -81,7 +83,7 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), outputExprs);
+        return Objects.hash(getClass().hashCode(), outputExprs);
     }
 
     @Override
