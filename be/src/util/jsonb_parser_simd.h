@@ -297,13 +297,22 @@ private:
             auto val = StringParser::string_to_int<int128_t>(raw_string.data(), raw_string.size(),
                                                              &result);
             if (result != StringParser::PARSE_SUCCESS) {
-                return Status::InternalError("invalid big integer, raw string is: " +
-                                             std::string(raw_string));
+                // try parse as double
+                double double_val = StringParser::string_to_float<double>(
+                        raw_string.data(), raw_string.size(), &result);
+                if (result != StringParser::PARSE_SUCCESS) {
+                    return Status::InternalError("invalid number, raw string is: " +
+                                                 std::string(raw_string));
+                }
+                if (!writer.writeDouble(double_val)) {
+                    return Status::InternalError("writeDouble failed");
+                }
+            } else {
+                // as int128_t
+                if (!writer.writeInt128(val)) {
+                    return Status::InternalError("writeInt128 failed");
+                }
             }
-            if (!writer.writeInt128(val)) {
-                return Status::InternalError("writeInt128 failed");
-            }
-
             break;
         }
         }

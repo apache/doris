@@ -223,6 +223,12 @@ TEST_F(JsonbParserTest, ParseJsonWithLongInt2) {
     EXPECT_EQ(parse_json_and_check(json_with_long_int, expected_json_with_long_int), Status::OK());
 }
 
+TEST_F(JsonbParserTest, ParseJsonWithLongInt3) {
+    std::string_view json_with_long_int = R"(12345678901234567890123456789012345678901234567890)";
+    std::string_view expected_json_with_long_int = R"(1.23456789012346e+49)";
+    EXPECT_EQ(parse_json_and_check(json_with_long_int, expected_json_with_long_int), Status::OK());
+}
+
 TEST_F(JsonbParserTest, ParseInvalidJsonFormat) {
     std::string_view invalid_json = R"({"key": "value")";
     EXPECT_FALSE(parse_json_and_check(invalid_json, invalid_json));

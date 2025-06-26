@@ -53,4 +53,8 @@ suite("test_json_type_cast", "p0") {
 
     testFoldConst("select cast('18446744073709551616' as json)")
     testFoldConst("select cast('[1323132,3.13,18446744073709551616]' as json)")
+
+
+    sql """ set debug_skip_fold_constant = true; """
+    qt_sql27 """SELECT CAST('12345678901234567890123456789012345678901234567890' as JSON);"""
 }
