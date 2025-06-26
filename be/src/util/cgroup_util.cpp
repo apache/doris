@@ -25,7 +25,6 @@
 #include <utility>
 #include <vector>
 
-#include "gutil/stringprintf.h"
 #include "io/fs/local_file_system.h"
 #include "util/error_util.h"
 #include "util/string_parser.hpp"
@@ -52,9 +51,9 @@ bool CGroupUtil::cgroupsv2_enable() {
 #endif
 }
 
-Status CGroupUtil::find_global_cgroupv1(const string& subsystem, string* path) {
+Status CGroupUtil::find_global_cgroupv1(const std::string& subsystem, std::string* path) {
     std::ifstream proc_cgroups("/proc/self/cgroup", std::ios::in);
-    string line;
+    std::string line;
     while (true) {
         if (proc_cgroups.fail()) {
             return Status::CgroupError("Error reading /proc/self/cgroup: {}", get_str_err_msg());
@@ -70,7 +69,7 @@ Status CGroupUtil::find_global_cgroupv1(const string& subsystem, string* path) {
         if (!proc_cgroups.good()) {
             continue;
         }
-        std::vector<string> fields = absl::StrSplit(line, ":");
+        std::vector<std::string> fields = absl::StrSplit(line, ":");
         // ":" in the path does not appear to be escaped - bail in the unusual case that
         // we get too many tokens.
         if (fields.size() != 3) {
@@ -78,7 +77,7 @@ Status CGroupUtil::find_global_cgroupv1(const string& subsystem, string* path) {
                     "Could not parse line from /proc/self/cgroup - had {} > 3 tokens: '{}'",
                     fields.size(), line);
         }
-        std::vector<string> subsystems = absl::StrSplit(fields[1], ",");
+        std::vector<std::string> subsystems = absl::StrSplit(fields[1], ",");
         auto it = std::find(subsystems.begin(), subsystems.end(), subsystem);
         if (it != subsystems.end()) {
             *path = std::move(fields[2]);
@@ -87,17 +86,18 @@ Status CGroupUtil::find_global_cgroupv1(const string& subsystem, string* path) {
     }
 }
 
-static Status unescape_path(const string& escaped, string* unescaped) {
-    string err;
+static Status unescape_path(const std::string& escaped, std::string* unescaped) {
+    std::string err;
     if (!absl::CUnescape(escaped, unescaped, &err)) {
         return Status::InvalidArgument("Could not unescape path '{}': {}", escaped, err);
     }
     return Status::OK();
 }
 
-Status CGroupUtil::find_cgroupv1_mounts(const string& subsystem, pair<string, string>* result) {
+Status CGroupUtil::find_cgroupv1_mounts(const std::string& subsystem,
+                                        pair<std::string, std::string>* result) {
     std::ifstream mountinfo("/proc/self/mountinfo", std::ios::in);
-    string line;
+    std::string line;
     while (true) {
         if (mountinfo.fail() || mountinfo.bad()) {
             return Status::CgroupError("Error reading /proc/self/mountinfo: {}", get_str_err_msg());
@@ -117,7 +117,7 @@ Status CGroupUtil::find_cgroupv1_mounts(const string& subsystem, pair<string, st
         if (!mountinfo.good()) {
             continue;
         }
-        std::vector<string> fields = absl::StrSplit(line, " ", absl::SkipWhitespace());
+        std::vector<std::string> fields = absl::StrSplit(line, " ", absl::SkipWhitespace());
         if (fields.size() < 7) {
             return Status::InvalidArgument(
                     "Could not parse line from /proc/self/mountinfo - had {} > 7 tokens: '{}'",
@@ -127,14 +127,14 @@ Status CGroupUtil::find_cgroupv1_mounts(const string& subsystem, pair<string, st
             continue;
         }
         // This is a cgroup mount. Check if it's the mount we're looking for.
-        std::vector<string> cgroup_opts =
+        std::vector<std::string> cgroup_opts =
                 absl::StrSplit(fields[fields.size() - 1], ",", absl::SkipWhitespace());
         auto it = std::find(cgroup_opts.begin(), cgroup_opts.end(), subsystem);
         if (it == cgroup_opts.end()) {
             continue;
         }
         // This is the right mount.
-        string mount_path, system_path;
+        std::string mount_path, system_path;
         RETURN_IF_ERROR(unescape_path(fields[4], &mount_path));
         RETURN_IF_ERROR(unescape_path(fields[3], &system_path));
         // Strip trailing "/" so that both returned paths match in whether they have a
@@ -147,15 +147,15 @@ Status CGroupUtil::find_cgroupv1_mounts(const string& subsystem, pair<string, st
     }
 }
 
-Status CGroupUtil::find_abs_cgroupv1_path(const string& subsystem, string* path) {
+Status CGroupUtil::find_abs_cgroupv1_path(const std::string& subsystem, std::string* path) {
     if (!cgroupsv1_enable()) {
         return Status::InvalidArgument("cgroup is not enabled!");
     }
     RETURN_IF_ERROR(find_global_cgroupv1(subsystem, path));
-    pair<string, string> paths;
+    pair<std::string, std::string> paths;
     RETURN_IF_ERROR(find_cgroupv1_mounts(subsystem, &paths));
-    const string& mount_path = paths.first;
-    const string& system_path = paths.second;
+    const std::string& mount_path = paths.first;
+    const std::string& system_path = paths.second;
     if (path->compare(0, system_path.size(), system_path) != 0) {
         return Status::InvalidArgument("Expected CGroup path '{}' to start with '{}'", *path,
                                        system_path);
@@ -220,7 +220,7 @@ Status CGroupUtil::read_int_line_from_cgroup_file(const std::filesystem::path& f
         return Status::CgroupError("Error open {}", file_path.string());
     }
 
-    string line;
+    std::string line;
     getline(file_stream, line);
     if (file_stream.fail() || file_stream.bad()) {
         return Status::CgroupError("Error reading {}: {}", file_path.string(), get_str_err_msg());
@@ -272,7 +272,7 @@ Status CGroupUtil::read_string_line_from_cgroup_file(const std::filesystem::path
     if (!file_stream.is_open()) {
         return Status::CgroupError("Error open {}", file_path.string());
     }
-    string line;
+    std::string line;
     getline(file_stream, line);
     if (file_stream.fail() || file_stream.bad()) {
         return Status::CgroupError("Error reading {}: {}", file_path.string(), get_str_err_msg());
@@ -285,7 +285,7 @@ Status CGroupUtil::parse_cpuset_line(std::string cpuset_line, int* cpu_count_ptr
     if (cpuset_line.empty()) {
         return Status::CgroupError("cpuset line is empty");
     }
-    std::vector<string> ranges;
+    std::vector<std::string> ranges;
     boost::split(ranges, cpuset_line, boost::is_any_of(","));
     int cpu_count = 0;
 

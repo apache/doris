@@ -28,13 +28,13 @@
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -54,24 +54,33 @@ class FunctionContext;
 namespace doris::vectorized {
 
 struct ArrayContainsAction {
-    using ResultType = UInt8;
+    static constexpr auto ResultType = PrimitiveType::TYPE_BOOLEAN;
     static constexpr auto name = "array_contains";
     static constexpr const bool resume_execution = false;
-    static constexpr void apply(ResultType& current, size_t) noexcept { current = 1; }
+    static constexpr void apply(typename PrimitiveTypeTraits<ResultType>::CppType& current,
+                                size_t) noexcept {
+        current = 1;
+    }
 };
 
 struct ArrayPositionAction {
-    using ResultType = Int64;
+    static constexpr auto ResultType = PrimitiveType::TYPE_BIGINT;
     static constexpr auto name = "array_position";
     static constexpr const bool resume_execution = false;
-    static constexpr void apply(ResultType& current, size_t j) noexcept { current = j + 1; }
+    static constexpr void apply(typename PrimitiveTypeTraits<ResultType>::CppType& current,
+                                size_t j) noexcept {
+        current = j + 1;
+    }
 };
 
 struct ArrayCountEqual {
-    using ResultType = Int64;
+    static constexpr auto ResultType = PrimitiveType::TYPE_BIGINT;
     static constexpr auto name = "countequal";
     static constexpr const bool resume_execution = true;
-    static constexpr void apply(ResultType& current, size_t j) noexcept { ++current; }
+    static constexpr void apply(typename PrimitiveTypeTraits<ResultType>::CppType& current,
+                                size_t j) noexcept {
+        ++current;
+    }
 };
 
 struct ParamValue {
@@ -82,7 +91,7 @@ struct ParamValue {
 template <typename ConcreteAction>
 class FunctionArrayIndex : public IFunction {
 public:
-    using ResultType = typename ConcreteAction::ResultType;
+    static constexpr auto ResultType = ConcreteAction::ResultType;
 
     static constexpr auto name = ConcreteAction::name;
     static FunctionPtr create() { return std::make_shared<FunctionArrayIndex>(); }
@@ -184,9 +193,10 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments[0]->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
+            return make_nullable(
+                    std::make_shared<typename PrimitiveTypeTraits<ResultType>::DataType>());
         } else {
-            return std::make_shared<DataTypeNumber<ResultType>>();
+            return std::make_shared<typename PrimitiveTypeTraits<ResultType>::DataType>();
         }
     }
 
@@ -217,7 +227,7 @@ private:
         const auto& right_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
+        auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
         auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
@@ -229,7 +239,7 @@ private:
                 continue;
             }
             dst_null_data[row] = false;
-            ResultType res = 0;
+            typename PrimitiveTypeTraits<ResultType>::CppType res = 0;
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
 
@@ -286,7 +296,7 @@ private:
         const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
+        auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
         auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
@@ -298,7 +308,7 @@ private:
                 continue;
             }
             dst_null_data[row] = false;
-            ResultType res = 0;
+            typename PrimitiveTypeTraits<ResultType>::CppType res = 0;
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
             for (size_t pos = 0; pos < len; ++pos) {
@@ -472,9 +482,11 @@ private:
                 break;
             }
         } else if ((is_date_or_datetime(right_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(right_type->get_primitive_type())) &&
+                    is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
+                    right_type->get_primitive_type() == TYPE_TIMEV2) &&
                    (is_date_or_datetime(left_element_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()))) {
+                    is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
+                    left_element_type->get_primitive_type() == TYPE_TIMEV2)) {
             if (left_element_type->get_primitive_type() == TYPE_DATE) {
                 return_column = _execute_number_expanded<ColumnDate>(
                         offsets, nested_null_map, *nested_column, *right_column,
@@ -489,6 +501,10 @@ private:
                         right_nested_null_map, array_null_map);
             } else if (left_element_type->get_primitive_type() == TYPE_DATETIMEV2) {
                 return_column = _execute_number_expanded<ColumnDateTimeV2>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (left_element_type->get_primitive_type() == TYPE_TIMEV2) {
+                return_column = _execute_number_expanded<ColumnTimeV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             }

@@ -28,7 +28,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
@@ -38,6 +37,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
@@ -92,7 +92,7 @@ TEST_P(DataTypeAggStateTest, MetaInfoTest) {
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = Field(String()),
+            .default_field = Field::create_field<TYPE_STRING>(String()),
     };
     helper->meta_info_assert(datatype_agg_state_count, agg_state_meta_info_to_assert);
 }
@@ -101,7 +101,7 @@ TEST_P(DataTypeAggStateTest, CreateColumnTest) {
     std::string res;
     res.resize(8);
     memset(res.data(), 0, 8);
-    Field default_field = Field(res);
+    Field default_field = Field::create_field<TYPE_STRING>(res);
     std::cout << "create_column_assert: " << datatype_agg_state_count->get_name() << std::endl;
     auto column = (datatype_agg_state_count)->create_column();
     ASSERT_EQ(column->size(), 0);
@@ -141,9 +141,10 @@ void insert_data_agg_state(MutableColumns* agg_state_cols, DataTypePtr datatype_
     } else {
         assert_cast<ColumnFixedLengthObject*>((*agg_state_cols)[0].get())->set_item_size(8);
         column_fixed->resize(rows_value);
-        ASSERT_TRUE(assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
-                            ->get_serialized_type()
-                            ->is_fixed_length_object());
+        ASSERT_EQ(assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
+                          ->get_serialized_type()
+                          ->get_primitive_type(),
+                  TYPE_FIXED_LENGTH_OBJECT);
         auto& data = assert_cast<ColumnFixedLengthObject*>((*agg_state_cols)[0].get())->get_data();
         for (size_t i = 0; i != rows_value; ++i) {
             data[i] = i;

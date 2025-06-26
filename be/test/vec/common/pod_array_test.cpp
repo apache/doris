@@ -22,7 +22,9 @@
 
 #include <gtest/gtest.h>
 
+#include "runtime/primitive_type.h"
 #include "vec/common/allocator_fwd.h"
+#include "vec/core/field.h"
 
 namespace doris {
 
@@ -507,32 +509,6 @@ TEST(PODArrayTest, PODArrayInsert) {
 //     }
 // }
 
-TEST(PODArrayTest, PODArrayAddNumElement) {
-    static constexpr size_t initial_bytes = 32;
-    using Array = vectorized::PODArray<uint64_t, initial_bytes>;
-    size_t element_size = 8; // sizeof(uint64_t)
-    {
-        Array array;
-
-        array.add_num_element(1, 4);
-        ASSERT_EQ(array.size(), 4);
-        ASSERT_EQ(array.capacity(), 32 / element_size);
-        ASSERT_EQ(array, Array({1, 1, 1, 1}));
-
-        // call reserve
-        array.add_num_element(1, 2);
-        ASSERT_EQ(array.size(), 6);
-        ASSERT_EQ(array.capacity(), 64 / element_size);
-        ASSERT_EQ(array, Array({1, 1, 1, 1, 1, 1}));
-
-        // call reserve
-        array.add_num_element_without_reserve(1, 1);
-        ASSERT_EQ(array.size(), 7);
-        ASSERT_EQ(array.capacity(), 64 / element_size);
-        ASSERT_EQ(array, Array({1, 1, 1, 1, 1, 1, 1}));
-    }
-}
-
 TEST(PODArrayTest, PODArrayAssign) {
     {
         vectorized::PaddedPODArray<uint64_t> array;
@@ -706,20 +682,10 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
         EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 3);
 
-        array.add_num_element_without_reserve(1, 10);
-        EXPECT_EQ(array.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 3 + 10);
+        array.push_back_without_reserve(11);
+        EXPECT_EQ(array.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 3 + 1);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
         EXPECT_EQ(t->consumption(), array.allocated_bytes() - pad_left - pad_right);
-
-        array.add_num_element(1, (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 2);
-        EXPECT_EQ(array.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 5 + 10);
-        doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 6);
-
-        array.push_back_without_reserve(11);
-        EXPECT_EQ(array.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 5 + 11);
-        doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 6);
 
         array.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t) * 6, 2);
         EXPECT_EQ(array.size(), PRE_GROWTH_SIZE / sizeof(uint64_t) * 6);
@@ -821,13 +787,8 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
         EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 21);
 
-        array.add_num_element_without_reserve(1, PRE_GROWTH_SIZE / sizeof(uint64_t));
-        EXPECT_EQ(array.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 1 + 100);
-        doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 21);
-
-        array.erase(array.begin() + 100, array.end());
-        EXPECT_EQ(array.size(), 100);
+        array.erase(array.begin() + 10, array.end());
+        EXPECT_EQ(array.size(), 10);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
         EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 21);
     }

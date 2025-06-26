@@ -165,10 +165,11 @@ public:
         // Create a temp_block to execute substring function.
         Block temp_block;
         temp_block.insert(column_with_type_and_name);
-        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field(1)), int_type,
-                           "const 1"});
-        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field(_width)),
-                           int_type, fmt::format("const {}", _width)});
+        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field<TYPE_INT>(1)),
+                           int_type, "const 1"});
+        temp_block.insert(
+                {int_type->create_column_const(temp_block.rows(), to_field<TYPE_INT>(_width)),
+                 int_type, fmt::format("const {}", _width)});
         temp_block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
         ColumnNumbers temp_arguments(3);
         temp_arguments[0] = 0; // str column
@@ -239,7 +240,8 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column, make_nullable(get_result_type()), column_with_type_and_name.name};
+            return {std::move(res_column), make_nullable(get_result_type()),
+                    column_with_type_and_name.name};
         } else {
             return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
@@ -295,7 +297,8 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column, make_nullable(get_result_type()), column_with_type_and_name.name};
+            return {std::move(res_column), make_nullable(get_result_type()),
+                    column_with_type_and_name.name};
         } else {
             return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
@@ -307,9 +310,10 @@ private:
     int _width;
 };
 
-template <typename T>
+template <PrimitiveType PT>
 class DecimalTruncatePartitionColumnTransform : public PartitionColumnTransform {
 public:
+    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
     DecimalTruncatePartitionColumnTransform(const DataTypePtr source_type, int width)
             : _source_type(source_type), _width(width) {}
 
@@ -333,10 +337,10 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(column_ptr.get());
+        const auto* const decimal_col = check_and_get_column<ColumnDecimal<PT>>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
-        auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
+        auto col_res = ColumnDecimal<PT>::create(vec_src.size(), decimal_col->get_scale());
         auto& vec_res = col_res->get_data();
 
         const typename T::NativeType* __restrict p_in =
@@ -354,7 +358,8 @@ public:
 
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column, make_nullable(get_result_type()), column_with_type_and_name.name};
+            return {std::move(res_column), make_nullable(get_result_type()),
+                    column_with_type_and_name.name};
         } else {
             return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
@@ -488,9 +493,10 @@ private:
     DataTypePtr _target_type;
 };
 
-template <typename T>
+template <PrimitiveType PT>
 class DecimalBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
+    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
     DecimalBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
             : _bucket_num(bucket_num),
               _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
@@ -515,7 +521,7 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto& in_data = assert_cast<const ColumnDecimal<T>*>(column_ptr.get())->get_data();
+        const auto& in_data = assert_cast<const ColumnDecimal<PT>*>(column_ptr.get())->get_data();
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();

@@ -23,12 +23,9 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -43,8 +40,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -457,37 +452,6 @@ public class Tablet extends MetaObject {
     @Override
     public String toString() {
         return "tabletId=" + this.id;
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-        int replicaCount = in.readInt();
-        for (int i = 0; i < replicaCount; ++i) {
-            Replica replica = Replica.read(in);
-            if (isLatestReplicaAndDeleteOld(replica)) {
-                replicas.add(replica);
-            }
-        }
-
-        checkedVersion = in.readLong();
-        checkedVersionHash = in.readLong();
-        isConsistent = in.readBoolean();
-    }
-
-    @Deprecated
-    public static Tablet read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, EnvFactory.getInstance().getTabletClass());
-        }
-
-        Tablet tablet = EnvFactory.getInstance().createTablet();
-        tablet.readFields(in);
-        return tablet;
     }
 
     @Override

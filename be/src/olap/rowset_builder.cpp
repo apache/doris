@@ -150,9 +150,10 @@ Status RowsetBuilder::check_tablet_version_count() {
     bool injection = false;
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { injection = true; });
+    int32_t max_version_config = _tablet->max_version_config();
     if (injection) {
         // do not return if injection
-    } else if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
+    } else if (!_tablet->exceed_version_limit(max_version_config - 100) ||
                GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
@@ -166,12 +167,13 @@ Status RowsetBuilder::check_tablet_version_count() {
     int version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { version_count = INT_MAX; });
-    if (version_count > config::max_tablet_version_num) {
+    if (version_count > max_version_config) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
                 "tablet: {}. Please reduce the frequency of loading data or adjust the "
-                "max_tablet_version_num in be.conf to a larger value.",
-                version_count, config::max_tablet_version_num, _tablet->tablet_id());
+                "max_tablet_version_num or time_series_max_tablet_version_num in be.conf to a "
+                "larger value.",
+                version_count, max_version_config, _tablet->tablet_id());
     }
     return Status::OK();
 }
@@ -285,14 +287,6 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
             RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(),
                                                                          segments, _delete_bitmap));
         }
-    }
-
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                     "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-        return Status::OK();
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -444,6 +438,7 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
     RETURN_IF_ERROR(_partial_update_info->init(
             tablet()->tablet_id(), _req.txn_id, *_tablet_schema,
             table_schema_param->unique_key_update_mode(),
+            table_schema_param->partial_update_new_key_policy(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),

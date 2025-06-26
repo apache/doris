@@ -186,7 +186,7 @@ public class NereidsLoadScanProvider {
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
                 NereidsImportColumnDesc columnDesc;
-                if (formatType(fileGroup.getFileFormat()) == TFileFormatType.FORMAT_JSON) {
+                if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_JSON) {
                     columnDesc = new NereidsImportColumnDesc(column.getName());
                 } else {
                     columnDesc = new NereidsImportColumnDesc(column.getName().toLowerCase());
@@ -337,7 +337,7 @@ public class NereidsLoadScanProvider {
                 }
             } else {
                 Column slotColumn;
-                if (formatType(fileGroup.getFileFormat()) == TFileFormatType.FORMAT_ARROW) {
+                if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_ARROW) {
                     slotColumn = new Column(realColName, colToType.get(realColName), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS

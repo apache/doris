@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
@@ -58,11 +59,13 @@ import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
 import org.apache.doris.nereids.trees.expressions.BitXor;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -100,6 +103,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -460,6 +464,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setBinaryType(binaryType);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+        function.setStaticLoad(isStaticLoad);
+        function.setExpirationTime(expirationTime);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -887,8 +893,84 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     }
 
     private void analyzeAliasFunction(ConnectContext ctx) throws AnalysisException {
+        if (parameters.size() != argsDef.getArgTypes().length) {
+            throw new AnalysisException(
+                    "Alias function [" + functionName + "] args number is not equal to parameters number");
+        }
+        List<Expression> exprs;
+        List<String> typeDefParams = new ArrayList<>();
+        if (originFunction instanceof org.apache.doris.nereids.trees.expressions.functions.Function) {
+            exprs = originFunction.getArguments();
+        } else if (originFunction instanceof Cast) {
+            exprs = originFunction.children();
+            DataType targetType = originFunction.getDataType();
+            Type type = targetType.toCatalogDataType();
+            if (type.isScalarType()) {
+                ScalarType scalarType = (ScalarType) type;
+                PrimitiveType primitiveType = scalarType.getPrimitiveType();
+                switch (primitiveType) {
+                    case DECIMAL32:
+                    case DECIMAL64:
+                    case DECIMAL128:
+                    case DECIMAL256:
+                    case DECIMALV2:
+                        if (!Strings.isNullOrEmpty(scalarType.getScalarPrecisionStr())) {
+                            typeDefParams.add(scalarType.getScalarPrecisionStr());
+                        }
+                        if (!Strings.isNullOrEmpty(scalarType.getScalarScaleStr())) {
+                            typeDefParams.add(scalarType.getScalarScaleStr());
+                        }
+                        break;
+                    case CHAR:
+                    case VARCHAR:
+                        if (!Strings.isNullOrEmpty(scalarType.getLenStr())) {
+                            typeDefParams.add(scalarType.getLenStr());
+                        }
+                        break;
+                    default:
+                        throw new AnalysisException("Alias type is invalid: " + primitiveType);
+                }
+            }
+        } else {
+            throw new AnalysisException("Not supported expr type: " + originFunction);
+        }
+        Set<String> set = new HashSet<>();
+        for (String str : parameters) {
+            if (!set.add(str)) {
+                throw new AnalysisException(
+                        "Alias function [" + functionName + "] has duplicate parameter [" + str + "].");
+            }
+            boolean existFlag = false;
+            // check exprs
+            for (Expression expr : exprs) {
+                existFlag |= checkParams(expr, str);
+            }
+            // check targetTypeDef
+            for (String typeDefParam : typeDefParams) {
+                existFlag |= typeDefParam.equals(str);
+            }
+            if (!existFlag) {
+                throw new AnalysisException("Alias function [" + functionName + "]  do not contain parameter [" + str
+                        + "]. typeDefParams="
+                        + typeDefParams.stream().map(String::toString).collect(Collectors.joining(", ")));
+            }
+        }
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
                 Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx));
+    }
+
+    private boolean checkParams(Expression expr, String param) {
+        for (Expression e : expr.children()) {
+            if (checkParams(e, param)) {
+                return true;
+            }
+        }
+        if (expr instanceof Slot) {
+            if (param.equals(((Slot) expr).getName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -943,7 +1025,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
             slotRef.setLabel(slotReference.getName());
             slotRef.setCol(slotReference.getName());
-            slotRef.setDisableTableName(true);
+            slotRef.disableTableName();
             return slotRef;
         }
 

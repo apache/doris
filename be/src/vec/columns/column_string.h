@@ -64,12 +64,10 @@ public:
     void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
         if constexpr (std::is_same_v<T, UInt32>) {
             if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-                throw Exception(
-                        ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                        "string column length is too large: total_length={}, element_number={}, "
-                        "you can set batch_size a number smaller than {} to avoid this error. "
-                        "rows:{}",
-                        total_length, element_number, element_number, rows);
+                throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                                "string column length is too large: total_length={}, "
+                                "element_number={}, rows={}",
+                                total_length, element_number, rows);
             }
         }
     }
@@ -111,8 +109,8 @@ private:
 
 public:
     bool is_variable_length() const override { return true; }
-    // used in string ut testd
-    void sanity_check() const;
+
+    void sanity_check() const override;
     void sanity_check_simple() const;
 
     std::string get_name() const override { return "String"; }
@@ -131,22 +129,9 @@ public:
 
     void shrink_padding_chars() override;
 
-    Field operator[](size_t n) const override {
-        assert(n < size());
-        sanity_check_simple();
-        return Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
-    }
+    Field operator[](size_t n) const override;
 
-    void get(size_t n, Field& res) const override {
-        assert(n < size());
-        sanity_check_simple();
-        if (res.get_type() == PrimitiveType::TYPE_JSONB) {
-            // Handle JsonbField
-            res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
-            return;
-        }
-        res = Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
-    }
+    void get(size_t n, Field& res) const override;
 
     StringRef get_data_at(size_t n) const override {
         DCHECK_LT(n, size());
@@ -483,7 +468,7 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
@@ -517,6 +502,8 @@ public:
         return typeid(rhs) == typeid(ColumnStr<T>);
     }
 
+    bool is_ascii() const;
+
     Chars& get_chars() { return chars; }
     const Chars& get_chars() const { return chars; }
 
@@ -534,8 +521,8 @@ public:
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                          int direction, std::vector<uint8>& cmp_res,
-                          uint8* __restrict filter) const override;
+                          int direction, std::vector<uint8_t>& cmp_res,
+                          uint8_t* __restrict filter) const override;
 
     ColumnPtr convert_column_if_overflow() override;
 

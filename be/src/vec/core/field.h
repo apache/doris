@@ -40,8 +40,11 @@
 #include "util/quantile_state.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
+template <PrimitiveType type>
+struct PrimitiveTypeTraits;
 namespace vectorized {
 template <typename T>
 struct TypeName;
@@ -59,76 +62,6 @@ struct NearestFieldTypeImpl {
 template <typename T>
 using NearestFieldType = typename NearestFieldTypeImpl<T>::Type;
 
-template <typename T>
-struct AvgNearestFieldTypeTrait {
-    using Type = typename NearestFieldTypeImpl<T>::Type;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal32> {
-    using Type = Decimal128V3;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal64> {
-    using Type = Decimal128V3;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal128V2> {
-    using Type = Decimal128V2;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal128V3> {
-    using Type = Decimal128V3;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal256> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Int64> {
-    using Type = double;
-};
-
-template <typename T>
-struct AvgNearestFieldTypeTrait256 {
-    using Type = typename NearestFieldTypeImpl<T>::Type;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal32> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal64> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal128V2> {
-    using Type = Decimal128V2;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal128V3> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal256> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Int64> {
-    using Type = double;
-};
-
 class Field;
 
 using FieldVector = std::vector<Field>;
@@ -138,23 +71,19 @@ using FieldVector = std::vector<Field>;
 /// construct a Field of Array or a Tuple type. An alternative approach would be
 /// to construct both of these types from FieldVector, and have the caller
 /// specify the desired Field type explicitly.
-#define DEFINE_FIELD_VECTOR(X)          \
-    struct X : public FieldVector {     \
-        using FieldVector::FieldVector; \
-    }
+struct Array : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-DEFINE_FIELD_VECTOR(Array);
-DEFINE_FIELD_VECTOR(Tuple);
-DEFINE_FIELD_VECTOR(Map);
-#undef DEFINE_FIELD_VECTOR
+struct Tuple : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-using FieldMap = std::map<String, Field>;
-#define DEFINE_FIELD_MAP(X)       \
-    struct X : public FieldMap {  \
-        using FieldMap::FieldMap; \
-    }
-DEFINE_FIELD_MAP(VariantMap);
-#undef DEFINE_FIELD_MAP
+struct Map : public FieldVector {
+    using FieldVector::FieldVector;
+};
+
+using VariantMap = std::map<PathInData, Field>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -255,6 +184,8 @@ template <typename T>
 class DecimalField {
 public:
     DecimalField(T value, UInt32 scale_) : dec(value), scale(scale_) {}
+    // Store the underlying data ignoring scale.
+    DecimalField(T value) : dec(value), scale(0) {}
 
     operator T() const { return dec; }
     T get_value() const { return dec; }
@@ -316,7 +247,7 @@ private:
 /** 32 is enough. Round number is used for alignment and for better arithmetic inside std::vector.
   * NOTE: Actually, sizeof(std::string) is 32 when using libc++, so Field is 40 bytes.
   */
-#define DBMS_MIN_FIELD_SIZE 32
+constexpr size_t DBMS_MIN_FIELD_SIZE = 32;
 
 /** Discriminated union of several types.
   * Made for replacement of `boost::variant`
@@ -331,7 +262,19 @@ public:
     static const int MIN_NON_POD = 16;
     Field() : type(PrimitiveType::TYPE_NULL) {}
     // set Types::Null explictly and avoid other types
-    Field(PrimitiveType w) : type(w) { DCHECK_EQ(PrimitiveType::TYPE_NULL, type); }
+    Field(PrimitiveType w) : type(w) {}
+    template <PrimitiveType T>
+    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType& data) {
+        auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
+        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
+        return f;
+    }
+    template <PrimitiveType T>
+    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
+        auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
+        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
+        return f;
+    }
 
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
@@ -339,12 +282,6 @@ public:
     Field(const Field& rhs) { create(rhs); }
 
     Field(Field&& rhs) { create(std::move(rhs)); }
-
-    // Make the constructor with a String parameter explicit to prevent accidentally creating a Field with the wrong string type.
-    // Other types don't require explicit construction to avoid extensive modifications.
-    template <typename T>
-        requires(!std::is_same_v<std::decay_t<T>, Field>)
-    explicit(std::is_same_v<std::decay_t<T>, String>) Field(T&& rhs);
 
     Field& operator=(const Field& rhs) {
         if (this != &rhs) {
@@ -374,10 +311,6 @@ public:
         }
         return *this;
     }
-
-    template <typename T>
-        requires(!std::is_same_v<std::decay_t<T>, Field>)
-    Field& operator=(T&& rhs);
 
     ~Field() { destroy(); }
 
@@ -417,7 +350,7 @@ public:
         }
 
         switch (type) {
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
         case PrimitiveType::TYPE_HLL:
         case PrimitiveType::TYPE_QUANTILE_STATE:
         case PrimitiveType::INVALID_TYPE:
@@ -440,6 +373,9 @@ public:
             return get<Int128>() <=> rhs.get<Int128>();
         case PrimitiveType::TYPE_IPV6:
             return get<IPv6>() <=> rhs.get<IPv6>();
+        case PrimitiveType::TYPE_IPV4:
+            return get<IPv4>() <=> rhs.get<IPv4>();
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
                    : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
@@ -485,6 +421,7 @@ public:
         case PrimitiveType::TYPE_IPV6:
             f(field.template get<IPv6>());
             return;
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             f(field.template get<Float64>());
             return;
@@ -523,7 +460,7 @@ public:
         case PrimitiveType::TYPE_VARIANT:
             f(field.template get<VariantMap>());
             return;
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             f(field.template get<BitmapValue>());
             return;
         case PrimitiveType::TYPE_HLL:
@@ -538,6 +475,83 @@ public:
         }
     }
 
+    std::string to_string() const {
+        std::string res;
+        switch (type) {
+        case PrimitiveType::TYPE_DATETIMEV2: {
+            auto v = get<UInt64>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DATETIME:
+        case PrimitiveType::TYPE_DATE:
+        case PrimitiveType::TYPE_BIGINT: {
+            auto v = get<Int64>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_LARGEINT: {
+            auto v = get<Int128>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_IPV6: {
+            auto v = get<IPv6>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DOUBLE: {
+            auto v = get<Float64>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_STRING:
+        case PrimitiveType::TYPE_CHAR:
+        case PrimitiveType::TYPE_VARCHAR: {
+            res = get<String>();
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL32: {
+            auto v = get<DecimalField<Decimal32>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL64: {
+            auto v = get<DecimalField<Decimal64>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMALV2: {
+            auto v = get<DecimalField<Decimal128V2>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL128I: {
+            auto v = get<DecimalField<Decimal128V3>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL256: {
+            auto v = get<DecimalField<Decimal256>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        default:
+            throw Exception(Status::FatalError("type not supported, type={}", get_type_name()));
+        }
+        return res;
+    }
+
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
                          Int128, IPv6, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
@@ -549,68 +563,21 @@ private:
     PrimitiveType type;
 
     /// Assuming there was no allocated state or it was deallocated (see destroy).
-    template <typename T>
-    void create_concrete(T&& x);
-
+    template <PrimitiveType Type>
+    void create_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x);
+    template <PrimitiveType Type>
+    void create_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
     /// Assuming same types.
-    template <typename T>
-    void assign_concrete(T&& x);
+    template <PrimitiveType Type>
+    void assign_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x);
+    template <PrimitiveType Type>
+    void assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
 
-    void create(const Field& x) {
-        dispatch([this](auto& value) { create_concrete(value); }, x);
-    }
+    void create(const Field& field);
 
-    void create(Field&& x) {
-        dispatch([this](auto& value) { create_concrete(std::move(value)); }, x);
-    }
+    void assign(const Field& x);
 
-    void assign(const Field& x) {
-        dispatch([this](auto& value) { assign_concrete(value); }, x);
-    }
-
-    void assign(Field&& x) {
-        dispatch([this](auto& value) { assign_concrete(std::move(value)); }, x);
-    }
-
-    ALWAYS_INLINE void destroy() {
-        // TODO(gabriel): Use `PrimitiveTypeTraits<>::CppType`
-        switch (type) {
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR:
-            destroy<String>();
-            break;
-        case PrimitiveType::TYPE_JSONB:
-            destroy<JsonbField>();
-            break;
-        case PrimitiveType::TYPE_ARRAY:
-            destroy<Array>();
-            break;
-        case PrimitiveType::TYPE_STRUCT:
-            destroy<Tuple>();
-            break;
-        case PrimitiveType::TYPE_MAP:
-            destroy<Map>();
-            break;
-        case PrimitiveType::TYPE_VARIANT:
-            destroy<VariantMap>();
-            break;
-        case PrimitiveType::TYPE_OBJECT:
-            destroy<BitmapValue>();
-            break;
-        case PrimitiveType::TYPE_HLL:
-            destroy<HyperLogLog>();
-            break;
-        case PrimitiveType::TYPE_QUANTILE_STATE:
-            destroy<QuantileState>();
-            break;
-        default:
-            break;
-        }
-
-        type = PrimitiveType::
-                TYPE_NULL; /// for exception safety in subsequent calls to destroy and create, when create fails.
-    }
+    void destroy();
 
     template <typename T>
     void destroy() {
@@ -618,8 +585,6 @@ private:
         ptr->~T();
     }
 };
-
-#undef DBMS_MIN_FIELD_SIZE
 
 template <typename T>
 T get(const Field& field) {
@@ -630,24 +595,6 @@ template <typename T>
 T get(Field& field) {
     return field.template get<T>();
 }
-
-template <>
-struct TypeName<Array> {
-    static std::string get() { return "Array"; }
-};
-template <>
-struct TypeName<Tuple> {
-    static std::string get() { return "Tuple"; }
-};
-
-template <>
-struct TypeName<VariantMap> {
-    static std::string get() { return "VariantMap"; }
-};
-template <>
-struct TypeName<Map> {
-    static std::string get() { return "Map"; }
-};
 
 /// char may be signed or unsigned, and behave identically to signed char or unsigned char,
 ///  but they are always three different types.
@@ -765,18 +712,15 @@ decltype(auto) cast_to_nearest_field_type(T&& x) {
     }
 }
 
-/// This (rather tricky) code is to avoid ambiguity in expressions like
-/// Field f = 1;
-/// instead of
-/// Field f = Int64(1);
-/// Things to note:
-/// 1. float <--> int needs explicit cast
-/// 2. customized types needs explicit cast
-template <typename T>
-    requires(!std::is_same_v<std::decay_t<T>, Field>)
-Field::Field(T&& rhs) {
-    auto&& val = cast_to_nearest_field_type(std::forward<T>(rhs));
-    create_concrete(std::forward<decltype(val)>(val));
-}
-
 } // namespace doris::vectorized
+
+template <>
+struct std::hash<doris::vectorized::Field> {
+    size_t operator()(const doris::vectorized::Field& field) const {
+        if (field.is_null()) {
+            return 0;
+        }
+        std::hash<std::string> hasher;
+        return hasher(field.to_string());
+    }
+};

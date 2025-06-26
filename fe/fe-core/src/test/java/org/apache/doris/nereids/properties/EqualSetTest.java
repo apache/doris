@@ -71,7 +71,7 @@ class EqualSetTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isNullSafeEqual(plan.getOutput().get(0), plan.getOutput().get(1)));
         plan = PlanChecker.from(connectContext)
-                .analyze("select id, id2 from agg where id2 = id limit 1 order by id")
+                .analyze("(select id, id2 from agg where id2 = id limit 1) order by id")
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isNullSafeEqual(plan.getOutput().get(0), plan.getOutput().get(1)));

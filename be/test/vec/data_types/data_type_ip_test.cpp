@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
@@ -91,7 +90,7 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = UInt64(0),
+            .default_field = Field::create_field<TYPE_IPV4>(IPv4(0)),
     };
     auto ipv6_type_descriptor =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_IPV6, false);
@@ -113,14 +112,14 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta6.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = IPv6(0)};
+            .default_field = Field::create_field<TYPE_IPV6>(IPv6(0))};
     meta_info_assert(dt_ipv4, ipv4_meta_info_to_assert);
     meta_info_assert(dt_ipv6, ipv6_meta_info);
 }
 
 TEST_F(DataTypeIPTest, CreateColumnTest) {
-    Field default_field_ipv4 = IPv4(0);
-    Field default_field_ipv6 = IPv6(0);
+    Field default_field_ipv4 = Field::create_field<TYPE_IPV4>(IPv4(0));
+    Field default_field_ipv6 = Field::create_field<TYPE_IPV6>(IPv6(0));
     create_column_assert(dt_ipv4, default_field_ipv4, 17);
     create_column_assert(dt_ipv6, default_field_ipv6, 17);
 }
@@ -293,38 +292,38 @@ TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
     // pack array ipv4
     Array ipv4_array;
     for (auto& ipv4 : ipv4_values) {
-        ipv4_array.push_back(ipv4);
+        ipv4_array.push_back(Field::create_field<TYPE_IPV4>(ipv4));
     }
-    column_array_ipv4->insert(ipv4_array);
+    column_array_ipv4->insert(Field::create_field<TYPE_ARRAY>(ipv4_array));
 
     // pack array ipv6
     Array ipv6_array;
     for (auto& ipv6 : ipv6_values) {
-        ipv6_array.push_back(ipv6);
+        ipv6_array.push_back(Field::create_field<TYPE_IPV6>(ipv6));
     }
-    column_array_ipv6->insert(ipv6_array);
+    column_array_ipv6->insert(Field::create_field<TYPE_ARRAY>(ipv6_array));
 
     Map ipv4_map;
     // pack map ipv4
-    ipv4_map.push_back(ipv4_array);
-    ipv4_map.push_back(ipv6_array);
-    column_map_ipv4->insert(ipv4_map);
+    ipv4_map.push_back(Field::create_field<TYPE_ARRAY>(ipv4_array));
+    ipv4_map.push_back(Field::create_field<TYPE_ARRAY>(ipv6_array));
+    column_map_ipv4->insert(Field::create_field<TYPE_MAP>(ipv4_map));
 
     // pack map ipv6
     Map ipv6_map;
-    ipv6_map.push_back(ipv6_array);
-    ipv6_map.push_back(ipv4_array);
-    column_map_ipv6->insert(ipv6_map);
+    ipv6_map.push_back(Field::create_field<TYPE_ARRAY>(ipv6_array));
+    ipv6_map.push_back(Field::create_field<TYPE_ARRAY>(ipv4_array));
+    column_map_ipv6->insert(Field::create_field<TYPE_MAP>(ipv6_map));
 
     // pack struct
     Tuple tuple;
-    tuple.push_back(ipv4_values[0]);
-    tuple.push_back(ipv6_values[0]);
-    tuple.push_back(ipv4_array);
-    tuple.push_back(ipv6_array);
-    tuple.push_back(ipv4_map);
-    tuple.push_back(ipv6_map);
-    column_struct_ip->insert(tuple);
+    tuple.push_back(Field::create_field<TYPE_IPV4>(ipv4_values[0]));
+    tuple.push_back(Field::create_field<TYPE_IPV6>(ipv6_values[0]));
+    tuple.push_back(Field::create_field<TYPE_ARRAY>(ipv4_array));
+    tuple.push_back(Field::create_field<TYPE_ARRAY>(ipv6_array));
+    tuple.push_back(Field::create_field<TYPE_MAP>(ipv4_map));
+    tuple.push_back(Field::create_field<TYPE_MAP>(ipv6_map));
+    column_struct_ip->insert(Field::create_field<TYPE_STRUCT>(tuple));
 
     auto assert_func = [](DataTypePtr dt, MutableColumnPtr& col, std::string assert_json_str) {
         // serde to json

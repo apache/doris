@@ -155,12 +155,12 @@ MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
 }
 
 Field ColumnNullable::operator[](size_t n) const {
-    return is_null_at(n) ? Null() : get_nested_column()[n];
+    return is_null_at(n) ? Field::create_field<TYPE_NULL>(Null()) : get_nested_column()[n];
 }
 
 void ColumnNullable::get(size_t n, Field& res) const {
     if (is_null_at(n)) {
-        res = Null();
+        res = Field();
     } else {
         get_nested_column().get(n, res);
     }
@@ -384,10 +384,10 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, 
     return Status::OK();
 }
 
-ColumnPtr ColumnNullable::permute(const Permutation& perm, size_t limit) const {
-    ColumnPtr permuted_data = get_nested_column().permute(perm, limit);
-    ColumnPtr permuted_null_map = get_null_map_column().permute(perm, limit);
-    return ColumnNullable::create(permuted_data, permuted_null_map);
+MutableColumnPtr ColumnNullable::permute(const Permutation& perm, size_t limit) const {
+    MutableColumnPtr permuted_data = get_nested_column().permute(perm, limit);
+    MutableColumnPtr permuted_null_map = get_null_map_column().permute(perm, limit);
+    return ColumnNullable::create(std::move(permuted_data), std::move(permuted_null_map));
 }
 
 int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
@@ -411,8 +411,8 @@ int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
 }
 
 void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                                      int direction, std::vector<uint8>& cmp_res,
-                                      uint8* __restrict filter) const {
+                                      int direction, std::vector<uint8_t>& cmp_res,
+                                      uint8_t* __restrict filter) const {
     const auto& rhs_null_column = assert_cast<const ColumnNullable&>(rhs);
     const bool right_is_null = rhs.is_null_at(rhs_row_id);
     const bool left_contains_null = has_null();

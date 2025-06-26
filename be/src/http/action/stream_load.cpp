@@ -81,7 +81,7 @@ bvar::LatencyRecorder g_stream_load_commit_and_publish_latency_ms("stream_load",
                                                                   "commit_and_publish_ms");
 
 static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
-static const string CHUNK = "chunked";
+static const std::string CHUNK = "chunked";
 
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
@@ -257,10 +257,6 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
         ctx->header_type = format_str;
         //treat as CSV
-        format_str = BeConsts::CSV;
-    }
-    if (iequal(format_str, "hive_text")) {
-        ctx->header_type = format_str;
         format_str = BeConsts::CSV;
     }
     LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
@@ -692,6 +688,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                     unique_key_update_mode_str);
         }
     }
+
     if (http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty() &&
         !http_req->header(HTTP_PARTIAL_COLUMNS).empty()) {
         // only consider `partial_columns` parameter when `unique_key_update_mode` is not set
@@ -700,6 +697,24 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             // for backward compatibility
             request.__set_partial_update(true);
         }
+    }
+
+    if (!http_req->header(HTTP_PARTIAL_UPDATE_NEW_ROW_POLICY).empty()) {
+        static const std::map<std::string, TPartialUpdateNewRowPolicy::type> policy_map {
+                {"APPEND", TPartialUpdateNewRowPolicy::APPEND},
+                {"ERROR", TPartialUpdateNewRowPolicy::ERROR}};
+
+        auto policy_name = http_req->header(HTTP_PARTIAL_UPDATE_NEW_ROW_POLICY);
+        std::transform(policy_name.begin(), policy_name.end(), policy_name.begin(),
+                       [](unsigned char c) { return std::toupper(c); });
+        auto it = policy_map.find(policy_name);
+        if (it == policy_map.end()) {
+            return Status::InvalidArgument(
+                    "Invalid partial_update_new_key_behavior {}, must be one of {'APPEND', "
+                    "'ERROR'}",
+                    policy_name);
+        }
+        request.__set_partial_update_new_key_policy(it->second);
     }
 
     if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {

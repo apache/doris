@@ -82,7 +82,7 @@ class FdTest extends TestWithFeService {
         Assertions.assertTrue(
                 plan.getLogicalProperties()
                         .getTrait().getAllValidFuncDeps(output)
-                        .isFuncDeps(output, ImmutableSet.of(plan.getOutput().get(0))));
+                        .isFuncDeps(ImmutableSet.of(plan.getOutput().get(1)), ImmutableSet.of(plan.getOutput().get(0))));
     }
 
     @Test

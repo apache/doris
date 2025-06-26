@@ -33,10 +33,8 @@ Status GroupCommitOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     bool find_node = false;
-    while (!find_node && !*eos) {
-        RETURN_IF_ERROR(local_state.load_block_queue->get_block(state, block, &find_node, eos,
-                                                                local_state._get_block_dependency));
-    }
+    RETURN_IF_ERROR(local_state.load_block_queue->get_block(state, block, &find_node, eos,
+                                                            local_state._get_block_dependency));
     return Status::OK();
 }
 
@@ -46,8 +44,18 @@ Status GroupCommitLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     auto& p = _parent->cast<GroupCommitOperatorX>();
     _get_block_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "GroupCommitGetBlockDependency", true);
-    return state->exec_env()->group_commit_mgr()->get_load_block_queue(
+    auto st = state->exec_env()->group_commit_mgr()->get_load_block_queue(
             p._table_id, state->fragment_instance_id(), load_block_queue, _get_block_dependency);
+    if (st.ok()) {
+        DCHECK(load_block_queue != nullptr);
+        _runtime_filter_timer = std::make_shared<pipeline::RuntimeFilterTimer>(
+                MonotonicMillis(), load_block_queue->get_group_commit_interval_ms(),
+                _get_block_dependency, true);
+        std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> timers;
+        timers.push_back(_runtime_filter_timer);
+        ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(std::move(timers));
+    }
+    return st;
 }
 
 Status GroupCommitLocalState::_process_conjuncts(RuntimeState* state) {

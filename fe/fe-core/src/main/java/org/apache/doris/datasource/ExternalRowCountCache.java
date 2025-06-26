@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.BasicAsyncCacheLoader;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -42,8 +43,8 @@ public class ExternalRowCountCache {
         // 1. set expireAfterWrite to 1 day, avoid too many entries
         // 2. set refreshAfterWrite to 10min(default), so that the cache will be refreshed after 10min
         CacheFactory rowCountCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
-                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 Config.max_external_table_row_count_cache_num,
                 false,
                 null);
@@ -110,10 +111,16 @@ public class ExternalRowCountCache {
         RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
         try {
             CompletableFuture<Optional<Long>> f = rowCountCache.get(key);
-            if (f.isDone()) {
+            // Get row count synchronously by default.
+            if (ConnectContext.get() == null
+                    || ConnectContext.get().getSessionVariable().fetchHiveRowCountSync) {
                 return f.get().orElse(TableIf.UNKNOWN_ROW_COUNT);
+            } else {
+                if (f.isDone()) {
+                    return f.get().orElse(TableIf.UNKNOWN_ROW_COUNT);
+                }
+                LOG.info("Row count for table {}.{}.{} is still processing.", catalogId, dbId, tableId);
             }
-            LOG.info("Row count for table {}.{}.{} is still processing.", catalogId, dbId, tableId);
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count", e);
         }

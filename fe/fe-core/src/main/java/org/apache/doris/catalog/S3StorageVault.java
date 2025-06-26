@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -70,6 +71,8 @@ public class S3StorageVault extends StorageVault {
         public static final String REGION = S3Properties.REGION;
         public static final String ENDPOINT = S3Properties.ENDPOINT;
         public static final String BUCKET = S3Properties.BUCKET;
+        public static final String ROLE_ARN = S3Properties.ROLE_ARN;
+        public static final String EXTERNAL_ID = S3Properties.EXTERNAL_ID;
     }
 
     public static final HashSet<String> ALLOW_ALTER_PROPERTIES = new HashSet<>(Arrays.asList(
@@ -77,7 +80,9 @@ public class S3StorageVault extends StorageVault {
             StorageVault.PropertyKey.TYPE,
             PropertyKey.ACCESS_KEY,
             PropertyKey.SECRET_KEY,
-            PropertyKey.USE_PATH_STYLE
+            PropertyKey.USE_PATH_STYLE,
+            PropertyKey.ROLE_ARN,
+            PropertyKey.EXTERNAL_ID
     ));
 
     @SerializedName(value = "properties")
@@ -87,6 +92,12 @@ public class S3StorageVault extends StorageVault {
             boolean setAsDefault, CreateResourceStmt stmt) throws DdlException {
         super(name, StorageVault.StorageVaultType.S3, ifNotExists, setAsDefault);
         resource = Resource.fromStmt(stmt);
+    }
+
+    public S3StorageVault(String name, boolean ifNotExists,
+            boolean setAsDefault, CreateResourceCommand command) throws DdlException {
+        super(name, StorageVault.StorageVaultType.S3, ifNotExists, setAsDefault);
+        resource = Resource.fromCommand(command);
     }
 
     @Override

@@ -38,6 +38,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -1199,6 +1200,13 @@ public class PropertyAnalyzer {
         return storagePolicy;
     }
 
+    public static boolean hasStoragePolicy(Map<String, String> properties) {
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            return true;
+        }
+        return false;
+    }
+
     public static String analyzeStorageVaultName(Map<String, String> properties) {
         String storageVaultName = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
@@ -1234,7 +1242,7 @@ public class PropertyAnalyzer {
             } else {
                 // continue to check default vault
                 Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
-                if (info == null) {
+                if (info == null || Strings.isNullOrEmpty(info.first) || Strings.isNullOrEmpty(info.second)) {
                     throw new AnalysisException("No default storage vault."
                             + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
                             + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
@@ -1289,11 +1297,14 @@ public class PropertyAnalyzer {
         if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
-        PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
+
+        Type type = DataType.convertFromString(typeStr.toLowerCase()).toCatalogDataType();
+
         if (!type.isFixedPointType() && !type.isDateType()) {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
-        return ScalarType.createType(type);
+
+        return type;
     }
 
     public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)

@@ -35,6 +35,14 @@ CONF_Bool(use_mem_kv, "false");
 CONF_Int32(meta_server_register_interval_ms, "20000");
 CONF_Int32(meta_server_lease_ms, "60000");
 
+// for chaos testing
+CONF_mBool(enable_idempotent_request_injection, "false");
+// idempotent_request_replay_delay_ms = idempotent_request_replay_delay_base_ms + random(-idempotent_request_replay_delay_range_ms, idempotent_request_replay_delay_range_ms)
+CONF_mInt64(idempotent_request_replay_delay_base_ms, "10000");
+CONF_mInt64(idempotent_request_replay_delay_range_ms, "5000");
+// exclude some request that are meaningless to replay, comma separated list. e.g. GetTabletStatsRequest,GetVersionRequest
+CONF_mString(idempotent_request_replay_exclusion, "GetTabletStatsRequest,GetVersionRequest");
+
 CONF_Int64(fdb_txn_timeout_ms, "10000");
 CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
@@ -90,6 +98,8 @@ CONF_Bool(enable_delete_bitmap_inverted_check, "false");
 // checks if https://github.com/apache/doris/pull/40204 works as expected
 CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
 CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
+CONF_Bool(enable_delete_bitmap_storage_optimize_v2_check, "false");
+CONF_mInt64(delete_bitmap_storage_optimize_v2_check_skip_seconds, "300"); // 5min
 // interval for scanning instances to do checks and inspections
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
@@ -222,6 +232,11 @@ CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 CONF_mBool(enable_distinguish_hdfs_path, "true");
 
+// If enabled, the txn status will be checked when preapre/commit rowset
+CONF_mBool(enable_load_txn_status_check, "true");
+
+CONF_mBool(enable_tablet_job_check, "true");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation,
@@ -275,13 +290,24 @@ CONF_Bool(enable_check_instance_id, "true");
 CONF_Bool(enable_loopback_address_for_ms, "false");
 
 // delete_bitmap_lock version config
-CONF_mString(use_delete_bitmap_lock_version, "v1");
+// here is some examples:
+// 1. If instance1,instance2 use v2, config should be
+// delete_bitmap_lock_v2_white_list = instance1;instance2
+// 2. If all instance use v2, config should be
+// delete_bitmap_lock_v2_white_list = *
+CONF_mString(delete_bitmap_lock_v2_white_list, "");
 // FOR DEBUGGING
 CONF_mBool(use_delete_bitmap_lock_random_version, "false");
 
 // Which vaults should be recycled. If empty, recycle all vaults.
 // Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
 CONF_Strings(recycler_storage_vault_white_list, "");
+
+// for test only
+CONF_mBool(enable_update_delete_bitmap_kv_check, "false");
+
+// for get_delete_bitmap_update_lock
+CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
 
 // aws sdk log level
 //    Off = 0,
@@ -291,7 +317,17 @@ CONF_Strings(recycler_storage_vault_white_list, "");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-CONF_Int32(aws_log_level, "2");
+CONF_Int32(aws_log_level, "3");
+CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 && config <= 6; });
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+CONF_Int32(azure_log_level, "3");
+CONF_Validator(azure_log_level,
+               [](const int config) -> bool { return config >= 1 && config <= 4; });
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS

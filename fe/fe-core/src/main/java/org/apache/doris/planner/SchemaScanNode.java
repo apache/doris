@@ -96,14 +96,26 @@ public class SchemaScanNode extends ScanNode {
         schemaCatalog = analyzer.getSchemaCatalog();
         schemaDb = analyzer.getSchemaDb();
         schemaTable = analyzer.getSchemaTable();
-        frontendIP = FrontendOptions.getLocalHostAddress();
-        frontendPort = Config.rpc_port;
+        if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
+                && tableName.equalsIgnoreCase("tables")) {
+            frontendIP = Env.getCurrentEnv().getMasterHost();
+            frontendPort = Env.getCurrentEnv().getMasterRpcPort();
+        } else {
+            frontendIP = FrontendOptions.getLocalHostAddress();
+            frontendPort = Config.rpc_port;
+        }
     }
 
     @Override
     public void finalizeForNereids() throws UserException {
-        frontendIP = FrontendOptions.getLocalHostAddress();
-        frontendPort = Config.rpc_port;
+        if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
+                && tableName.equalsIgnoreCase("tables")) {
+            frontendIP = Env.getCurrentEnv().getMasterHost();
+            frontendPort = Env.getCurrentEnv().getMasterRpcPort();
+        } else {
+            frontendIP = FrontendOptions.getLocalHostAddress();
+            frontendPort = Config.rpc_port;
+        }
     }
 
     private void setFeAddrList(TPlanNode msg) {
@@ -184,7 +196,7 @@ public class SchemaScanNode extends ScanNode {
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(false));
+            output.append(getRuntimeFilterExplainString());
         }
         output.append(prefix).append(String.format("cardinality=%s", cardinality))
                 .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));

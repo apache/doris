@@ -87,7 +87,7 @@ suite("test_base_replace_on_commit_mtmv","mtmv") {
         """
 
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_replace "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_replace_normal "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_replace "select * from ${mvName}"
 
     // t2 should not trigger refresh

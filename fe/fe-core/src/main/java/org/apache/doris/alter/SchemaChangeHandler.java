@@ -21,8 +21,6 @@ import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.BuildIndexClause;
-import org.apache.doris.analysis.CancelAlterTableStmt;
-import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropColumnClause;
@@ -32,7 +30,6 @@ import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
-import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
@@ -86,6 +83,8 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -2586,19 +2585,13 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    @Override
-    public void cancel(CancelStmt stmt) throws DdlException {
-        CancelAlterTableStmt cancelAlterTableStmt = (CancelAlterTableStmt) stmt;
-        if (cancelAlterTableStmt.getAlterType() == AlterType.INDEX) {
-            cancelIndexJob(cancelAlterTableStmt);
-        } else {
-            cancelColumnJob(cancelAlterTableStmt);
-        }
+    public void cancel(CancelAlterTableCommand command) throws DdlException {
+        cancelColumnJob(command);
     }
 
-    private void cancelColumnJob(CancelAlterTableStmt cancelAlterTableStmt) throws DdlException {
-        String dbName = cancelAlterTableStmt.getDbName();
-        String tableName = cancelAlterTableStmt.getTableName();
+    private void cancelColumnJob(CancelAlterTableCommand command) throws DdlException {
+        String dbName = command.getDbName();
+        String tableName = command.getTableName();
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
@@ -2617,10 +2610,10 @@ public class SchemaChangeHandler extends AlterHandler {
             List<AlterJobV2> schemaChangeJobV2List = getUnfinishedAlterJobV2ByTableId(olapTable.getId());
             // current schemaChangeJob job doesn't support batch operation,so just need to get one job
             schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null
-                    : Iterables.getOnlyElement(schemaChangeJobV2List);
+                : Iterables.getOnlyElement(schemaChangeJobV2List);
             if (schemaChangeJobV2 == null) {
                 throw new DdlException(
-                        "Table[" + tableName + "] is under schema change state" + " but could not find related job");
+                    "Table[" + tableName + "] is under schema change state" + " but could not find related job");
             }
         } finally {
             olapTable.writeUnlock();
@@ -2631,13 +2624,12 @@ public class SchemaChangeHandler extends AlterHandler {
             if (!schemaChangeJobV2.cancel("user cancelled")) {
                 throw new DdlException("Job can not be cancelled. State: " + schemaChangeJobV2.getJobState());
             }
-            return;
         }
     }
 
-    private void cancelIndexJob(CancelAlterTableStmt cancelAlterTableStmt) throws DdlException {
-        String dbName = cancelAlterTableStmt.getDbName();
-        String tableName = cancelAlterTableStmt.getTableName();
+    public void cancelIndexJob(CancelBuildIndexCommand command) throws DdlException {
+        String dbName = command.getDbName();
+        String tableName = command.getTableName();
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
@@ -2649,9 +2641,9 @@ public class SchemaChangeHandler extends AlterHandler {
         olapTable.writeLock();
         try {
             // find from index change jobs first
-            if (cancelAlterTableStmt.getAlterJobIdList() != null
-                    && cancelAlterTableStmt.getAlterJobIdList().size() > 0) {
-                for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
+            if (command.getAlterJobIdList() != null
+                    && command.getAlterJobIdList().size() > 0) {
+                for (Long jobId : command.getAlterJobIdList()) {
                     IndexChangeJob job = indexChangeJobs.get(jobId);
                     if (job == null) {
                         continue;
@@ -2675,8 +2667,6 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.writeUnlock();
         }
 
-        // if this table has ngram_bf index, we must run cancel for schema change job
-        boolean hasNGramBFIndex = ((OlapTable) olapTable).hasIndexOfType(IndexDef.IndexType.NGRAM_BF);
         // alter job v2's cancel must be called outside the table lock
         if (jobList.size() > 0) {
             for (IndexChangeJob job : jobList) {
@@ -2691,8 +2681,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     LOG.info("cancel build index job {} on table {} success", jobId, tableName);
                 }
             }
-        } else if (hasNGramBFIndex) {
-            cancelColumnJob(cancelAlterTableStmt);
         } else {
             throw new DdlException("No job to cancel for Table[" + tableName + "]");
         }

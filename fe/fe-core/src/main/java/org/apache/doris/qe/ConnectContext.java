@@ -940,7 +940,7 @@ public class ConnectContext {
         }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-            connectScheduler.putTraceId2QueryId(traceId, queryId);
+            connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
     }
 
@@ -949,6 +949,10 @@ public class ConnectContext {
     }
 
     public void setTraceId(String traceId) {
+        // When traceId is set, we need to remove the old traceId from connectScheduler.
+        if (connectScheduler != null) {
+            connectScheduler.removeOldTraceId(this.traceId);
+        }
         this.traceId = traceId;
     }
 
@@ -1225,6 +1229,7 @@ public class ConnectContext {
             row.add("" + (nowMs - startTime) / 1000);
             row.add(state.toString());
             row.add(DebugUtil.printId(queryId));
+            row.add(Strings.nullToEmpty(traceId));
             if (state.getStateType() == QueryState.MysqlStateType.ERR) {
                 row.add(state.getErrorMessage());
             } else if (executor != null) {
@@ -1246,7 +1251,6 @@ public class ConnectContext {
             return row;
         }
     }
-
 
     public void startAcceptQuery(ConnectProcessor connectProcessor) {
         mysqlChannel.startAcceptQuery(this, connectProcessor);
@@ -1272,18 +1276,8 @@ public class ConnectContext {
         return !getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL) && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
     }
 
-    // maybe user set cluster by SQL hint of session variable: cloud_cluster
-    // so first check it and then get from connect context.
-    public String getCurrentCloudCluster() throws ComputeGroupException {
-        String cluster = getSessionVariable().getCloudCluster();
-        if (Strings.isNullOrEmpty(cluster)) {
-            cluster = getCloudCluster();
-        }
-        return cluster;
-    }
-
     public void setCloudCluster(String cluster) {
-        this.cloudCluster = cluster;
+        this.getSessionVariable().setCloudCluster(cluster);
     }
 
     public String getCloudCluster() throws ComputeGroupException {
@@ -1379,7 +1373,7 @@ public class ConnectContext {
     public ComputeGroup getComputeGroup() throws UserException {
         ComputeGroupMgr cgMgr = Env.getCurrentEnv().getComputeGroupMgr();
         if (Config.isCloudMode()) {
-            return cgMgr.getComputeGroupByName(getCurrentCloudCluster());
+            return cgMgr.getComputeGroupByName(getCloudCluster());
         } else {
             // In order to be compatible with resource tag's old logic,
             // when a user login in FE by mysql client, then its tags are set in ConnectContext which
@@ -1413,29 +1407,48 @@ public class ConnectContext {
             throw new ComputeGroupException("not cloud mode", ComputeGroupException.FailedTypeEnum.NOT_CLOUD_MODE);
         }
 
-        String cluster = null;
         String choseWay = null;
-        if (!Strings.isNullOrEmpty(this.cloudCluster)) {
-            cluster = this.cloudCluster;
-            choseWay = "use context cluster";
-            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
-                    cloudCluster, getCurrentUserIdentity(), choseWay);
-            return cluster;
-        }
-
-        String defaultCluster = getDefaultCloudCluster();
-        if (!Strings.isNullOrEmpty(defaultCluster)) {
-            cluster = defaultCluster;
-            choseWay = "default compute group";
-        } else {
-            CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
-            if (cloudClusterTypeAndName != null && !Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {
-                cluster = cloudClusterTypeAndName.clusterName;
-                choseWay = "authorized cluster";
+        // 1 get cluster from session
+        String sessionCluster = getSessionVariable().getCloudCluster();
+        if (!Strings.isNullOrEmpty(sessionCluster)) {
+            choseWay = "use session";
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
+                        sessionCluster, getCurrentUserIdentity(), choseWay);
             }
+            return sessionCluster;
         }
 
-        if (Strings.isNullOrEmpty(cluster)) {
+        // 2 get cluster from user
+        String userPropCluster = getDefaultCloudClusterFromUser();
+        if (!StringUtils.isEmpty(userPropCluster)) {
+            choseWay = "user property";
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", userPropCluster,
+                        getCurrentUserIdentity(), choseWay);
+            }
+            return userPropCluster;
+        }
+
+        // 3 get cluster from a cached variable in connect context
+        // this value comes from a cluster selection policy
+        if (!Strings.isNullOrEmpty(this.cloudCluster)) {
+            choseWay = "user selection policy";
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
+                        cloudCluster, getCurrentUserIdentity(), choseWay);
+            }
+            return cloudCluster;
+        }
+
+        String policyCluster = "";
+        CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
+        if (cloudClusterTypeAndName != null && !Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {
+            policyCluster = cloudClusterTypeAndName.clusterName;
+            choseWay = "by policy";
+        }
+
+        if (Strings.isNullOrEmpty(policyCluster)) {
             List<String> cloudClusterNames
                     = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
             LOG.warn("Can not get a valid compute group for user {} {} to use, all cluster: {}",
@@ -1449,16 +1462,19 @@ public class ConnectContext {
             }
             throw exception;
         } else {
-            this.cloudCluster = cluster;
-            LOG.info("finally set context compute group name {} for user {} with chose way '{}'",
-                    cloudCluster, getCurrentUserIdentity(), choseWay);
+            this.cloudCluster = policyCluster;
         }
 
-        return cluster;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", this.cloudCluster,
+                    getCurrentUserIdentity(), choseWay);
+        }
+
+        return this.cloudCluster;
     }
 
     // TODO implement this function
-    public String getDefaultCloudCluster() {
+    private String getDefaultCloudClusterFromUser() {
         List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
         String defaultCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
         if (!Strings.isNullOrEmpty(defaultCluster) && cloudClusterNames.contains(defaultCluster)) {

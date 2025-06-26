@@ -17,8 +17,6 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.analysis.CancelCloudWarmUpStmt;
-import org.apache.doris.analysis.CreateStageStmt;
 import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Env;
@@ -41,6 +39,7 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -278,8 +277,9 @@ public class CloudEnv extends Env {
         if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
                 clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new DdlException("USAGE denied to user "
-                + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get().getRemoteIP()
-                + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
+                    + ConnectContext.get().getCurrentUserIdentity().getQualifiedUser() + "'@'" + ConnectContext.get()
+                    .getRemoteIP()
+                    + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
         }
 
         if (!getCloudSystemInfoService().getCloudClusterNames().contains(clusterName)) {
@@ -324,15 +324,6 @@ public class CloudEnv extends Env {
 
     public boolean getEnableStorageVault() {
         return this.enableStorageVault;
-    }
-
-    public void createStage(CreateStageStmt stmt) throws DdlException {
-        if (Config.isNotCloudMode()) {
-            throw new DdlException("stage is only supported in cloud mode");
-        }
-        if (!stmt.isDryRun()) {
-            ((CloudInternalCatalog) getInternalCatalog()).createStage(stmt.toStageProto(), stmt.isIfNotExists());
-        }
     }
 
     public void createStage(CreateStageCommand command) throws DdlException {
@@ -419,8 +410,8 @@ public class CloudEnv extends Env {
         return checksum;
     }
 
-    public void cancelCloudWarmUp(CancelCloudWarmUpStmt stmt) throws DdlException {
-        getCacheHotspotMgr().cancel(stmt);
+    public void cancelCloudWarmUp(CancelWarmUpJobCommand command) throws DdlException {
+        getCacheHotspotMgr().cancel(command);
     }
 
     @Override

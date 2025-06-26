@@ -183,6 +183,10 @@ Status InvertedIndexFileWriter::close() {
     DCHECK(!_closed) << debug_string();
     _closed = true;
     if (_indices_dirs.empty()) {
+        // An empty file must still be created even if there are no indexes to write
+        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+            return _idx_v2_writer->close();
+        }
         return Status::OK();
     }
     DBUG_EXECUTE_IF("inverted_index_storage_format_must_be_v2", {
@@ -262,6 +266,10 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
         err.set(CL_ERR_IO, "debug point: copyFile_openInput_error");
     });
     if (!open) {
+        if (err.number() == CL_ERR_EmptyIndexSegment) {
+            LOG(WARNING) << "InvertedIndexFileWriter::copyFile: " << fileName << " is empty";
+            return;
+        }
         throw err;
     }
 

@@ -57,7 +57,6 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -68,7 +67,6 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -106,9 +104,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
 import java.io.DataInput;
-import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -116,7 +112,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import java.util.zip.GZIPInputStream;
 
 public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_RESERVE_REPLICA = RestoreStmt.PROP_RESERVE_REPLICA;
@@ -438,7 +433,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((DownloadTask) task).updateBrokerProperties(
-                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.DOWNLOAD, signature, task);
             }
             LOG.info("finished to update download job properties. {}", this);
@@ -626,14 +621,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     // Instead, set table in atomic restore state, to forbid the alter table operation.
                     olapTbl.setInAtomicRestore();
                     continue;
-                }
-
-                for (Partition partition : olapTbl.getPartitions()) {
-                    if (!env.getLoadInstance().checkPartitionLoadFinished(partition.getId(), null)) {
-                        status = new Status(ErrCode.COMMON_ERROR,
-                                "Table " + tbl.getName() + "'s has unfinished load job");
-                        return;
-                    }
                 }
 
                 olapTbl.setState(OlapTableState.RESTORE);
@@ -1864,7 +1851,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         long signature = env.getNextId();
                         DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
                                 brokerAddrs.get(0),
-                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
+                                repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
                                 repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                         batchTask.addTask(task);
                         unfinishedSignatureToId.put(signature, beId);
@@ -2691,124 +2678,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public static RestoreJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            RestoreJob job = new RestoreJob();
-            job.readFields(in);
-            return job;
+        String json = Text.readString(in);
+        if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
+            return GsonUtils.fromJsonCompressed(in, RestoreJob.class);
         } else {
-            String json = Text.readString(in);
-            if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
-                return GsonUtils.fromJsonCompressed(in, RestoreJob.class);
-            } else {
-                return GsonUtils.GSON.fromJson(json, RestoreJob.class);
-            }
+            return GsonUtils.GSON.fromJson(json, RestoreJob.class);
         }
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        if (type == JobType.RESTORE_COMPRESSED) {
-            type = JobType.RESTORE;
-
-            Text text = new Text();
-            text.readFields(in);
-            if (LOG.isDebugEnabled() || text.getLength() > (100 << 20)) {
-                LOG.info("read restore job compressed size {}", text.getLength());
-            }
-
-            ByteArrayInputStream bytesStream = new ByteArrayInputStream(text.getBytes());
-            try (GZIPInputStream gzipStream = new GZIPInputStream(bytesStream)) {
-                try (DataInputStream stream = new DataInputStream(gzipStream)) {
-                    readOthers(stream);
-                }
-            }
-        } else {
-            readOthers(in);
-        }
-    }
-
-    private void readOthers(DataInput in) throws IOException {
-        backupTimestamp = Text.readString(in);
-        jobInfo = BackupJobInfo.read(in);
-        allowLoad = in.readBoolean();
-
-        state = RestoreJobState.valueOf(Text.readString(in));
-
-        if (in.readBoolean()) {
-            backupMeta = BackupMeta.read(in);
-        }
-
-        fileMapping = RestoreFileMapping.read(in);
-
-        metaPreparedTime = in.readLong();
-        snapshotFinishedTime = in.readLong();
-        downloadFinishedTime = in.readLong();
-
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-            int restoreReplicationNum = in.readInt();
-            replicaAlloc = new ReplicaAllocation((short) restoreReplicationNum);
-        } else {
-            replicaAlloc = ReplicaAllocation.read(in);
-        }
-
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String tblName = Text.readString(in);
-            Partition part = Partition.read(in);
-            restoredPartitions.add(Pair.of(tblName, part));
-        }
-
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            restoredTbls.add(Table.read(in));
-        }
-
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            long tblId = in.readLong();
-            int innerSize = in.readInt();
-            for (int j = 0; j < innerSize; j++) {
-                long partId = in.readLong();
-                long version = in.readLong();
-                // Useless but read it to compatible with meta
-                long versionHash = in.readLong(); // CHECKSTYLE IGNORE THIS LINE
-                restoredVersionInfo.put(tblId, partId, version);
-            }
-        }
-
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            long tabletId = in.readLong();
-            int innerSize = in.readInt();
-            for (int j = 0; j < innerSize; j++) {
-                long beId = in.readLong();
-                SnapshotInfo info = SnapshotInfo.read(in);
-                snapshotInfos.put(tabletId, beId, info);
-            }
-        }
-
-        // restored resource
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            restoredResources.add(Resource.read(in));
-        }
-
-        // read properties
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            properties.put(key, value);
-        }
-        reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
-        reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
-        isBeingSynced = Boolean.parseBoolean(properties.get(PROP_IS_BEING_SYNCED));
-        isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
-        isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
-        isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
-        isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
     }
 
     @Override

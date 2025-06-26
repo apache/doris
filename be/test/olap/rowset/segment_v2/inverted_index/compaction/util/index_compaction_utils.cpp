@@ -162,14 +162,15 @@ class IndexCompactionUtils {
         idx_reader->_value_key_coder = get_key_coder(idx_reader->_type_info->type());
 
         for (int i = 0; i < query_data.size(); i++) {
-            vectorized::Field param_value = int32_t(query_data[i]);
+            vectorized::Field param_value =
+                    vectorized::Field::create_field<TYPE_INT>(int32_t(query_data[i]));
             std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
             EXPECT_TRUE(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                                 PrimitiveType::TYPE_INT, &param_value, query_param)
                                 .ok());
             auto result = std::make_shared<roaring::Roaring>();
             EXPECT_TRUE(idx_reader
-                                ->invoke_bkd_query(query_param->get_value(),
+                                ->invoke_bkd_query(nullptr, query_param->get_value(),
                                                    InvertedIndexQueryType::EQUAL_QUERY,
                                                    *bkd_searcher, result)
                                 .ok());
@@ -201,7 +202,7 @@ class IndexCompactionUtils {
             EXPECT_TRUE(query != nullptr);
             InvertedIndexQueryInfo query_info;
             query_info.field_name = column_name_ws;
-            query_info.terms.emplace_back(query_data[i]);
+            query_info.term_infos.emplace_back(query_data[i], 0);
             query->add(query_info);
             auto result = std::make_shared<roaring::Roaring>();
             query->search(*result);
@@ -233,7 +234,7 @@ class IndexCompactionUtils {
             EXPECT_TRUE(query != nullptr);
             InvertedIndexQueryInfo query_info;
             query_info.field_name = column_name_ws;
-            query_info.terms.emplace_back(query_data[i]);
+            query_info.term_infos.emplace_back(query_data[i], 0);
             query->add(query_info);
             auto result = std::make_shared<roaring::Roaring>();
             query->search(*result);
@@ -483,7 +484,7 @@ class IndexCompactionUtils {
     }
 
     static RowsetSharedPtr create_delete_predicate_rowset(const TabletSchemaSPtr& schema,
-                                                          std::string pred, int64& inc_id) {
+                                                          std::string pred, int64_t& inc_id) {
         DeletePredicatePB del_pred;
         del_pred.add_sub_predicates(pred);
         del_pred.set_version(1);
@@ -600,8 +601,9 @@ class IndexCompactionUtils {
 
     static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>& data_dir,
                                                      const TabletSchemaSPtr& schema,
-                                                     const std::string& tablet_path, int64& inc_id,
-                                                     int64 max_rows_per_segment = 200) {
+                                                     const std::string& tablet_path,
+                                                     int64_t& inc_id,
+                                                     int64_t max_rows_per_segment = 200) {
         RowsetWriterContext context;
         RowsetId rowset_id;
         rowset_id.init(inc_id);
@@ -621,10 +623,10 @@ class IndexCompactionUtils {
     static void build_rowsets(const std::unique_ptr<DataDir>& data_dir,
                               const TabletSchemaSPtr& schema, const TabletSharedPtr& tablet,
                               StorageEngine* engine_ref, std::vector<RowsetSharedPtr>& rowsets,
-                              const std::vector<std::string>& data_files, int64& inc_id,
+                              const std::vector<std::string>& data_files, int64_t& inc_id,
                               const std::function<void(const int32_t&)> custom_check = nullptr,
                               const bool& is_performance = false,
-                              int64 max_rows_per_segment = 200) {
+                              int64_t max_rows_per_segment = 200) {
         std::vector<std::vector<T>> data;
         for (const auto& file : data_files) {
             data.emplace_back(read_data<T>(file));
@@ -642,19 +644,25 @@ class IndexCompactionUtils {
             auto columns = block.mutate_columns();
             for (const auto& row : data[i]) {
                 if constexpr (std::is_same_v<T, DataRow>) {
-                    vectorized::Field key = int32_t(row.key);
-                    vectorized::Field v1(row.word);
-                    vectorized::Field v2(row.url);
-                    vectorized::Field v3 = int32_t(row.num);
+                    vectorized::Field key =
+                            vectorized::Field::create_field<TYPE_INT>(int32_t(row.key));
+                    vectorized::Field v1 = vectorized::Field::create_field<TYPE_STRING>(row.word);
+                    vectorized::Field v2 = vectorized::Field::create_field<TYPE_STRING>(row.url);
+                    vectorized::Field v3 =
+                            vectorized::Field::create_field<TYPE_INT>(int32_t(row.num));
                     columns[0]->insert(key);
                     columns[1]->insert(v1);
                     columns[2]->insert(v2);
                     columns[3]->insert(v3);
                 } else if constexpr (std::is_same_v<T, WikiDataRow>) {
-                    vectorized::Field title(row.title);
-                    vectorized::Field content(row.content);
-                    vectorized::Field redirect(row.redirect);
-                    vectorized::Field space(row.space);
+                    vectorized::Field title =
+                            vectorized::Field::create_field<TYPE_STRING>(row.title);
+                    vectorized::Field content =
+                            vectorized::Field::create_field<TYPE_STRING>(row.content);
+                    vectorized::Field redirect =
+                            vectorized::Field::create_field<TYPE_STRING>(row.redirect);
+                    vectorized::Field space =
+                            vectorized::Field::create_field<TYPE_STRING>(row.space);
                     columns[0]->insert(title);
                     if (is_performance) {
                         columns[1]->insert(content);

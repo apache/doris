@@ -26,6 +26,7 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -42,6 +43,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -54,6 +56,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
 
     protected final TableIf table;
     protected final ImmutableList<String> qualifier;
+    protected final ImmutableList<Slot> operativeSlots;
 
     /**
      * Constructor for PhysicalCatalogRelation.
@@ -62,10 +65,13 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
      * @param qualifier qualified relation name
      */
     public PhysicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            Collection<Slot> operativeSlots) {
         super(relationId, type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.operativeSlots = ImmutableList.copyOf(Objects.requireNonNull(operativeSlots,
+                "operativeSlots can not be null"));
     }
 
     /**
@@ -77,10 +83,13 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     public PhysicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties,
-            Statistics statistics) {
+            Statistics statistics,
+            Collection<Slot> operativeSlots) {
         super(relationId, type, groupExpression, logicalProperties, physicalProperties, statistics);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.operativeSlots = ImmutableList.copyOf(Objects.requireNonNull(operativeSlots,
+                "operativeSlots can not be null"));
     }
 
     @Override
@@ -119,6 +128,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
     public List<String> getQualifier() {
         return qualifier;
     }
@@ -152,6 +162,12 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
             getAppliedRuntimeFilters()
                     .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
         }
+        if (!runtimeFiltersV2.isEmpty()) {
+            shapeBuilder.append(" RFV2:");
+            for (RuntimeFilterV2 rfv2 : runtimeFiltersV2) {
+                shapeBuilder.append(" RF").append(rfv2.getId().asInt());
+            }
+        }
         return shapeBuilder.toString();
     }
 
@@ -181,7 +197,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
                 continue;
             }
             SlotReference slotRef = (SlotReference) slot;
-            if (slotRef.getColumn().isPresent() && columns.contains(slotRef.getColumn().get())) {
+            if (slotRef.getOriginalColumn().isPresent() && columns.contains(slotRef.getOriginalColumn().get())) {
                 slotSet.add(slotRef);
             }
         }

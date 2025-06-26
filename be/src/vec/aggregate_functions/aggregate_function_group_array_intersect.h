@@ -45,49 +45,26 @@ class BufferWritable;
 
 namespace doris::vectorized {
 
-/// Only for changing Numeric type or Date(DateTime)V2 type to PrimitiveType so that to inherit HybridSet
-template <typename T>
-constexpr PrimitiveType type_to_primitive_type() {
-    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, Int8>) {
-        return TYPE_TINYINT;
-    } else if constexpr (std::is_same_v<T, Int16>) {
-        return TYPE_SMALLINT;
-    } else if constexpr (std::is_same_v<T, Int32>) {
-        return TYPE_INT;
-    } else if constexpr (std::is_same_v<T, Int64>) {
-        return TYPE_BIGINT;
-    } else if constexpr (std::is_same_v<T, Int128>) {
-        return TYPE_LARGEINT;
-    } else if constexpr (std::is_same_v<T, Float32>) {
-        return TYPE_FLOAT;
-    } else if constexpr (std::is_same_v<T, Float64>) {
-        return TYPE_DOUBLE;
-    } else if constexpr (std::is_same_v<T, DateV2>) {
-        return TYPE_DATEV2;
-    } else if constexpr (std::is_same_v<T, DateTimeV2>) {
-        return TYPE_DATETIMEV2;
-    } else {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Only for changing Numeric type or Date(DateTime)V2 type to PrimitiveType");
-    }
-}
-
-template <typename T>
-class NullableNumericOrDateSet : public HybridSet<type_to_primitive_type<T>(),
-                                                  DynamicContainer<typename PrimitiveTypeTraits<
-                                                          type_to_primitive_type<T>()>::CppType>> {
+template <PrimitiveType T>
+class NullableNumericOrDateSet
+        : public HybridSet<T == TYPE_BOOLEAN ? TYPE_TINYINT : T,
+                           DynamicContainer<typename PrimitiveTypeTraits<
+                                   T == TYPE_BOOLEAN ? TYPE_TINYINT : T>::CppType>> {
 public:
     NullableNumericOrDateSet()
-            : HybridSet<type_to_primitive_type<T>(),
-                        DynamicContainer<typename PrimitiveTypeTraits<
-                                type_to_primitive_type<T>()>::CppType>>(true) {}
+            : HybridSet < T
+                    == TYPE_BOOLEAN
+            ? TYPE_TINYINT
+            : T,
+    DynamicContainer < typename PrimitiveTypeTraits < T == TYPE_BOOLEAN ? TYPE_TINYINT
+                                                                        : T > ::CppType >> (true) {}
 
     void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionGroupArrayIntersectData {
-    using ColVecType = ColumnVector<T>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using NullableNumericOrDateSetType = NullableNumericOrDateSet<T>;
     using Set = std::unique_ptr<NullableNumericOrDateSetType>;
 
@@ -121,7 +98,7 @@ struct AggregateFunctionGroupArrayIntersectData {
             for (size_t i = 0; i < arr_size; ++i) {
                 const bool is_null_element =
                         is_column_data_nullable && col_null->is_null_at(offset + i);
-                const T* src_data =
+                const typename PrimitiveTypeTraits<T>::ColumnItemType* src_data =
                         is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
 
                 set->insert(src_data);
@@ -133,7 +110,7 @@ struct AggregateFunctionGroupArrayIntersectData {
             for (size_t i = 0; i < arr_size; ++i) {
                 const bool is_null_element =
                         is_column_data_nullable && col_null->is_null_at(offset + i);
-                const T* src_data =
+                const typename PrimitiveTypeTraits<T>::ColumnItemType* src_data =
                         is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
 
                 if ((!is_null_element && set->find(src_data)) ||
@@ -147,7 +124,7 @@ struct AggregateFunctionGroupArrayIntersectData {
 };
 
 /// Puts all values to the hybrid set. Returns an array of unique values. Implemented for numeric/date types.
-template <typename T>
+template <PrimitiveType T>
 class AggregateFunctionGroupArrayIntersect
         : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectData<T>,
                                               AggregateFunctionGroupArrayIntersect<T>> {
@@ -251,7 +228,8 @@ public:
         HybridSetBase::IteratorBase* it = set->begin();
 
         while (it->has_next()) {
-            const T* value_ptr = static_cast<const T*>(it->get_value());
+            const typename PrimitiveTypeTraits<T>::CppType* value_ptr =
+                    static_cast<const typename PrimitiveTypeTraits<T>::CppType*>(it->get_value());
             write_int_binary((*value_ptr), buf);
             it->next();
         }
@@ -268,7 +246,7 @@ public:
         UInt64 size;
         read_var_uint(size, buf);
 
-        T element;
+        typename PrimitiveTypeTraits<T>::CppType element;
         for (UInt64 i = 0; i < size; ++i) {
             read_int_binary(element, buf);
             data.value->insert(static_cast<void*>(&element));
@@ -297,7 +275,9 @@ public:
 
             HybridSetBase::IteratorBase* it = set->begin();
             while (it->has_next()) {
-                const auto value = *reinterpret_cast<const T*>(it->get_value());
+                const auto value =
+                        *reinterpret_cast<const typename PrimitiveTypeTraits<T>::ColumnItemType*>(
+                                it->get_value());
                 nested_col.get_data()[old_size + i] = value;
                 if (is_nullable) {
                     col_null->get_null_map_data().push_back(0);

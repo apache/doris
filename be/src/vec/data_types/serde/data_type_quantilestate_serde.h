@@ -24,8 +24,6 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "util/quantile_state.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -42,6 +40,8 @@ namespace vectorized {
 class DataTypeQuantileStateSerDe : public DataTypeSerDe {
 public:
     DataTypeQuantileStateSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+
+    std::string get_name() const override { return "QuantileState"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {
@@ -94,49 +94,35 @@ public:
     }
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 int32_t col_id, int64_t row_num) const override {
-        auto& col = reinterpret_cast<const ColumnQuantileState&>(column);
-        auto& val = const_cast<QuantileState&>(col.get_element(row_num));
-        size_t actual_size = val.get_serialized_size();
-        auto* ptr = mem_pool->alloc(actual_size);
-        val.serialize((uint8_t*)ptr);
-        result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
-        result.writeStartBinary();
-        result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
-        result.writeEndBinary();
-    }
+                                 int32_t col_id, int64_t row_num) const override;
 
-    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override {
-        auto& col = reinterpret_cast<ColumnQuantileState&>(column);
-        auto blob = static_cast<const JsonbBlobVal*>(arg);
-        QuantileState val;
-        val.deserialize(Slice(blob->getBlob(), blob->getBlobLen()));
-        col.insert_value(val);
-    }
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override {
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override {
         const auto& col = assert_cast<const ColumnQuantileState&>(column);
         auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
         for (size_t string_i = start; string_i < end; ++string_i) {
             if (null_map && (*null_map)[string_i]) {
-                checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                 array_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 array_builder->type()->name()));
             } else {
                 auto& quantile_state_value = const_cast<QuantileState&>(col.get_element(string_i));
                 std::string memory_buffer(quantile_state_value.get_serialized_size(), '0');
                 quantile_state_value.serialize((uint8_t*)memory_buffer.data());
-                checkArrowStatus(builder.Append(memory_buffer.data(),
-                                                static_cast<int>(memory_buffer.size())),
-                                 column.get_name(), array_builder->type()->name());
+                RETURN_IF_ERROR(
+                        checkArrowStatus(builder.Append(memory_buffer.data(),
+                                                        static_cast<int>(memory_buffer.size())),
+                                         column.get_name(), array_builder->type()->name()));
             }
         }
+        return Status::OK();
     }
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "read_column_from_arrow with type " + column.get_name());
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override {
+        return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                             "read_column_from_arrow with type " + column.get_name());
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,

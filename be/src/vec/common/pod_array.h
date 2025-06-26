@@ -460,6 +460,8 @@ public:
         this->c_end = this->c_start + new_size;
     }
 
+    /// reset the array capacity
+    /// fill the new additional elements using the value
     void resize_fill(size_t n, const T& value) {
         size_t old_size = this->size();
         const auto new_size = this->byte_size(n);
@@ -482,28 +484,6 @@ public:
         this->reset_resident_memory(this->c_end + this->byte_size(1));
         new (t_end()) T(std::forward<U>(x));
         this->c_end += this->byte_size(1);
-    }
-
-    template <typename U, typename... TAllocatorParams>
-    void add_num_element(U&& x, uint32_t num, TAllocatorParams&&... allocator_params) {
-        if (num != 0) {
-            const auto growth_size = this->byte_size(num);
-            if (UNLIKELY(this->c_end + growth_size > this->c_end_of_storage)) {
-                this->reserve(this->size() + num);
-            }
-            this->reset_resident_memory(this->c_end + growth_size);
-            std::fill(t_end(), t_end() + num, x);
-            this->c_end = this->c_end + growth_size;
-        }
-    }
-
-    template <typename U, typename... TAllocatorParams>
-    void add_num_element_without_reserve(U&& x, uint32_t num,
-                                         TAllocatorParams&&... allocator_params) {
-        const auto growth_size = sizeof(T) * num;
-        this->reset_resident_memory(this->c_end + growth_size);
-        std::fill(t_end(), t_end() + num, x);
-        this->c_end += growth_size;
     }
 
     /**
@@ -711,6 +691,8 @@ public:
         }
     }
 
+    /// reset the array capacity
+    /// replace the all elements using the value
     void assign(size_t n, const T& x) {
         this->resize(n);
         std::fill(begin(), end(), x);

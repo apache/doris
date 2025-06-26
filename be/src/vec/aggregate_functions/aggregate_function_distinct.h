@@ -47,7 +47,7 @@ namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename>
+template <PrimitiveType>
 class ColumnVector;
 } // namespace vectorized
 } // namespace doris
@@ -56,13 +56,16 @@ struct DefaultHash;
 
 namespace doris::vectorized {
 
-template <typename T, bool stable>
+template <PrimitiveType T, bool stable>
 struct AggregateFunctionDistinctSingleNumericData {
     /// When creating, the hash table must be small.
-    using Container =
-            std::conditional_t<stable, phmap::flat_hash_map<T, uint32_t>, phmap::flat_hash_set<T>>;
+    using Container = std::conditional_t<
+            stable, phmap::flat_hash_map<typename PrimitiveTypeTraits<T>::CppType, uint32_t>,
+            phmap::flat_hash_set<typename PrimitiveTypeTraits<T>::CppType>>;
     using Self = AggregateFunctionDistinctSingleNumericData<T, stable>;
     Container data;
+
+    void clear() { data.clear(); }
 
     void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena*) {
         const auto& vec =
@@ -97,7 +100,7 @@ struct AggregateFunctionDistinctSingleNumericData {
         if constexpr (!stable) {
             uint64_t new_size = 0;
             read_var_uint(new_size, buf);
-            T x;
+            typename PrimitiveTypeTraits<T>::CppType x;
             for (size_t i = 0; i < new_size; ++i) {
                 read_binary(x, buf);
                 data.insert(x);
@@ -111,13 +114,14 @@ struct AggregateFunctionDistinctSingleNumericData {
 
         if constexpr (stable) {
             argument_columns[0]->resize(data.size());
-            auto ptr = (T*)const_cast<char*>(argument_columns[0]->get_raw_data().data);
+            auto ptr = (typename PrimitiveTypeTraits<T>::CppType*)const_cast<char*>(
+                    argument_columns[0]->get_raw_data().data);
             for (auto it : data) {
                 ptr[it.second] = it.first;
             }
         } else {
             for (const auto& elem : data) {
-                argument_columns[0]->insert(elem);
+                argument_columns[0]->insert(Field::create_field<T>(elem));
             }
         }
 
@@ -132,6 +136,8 @@ struct AggregateFunctionDistinctGenericData {
                                          phmap::flat_hash_set<StringRef, StringRefHash>>;
     using Self = AggregateFunctionDistinctGenericData;
     Container data;
+
+    void clear() { data.clear(); }
 
     void merge(const Self& rhs, Arena* arena) {
         DCHECK(!stable);
@@ -320,6 +326,15 @@ public:
         nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
                                             arguments_raw.data(), &arena);
         nested_func->insert_result_into(get_nested_place(place), to);
+        // for distinct agg function, the real calculate is add_batch_single_place at last step of insert_result_into function.
+        // but with distinct agg and over() window function together, the result will be inserted into many times with different rows
+        // so we need to clear the data, thus not to affect the next insert_result_into
+        this->data(place).clear();
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        this->data(place).clear();
+        nested_func->reset(get_nested_place(place));
     }
 
     size_t size_of_data() const override { return prefix_size + nested_func->size_of_data(); }

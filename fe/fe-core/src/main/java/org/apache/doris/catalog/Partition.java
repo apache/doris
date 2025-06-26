@@ -23,7 +23,6 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
@@ -33,8 +32,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -346,52 +343,6 @@ public class Partition extends MetaObject {
         }
         LOG.info("visualise the shadow index: {}", shadowIndexId);
         return true;
-    }
-
-    @Deprecated
-    public static Partition read(DataInput in) throws IOException {
-        Partition partition = EnvFactory.getInstance().createPartition();
-        partition.readFields(in);
-        return partition;
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-        name = Text.readString(in);
-        state = PartitionState.valueOf(Text.readString(in));
-
-        baseIndex = MaterializedIndex.read(in);
-
-        int rollupCount = in.readInt();
-        for (int i = 0; i < rollupCount; ++i) {
-            MaterializedIndex rollupTable = MaterializedIndex.read(in);
-            idToVisibleRollupIndex.put(rollupTable.getId(), rollupTable);
-        }
-
-        int shadowIndexCount = in.readInt();
-        for (int i = 0; i < shadowIndexCount; i++) {
-            MaterializedIndex shadowIndex = MaterializedIndex.read(in);
-            idToShadowIndex.put(shadowIndex.getId(), shadowIndex);
-        }
-
-        visibleVersion = in.readLong();
-        visibleVersionTime = in.readLong();
-        visibleVersionHash = in.readLong();
-        nextVersion = in.readLong();
-        nextVersionHash = in.readLong();
-        committedVersionHash = in.readLong();
-        DistributionInfoType distriType = DistributionInfoType.valueOf(Text.readString(in));
-        if (distriType == DistributionInfoType.HASH) {
-            distributionInfo = HashDistributionInfo.read(in);
-        } else if (distriType == DistributionInfoType.RANDOM) {
-            distributionInfo = RandomDistributionInfo.read(in);
-        } else {
-            throw new IOException("invalid distribution type: " + distriType);
-        }
     }
 
     @Override

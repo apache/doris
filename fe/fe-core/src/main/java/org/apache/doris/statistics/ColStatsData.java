@@ -188,15 +188,19 @@ public class ColStatsData {
 
     public boolean isValid() {
         if (ndv > 10 * count) {
-            LOG.debug("Ndv {} is much larger than count {}", ndv, count);
+            String message = String.format("ColStatsData ndv too large. %s", toSQL(true));
+            LOG.warn(message);
             return false;
         }
-        if (ndv == 0 && (!isNull(minLit) || !isNull(maxLit))) {
-            LOG.debug("Ndv is 0 but min or max exists");
+        if (ndv == 0 && (!isNull(minLit) || !isNull(maxLit)) && nullCount != count) {
+            String message = String.format("ColStatsData ndv 0 but min/max is not null and nullCount != count. %s",
+                    toSQL(true));
+            LOG.warn(message);
             return false;
         }
-        if (count > 0 && ndv == 0 && isNull(minLit) && isNull(maxLit) && (nullCount == 0 || count > nullCount * 10)) {
-            LOG.debug("count {} not 0, ndv is 0, min and max are all null, null count {} is too small", count, count);
+        if (count > 0 && ndv == 0 && isNull(minLit) && isNull(maxLit) && (count > nullCount * 10)) {
+            LOG.warn("count {} not 0, ndv is 0, min and max are all null, null count {} is too small",
+                    count, nullCount);
             return false;
         }
         return true;

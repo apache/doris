@@ -22,7 +22,14 @@
 # docker build -f docker/runtime/doris-compose/Dockerfile -t <your-image-name>:<version> .
 
 # choose a base image
+# doris 2.1, 3.0+, master use JDK 17
 ARG JDK_IMAGE=openjdk:17-jdk-slim
+
+# doris 2.0 use JDK 8
+# build 2.0 image, example:
+# docker build --build-arg JDK_IMAGE=openjdk:8u342-jdk \
+#     -f docker/runtime/doris-compose/Dockerfile \
+#     -t <your-image-name>:<version> .
 #ARG JDK_IMAGE=openjdk:8u342-jdk
 
 # user can download a doris release package, extract it, then build its image used arg `OUTPUT_PATH`
@@ -48,7 +55,7 @@ FROM ${JDK_IMAGE}
 # set environment variables
 ENV JACOCO_VERSION=0.8.8
 
-RUN sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list \
+RUN sed -i -e s@/deb.debian.org/@/mirrors.aliyun.com/@g -e s@/security.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list \
     && apt-get clean \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -67,7 +74,8 @@ RUN sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list \
     && dpkg-reconfigure -f noninteractive tzdata \
     && apt-get clean
 
-RUN mkdir -p /opt/apache-doris/{fdb,coverage}
+RUN mkdir -p /opt/apache-doris/fdb \
+    && mkdir -p /opt/apache-doris/coverage
 
 RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/jacoco-${JACOCO_VERSION}.zip -o jacoco.zip \
     && mkdir /jacoco \
