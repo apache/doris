@@ -53,6 +53,8 @@ public:
               scale(scale_),
               scale_multiplier(decimal_scale_multiplier<typename FieldType::NativeType>(scale)) {}
 
+    std::string get_name() const override { return type_to_string(T); }
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 
