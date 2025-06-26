@@ -64,6 +64,7 @@ std::string DataTypeTimeV2::to_string(const IColumn& column, size_t row_num) con
 std::string DataTypeTimeV2::to_string(double value) const {
     return timev2_to_buffer_from_double(value, _scale);
 }
+
 void DataTypeTimeV2::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     std::string value = to_string(column, row_num);
     ostr.write(value.data(), value.size());

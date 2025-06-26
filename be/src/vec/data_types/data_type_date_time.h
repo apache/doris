@@ -32,7 +32,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
-#include "vec/data_types/serde/data_type_date64_serde.h"
+#include "vec/data_types/serde/data_type_date_or_datetime_serde.h"
 
 namespace doris::vectorized {
 class BufferWritable;
@@ -80,8 +80,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     std::string to_string(Int64 value) const;
 
+    using SerDeType = DataTypeDateTimeSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDateTimeSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 
     Field get_field(const TExprNode& node) const override {

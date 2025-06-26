@@ -146,8 +146,9 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }
+    using SerDeType = DataTypeNumberSerDe<T>;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeNumberSerDe<T>>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 
 protected:
