@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -60,17 +61,17 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     public PhysicalWindow(WindowFrameGroup windowFrameGroup, RequireProperties requireProperties,
                           List<NamedExpression> windowExpressions, boolean isSkew,
-                          LogicalProperties logicalProperties, CHILD_TYPE child) {
+                          LogicalProperties logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
         this(windowFrameGroup, requireProperties, windowExpressions, isSkew,
-                Optional.empty(), logicalProperties, child);
+                Optional.empty(), logicalProperties, child, hintContext);
     }
 
     /** constructor for PhysicalWindow */
     public PhysicalWindow(WindowFrameGroup windowFrameGroup, RequireProperties requireProperties,
                           List<NamedExpression> windowExpressions, boolean isSkew,
                           Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-                          CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_WINDOW, groupExpression, logicalProperties, child);
+                          CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.PHYSICAL_WINDOW, groupExpression, logicalProperties, child, hintContext);
         this.windowFrameGroup = Objects.requireNonNull(windowFrameGroup, "windowFrameGroup in PhysicalWindow"
                 + "cannot be null");
         this.requireProperties = requireProperties;
@@ -83,9 +84,9 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
                           List<NamedExpression> windowExpressions, boolean isSkew,
                           Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                           PhysicalProperties physicalProperties, Statistics statistics,
-                          CHILD_TYPE child) {
+                          CHILD_TYPE child, Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_WINDOW, groupExpression, logicalProperties, physicalProperties,
-                statistics, child);
+                statistics, child, hintContext);
         this.windowFrameGroup = Objects.requireNonNull(windowFrameGroup, "windowFrameGroup in PhysicalWindow"
             + "cannot be null");
         this.requireProperties = requireProperties;
@@ -148,13 +149,13 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkState(children.size() == 1);
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), hintContext);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                getLogicalProperties(), child());
+                getLogicalProperties(), child(), hintContext);
     }
 
     @Override
@@ -162,14 +163,14 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkState(children.size() == 1);
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                logicalProperties.get(), children.get(0));
+                logicalProperties.get(), children.get(0), hintContext);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                        Statistics statistics) {
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+                getLogicalProperties(), physicalProperties, statistics, child(), hintContext);
     }
 
     @Override
@@ -181,7 +182,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public <C extends Plan> PhysicalWindow<C> withRequirePropertiesAndChild(RequireProperties requireProperties,
                                                                             C newChild) {
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, newChild);
+                getLogicalProperties(), physicalProperties, statistics, newChild, hintContext);
     }
 
     @Override
@@ -197,7 +198,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalWindow<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                null, physicalProperties, statistics, child());
+                null, physicalProperties, statistics, child(), hintContext);
     }
 
     private boolean isUnique(NamedExpression namedExpression) {

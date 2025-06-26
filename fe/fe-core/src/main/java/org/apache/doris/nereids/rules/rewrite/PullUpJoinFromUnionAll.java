@@ -198,8 +198,7 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                     projects.add(otherSlot);
                 }
             }
-            LogicalProject<Plan> logicalProject = new LogicalProject<>(projects, otherSide,
-                    PlanUtils.getHintContext(otherSide));
+            LogicalProject<Plan> logicalProject = new LogicalProject<>(projects, otherSide, otherSide.getHintContext());
             newChildren.add(logicalProject);
         }
 

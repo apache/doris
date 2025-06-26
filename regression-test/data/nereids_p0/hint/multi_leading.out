@@ -14,8 +14,8 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t1 cte )
-UnUsed:
+Used: leading(t2 t1) leading(t1 cte)
+UnUsed: 
 SyntaxError:
 
 -- !sql1_3 --
@@ -33,8 +33,8 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t1 t2 ) leading(t1 cte )
-UnUsed:
+Used: leading(t1 t2) leading(t1 cte)
+UnUsed: 
 SyntaxError:
 
 -- !sql1_4 --
@@ -52,8 +52,8 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t1 t2 ) leading(t1 cte )
-UnUsed:
+Used: leading(t1 t2) leading(t1 cte)
+UnUsed: 
 SyntaxError:
 
 -- !sql1_res_1 --
@@ -80,8 +80,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t3 alias1 )
-UnUsed:
+Used: leading(t3 alias1)
+UnUsed: 
 SyntaxError:
 
 -- !sql2_3 --
@@ -96,8 +96,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 t1 )
-UnUsed:
+Used: leading(t2 t1)
+UnUsed: 
 SyntaxError:
 
 -- !sql2_4 --
@@ -112,8 +112,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t3 alias1 )
-UnUsed:
+Used: leading(t2 t1) leading(t3 alias1)
+UnUsed: 
 SyntaxError:
 
 -- !sql2_res_1 --
@@ -144,8 +144,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t3 alias1 cte )
-UnUsed:
+Used: leading(t2 t1) leading(t3 alias1 cte)
+UnUsed: 
 SyntaxError:
 
 -- !sql3_3 --
@@ -164,8 +164,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t2 t1 )
-UnUsed:
+Used: leading(t2 t1)
+UnUsed: 
 SyntaxError:
 
 -- !sql3_4 --
@@ -184,8 +184,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t2 t1 ) leading(t3 alias1 cte )
-UnUsed:
+Used: leading(t2 t1) leading(t2 t1) leading(t3 alias1 cte)
+UnUsed: 
 SyntaxError:
 
 -- !sql3_res_1 --
@@ -214,8 +214,8 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: leading(t3 alias1 )
-UnUsed:
+Used: leading(t3 alias1)
+UnUsed: 
 SyntaxError:
 
 -- !sql4_2 --
@@ -232,8 +232,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(alias2 t1 )
-UnUsed:
+Used: leading(alias2 t1)
+UnUsed: 
 SyntaxError:
 
 -- !sql4_3 --
@@ -250,8 +250,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t4 t2 )
-UnUsed:
+Used: leading(t4 t2)
+UnUsed: 
 SyntaxError:
 
 -- !sql4_4 --
@@ -268,8 +268,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(alias2 t1 ) leading(t3 alias1 )
-UnUsed:
+Used: leading(alias2 t1) leading(t3 alias1)
+UnUsed: 
 SyntaxError:
 
 -- !sql4_res_0 --
@@ -316,7 +316,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(cte t1 )
-UnUsed:
+Used: leading(cte t1)
+UnUsed: 
 SyntaxError:
 

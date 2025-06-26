@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -46,8 +47,9 @@ public class PhysicalExcept extends PhysicalSetOperation {
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             LogicalProperties logicalProperties,
-            List<Plan> children) {
-        super(PlanType.PHYSICAL_EXCEPT, qualifier, outputs, childrenOutputs, logicalProperties, children);
+            List<Plan> children,
+            Optional<HintContext> hintContext) {
+        super(PlanType.PHYSICAL_EXCEPT, qualifier, outputs, childrenOutputs, logicalProperties, children, hintContext);
     }
 
     public PhysicalExcept(Qualifier qualifier,
@@ -55,9 +57,10 @@ public class PhysicalExcept extends PhysicalSetOperation {
             List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
-            List<Plan> children) {
+            List<Plan> children,
+            Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_EXCEPT, qualifier, outputs, childrenOutputs,
-                groupExpression, logicalProperties, children);
+                groupExpression, logicalProperties, children, hintContext);
     }
 
     public PhysicalExcept(Qualifier qualifier, List<NamedExpression> outputs,
@@ -65,9 +68,9 @@ public class PhysicalExcept extends PhysicalSetOperation {
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics,
-            List<Plan> children) {
+            List<Plan> children, Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_EXCEPT, qualifier, outputs, childrenOutputs,
-                groupExpression, logicalProperties, physicalProperties, statistics, children);
+                groupExpression, logicalProperties, physicalProperties, statistics, children, hintContext);
     }
 
     @Override
@@ -86,34 +89,35 @@ public class PhysicalExcept extends PhysicalSetOperation {
 
     @Override
     public PhysicalExcept withChildren(List<Plan> children) {
-        return new PhysicalExcept(qualifier, outputs, regularChildrenOutputs, getLogicalProperties(), children);
+        return new PhysicalExcept(qualifier, outputs, regularChildrenOutputs, getLogicalProperties(), children,
+                hintContext);
     }
 
     @Override
     public PhysicalExcept withGroupExpression(
             Optional<GroupExpression> groupExpression) {
         return new PhysicalExcept(qualifier, outputs, regularChildrenOutputs,
-                groupExpression, getLogicalProperties(), children);
+                groupExpression, getLogicalProperties(), children, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalExcept(qualifier, outputs, regularChildrenOutputs,
-                groupExpression, logicalProperties.get(), children);
+                groupExpression, logicalProperties.get(), children, hintContext);
     }
 
     @Override
     public PhysicalExcept withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalExcept(qualifier, outputs, regularChildrenOutputs, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children);
+                getLogicalProperties(), physicalProperties, statistics, children, hintContext);
     }
 
     @Override
     public PhysicalExcept resetLogicalProperties() {
         return new PhysicalExcept(qualifier, outputs, regularChildrenOutputs, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children);
+                getLogicalProperties(), physicalProperties, statistics, children, hintContext);
     }
 
     private Map<Slot, Slot> constructReplaceMapForChild(int index) {

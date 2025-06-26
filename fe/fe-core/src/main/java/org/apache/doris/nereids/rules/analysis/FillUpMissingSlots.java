@@ -430,7 +430,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         }
         List<NamedExpression> projections = aggregate.getOutputExpressions().stream()
                 .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
-        return new LogicalProject<>(projections, plan, PlanUtils.getHintContext(plan));
+        return new LogicalProject<>(projections, plan, plan.getHintContext());
     }
 
     private boolean checkSort(LogicalSort<? extends Plan> logicalSort) {

@@ -180,7 +180,7 @@ public class HyperGraphComparator {
         if (projects == null) {
             return null;
         }
-        return new LogicalProject<>(projects, basePlan, PlanUtils.getHintContext(basePlan));
+        return new LogicalProject<>(projects, basePlan, basePlan.getHintContext());
     }
 
     private boolean canEliminatePrimaryByForeign(long primaryNodes, long foreignNodes,

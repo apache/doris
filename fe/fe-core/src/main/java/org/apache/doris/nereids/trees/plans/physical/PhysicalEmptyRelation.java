@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -59,16 +60,16 @@ public class PhysicalEmptyRelation extends PhysicalRelation
     private final List<? extends NamedExpression> projects;
 
     public PhysicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
-            LogicalProperties logicalProperties) {
-        this(relationId, projects, Optional.empty(), logicalProperties, null, null);
+            LogicalProperties logicalProperties, Optional<HintContext> hintContext) {
+        this(relationId, projects, Optional.empty(), logicalProperties, null, null, hintContext);
     }
 
     public PhysicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics) {
+            Statistics statistics, Optional<HintContext> hintContext) {
         super(relationId, PlanType.PHYSICAL_EMPTY_RELATION, groupExpression,
-                logicalProperties, physicalProperties, statistics);
+                logicalProperties, physicalProperties, statistics, hintContext);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
@@ -80,14 +81,14 @@ public class PhysicalEmptyRelation extends PhysicalRelation
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalEmptyRelation(relationId, projects, groupExpression,
-                logicalPropertiesSupplier.get(), physicalProperties, statistics);
+                logicalPropertiesSupplier.get(), physicalProperties, statistics, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalEmptyRelation(relationId, projects, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics);
+                logicalProperties.get(), physicalProperties, statistics, hintContext);
     }
 
     @Override
@@ -113,7 +114,7 @@ public class PhysicalEmptyRelation extends PhysicalRelation
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalEmptyRelation(relationId, projects, Optional.empty(),
-                logicalPropertiesSupplier.get(), physicalProperties, statistics);
+                logicalPropertiesSupplier.get(), physicalProperties, statistics, hintContext);
     }
 
     @Override

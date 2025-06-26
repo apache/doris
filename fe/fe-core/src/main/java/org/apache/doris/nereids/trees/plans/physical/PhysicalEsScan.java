@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -46,8 +47,9 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
      */
     public PhysicalEsScan(RelationId id, TableIf table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties) {
-        super(id, PlanType.PHYSICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties, ImmutableList.of());
+            LogicalProperties logicalProperties, Optional<HintContext> hintContext) {
+        super(id, PlanType.PHYSICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties, ImmutableList.of(),
+                hintContext);
         this.distributionSpec = distributionSpec;
     }
 
@@ -56,9 +58,10 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
      */
     public PhysicalEsScan(RelationId id, TableIf table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
+            Optional<HintContext> hintContext) {
         super(id, PlanType.PHYSICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties,
-                physicalProperties, statistics, ImmutableList.of());
+                physicalProperties, statistics, ImmutableList.of(), hintContext);
         this.distributionSpec = distributionSpec;
     }
 
@@ -79,20 +82,20 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
     @Override
     public PhysicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties());
+                groupExpression, getLogicalProperties(), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, logicalProperties.get());
+                groupExpression, logicalProperties.get(), hintContext);
     }
 
     @Override
     public PhysicalEsScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                            Statistics statsDeriveResult) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), physicalProperties, statsDeriveResult);
+                groupExpression, getLogicalProperties(), physicalProperties, statsDeriveResult, hintContext);
     }
 }

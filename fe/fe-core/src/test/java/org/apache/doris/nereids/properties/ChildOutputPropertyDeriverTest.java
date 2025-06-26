@@ -125,7 +125,7 @@ class ChildOutputPropertyDeriverTest {
     void testInnerJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -164,7 +164,7 @@ class ChildOutputPropertyDeriverTest {
     void testCrossJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -203,7 +203,7 @@ class ChildOutputPropertyDeriverTest {
     void testLeftOuterJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -243,7 +243,7 @@ class ChildOutputPropertyDeriverTest {
     void testLeftSemiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -283,7 +283,7 @@ class ChildOutputPropertyDeriverTest {
     void testLeftAntiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.LEFT_ANTI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -323,7 +323,7 @@ class ChildOutputPropertyDeriverTest {
     void testNullAwareLeftAntiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -363,7 +363,7 @@ class ChildOutputPropertyDeriverTest {
     void testRightSemiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -404,7 +404,7 @@ class ChildOutputPropertyDeriverTest {
     void testRightAntiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_ANTI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -450,7 +450,7 @@ class ChildOutputPropertyDeriverTest {
     void testRightOuterJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -491,7 +491,7 @@ class ChildOutputPropertyDeriverTest {
     void testFullOuterJoinWithNatural() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.FULL_OUTER_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -526,7 +526,7 @@ class ChildOutputPropertyDeriverTest {
     void testFullOuterJoinWithOther() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.FULL_OUTER_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
-                groupPlan, groupPlan);
+                groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -576,7 +576,7 @@ class ChildOutputPropertyDeriverTest {
                         leftSlot, rightSlot
                         )),
                 ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
-                Optional.empty(), logicalProperties, leftGroupPlan, rightGroupPlan);
+                Optional.empty(), logicalProperties, leftGroupPlan, rightGroupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -623,7 +623,7 @@ class ChildOutputPropertyDeriverTest {
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
                                 Collections.emptyList()))),
-                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -662,7 +662,7 @@ class ChildOutputPropertyDeriverTest {
     void testNestedLoopJoin() {
         PhysicalNestedLoopJoin<GroupPlan, GroupPlan> join = new PhysicalNestedLoopJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, Optional.empty(), logicalProperties, groupPlan,
-                groupPlan);
+                groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -699,7 +699,7 @@ class ChildOutputPropertyDeriverTest {
                 true,
                 logicalProperties,
                 RequireProperties.of(PhysicalProperties.GATHER),
-                groupPlan
+                groupPlan, Optional.empty()
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
@@ -724,7 +724,7 @@ class ChildOutputPropertyDeriverTest {
                 true,
                 logicalProperties,
                 RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.REQUIRE)),
-                groupPlan
+                groupPlan, Optional.empty()
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
@@ -754,7 +754,7 @@ class ChildOutputPropertyDeriverTest {
                 true,
                 logicalProperties,
                 RequireProperties.of(PhysicalProperties.GATHER),
-                groupPlan
+                groupPlan, Optional.empty()
         );
 
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -772,7 +772,7 @@ class ChildOutputPropertyDeriverTest {
     void testLocalQuickSort() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, SortPhase.LOCAL_SORT, logicalProperties, groupPlan);
+        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, SortPhase.LOCAL_SORT, logicalProperties, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(sort);
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
@@ -789,7 +789,7 @@ class ChildOutputPropertyDeriverTest {
     void testQuickSort() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, SortPhase.MERGE_SORT, logicalProperties, groupPlan);
+        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, SortPhase.MERGE_SORT, logicalProperties, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(sort);
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
@@ -807,7 +807,7 @@ class ChildOutputPropertyDeriverTest {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         // localSort require any
-        PhysicalTopN<GroupPlan> sort = new PhysicalTopN<>(orderKeys, 10, 10, SortPhase.LOCAL_SORT, logicalProperties, groupPlan);
+        PhysicalTopN<GroupPlan> sort = new PhysicalTopN<>(orderKeys, 10, 10, SortPhase.LOCAL_SORT, logicalProperties, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(sort);
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
@@ -819,7 +819,7 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertEquals(orderKeys, result.getOrderSpec().getOrderKeys());
         Assertions.assertEquals(DistributionSpecReplicated.INSTANCE, result.getDistributionSpec());
         // merge/gather sort requires gather
-        sort = new PhysicalTopN<>(orderKeys, 10, 10, SortPhase.MERGE_SORT, logicalProperties, groupPlan);
+        sort = new PhysicalTopN<>(orderKeys, 10, 10, SortPhase.MERGE_SORT, logicalProperties, groupPlan, Optional.empty());
         groupExpression = new GroupExpression(sort);
         new Group(null, groupExpression, null);
         child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
@@ -836,7 +836,7 @@ class ChildOutputPropertyDeriverTest {
     void testLimit() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalLimit<GroupPlan> limit = new PhysicalLimit<>(10, 10, LimitPhase.ORIGIN, logicalProperties, groupPlan);
+        PhysicalLimit<GroupPlan> limit = new PhysicalLimit<>(10, 10, LimitPhase.ORIGIN, logicalProperties, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(limit);
         new Group(null, groupExpression, null);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecGather.INSTANCE,
@@ -853,7 +853,7 @@ class ChildOutputPropertyDeriverTest {
         PhysicalAssertNumRows<GroupPlan> assertNumRows = new PhysicalAssertNumRows<>(
                 new AssertNumRowsElement(1, "", AssertNumRowsElement.Assertion.EQ),
                 logicalProperties,
-                groupPlan
+                groupPlan, Optional.empty()
         );
         GroupExpression groupExpression = new GroupExpression(assertNumRows);
         new Group(null, groupExpression, null);
@@ -875,7 +875,7 @@ class ChildOutputPropertyDeriverTest {
                 ImmutableList.of(ImmutableList.of(c1, c2), ImmutableList.of(c1), ImmutableList.of(c1, c3)),
                 ImmutableList.of(c1, c2, c3),
                 logicalProperties,
-                groupPlan
+                groupPlan, Optional.empty()
         );
         GroupExpression groupExpression = new GroupExpression(repeat);
         new Group(null, groupExpression, null);
@@ -898,7 +898,7 @@ class ChildOutputPropertyDeriverTest {
                 ImmutableList.of(ImmutableList.of(c1, c2), ImmutableList.of(c1), ImmutableList.of(c1, c3)),
                 ImmutableList.of(c1, c2, c3),
                 logicalProperties,
-                groupPlan
+                groupPlan, Optional.empty()
         );
         GroupExpression groupExpression = new GroupExpression(repeat);
         new Group(null, groupExpression, null);
@@ -921,7 +921,7 @@ class ChildOutputPropertyDeriverTest {
                 ImmutableList.of(ImmutableList.of(c1, c2, c3), ImmutableList.of(c1, c2), ImmutableList.of(c1, c2)),
                 ImmutableList.of(c1, c2, c3),
                 logicalProperties,
-                groupPlan
+                groupPlan, Optional.empty()
         );
         GroupExpression groupExpression = new GroupExpression(repeat);
         new Group(null, groupExpression, null);

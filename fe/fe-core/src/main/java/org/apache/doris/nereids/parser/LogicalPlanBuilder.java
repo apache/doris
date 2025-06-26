@@ -1725,10 +1725,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAddConstraint(AddConstraintContext ctx) {
         List<String> parts = visitMultipartIdentifier(ctx.table);
-        UnboundRelation curTable = new UnboundRelation(
-                Location.fromAst(ctx.table), StatementScopeIdGenerator.newRelationId(), parts, Optional.empty());
+        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts,
+                Optional.empty());
         ImmutableList<Slot> slots = ctx.constraint().slots.identifierSeq().ident.stream()
-                .map(ident -> new UnboundSlot(Location.fromAst(ident), ident.getText()))
+                .map(ident -> new UnboundSlot(ident.getText()))
                 .collect(ImmutableList.toImmutableList());
         Constraint constraint;
         if (ctx.constraint().UNIQUE() != null) {
@@ -1755,7 +1755,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitDropConstraint(DropConstraintContext ctx) {
         List<String> parts = visitMultipartIdentifier(ctx.table);
         UnboundRelation curTable = new UnboundRelation(
-                Location.fromAst(ctx.table), StatementScopeIdGenerator.newRelationId(), parts, Optional.empty());
+                StatementScopeIdGenerator.newRelationId(), parts, Optional.empty());
         return new DropConstraintCommand(ctx.constraintName.getText().toLowerCase(), curTable);
     }
 
@@ -2079,7 +2079,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .collect(ImmutableList.toImmutableList());
         Function unboundFunction = new UnboundFunction(functionName, arguments);
         return new LogicalGenerate<>(ImmutableList.of(unboundFunction),
-                ImmutableList.of(new UnboundSlot(Location.fromAst(ctx.columnNames.get(0)), generateName, columnName)),
+                ImmutableList.of(new UnboundSlot(generateName, columnName)),
                 ImmutableList.of(expandColumnNames), plan, Optional.empty());
     }
 
@@ -4090,6 +4090,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
             }
             if (distributeHint.distributeType != DistributeType.NONE
+                    && ConnectContext.get() != null
                     && ConnectContext.get().getStatementContext() != null
                     && !ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
                 ConnectContext.get().getStatementContext().addHint(distributeHint);
@@ -4198,7 +4199,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         SelectHintSetVar setVar = new SelectHintSetVar("SET_VAR", parameters, err);
-        setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
+        if (ConnectContext.get() != null) {
+            setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
+        }
         return setVar;
     }
 
@@ -4239,7 +4242,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             hintContext = qbNameHintContext.identifier().getText();
         }
         if (hintContext == null) {
-            String qbId = ConnectContext.get().getStatementContext() != null
+            String qbId = ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
                     ? ConnectContext.get().getStatementContext().getNextQueryBlockId().toString()
                     : "ROOT";
             hintContext = String.format("%s%s", SelectHintQbName.DEFAULT_QB_NAME_PREFIX, qbId);

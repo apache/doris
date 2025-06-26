@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -82,10 +83,11 @@ public abstract class AbstractPhysicalJoin<
             DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
         this(type, joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
                 hint, markJoinSlotReference, groupExpression, logicalProperties, null, null,
-                leftChild, rightChild);
+                leftChild, rightChild, hintContext);
     }
 
     /**
@@ -103,10 +105,11 @@ public abstract class AbstractPhysicalJoin<
             PhysicalProperties physicalProperties,
             Statistics statistics,
             LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
         this(type, joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
                 hint, markJoinSlotReference, groupExpression, logicalProperties, physicalProperties,
-                statistics, leftChild, rightChild);
+                statistics, leftChild, rightChild, hintContext);
     }
 
     protected AbstractPhysicalJoin(
@@ -122,8 +125,10 @@ public abstract class AbstractPhysicalJoin<
             PhysicalProperties physicalProperties,
             Statistics statistics,
             LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
+            RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild,
+                hintContext);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);

@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class PhysicalTopNTest {
     @Test
@@ -44,9 +45,9 @@ public class PhysicalTopNTest {
         List<OrderKey> orderKeysA = Lists.newArrayList();
         orderKeysA.add(new OrderKey(a, true, true));
         PhysicalTopN topn1 = new PhysicalTopN(orderKeysA, 1, 1, SortPhase.LOCAL_SORT,
-                null, oneRowRelation);
+                null, oneRowRelation, Optional.empty());
         PhysicalTopN topn2 = new PhysicalTopN(orderKeysA, 1, 1, SortPhase.GATHER_SORT,
-                null, oneRowRelation);
+                null, oneRowRelation, Optional.empty());
         Assertions.assertNotEquals(topn1, topn2);
 
         SlotReference b = new SlotReference(new ExprId(0), "b",
@@ -54,7 +55,7 @@ public class PhysicalTopNTest {
         List<OrderKey> orderKeysB = Lists.newArrayList();
         orderKeysB.add(new OrderKey(b, true, true));
         PhysicalTopN topn3 = new PhysicalTopN(orderKeysB, 1, 1, SortPhase.LOCAL_SORT,
-                null, oneRowRelation);
+                null, oneRowRelation, Optional.empty());
         Assertions.assertNotEquals(topn2, topn3);
     }
 }

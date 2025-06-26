@@ -81,7 +81,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 List<NamedExpression> outputExpressions = Lists.newArrayList(alias);
 
                 LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right(),
-                        PlanUtils.getHintContext(apply.right()));
+                        apply.right().getHintContext());
                 Expression compareExpr = apply.getCompareExpr().get();
                 Expression expr = new BitmapContains(agg.getOutput().get(0), compareExpr);
                 if (apply.isNot()) {

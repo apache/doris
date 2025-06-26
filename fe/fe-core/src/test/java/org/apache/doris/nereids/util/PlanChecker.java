@@ -75,6 +75,7 @@ import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -327,7 +328,7 @@ public class PlanChecker {
             PhysicalQuickSort<? extends Plan> sort = (PhysicalQuickSort) plan;
             plan = sort.withChildren(new PhysicalDistribute<>(
                     DistributionSpecGather.INSTANCE,
-                    plan.child(0)));
+                    plan.child(0), Optional.empty()));
         }
         physicalPlan = ((PhysicalPlan) plan);
         return this;

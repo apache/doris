@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -35,18 +36,19 @@ public abstract class PhysicalUnary<CHILD_TYPE extends Plan>
         extends AbstractPhysicalPlan
         implements UnaryPlan<CHILD_TYPE> {
 
-    public PhysicalUnary(PlanType type, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(type, logicalProperties, child);
+    public PhysicalUnary(PlanType type, LogicalProperties logicalProperties, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        super(type, logicalProperties, hintContext, child);
     }
 
     public PhysicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, child);
+            LogicalProperties logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, hintContext, child);
     }
 
     public PhysicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
-            Statistics statistics, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statistics, child);
+            Statistics statistics, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, hintContext, child);
     }
 }

@@ -91,7 +91,7 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
         plan = plan.accept(this, ctx);
         for (int i = ctx.cteProducerList.size() - 1; i >= 0; i--) {
             LogicalCTEProducer<? extends Plan> producer = ctx.cteProducerList.get(i);
-            plan = new LogicalCTEAnchor<>(producer.getCteId(), producer, plan, PlanUtils.getHintContext(plan));
+            plan = new LogicalCTEAnchor<>(producer.getCteId(), producer, plan, plan.getHintContext());
         }
         return plan;
     }

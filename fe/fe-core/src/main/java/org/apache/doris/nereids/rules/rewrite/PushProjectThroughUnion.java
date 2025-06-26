@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -117,7 +118,7 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
                 childOutputSlots.add((SlotReference) childProject.toSlot());
             }
             Plan newChild = ProjectProcessor.tryProcessProject(childProjections.build(), child)
-                    .orElseGet(() -> new LogicalProject<>(childProjections.build(), child, PlanUtils.getHintContext(child)));
+                    .orElseGet(() -> new LogicalProject<>(childProjections.build(), child, child.getHintContext()));
             newChildren.add(newChild);
             newRegularChildrenOutput.add(childOutputSlots.build());
         }

@@ -146,7 +146,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 }
                 if (isRewrittenQueryExpressionValid) {
                     return new LogicalProject<>(projects, tempRewritedPlan,
-                            PlanUtils.getHintContext(tempRewritedPlan));
+                            tempRewritedPlan.getHintContext());
                 }
             }
             // if fails, record the reason and then try to roll up aggregate function
@@ -268,11 +268,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 }
             }
             LogicalRepeat<Plan> repeat = new LogicalRepeat<>(rewrittenGroupSetsExpressions,
-                    finalOutputExpressions, tempRewritedPlan, PlanUtils.getHintContext(tempRewritedPlan));
+                    finalOutputExpressions, tempRewritedPlan, tempRewritedPlan.getHintContext());
             return NormalizeRepeat.doNormalize(repeat);
         }
         return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan,
-                PlanUtils.getHintContext(tempRewritedPlan));
+                tempRewritedPlan.getHintContext());
     }
 
     /**

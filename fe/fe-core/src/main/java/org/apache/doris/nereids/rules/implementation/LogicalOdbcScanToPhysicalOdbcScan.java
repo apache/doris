@@ -35,7 +35,8 @@ public class LogicalOdbcScanToPhysicalOdbcScan extends OneImplementationRuleFact
                 odbcScan.getTable(),
                 odbcScan.getQualifier(),
                 Optional.empty(),
-                odbcScan.getLogicalProperties())
+                odbcScan.getLogicalProperties(),
+                odbcScan.getHintContext())
         ).toRule(RuleType.LOGICAL_ODBC_SCAN_TO_PHYSICAL_ODBC_SCAN_RULE);
     }
 }

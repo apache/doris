@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -48,20 +49,22 @@ public class PhysicalCTEAnchor<
     private final CTEId cteId;
 
     public PhysicalCTEAnchor(CTEId cteId, LogicalProperties logicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(cteId, Optional.empty(), logicalProperties, leftChild, rightChild);
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, Optional<HintContext> hintContext) {
+        this(cteId, Optional.empty(), logicalProperties, leftChild, rightChild, hintContext);
     }
 
     public PhysicalCTEAnchor(CTEId cteId, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(cteId, groupExpression, logicalProperties, null, null, leftChild, rightChild);
+            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
+        this(cteId, groupExpression, logicalProperties, null, null, leftChild, rightChild, hintContext);
     }
 
     public PhysicalCTEAnchor(CTEId cteId, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            Statistics statistics, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_CTE_ANCHOR, groupExpression, logicalProperties, physicalProperties, statistics,
-                leftChild, rightChild);
+                leftChild, rightChild, hintContext);
         this.cteId = cteId;
     }
 
@@ -105,12 +108,13 @@ public class PhysicalCTEAnchor<
     public PhysicalCTEAnchor<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, children.get(0), children.get(1));
+                statistics, children.get(0), children.get(1), hintContext);
     }
 
     @Override
     public PhysicalCTEAnchor<Plan, Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), child(0), child(1));
+        return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), child(0), child(1),
+                hintContext);
     }
 
     @Override
@@ -118,14 +122,14 @@ public class PhysicalCTEAnchor<
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalCTEAnchor<>(cteId, groupExpression, logicalProperties.get(), children.get(0),
-                children.get(1));
+                children.get(1), hintContext);
     }
 
     @Override
     public PhysicalCTEAnchor<Plan, Plan> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, child(0), child(1));
+                statistics, child(0), child(1), hintContext);
     }
 
     @Override
@@ -142,6 +146,6 @@ public class PhysicalCTEAnchor<
     @Override
     public PhysicalCTEAnchor<Plan, Plan> resetLogicalProperties() {
         return new PhysicalCTEAnchor<>(cteId, groupExpression, null, physicalProperties,
-                statistics, child(0), child(1));
+                statistics, child(0), child(1), hintContext);
     }
 }

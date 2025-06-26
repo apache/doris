@@ -67,7 +67,7 @@ public class OrderSpec {
     public GroupExpression addLocalQuickSortEnforcer(Group child) {
         return new GroupExpression(
                 new PhysicalQuickSort<>(orderKeys, SortPhase.LOCAL_SORT, child.getLogicalProperties(),
-                        new GroupPlan(child)),
+                        new GroupPlan(child), child.getLogicalExpression().getPlan().getHintContext()),
                 Lists.newArrayList(child)
         );
     }
@@ -78,7 +78,7 @@ public class OrderSpec {
     public GroupExpression addGlobalQuickSortEnforcer(Group child) {
         return new GroupExpression(
                 new PhysicalQuickSort<>(orderKeys, SortPhase.MERGE_SORT, child.getLogicalProperties(),
-                        new GroupPlan(child)),
+                        new GroupPlan(child), child.getLogicalExpression().getPlan().getHintContext()),
                 Lists.newArrayList(child)
         );
     }

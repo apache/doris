@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -45,21 +46,21 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     private final List<RuntimeFilter> appliedRuntimeFilters = Lists.newArrayList();
 
     public AbstractPhysicalPlan(PlanType type, LogicalProperties logicalProperties,
-            Plan... children) {
-        this(type, Optional.empty(), logicalProperties, children);
+            Optional<HintContext> hintContext, Plan... children) {
+        this(type, Optional.empty(), logicalProperties, hintContext, children);
     }
 
     public AbstractPhysicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, Plan... children) {
-        this(type, groupExpression, logicalProperties, PhysicalProperties.ANY, null, children);
+            LogicalProperties logicalProperties, Optional<HintContext> hintContext, Plan... children) {
+        this(type, groupExpression, logicalProperties, PhysicalProperties.ANY, null, hintContext, children);
     }
 
     public AbstractPhysicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
-            Statistics statistics, Plan... children) {
+            Statistics statistics, Optional<HintContext> hintContext, Plan... children) {
         super(type, groupExpression,
                 logicalProperties == null ? Optional.empty() : Optional.of(logicalProperties),
-                statistics, ImmutableList.copyOf(children));
+                statistics, ImmutableList.copyOf(children), hintContext);
         this.physicalProperties =
                 physicalProperties == null ? PhysicalProperties.ANY : physicalProperties;
     }

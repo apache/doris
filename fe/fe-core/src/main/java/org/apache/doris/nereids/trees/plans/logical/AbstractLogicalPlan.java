@@ -36,38 +36,28 @@ import java.util.function.Supplier;
  * Abstract class for all concrete logical plan.
  */
 public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
-    protected final Optional<HintContext> hintContext;
-
     protected AbstractLogicalPlan(PlanType type, List<Plan> children, Optional<HintContext> hintContext) {
         this(type, Optional.empty(), Optional.empty(), children, hintContext);
     }
 
     protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, Optional<HintContext> hintContext, Plan... children) {
-        super(type, groupExpression, logicalProperties, null, ImmutableList.copyOf(children));
-        this.hintContext = hintContext;
+        super(type, groupExpression, logicalProperties, null, ImmutableList.copyOf(children), hintContext);
     }
 
     protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children, Optional<HintContext> hintContext) {
-        super(type, groupExpression, logicalProperties, null, children);
-        this.hintContext = hintContext;
+        super(type, groupExpression, logicalProperties, null, children, hintContext);
     }
 
     // Don't generate ObjectId for LogicalPlan
     protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Supplier<LogicalProperties> logicalPropertiesSupplier, List<Plan> children, boolean useZeroId) {
         super(type, groupExpression, logicalPropertiesSupplier, null, children, useZeroId);
-        this.hintContext = Optional.empty();
     }
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         return this;
-    }
-
-    @Override
-    public Optional<HintContext> getHintContext() {
-        return hintContext;
     }
 }

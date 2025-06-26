@@ -75,13 +75,13 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
                         if (!ctx.leftAlias.isEmpty()) {
                             List<NamedExpression> newProjects = Lists.newArrayList(left.getOutput());
                             newProjects.addAll(ctx.leftAlias);
-                            left = new LogicalProject<>(newProjects, left, PlanUtils.getHintContext(left));
+                            left = new LogicalProject<>(newProjects, left, left.getHintContext());
                         }
                         Plan right = join.right();
                         if (!ctx.rightAlias.isEmpty()) {
                             List<NamedExpression> newProjects = Lists.newArrayList(right.getOutput());
                             newProjects.addAll(ctx.rightAlias);
-                            right = new LogicalProject<>(newProjects, right, PlanUtils.getHintContext(right));
+                            right = new LogicalProject<>(newProjects, right, right.getHintContext());
                         }
                         return join.withJoinConjuncts(join.getHashJoinConjuncts(),
                                 newOtherConjuncts, join.getJoinReorderContext())

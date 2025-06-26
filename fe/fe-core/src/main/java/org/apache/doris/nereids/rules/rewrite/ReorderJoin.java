@@ -165,7 +165,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 join.getJoinType(),
                 notInnerHashJoinConditions,
                 notInnerOtherJoinConditions,
-                PlanUtils.getHintContext(plan));
+                PlanUtils.getHintContext(plan), plan.getHintContext());
     }
 
     /**

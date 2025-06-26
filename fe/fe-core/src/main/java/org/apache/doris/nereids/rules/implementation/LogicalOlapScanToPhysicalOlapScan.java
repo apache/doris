@@ -62,7 +62,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         Optional.empty(),
                         olapScan.getLogicalProperties(),
                         olapScan.getTableSample(),
-                        olapScan.getOperativeSlots())
+                        olapScan.getOperativeSlots(),
+                        olapScan.getHintContext())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 

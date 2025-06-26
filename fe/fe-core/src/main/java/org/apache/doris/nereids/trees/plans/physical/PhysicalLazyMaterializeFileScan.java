@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
@@ -37,12 +38,13 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
     /**
      * PhysicalLazyMaterializeFileScan
      */
-    public PhysicalLazyMaterializeFileScan(PhysicalFileScan scan, SlotReference rowId, List<Slot> lazySlots) {
+    public PhysicalLazyMaterializeFileScan(PhysicalFileScan scan, SlotReference rowId, List<Slot> lazySlots,
+                                           Optional<HintContext> hintContext) {
         super(scan.getRelationId(), scan.getTable(), scan.getQualifier(), scan.getDistributionSpec(),
                 Optional.empty(), null, null, scan.getStats(),
                 scan.selectedPartitions, scan.getTableSample(),
                 scan.getTableSnapshot(), scan.getOperativeSlots(),
-                scan.getScanParams());
+                scan.getScanParams(), hintContext);
         this.scan = scan;
         this.rowId = rowId;
         this.lazySlots = lazySlots;

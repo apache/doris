@@ -67,7 +67,8 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
                     logicalPartitionTopN.getPartitionLimit(),
                     PartitionTopnPhase.TWO_PHASE_LOCAL_PTOPN,
                     logicalPartitionTopN.getLogicalProperties(),
-                    logicalPartitionTopN.child(0));
+                    logicalPartitionTopN.child(0),
+                    logicalPartitionTopN.getHintContext());
 
             return ImmutableList.of(onePhaseLocalPartitionTopN);
         } else {
@@ -82,7 +83,8 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
                     logicalPartitionTopN.getPartitionLimit(),
                     PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN,
                     logicalPartitionTopN.getLogicalProperties(),
-                    logicalPartitionTopN.child(0));
+                    logicalPartitionTopN.child(0),
+                    logicalPartitionTopN.getHintContext());
 
             PhysicalPartitionTopN<Plan> twoPhaseLocalPartitionTopN = new PhysicalPartitionTopN<>(
                     logicalPartitionTopN.getFunction(),
@@ -92,7 +94,8 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
                     logicalPartitionTopN.getPartitionLimit(),
                     PartitionTopnPhase.TWO_PHASE_LOCAL_PTOPN,
                     logicalPartitionTopN.getLogicalProperties(),
-                    logicalPartitionTopN.child(0));
+                    logicalPartitionTopN.child(0),
+                    logicalPartitionTopN.getHintContext());
 
             PhysicalPartitionTopN<Plan> twoPhaseGlobalPartitionTopN = new PhysicalPartitionTopN<>(
                     logicalPartitionTopN.getFunction(),
@@ -102,7 +105,8 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
                     logicalPartitionTopN.getPartitionLimit(),
                     PartitionTopnPhase.TWO_PHASE_GLOBAL_PTOPN,
                     logicalPartitionTopN.getLogicalProperties(),
-                    twoPhaseLocalPartitionTopN);
+                    twoPhaseLocalPartitionTopN,
+                    logicalPartitionTopN.getHintContext());
 
             return ImmutableList.of(onePhaseGlobalPartitionTopN, twoPhaseGlobalPartitionTopN);
         }

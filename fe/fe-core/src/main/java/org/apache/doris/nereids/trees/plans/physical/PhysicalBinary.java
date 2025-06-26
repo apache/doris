@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -37,13 +38,15 @@ public abstract class PhysicalBinary<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_T
 
     public PhysicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
                               LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild,
-                              RIGHT_CHILD_TYPE rightChild) {
-        super(type, groupExpression, logicalProperties, leftChild, rightChild);
+                              RIGHT_CHILD_TYPE rightChild, Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, hintContext, leftChild, rightChild);
     }
 
     public PhysicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
-            @Nullable Statistics statistics, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
+            @Nullable Statistics statistics, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, hintContext,
+                leftChild, rightChild);
     }
 }

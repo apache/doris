@@ -52,7 +52,7 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
         if (ctx != null) {
             long defaultLimit = ctx.getSessionVariable().getSqlSelectLimit();
             if (defaultLimit >= 0) {
-                return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, plan, PlanUtils.getHintContext(plan));
+                return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, plan, plan.getHintContext());
             }
         }
         return plan;

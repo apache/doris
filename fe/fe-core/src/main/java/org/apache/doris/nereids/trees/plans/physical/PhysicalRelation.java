@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -43,8 +44,9 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Relation 
      * Constructor for PhysicalRelation.
      */
     public PhysicalRelation(RelationId relationId, PlanType type,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
-        super(type, groupExpression, logicalProperties);
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, hintContext);
         this.relationId = relationId;
     }
 
@@ -53,8 +55,9 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Relation 
      */
     public PhysicalRelation(RelationId relationId, PlanType type,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statistics);
+            PhysicalProperties physicalProperties, Statistics statistics,
+            Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, hintContext);
         this.relationId = relationId;
     }
 

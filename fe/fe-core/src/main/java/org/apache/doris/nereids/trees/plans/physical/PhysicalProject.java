@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -69,13 +70,14 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     //            L2: x*2, x*3
     private List<List<NamedExpression>> multiLayerProjects = Lists.newArrayList();
 
-    public PhysicalProject(List<NamedExpression> projects, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(projects, Optional.empty(), logicalProperties, child);
+    public PhysicalProject(List<NamedExpression> projects, LogicalProperties logicalProperties, CHILD_TYPE child,
+                           Optional<HintContext> hintContext) {
+        this(projects, Optional.empty(), logicalProperties, child, hintContext);
     }
 
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, child);
+            LogicalProperties logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, child, hintContext);
         this.projects = Utils.fastToImmutableList(
                 Objects.requireNonNull(projects, "projects can not be null")
         );
@@ -85,8 +87,9 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     /** PhysicalProject */
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics, child);
+            Statistics statistics, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics, child,
+                hintContext);
         this.projects = Utils.fastToImmutableList(
                 Objects.requireNonNull(projects, "projects can not be null")
         );
@@ -166,27 +169,28 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 getLogicalProperties(),
                 physicalProperties,
                 statistics,
-                children.get(0)
+                children.get(0),
+                hintContext
         );
     }
 
     @Override
     public PhysicalProject<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalProject<>(projects, groupExpression, getLogicalProperties(), child());
+        return new PhysicalProject<>(projects, groupExpression, getLogicalProperties(), child(), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalProject<>(projects, groupExpression, logicalProperties.get(), children.get(0));
+        return new PhysicalProject<>(projects, groupExpression, logicalProperties.get(), children.get(0), hintContext);
     }
 
     @Override
     public PhysicalProject<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalProject<>(projects, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, child());
+                statistics, child(), hintContext);
     }
 
     /**
@@ -201,7 +205,8 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 getLogicalProperties(),
                 physicalProperties,
                 statistics,
-                child
+                child,
+                hintContext
         );
     }
 
@@ -223,7 +228,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     @Override
     public PhysicalProject<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalProject<>(projects, groupExpression, null, physicalProperties,
-                statistics, child());
+                statistics, child(), hintContext);
     }
 
     /**

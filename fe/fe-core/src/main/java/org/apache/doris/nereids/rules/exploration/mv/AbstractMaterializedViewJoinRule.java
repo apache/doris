@@ -70,7 +70,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                         .map(expression -> expression instanceof NamedExpression ? expression : new Alias(expression))
                         .map(NamedExpression.class::cast)
                         .collect(Collectors.toList()),
-                tempRewritedPlan, PlanUtils.getHintContext(tempRewritedPlan));
+                tempRewritedPlan, tempRewritedPlan.getHintContext());
     }
 
     /**

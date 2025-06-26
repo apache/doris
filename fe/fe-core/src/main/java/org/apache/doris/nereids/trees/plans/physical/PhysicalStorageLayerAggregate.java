@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -43,18 +44,19 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
     private final PhysicalCatalogRelation relation;
     private final PushDownAggOp aggOp;
 
-    public PhysicalStorageLayerAggregate(PhysicalCatalogRelation relation, PushDownAggOp aggOp) {
+    public PhysicalStorageLayerAggregate(PhysicalCatalogRelation relation, PushDownAggOp aggOp,
+                                         Optional<HintContext> hintContext) {
         super(relation.getRelationId(), relation.getType(), relation.getTable(), relation.getQualifier(),
-                Optional.empty(), relation.getLogicalProperties(), ImmutableList.of());
+                Optional.empty(), relation.getLogicalProperties(), ImmutableList.of(), hintContext);
         this.relation = Objects.requireNonNull(relation, "relation cannot be null");
         this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
     }
 
     public PhysicalStorageLayerAggregate(PhysicalCatalogRelation relation, PushDownAggOp aggOp,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics) {
+            PhysicalProperties physicalProperties, Statistics statistics, Optional<HintContext> hintContext) {
         super(relation.getRelationId(), relation.getType(), relation.getTable(), relation.getQualifier(),
-                groupExpression, logicalProperties, physicalProperties, statistics, ImmutableList.of());
+                groupExpression, logicalProperties, physicalProperties, statistics, ImmutableList.of(), hintContext);
         this.relation = Objects.requireNonNull(relation, "relation cannot be null");
         this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
     }
@@ -82,20 +84,20 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
     }
 
     public PhysicalStorageLayerAggregate withPhysicalOlapScan(PhysicalOlapScan physicalOlapScan) {
-        return new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp);
+        return new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp, hintContext);
     }
 
     @Override
     public PhysicalStorageLayerAggregate withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalStorageLayerAggregate(relation, aggOp, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics);
+                getLogicalProperties(), physicalProperties, statistics, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalStorageLayerAggregate(relation, aggOp, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics);
+                logicalProperties.get(), physicalProperties, statistics, hintContext);
     }
 
     @Override
@@ -104,7 +106,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
         return new PhysicalStorageLayerAggregate(
                 (PhysicalCatalogRelation) relation.withPhysicalPropertiesAndStats(null, statistics),
                 aggOp, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics);
+                getLogicalProperties(), physicalProperties, statistics, hintContext);
     }
 
     /** PushAggOp */

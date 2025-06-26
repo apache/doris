@@ -160,7 +160,7 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     projectLogicalProperties,
                     projectPhysicalProperties,
                     child.getStats(),
-                    aggregate.child());
+                    aggregate.child(), aggregate.getHintContext());
             aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
                     .withAggOutput(aggOutputReplaced)
                     .withChildren(project);

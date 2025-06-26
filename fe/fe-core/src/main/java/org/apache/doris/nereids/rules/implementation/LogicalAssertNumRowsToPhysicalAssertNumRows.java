@@ -30,7 +30,8 @@ public class LogicalAssertNumRowsToPhysicalAssertNumRows extends OneImplementati
         return logicalAssertNumRows().then(topN -> new PhysicalAssertNumRows<>(
                 topN.getAssertNumRowsElement(),
                 topN.getLogicalProperties(),
-                topN.child())
+                topN.child(),
+                topN.getHintContext())
         ).toRule(RuleType.LOGICAL_ASSERT_NUM_ROWS_TO_PHYSICAL_ASSERT_NUM_ROWS);
     }
 }

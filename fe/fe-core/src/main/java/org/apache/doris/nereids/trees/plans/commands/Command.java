@@ -46,7 +46,7 @@ import java.util.Set;
 public abstract class Command extends AbstractPlan implements LogicalPlan, BlockFuncDepsPropagation {
 
     protected Command(PlanType type) {
-        super(type, Optional.empty(), Optional.empty(), null, ImmutableList.of());
+        super(type, Optional.empty(), Optional.empty(), null, ImmutableList.of(), Optional.empty());
     }
 
     public abstract void run(ConnectContext ctx, StmtExecutor executor) throws Exception;

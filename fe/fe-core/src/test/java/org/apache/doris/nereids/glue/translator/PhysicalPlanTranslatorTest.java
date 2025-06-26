@@ -68,15 +68,15 @@ public class PhysicalPlanTranslatorTest {
         PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
                 ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(),
-                ImmutableList.of());
+                ImmutableList.of(), Optional.empty());
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =
-                new PhysicalFilter<>(ImmutableSet.of(t1FilterExpr), placeHolder, scan);
+                new PhysicalFilter<>(ImmutableSet.of(t1FilterExpr), placeHolder, scan, Optional.empty());
         List<NamedExpression> projList = new ArrayList<>();
         projList.add(col2);
         PhysicalProject<PhysicalFilter<PhysicalOlapScan>> project = new PhysicalProject<>(projList,
-                placeHolder, filter);
+                placeHolder, filter, Optional.empty());
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(planTranslatorContext, null);
         PlanFragment fragment = translator.visitPhysicalProject(project, planTranslatorContext);

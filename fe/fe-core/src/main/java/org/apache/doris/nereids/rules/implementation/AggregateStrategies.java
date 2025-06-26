@@ -489,7 +489,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .transform(logicalScan, cascadesContext)
                 .get(0);
         return project.withChildren(ImmutableList.of(new PhysicalStorageLayerAggregate(
-                physicalOlapScan, PushDownAggOp.COUNT)));
+                physicalOlapScan, PushDownAggOp.COUNT, logicalScan.getHintContext())));
     }
 
     private boolean enablePushDownMinMaxOnUnique() {
@@ -617,10 +617,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         ? project.withChildren(ImmutableList.of(
                         filter.withChildren(ImmutableList.of(
                                 new PhysicalStorageLayerAggregate(
-                                        physicalOlapScan, PushDownAggOp.COUNT_ON_MATCH)))))
+                                        physicalOlapScan, PushDownAggOp.COUNT_ON_MATCH, agg.getHintContext())))))
                         : filter.withChildren(ImmutableList.of(
                                 new PhysicalStorageLayerAggregate(
-                                        physicalOlapScan, PushDownAggOp.COUNT_ON_MATCH)))
+                                        physicalOlapScan, PushDownAggOp.COUNT_ON_MATCH, agg.getHintContext())))
         ));
     }
 
@@ -670,13 +670,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                 filter.withChildren(ImmutableList.of(
                                         new PhysicalStorageLayerAggregate(
                                                 physicalOlapScan,
-                                                PushDownAggOp.MIN_MAX)))))));
+                                                PushDownAggOp.MIN_MAX, aggregate.getHintContext())))))));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
                         filter.withChildren(ImmutableList.of(
                                 new PhysicalStorageLayerAggregate(
                                         physicalOlapScan,
-                                        PushDownAggOp.MIN_MAX)))));
+                                        PushDownAggOp.MIN_MAX, aggregate.getHintContext())))));
             }
         } else {
             return canNotPush;
@@ -882,11 +882,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp,
+                                aggregate.getHintContext())))
                 ));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, aggregate.getHintContext())
                 ));
             }
 
@@ -898,11 +899,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp,
+                                aggregate.getHintContext())))
                 ));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, aggregate.getHintContext())
                 ));
             }
 
@@ -966,7 +968,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalAgg.getGroupByExpressions(), newOutput, Optional.empty(),
                 inputToResultParam, false,
                 logicalAgg.getLogicalProperties(),
-                requireGather, logicalAgg.child());
+                requireGather, logicalAgg.child(), logicalAgg.getHintContext());
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             // TODO: usually bad, disable it until we could do better cost computation.
@@ -1052,7 +1054,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 localAggGroupBy, localOutput, Optional.of(partitionExpressions),
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
                 maybeUsingStreamAgg(cascadesContext.getConnectContext(), logicalAgg),
-                logicalAgg.getLogicalProperties(), requireGather, logicalAgg.child()
+                logicalAgg.getLogicalProperties(), requireGather, logicalAgg.child(), logicalAgg.getHintContext()
         );
 
         List<Expression> distinctGroupBy = logicalAgg.getGroupByExpressions();
@@ -1083,7 +1085,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> gatherLocalGatherDistinctAgg = new PhysicalHashAggregate<>(
                 distinctGroupBy, distinctOutput, Optional.of(partitionExpressions),
                 distinctInputToResultParam, false,
-                logicalAgg.getLogicalProperties(), requireGather, gatherLocalAgg
+                logicalAgg.getLogicalProperties(), requireGather, gatherLocalAgg, logicalAgg.getHintContext()
         );
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
@@ -1170,7 +1172,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 localAggGroupBy, localOutput, Optional.of(partitionExpressions),
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
                 maybeUsingStreamAgg(cascadesContext.getConnectContext(), logicalAgg),
-                logicalAgg.getLogicalProperties(), requireAny, logicalAgg.child()
+                logicalAgg.getLogicalProperties(), requireAny, logicalAgg.child(), logicalAgg.getHintContext()
         );
 
         List<Expression> globalAggGroupBy = localAggGroupBy;
@@ -1205,7 +1207,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> anyLocalGatherGlobalAgg = new PhysicalHashAggregate<>(
                 globalAggGroupBy, globalAggOutput, Optional.of(partitionExpressions),
                 bufferToBufferParam, false, logicalAgg.getLogicalProperties(),
-                requireGather, anyLocalAgg);
+                requireGather, anyLocalAgg, logicalAgg.getHintContext());
 
         LogicalAggregate<? extends Plan> countIfAgg = countDistinctMultiExprToCountIf(
                 logicalAgg, cascadesContext).first;
@@ -1233,7 +1235,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> anyLocalGatherGlobalGatherAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), distinctOutput, Optional.empty(),
                 distinctInputToResultParam, false,
-                logicalAgg.getLogicalProperties(), requireGather, anyLocalGatherGlobalAgg
+                logicalAgg.getLogicalProperties(), requireGather, anyLocalGatherGlobalAgg, logicalAgg.getHintContext()
         );
 
         // RequireProperties requireDistinctHash = RequireProperties.of(
@@ -1323,7 +1325,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 localAggGroupBy, localAggOutput, Optional.of(partitionExpressions),
                 inputToBufferParam, maybeUsingStreamAgg(connectContext, logicalAgg),
                 logicalAgg.getLogicalProperties(), requireAny,
-                logicalAgg.child());
+                logicalAgg.child(), logicalAgg.getHintContext());
 
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         List<NamedExpression> globalAggOutput = ExpressionUtils.rewriteDownShortCircuit(
@@ -1343,7 +1345,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> anyLocalGatherGlobalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, globalAggOutput, Optional.of(partitionExpressions),
                 bufferToResultParam, false, anyLocalAgg.getLogicalProperties(),
-                requireGather, anyLocalAgg);
+                requireGather, anyLocalAgg, logicalAgg.getHintContext());
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             return ImmutableList.of(anyLocalGatherGlobalAgg);
@@ -1432,7 +1434,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                  * see aggregate_strategies.groovy
                  */
                 false, Optional.empty(), logicalAgg.getLogicalProperties(),
-                requireGather, logicalAgg.child());
+                requireGather, logicalAgg.child(), logicalAgg.getHintContext());
 
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
@@ -1460,7 +1462,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> gatherLocalGatherGlobalAgg
                 = new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), globalOutput,
                 Optional.empty(), bufferToResultParam, false,
-                logicalAgg.getLogicalProperties(), requireGather, gatherLocalAgg);
+                logicalAgg.getLogicalProperties(), requireGather, gatherLocalAgg, logicalAgg.getHintContext());
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             RequireProperties requireDistinctHash = RequireProperties.of(PhysicalProperties.createHash(
@@ -1574,7 +1576,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> anyLocalAgg = new PhysicalHashAggregate<>(localAggGroupBy,
                 localAggOutput, Optional.of(partitionExpressions), inputToBufferParam,
                 maybeUsingStreamAgg, Optional.empty(), logicalAgg.getLogicalProperties(),
-                requireAny, logicalAgg.child());
+                requireAny, logicalAgg.child(), logicalAgg.getHintContext());
 
         AggregateParam bufferToBufferParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_BUFFER, couldBanned);
         Map<AggregateFunction, Alias> nonDistinctAggFunctionToAliasPhase2 =
@@ -1603,7 +1605,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> anyLocalGatherGlobalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, globalAggOutput, Optional.of(partitionExpressions),
                 bufferToBufferParam, false, logicalAgg.getLogicalProperties(),
-                requireGather, anyLocalAgg);
+                requireGather, anyLocalAgg, logicalAgg.getHintContext());
 
         AggregateParam bufferToResultParam = new AggregateParam(
                 AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_RESULT, couldBanned);
@@ -1633,7 +1635,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> anyLocalGatherGlobalGatherDistinctAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), distinctOutput, Optional.empty(),
                 bufferToResultParam, false, logicalAgg.getLogicalProperties(),
-                requireGather, anyLocalGatherGlobalAgg);
+                requireGather, anyLocalGatherGlobalAgg, logicalAgg.getHintContext());
 
         RequireProperties requireDistinctHash = RequireProperties.of(
                 PhysicalProperties.createHash(logicalAgg.getDistinctArguments(), ShuffleType.REQUIRE));
@@ -1711,7 +1713,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<? extends Plan> gatherLocalAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), newOutput, inputToResultParam,
                 maybeUsingStreamAgg(connectContext, logicalAgg),
-                logicalAgg.getLogicalProperties(), requireGather, logicalAgg.child());
+                logicalAgg.getLogicalProperties(), requireGather, logicalAgg.child(), logicalAgg.getHintContext());
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             // TODO: usually bad, disable it until we could do better cost computation.
             // return ImmutableList.of(gatherLocalAgg);
@@ -1783,7 +1785,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<? extends Plan> anyLocalAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), localAggOutput,
                 inputToBufferParam, maybeUsingStreamAgg(connectContext, logicalAgg),
-                logicalAgg.getLogicalProperties(), requireAny, logicalAgg.child());
+                logicalAgg.getLogicalProperties(), requireAny, logicalAgg.child(), logicalAgg.getHintContext());
 
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
@@ -1801,7 +1803,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<? extends Plan> anyLocalGatherGlobalAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), globalOutput, Optional.empty(),
                 bufferToResultParam, false, logicalAgg.getLogicalProperties(),
-                RequireProperties.of(PhysicalProperties.GATHER), anyLocalAgg);
+                RequireProperties.of(PhysicalProperties.GATHER), anyLocalAgg, logicalAgg.getHintContext());
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             // Collection<Expression> distinctArguments = logicalAgg.getDistinctArguments();
@@ -1961,7 +1963,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> anyLocalAgg = new PhysicalHashAggregate<>(localAggGroupBy,
                 localAggOutput, Optional.of(partitionExpressions), inputToBufferParam,
                 maybeUsingStreamAgg, Optional.empty(), logicalAgg.getLogicalProperties(),
-                requireAny, logicalAgg.child());
+                requireAny, logicalAgg.child(), logicalAgg.getHintContext());
 
         AggregateParam bufferToBufferParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_BUFFER, couldBanned);
         Map<AggregateFunction, Alias> nonDistinctAggFunctionToAliasPhase2 =
@@ -1992,7 +1994,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<? extends Plan> anyLocalHashGlobalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, globalAggOutput, Optional.of(ImmutableList.copyOf(logicalAgg.getDistinctArguments())),
                 bufferToBufferParam, false, logicalAgg.getLogicalProperties(),
-                secondPhaseRequire, anyLocalAgg);
+                secondPhaseRequire, anyLocalAgg, logicalAgg.getHintContext());
 
         boolean shouldDistinctAfterPhase2 = distinctArguments.size() > 1;
 
@@ -2052,7 +2054,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<? extends Plan> distinctLocal = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), localDistinctOutput, Optional.empty(),
                 distinctLocalParam, false, logicalAgg.getLogicalProperties(),
-                secondPhaseRequire, anyLocalHashGlobalAgg);
+                secondPhaseRequire, anyLocalHashGlobalAgg, logicalAgg.getHintContext());
 
         //phase 4
         AggregateParam distinctGlobalParam = new AggregateParam(
@@ -2099,7 +2101,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<? extends Plan> distinctGlobal = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), globalDistinctOutput, Optional.empty(),
                 distinctGlobalParam, false, logicalAgg.getLogicalProperties(),
-                fourPhaseRequire, distinctLocal);
+                fourPhaseRequire, distinctLocal, logicalAgg.getHintContext());
 
         return ImmutableList.<PhysicalHashAggregate<? extends Plan>>builder()
                 .add(distinctGlobal)

@@ -138,7 +138,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
              */
             result = new PhysicalLazyMaterialize(result, result.getOutput(),
                     materializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
-                    null, ((AbstractPlan) result).getStats());
+                    null, ((AbstractPlan) result).getStats(), topN.getHintContext());
             hasMaterialized = true;
         } else {
             /*
@@ -158,13 +158,13 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 }
                 reOrderedMaterializedSlots.add(slot);
             }
-            result = new PhysicalProject(materializeInput, null, result);
+            result = new PhysicalProject(materializeInput, null, result, topN.getHintContext());
             result = new PhysicalLazyMaterialize(result, materializeInput,
                     reOrderedMaterializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
-                    null, ((AbstractPlan) result).getStats());
+                    null, ((AbstractPlan) result).getStats(), topN.getHintContext());
             hasMaterialized = true;
         }
-        result = new PhysicalProject(originOutput, null, result);
+        result = new PhysicalProject(originOutput, null, result, topN.getHintContext());
         return result;
     }
 

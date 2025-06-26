@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 
 import com.google.common.collect.Lists;
 
+import java.util.Optional;
+
 /**
  * Spec of data distribution.
  * GPORCA has more type in CDistributionSpec.
@@ -44,7 +46,7 @@ public abstract class DistributionSpec {
         // If we don't set LogicalProperties explicitly, node will compute a applicable LogicalProperties for itself.
         PhysicalDistribute<GroupPlan> distribution = new PhysicalDistribute<>(
                 this,
-                new GroupPlan(child));
+                new GroupPlan(child), Optional.empty());
         return new GroupExpression(distribution, Lists.newArrayList(child));
     }
 

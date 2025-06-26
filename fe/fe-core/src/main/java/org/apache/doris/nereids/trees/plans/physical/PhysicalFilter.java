@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -50,21 +51,22 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     private final Set<Expression> conjuncts;
 
-    public PhysicalFilter(Set<Expression> conjuncts, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(conjuncts, Optional.empty(), logicalProperties, child);
+    public PhysicalFilter(Set<Expression> conjuncts, LogicalProperties logicalProperties, CHILD_TYPE child,
+                          Optional<HintContext> hintContext) {
+        this(conjuncts, Optional.empty(), logicalProperties, child, hintContext);
     }
 
     public PhysicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, child);
+            LogicalProperties logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, child, hintContext);
         this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
 
     public PhysicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics, CHILD_TYPE child) {
+            Statistics statistics, CHILD_TYPE child, Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, physicalProperties, statistics,
-                child);
+                child, hintContext);
         this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
 
@@ -118,31 +120,31 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public PhysicalFilter<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, children.get(0));
+                statistics, children.get(0), hintContext);
     }
 
     @Override
     public PhysicalFilter<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), child());
+        return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), child(), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalFilter<>(conjuncts, groupExpression, logicalProperties.get(), children.get(0));
+        return new PhysicalFilter<>(conjuncts, groupExpression, logicalProperties.get(), children.get(0), hintContext);
     }
 
     @Override
     public PhysicalFilter<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, child());
+                statistics, child(), hintContext);
     }
 
     public PhysicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
         return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, child);
+                statistics, child, hintContext);
     }
 
     @Override
@@ -167,7 +169,7 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalFilter<Plan> resetLogicalProperties() {
         return new PhysicalFilter<>(conjuncts, groupExpression, null, physicalProperties,
-                statistics, child());
+                statistics, child(), hintContext);
     }
 
     @Override

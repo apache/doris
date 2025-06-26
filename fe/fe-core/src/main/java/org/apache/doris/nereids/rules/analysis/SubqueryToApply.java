@@ -438,13 +438,13 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 if (((ScalarSubquery) subquery).limitOneIsEliminated()) {
                     aggregate = new LogicalAggregate<>(ImmutableList.of(),
                             ImmutableList.of(anyValueAlias), subquery.getQueryPlan(),
-                            PlanUtils.getHintContext(subquery.getQueryPlan()));
+                            subquery.getQueryPlan().getHintContext());
                 } else {
                     Alias countAlias = new Alias(new Count());
                     countSlot = countAlias.toSlot();
                     aggregate = new LogicalAggregate<>(ImmutableList.of(),
                             ImmutableList.of(countAlias, anyValueAlias), subquery.getQueryPlan(),
-                            PlanUtils.getHintContext(subquery.getQueryPlan()));
+                            subquery.getQueryPlan().getHintContext());
                 }
                 anyValueSlot = anyValueAlias.toSlot();
                 subquery = subquery.withSubquery(aggregate);

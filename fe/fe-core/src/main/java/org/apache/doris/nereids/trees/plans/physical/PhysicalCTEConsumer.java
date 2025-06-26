@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -53,9 +54,10 @@ public class PhysicalCTEConsumer extends PhysicalRelation implements BlockFuncDe
      * Constructor
      */
     public PhysicalCTEConsumer(RelationId relationId, CTEId cteId, Map<Slot, Slot> consumerToProducerSlotMap,
-            Multimap<Slot, Slot> producerToConsumerSlotMap, LogicalProperties logicalProperties) {
+            Multimap<Slot, Slot> producerToConsumerSlotMap, LogicalProperties logicalProperties,
+            Optional<HintContext> hintContext) {
         this(relationId, cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
-                Optional.empty(), logicalProperties);
+                Optional.empty(), logicalProperties, hintContext);
     }
 
     /**
@@ -63,9 +65,10 @@ public class PhysicalCTEConsumer extends PhysicalRelation implements BlockFuncDe
      */
     public PhysicalCTEConsumer(RelationId relationId, CTEId cteId,
             Map<Slot, Slot> consumerToProducerSlotMap, Multimap<Slot, Slot> producerToConsumerSlotMap,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            Optional<HintContext> hintContext) {
         this(relationId, cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
-                groupExpression, logicalProperties, null, null);
+                groupExpression, logicalProperties, null, null, hintContext);
     }
 
     /**
@@ -73,9 +76,10 @@ public class PhysicalCTEConsumer extends PhysicalRelation implements BlockFuncDe
      */
     public PhysicalCTEConsumer(RelationId relationId, CTEId cteId, Map<Slot, Slot> consumerToProducerSlotMap,
             Multimap<Slot, Slot> producerToConsumerSlotMap, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
+            Optional<HintContext> hintContext) {
         super(relationId, PlanType.PHYSICAL_CTE_CONSUMER, groupExpression,
-                logicalProperties, physicalProperties, statistics);
+                logicalProperties, physicalProperties, statistics, hintContext);
         this.cteId = cteId;
         this.consumerToProducerSlotMap = ImmutableMap.copyOf(Objects.requireNonNull(
                 consumerToProducerSlotMap, "consumerToProducerSlotMap should not null"));
@@ -117,7 +121,7 @@ public class PhysicalCTEConsumer extends PhysicalRelation implements BlockFuncDe
     public PhysicalCTEConsumer withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalCTEConsumer(relationId, cteId,
                 consumerToProducerSlotMap, producerToConsumerSlotMap,
-                groupExpression, getLogicalProperties());
+                groupExpression, getLogicalProperties(), hintContext);
     }
 
     @Override
@@ -125,7 +129,7 @@ public class PhysicalCTEConsumer extends PhysicalRelation implements BlockFuncDe
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalCTEConsumer(relationId, cteId,
                 consumerToProducerSlotMap, producerToConsumerSlotMap,
-                groupExpression, logicalProperties.get());
+                groupExpression, logicalProperties.get(), hintContext);
     }
 
     @Override
@@ -133,7 +137,7 @@ public class PhysicalCTEConsumer extends PhysicalRelation implements BlockFuncDe
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalCTEConsumer(relationId, cteId,
                 consumerToProducerSlotMap, producerToConsumerSlotMap,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics);
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, hintContext);
     }
 
     @Override

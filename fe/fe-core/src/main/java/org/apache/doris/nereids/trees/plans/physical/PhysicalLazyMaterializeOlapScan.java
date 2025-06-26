@@ -56,7 +56,8 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
                 physicalOlapScan.getPhysicalProperties(),
                 physicalOlapScan.getStats(),
                 physicalOlapScan.getTableSample(),
-                physicalOlapScan.getOperativeSlots());
+                physicalOlapScan.getOperativeSlots(),
+                physicalOlapScan.getHintContext());
         this.scan = physicalOlapScan;
         this.rowId = rowId;
         this.lazySlots = ImmutableList.copyOf(lazySlots);

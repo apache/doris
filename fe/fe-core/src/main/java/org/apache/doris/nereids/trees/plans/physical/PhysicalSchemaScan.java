@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -45,9 +46,10 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
 
     public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable) {
+            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
+            Optional<HintContext> hintContext) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties,
-                ImmutableList.of());
+                ImmutableList.of(), hintContext);
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
@@ -56,9 +58,10 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
     public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics,
-            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable) {
+            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
+            Optional<HintContext> hintContext) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression,
-                logicalProperties, physicalProperties, statistics, ImmutableList.of());
+                logicalProperties, physicalProperties, statistics, ImmutableList.of(), hintContext);
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
@@ -90,7 +93,7 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalSchemaScan(relationId, getTable(), qualifier,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                schemaCatalog, schemaDatabase, schemaTable);
+                schemaCatalog, schemaDatabase, schemaTable, hintContext);
     }
 
     @Override
@@ -98,7 +101,7 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalSchemaScan(relationId, getTable(), qualifier,
                 groupExpression, logicalProperties.get(), physicalProperties, statistics,
-                schemaCatalog, schemaDatabase, schemaTable);
+                schemaCatalog, schemaDatabase, schemaTable, hintContext);
     }
 
     @Override
@@ -106,7 +109,7 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
             Statistics statistics) {
         return new PhysicalSchemaScan(relationId, getTable(), qualifier,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                schemaCatalog, schemaDatabase, schemaTable);
+                schemaCatalog, schemaDatabase, schemaTable, hintContext);
     }
 
     @Override

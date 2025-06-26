@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -55,17 +56,19 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
 
     public PhysicalDeferMaterializeTopN(PhysicalTopN<? extends Plan> physicalTopN,
             Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
         this(physicalTopN, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, logicalProperties, null, null, child);
+                groupExpression, logicalProperties, null, null, child, hintContext);
     }
 
     public PhysicalDeferMaterializeTopN(PhysicalTopN<? extends Plan> physicalTopN,
             Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
+            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
         super(physicalTopN.getType(), physicalTopN.getOrderKeys(), physicalTopN.getSortPhase(),
-                groupExpression, logicalProperties, physicalProperties, statistics, child);
+                groupExpression, logicalProperties, physicalProperties, statistics, child, hintContext);
         this.physicalTopN = physicalTopN;
         this.deferMaterializeSlotIds = deferMaterializeSlotIds;
         this.columnIdSlot = columnIdSlot;
@@ -95,7 +98,7 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
 
     public PhysicalDeferMaterializeTopN<? extends Plan> withPhysicalTopN(PhysicalTopN<? extends Plan> physicalTopN) {
         return new PhysicalDeferMaterializeTopN<>(physicalTopN, deferMaterializeSlotIds, columnIdSlot, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, physicalTopN.child());
+                getLogicalProperties(), physicalProperties, statistics, physicalTopN.child(), hintContext);
     }
 
     @Override
@@ -104,7 +107,7 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
                 "PhysicalDeferMaterializeTopN's children size must be 1, but real is %s", children.size());
         return new PhysicalDeferMaterializeTopN<>(physicalTopN.withChildren(ImmutableList.of(children.get(0))),
                 deferMaterializeSlotIds, columnIdSlot, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, children.get(0));
+                physicalProperties, statistics, children.get(0), hintContext);
     }
 
     @Override
@@ -115,7 +118,7 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
     @Override
     public PhysicalDeferMaterializeTopN<? extends Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalDeferMaterializeTopN<>(physicalTopN, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child(), hintContext);
     }
 
     @Override
@@ -126,14 +129,14 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
                 "PhysicalDeferMaterializeTopN's children size must be 1, but real is %s", children.size());
         return new PhysicalDeferMaterializeTopN<>(physicalTopN.withChildren(ImmutableList.of(children.get(0))),
                 deferMaterializeSlotIds, columnIdSlot, groupExpression, logicalProperties.get(),
-                physicalProperties, statistics, children.get(0));
+                physicalProperties, statistics, children.get(0), hintContext);
     }
 
     @Override
     public PhysicalDeferMaterializeTopN<? extends Plan> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalDeferMaterializeTopN<>(physicalTopN, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child(), hintContext);
     }
 
     @Override
@@ -144,7 +147,7 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
     @Override
     public PhysicalDeferMaterializeTopN<? extends Plan> resetLogicalProperties() {
         return new PhysicalDeferMaterializeTopN<>(physicalTopN, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, null, physicalProperties, statistics, child());
+                groupExpression, null, physicalProperties, statistics, child(), hintContext);
     }
 
     @Override

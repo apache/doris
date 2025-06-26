@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -28,6 +29,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Implementation rule that convert logical top-n to physical top-n.
@@ -46,9 +48,10 @@ public class LogicalTopNToPhysicalTopN extends OneImplementationRuleFactory {
      *     mergeTopN(limit, off, require gather) -> localTopN(off+limit, 0, require any)
      */
     private List<PhysicalTopN<? extends Plan>> twoPhaseSort(LogicalTopN<? extends Plan> logicalTopN) {
+        Optional<HintContext> hintContext = logicalTopN.getHintContext();
         PhysicalTopN<Plan> localSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(),
                 logicalTopN.getLimit() + logicalTopN.getOffset(), 0, SortPhase.LOCAL_SORT,
-                logicalTopN.getLogicalProperties(), logicalTopN.child(0));
+                logicalTopN.getLogicalProperties(), logicalTopN.child(0), hintContext);
         int sortPhaseNum = 0;
         if (ConnectContext.get() != null) {
             sortPhaseNum = ConnectContext.get().getSessionVariable().sortPhaseNum;
@@ -56,18 +59,20 @@ public class LogicalTopNToPhysicalTopN extends OneImplementationRuleFactory {
         if (sortPhaseNum == 1) {
             PhysicalTopN<Plan> onePhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
                     logicalTopN.getOffset(), SortPhase.GATHER_SORT,
-                    logicalTopN.getLogicalProperties(), localSort.child(0));
+                    logicalTopN.getLogicalProperties(), localSort.child(0), hintContext);
             return Lists.newArrayList(onePhaseSort);
         } else if (sortPhaseNum == 2) {
             PhysicalTopN<Plan> twoPhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
-                    logicalTopN.getOffset(), SortPhase.MERGE_SORT, logicalTopN.getLogicalProperties(), localSort);
+                    logicalTopN.getOffset(), SortPhase.MERGE_SORT, logicalTopN.getLogicalProperties(), localSort,
+                    hintContext);
             return Lists.newArrayList(twoPhaseSort);
         } else {
             PhysicalTopN<Plan> twoPhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
-                    logicalTopN.getOffset(), SortPhase.MERGE_SORT, logicalTopN.getLogicalProperties(), localSort);
+                    logicalTopN.getOffset(), SortPhase.MERGE_SORT, logicalTopN.getLogicalProperties(), localSort,
+                    hintContext);
             PhysicalTopN<Plan> onePhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
                     logicalTopN.getOffset(), SortPhase.GATHER_SORT,
-                    logicalTopN.getLogicalProperties(), localSort.child(0));
+                    logicalTopN.getLogicalProperties(), localSort.child(0), hintContext);
             return Lists.newArrayList(twoPhaseSort, onePhaseSort);
         }
     }
