@@ -506,9 +506,6 @@ public interface TableIf {
         if (db == null) {
             return "null.null." + getName();
         } else {
-            return String.format("%s.%s.%s", db.getCatalog().getName(),
-                    ClusterNamespace.getNameFromFullName(db.getFullName()),
-                    getName());
             return db.getCatalog().getName()
                     + "." + ClusterNamespace.getNameFromFullName(db.getFullName())
                     + "." + getName();
