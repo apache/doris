@@ -36,7 +36,7 @@ public class SupportedSysTables {
         ICEBERG_SUPPORTED_SYS_TABLES = Lists.newArrayList(
                 IcebergSysTable.getSupportedIcebergSysTables());
         // paimon
-        PAIMON_SUPPORTED_SYS_TABLES = Lists.newArrayList();
+        PAIMON_SUPPORTED_SYS_TABLES = Lists.newArrayList(PaimonSysTable.getSupportedIcebergSysTables());
         // hudi
         HUDI_SUPPORTED_SYS_TABLES = Lists.newArrayList();
     }

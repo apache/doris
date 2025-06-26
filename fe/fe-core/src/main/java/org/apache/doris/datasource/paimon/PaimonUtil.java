@@ -59,11 +59,13 @@ import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,6 +74,7 @@ import javax.annotation.Nullable;
 
 public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
+    private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
 
     public static List<InternalRow> read(
             Table table, @Nullable int[] projection, @Nullable Predicate predicate,
@@ -104,7 +107,7 @@ public class PaimonUtil {
     }
 
     public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-                                                            List<Partition> paimonPartitions) {
+            List<Partition> paimonPartitions) {
 
         if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
             return PaimonPartitionInfo.EMPTY;
@@ -339,4 +342,30 @@ public class PaimonUtil {
         return tSchema;
     }
 
+
+    public static List<Column> parseSchema(Table table) {
+        List<String> primaryKeys = table.primaryKeys();
+        return parseSchema(table.rowType(), primaryKeys);
+    }
+
+    public static List<Column> parseSchema(RowType rowType, List<String> primaryKeys) {
+        List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
+        rowType.getFields().forEach(field -> {
+            resSchema.add(new Column(field.name().toLowerCase(),
+                    PaimonUtil.paimonTypeToDorisType(field.type()), primaryKeys.contains(field.name()), null,
+                    field.type().isNullable(),
+                    field.description(), true,
+                    field.id()));
+        });
+        return resSchema;
+    }
+
+    public static <T> String encodeObjectToString(T t) {
+        try {
+            byte[] bytes = InstantiationUtil.serializeObject(t);
+            return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 }

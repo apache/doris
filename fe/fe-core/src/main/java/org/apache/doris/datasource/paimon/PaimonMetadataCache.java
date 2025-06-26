@@ -157,4 +157,10 @@ public class PaimonMetadataCache {
                 snapshotCache.estimatedSize()));
         return res;
     }
+
+    public org.apache.paimon.table.Table getPaimonTable(CatalogIf catalog, String dbName, String tbName) {
+        PaimonSnapshotCacheKey paimonSnapshotCacheKey = new PaimonSnapshotCacheKey(catalog, dbName, tbName);
+        return ((PaimonExternalCatalog) paimonSnapshotCacheKey.getCatalog()).getPaimonTable(
+                paimonSnapshotCacheKey.getDbName(), paimonSnapshotCacheKey.getTableName());
+    }
 }
