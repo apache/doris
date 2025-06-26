@@ -32,7 +32,7 @@ public class AuthTest extends TestWithFeService {
     }
 
     @Test
-    public void testGrantTablePrivilege() throws Exception {
+    public void testMergeRolePriv() throws Exception {
         addUser("u1", true);
         createRole("role1");
         createRole("role2");
