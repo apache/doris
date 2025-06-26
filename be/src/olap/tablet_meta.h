@@ -385,7 +385,6 @@ private:
 class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
-    mutable std::shared_mutex stale_delete_bitmap_lock;
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
@@ -552,11 +551,6 @@ public:
 
     void remove_sentinel_marks();
 
-    void add_to_remove_queue(const std::string& version_str,
-                             const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey,
-                                                          DeleteBitmap::BitmapKey>>& vector);
-    void remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector);
-
     uint64_t get_delete_bitmap_count();
 
     void traverse_rowset_and_version(
@@ -608,10 +602,6 @@ private:
     int64_t _tablet_id;
     mutable std::shared_mutex _rowset_cache_version_lock;
     mutable std::map<RowsetId, std::map<SegmentId, Version>> _rowset_cache_version;
-    // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
-    std::map<std::string,
-             std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
-            _stale_delete_bitmap;
 };
 
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
