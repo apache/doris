@@ -1574,6 +1574,7 @@ DECLARE_mInt32(schema_dict_cache_capacity);
 DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
 DECLARE_mBool(enable_mow_verbose_log);
+DECLARE_mInt32(mow_compaction_hold_lock_threshold_ms);
 
 DECLARE_mInt32(tablet_sched_delay_time_ms);
 DECLARE_mInt32(load_trigger_compaction_version_percent);
