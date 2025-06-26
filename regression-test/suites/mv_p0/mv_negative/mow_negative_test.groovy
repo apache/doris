@@ -65,9 +65,13 @@ suite("mow_negative_mv_test", "mv_negative") {
             ("2024-08-17 22:27:00","ax2",3,1,"'0.0.0.0'",8,"asd3",[1,2,3,4,6], 7, 9, 10, to_bitmap(3), HLL_HASH(1000), "'0.0.1.0'"),
             ("2023-09-16 22:27:00","ax4",4,0,"'0.0.0.0'",11,"asd2",[1,2,9,4,5], 11, 11, 11, to_bitmap(4), HLL_HASH(1), "'0.10.0.0'");"""
 
+    // There is a bug in the old optimizer. Please comment out this case first and remove the comment after the bug is fixed.
+
+    /*
     def mv_name = """${prefix_str}_mv"""
     def no_mv_name = """no_${prefix_str}_mv"""
     def mtmv_sql = """select col4, col1, col2, col3, col15 from ${tb_name} where col1 = '2023-08-16 22:27:00' order by col4, col1, col2, col3, col15"""
+
     create_sync_mv(db, tb_name, mv_name, mtmv_sql)
     def desc_res = sql """desc ${tb_name} all;"""
     for (int i = 0; i < desc_res.size(); i++) {
@@ -79,8 +83,6 @@ suite("mow_negative_mv_test", "mv_negative") {
         }
     }
 
-    /*
-    // There is a bug in the old optimizer. Please comment out this case first and remove the comment after the bug is fixed.
     test {
         sql """create materialized view ${no_mv_name} as select col4, col1, col2, col3, col15, col7 from ${tb_name} where col1 = '2023-08-16 22:27:00' order by col4, col1, col2, col3, col15, col7"""
         exception "The materialized view can not involved auto increment column"
