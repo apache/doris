@@ -177,18 +177,18 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena, UInt8* current_window_empty,
-                                UInt8* current_window_has_inited) const override {
+                                Arena* arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
         if (frame_start >= frame_end) {
-            if (!*current_window_has_inited) {
-                *current_window_empty = true;
+            if (!*could_use_previous_result) {
+                *use_null_result = true;
             }
         } else {
             AggregateFunctionCount::data(place).count = frame_end - frame_start;
-            *current_window_empty = false;
-            *current_window_has_inited = true;
+            *use_null_result = false;
+            *could_use_previous_result = true;
         }
     }
 };
@@ -333,13 +333,13 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena, UInt8* current_window_empty,
-                                UInt8* current_window_has_inited) const override {
+                                Arena* arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
         if (frame_start >= frame_end) {
-            if (!*current_window_has_inited) {
-                *current_window_empty = true;
+            if (!*could_use_previous_result) {
+                *use_null_result = true;
             }
         } else {
             const auto& nullable_column =
@@ -354,8 +354,8 @@ public:
             } else {
                 count = frame_end - frame_start;
             }
-            *current_window_empty = false;
-            *current_window_has_inited = true;
+            *use_null_result = false;
+            *could_use_previous_result = true;
             AggregateFunctionCountNotNullUnary::data(place).count = count;
         }
     }

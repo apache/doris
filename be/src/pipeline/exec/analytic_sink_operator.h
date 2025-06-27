@@ -145,8 +145,8 @@ private:
     };
     executor _executor;
 
-    std::vector<uint8_t> _current_window_emptys;
-    std::vector<uint8_t> _current_window_has_inited;
+    std::vector<uint8_t> _use_null_result;
+    std::vector<uint8_t> _could_use_previous_result;
     bool _streaming_mode = false;
     bool _support_incremental_calculate = true;
     bool _need_more_data = false;

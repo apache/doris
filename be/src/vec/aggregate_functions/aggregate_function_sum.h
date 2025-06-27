@@ -217,35 +217,56 @@ public:
     void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
                                            int64_t frame_start, int64_t frame_end,
                                            AggregateDataPtr place, const IColumn** columns,
-                                           Arena* arena, bool ignore_subtraction,
-                                           bool ignore_addition, bool has_null,
-                                           UInt8* current_window_empty,
-                                           UInt8* current_window_has_inited) const override {
+                                           Arena* arena, bool previous_is_nul, bool end_is_nul,
+                                           bool has_null, UInt8* use_null_result,
+                                           UInt8* could_use_previous_result) const override {
         int64_t current_frame_start = std::max<int64_t>(frame_start, partition_start);
         int64_t current_frame_end = std::min<int64_t>(frame_end, partition_end);
 
         if (current_frame_start >= current_frame_end) {
-            *current_window_empty = true;
+            *use_null_result = true;
             return;
         }
-        if (*current_window_has_inited) {
+        if (*could_use_previous_result) {
             const auto& column =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             const auto* data = column.get_data().data();
             auto outcoming_pos = frame_start - 1;
             auto incoming_pos = frame_end - 1;
-            if (!ignore_subtraction && outcoming_pos >= partition_start &&
+            if (!previous_is_nul && outcoming_pos >= partition_start &&
                 outcoming_pos < partition_end) {
                 this->data(place).sum -= data[outcoming_pos];
             }
-            if (!ignore_addition && incoming_pos >= partition_start &&
-                incoming_pos < partition_end) {
+            if (!end_is_nul && incoming_pos >= partition_start && incoming_pos < partition_end) {
                 this->data(place).sum += data[incoming_pos];
             }
         } else {
             this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
-                                         place, columns, arena, current_window_empty,
-                                         current_window_has_inited);
+                                         place, columns, arena, use_null_result,
+                                         could_use_previous_result);
+        }
+    }
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
+        auto current_frame_start = std::max<int64_t>(frame_start, partition_start);
+        auto current_frame_end = std::min<int64_t>(frame_end, partition_end);
+
+        if (current_frame_start >= current_frame_end) {
+            if (!*could_use_previous_result) {
+                *use_null_result = true;
+            }
+        } else {
+            const auto& column =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            for (size_t row_num = current_frame_start; row_num < current_frame_end; ++row_num) {
+                this->data(place).add(typename PrimitiveTypeTraits<TResult>::ColumnItemType(
+                        column.get_data()[row_num]));
+            }
+            *use_null_result = false;
+            *could_use_previous_result = true;
         }
     }
 

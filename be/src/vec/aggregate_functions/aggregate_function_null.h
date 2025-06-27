@@ -93,7 +93,7 @@ public:
 
     String get_name() const override {
         /// This is just a wrapper. The function for Nullable arguments is named the same as the nested function itself.
-        return nested_function->get_name();
+        return "Nullable(" + nested_function->get_name() +")";
     }
 
     DataTypePtr get_return_type() const override {
@@ -285,6 +285,38 @@ public:
         }
     }
 
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
+        auto current_frame_start = std::max<int64_t>(frame_start, partition_start);
+        auto current_frame_end = std::min<int64_t>(frame_end, partition_end);
+        if (current_frame_start >= current_frame_end) {
+            if (!*could_use_previous_result) {
+                this->init_flag(place);
+                *use_null_result = true;
+                return;
+            }
+        } else {
+            this->set_flag(place);
+            *use_null_result = false;
+            *could_use_previous_result = true;
+        }
+        const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
+        bool has_null = column->has_null();
+        if (has_null) {
+            for (size_t i = current_frame_start; i < current_frame_end; ++i) {
+                this->add(place, columns, i, arena);
+            }
+        } else {
+            const IColumn* nested_column = &column->get_nested_column();
+            this->nested_function->add_range_single_place(
+                    partition_start, partition_end, frame_start, frame_end,
+                    this->nested_place(place), &nested_column, arena, use_null_result,
+                    could_use_previous_result);
+        }
+    }
+
     bool supported_incremental_mode() const override {
         return this->nested_function->supported_incremental_mode();
     }
@@ -292,14 +324,13 @@ public:
     void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
                                            int64_t frame_start, int64_t frame_end,
                                            AggregateDataPtr place, const IColumn** columns,
-                                           Arena* arena, bool ignore_subtraction,
-                                           bool ignore_addition, bool has_null,
-                                           UInt8* current_window_empty,
-                                           UInt8* current_window_has_inited) const override {
+                                           Arena* arena, bool previous_is_nul, bool end_is_nul,
+                                           bool has_null, UInt8* use_null_result,
+                                           UInt8* could_use_previous_result) const override {
         int64_t current_frame_start = std::max<int64_t>(frame_start, partition_start);
         int64_t current_frame_end = std::min<int64_t>(frame_end, partition_end);
         if (current_frame_start >= current_frame_end) {
-            *current_window_empty = true;
+            *use_null_result = true;
             this->init_flag(place);
             return;
         }
@@ -309,23 +340,23 @@ public:
         const IColumn* nested_column = &column->get_nested_column();
 
         if (!column->has_null()) {
-            if (*current_window_has_inited) {
+            if (*could_use_previous_result) {
                 this->nested_function->execute_function_with_incremental(
                         partition_start, partition_end, frame_start, frame_end,
-                        this->nested_place(place), &nested_column, arena, ignore_subtraction,
-                        ignore_addition, false, current_window_empty, current_window_has_inited);
+                        this->nested_place(place), &nested_column, arena, previous_is_nul,
+                        end_is_nul, false, use_null_result, could_use_previous_result);
             } else {
                 this->nested_function->add_range_single_place(
                         partition_start, partition_end, frame_start, frame_end,
-                        this->nested_place(place), &nested_column, arena, current_window_empty,
-                        current_window_has_inited);
+                        this->nested_place(place), &nested_column, arena, use_null_result,
+                        could_use_previous_result);
             }
             this->set_flag(place);
             return;
         }
 
         const auto* __restrict null_map_data = column->get_null_map_data().data();
-        if (*current_window_has_inited) {
+        if (*could_use_previous_result) {
             auto outcoming_pos = frame_start - 1;
             auto incoming_pos = frame_end - 1;
             bool is_previous_frame_start_null = false;
@@ -344,15 +375,14 @@ public:
             this->nested_function->execute_function_with_incremental(
                     partition_start, partition_end, frame_start, frame_end,
                     this->nested_place(place), columns_tmp, arena, is_previous_frame_start_null,
-                    is_current_frame_end_null, true, current_window_empty,
-                    current_window_has_inited);
+                    is_current_frame_end_null, true, use_null_result, could_use_previous_result);
             if (current_frame_end - current_frame_start != this->null_count) {
                 this->set_flag(place);
             }
         } else {
             this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
-                                         place, columns, arena, current_window_empty,
-                                         current_window_has_inited);
+                                         place, columns, arena, use_null_result,
+                                         could_use_previous_result);
         }
     }
 };
