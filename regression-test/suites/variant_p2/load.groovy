@@ -69,17 +69,6 @@ suite("load_p2", "variant_type,p2"){
         """
     }
 
-    def set_be_config = { key, value ->
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-    }
-
     // Configuration for the number of threads
     def numberOfThreads = 10 // Set this to your desired number of threads
 
@@ -88,7 +77,6 @@ suite("load_p2", "variant_type,p2"){
 
     try {
         def table_name = "github_events"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
         def s3load_paral_wait = {tbl, fmt, path, paral ->
             String ak = getS3AK()
             String sk = getS3SK()
@@ -167,6 +155,5 @@ suite("load_p2", "variant_type,p2"){
         qt_sql("select count() from github_events")
     } finally {
         // reset flags
-        // set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     }
 }
