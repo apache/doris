@@ -506,7 +506,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public String getRemoteName() {
-        return remoteName;
+        return Strings.isNullOrEmpty(remoteName) ? name : remoteName;
     }
 
     @Override
