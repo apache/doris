@@ -229,7 +229,9 @@ TEST_F(JsonbDocumentTest, writer) {
 
         column_string->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
         const auto jsonb_val = column_string->get_data_at(0);
-        LOG_WARNING("yxc test").tag("jsonb", bytesToString(jsonb_val.data, jsonb_val.size));
+
+        std::cout << "yxc test" << std::endl
+                  << "jsonb: " << bytesToString(jsonb_val.data, jsonb_val.size) << std::endl;
 
         if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
             return;
