@@ -53,6 +53,7 @@
 #include "olap/options.h"
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/tmp_file_dirs.h"
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
@@ -201,6 +202,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _store_paths = store_paths;
     _tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(_store_paths);
     RETURN_IF_ERROR(_tmp_file_dirs->init());
+    // return Status::OK(); //调试diskann时打开这里
     _user_function_cache = new UserFunctionCache();
     static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
@@ -444,6 +446,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
 }
 
 Status ExecEnv::_init_mem_env() {
+    // return Status::OK();  //diskann打开
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker

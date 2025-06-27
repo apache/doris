@@ -21,17 +21,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <atomic>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/fs/file_system.h"
-#include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
-#include "olap/options.h"
 
 namespace doris {
 class CollectionValue;
@@ -42,13 +37,12 @@ class TabletIndex;
 class TabletColumn;
 
 namespace segment_v2 {
-class InvertedIndexFileWriter;
+class IndexFileWriter;
 
 class InvertedIndexColumnWriter {
 public:
     static Status create(const Field* field, std::unique_ptr<InvertedIndexColumnWriter>* res,
-                         InvertedIndexFileWriter* index_file_writer,
-                         const TabletIndex* inverted_index);
+                         IndexFileWriter* index_file_writer, const TabletIndex* inverted_index);
     virtual Status init() = 0;
 
     InvertedIndexColumnWriter() = default;
@@ -77,33 +71,6 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);
-};
-
-class TmpFileDirs {
-public:
-    TmpFileDirs(const std::vector<doris::StorePath>& store_paths) {
-        for (const auto& store_path : store_paths) {
-            _tmp_file_dirs.emplace_back(store_path.path + "/" + config::tmp_file_dir);
-        }
-    };
-
-    Status init() {
-        for (auto& tmp_file_dir : _tmp_file_dirs) {
-            // delete the tmp dir to avoid the tmp files left by last crash
-            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tmp_file_dir));
-            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_file_dir));
-        }
-        return Status::OK();
-    };
-
-    io::Path get_tmp_file_dir() {
-        size_t cur_index = _next_index.fetch_add(1);
-        return _tmp_file_dirs[cur_index % _tmp_file_dirs.size()];
-    };
-
-private:
-    std::vector<io::Path> _tmp_file_dirs;
-    std::atomic_size_t _next_index {0}; // use for round-robin
 };
 
 } // namespace segment_v2

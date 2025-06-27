@@ -45,6 +45,7 @@
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/common/hex.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -787,6 +788,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
     case TIndexType::INVERTED:
         _index_type = IndexType::INVERTED;
         break;
+    case TIndexType::ANN:
+        _index_type = IndexType::ANN;
+        break;
     case TIndexType::BLOOMFILTER:
         _index_type = IndexType::BLOOMFILTER;
         break;
@@ -813,6 +817,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
         break;
     case TIndexType::INVERTED:
         _index_type = IndexType::INVERTED;
+        break;
+    case TIndexType::ANN:
+        _index_type = IndexType::ANN;
         break;
     case TIndexType::BLOOMFILTER:
         _index_type = IndexType::BLOOMFILTER;
@@ -902,6 +909,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _version_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == SKIP_BITMAP_COL)) {
         _skip_bitmap_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX))) {
+        _vir_col_idx_to_unique_id[_num_columns] = column.unique_id();
     }
     _field_uniqueid_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
@@ -1463,15 +1472,41 @@ const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
     return nullptr;
 }
 
+const TabletIndex* TabletSchema::ann_index(int32_t col_unique_id,
+                                           const std::string& suffix_path) const {
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i]->index_type() == IndexType::ANN) {
+            for (int32_t id : _indexes[i]->col_unique_ids()) {
+                if (id == col_unique_id &&
+                    _indexes[i]->get_index_suffix() == escape_for_path_name(suffix_path)) {
+                    return _indexes[i].get();
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
 const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {
     // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
-    if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
+    if (!segment_v2::IndexColumnWriter::check_support_inverted_index(col)) {
         return nullptr;
     }
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     return inverted_index(col_unique_id, escape_for_path_name(col.suffix_path()));
+}
+
+const TabletIndex* TabletSchema::ann_index(const TabletColumn& col) const {
+    // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
+    if (!segment_v2::IndexColumnWriter::check_support_ann_index(col)) {
+        return nullptr;
+    }
+    // TODO use more efficient impl
+    // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
+    return ann_index(col_unique_id, escape_for_path_name(col.suffix_path()));
 }
 
 bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {
@@ -1495,13 +1530,21 @@ vectorized::Block TabletSchema::create_block(
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
     vectorized::Block block;
     for (int i = 0; i < return_columns.size(); ++i) {
-        const auto& col = *_cols[return_columns[i]];
+        const ColumnId cid = return_columns[i];
+        const auto& col = *_cols[cid];
         bool is_nullable = (tablet_columns_need_convert_null != nullptr &&
-                            tablet_columns_need_convert_null->find(return_columns[i]) !=
+                            tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
-        auto column = data_type->create_column();
-        block.insert({std::move(column), data_type, col.name()});
+        if (_vir_col_idx_to_unique_id.contains(cid)) {
+            block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
+            LOG_INFO(
+                    "Create block from tablet schema, column cid {} is virtual column, col_name: "
+                    "{}, col_unique_id: {}, type {}",
+                    cid, col.name(), col.unique_id(), data_type->get_name());
+        } else {
+            block.insert({data_type->create_column(), data_type, col.name()});
+        }
     }
     return block;
 }

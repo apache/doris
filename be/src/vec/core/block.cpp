@@ -48,6 +48,7 @@
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -771,6 +772,7 @@ void Block::update_hash(SipHash& hash) const {
     }
 }
 
+// columns_to_filter 实际上是需要进行过滤的 col 的 position
 void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                   const IColumn::Filter& filter) {
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
