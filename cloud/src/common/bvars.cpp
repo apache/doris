@@ -398,7 +398,7 @@ mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter("rpc_kv_get_txn_id_get_coun
 bvar::Status<int64_t> g_bvar_meta_ranges_txn_count("meta_ranges_txn_count", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_meta_ranges_meta_count("meta_ranges_meta_count", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_meta_ranges_recycle_count("meta_ranges_recycle_count", BVAR_FDB_INVALID_VALUE);
-mBvarLongStatus g_bvar_meta_ranges_txn_instance_tag_count("meta_ranges_txn_instance_tag_count", {"instance", "tag"});
-mBvarLongStatus g_bvar_meta_ranges_meta_instance_tag_count("meta_ranges_meta_instance_tag_count", {"instance", "tag"});
-mBvarLongStatus g_bvar_meta_ranges_recycle_instance_tag_count("meta_ranges_recycle_instance_tag_count", {"instance", "tag"});
+mBvarStatus<int64_t> g_bvar_meta_ranges_txn_instance_tag_count("meta_ranges_txn_instance_tag_count", {"instance", "tag"});
+mBvarStatus<int64_t> g_bvar_meta_ranges_meta_instance_tag_count("meta_ranges_meta_instance_tag_count", {"instance", "tag"});
+mBvarStatus<int64_t> g_bvar_meta_ranges_recycle_instance_tag_count("meta_ranges_recycle_instance_tag_count", {"instance", "tag"});
 // clang-format on
