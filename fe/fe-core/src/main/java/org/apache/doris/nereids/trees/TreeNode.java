@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees;
 
 import org.apache.doris.nereids.parser.Origin;
+import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
@@ -26,6 +28,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
@@ -57,6 +60,10 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     <T> Optional<T> getMutableState(String key);
 
+    default MutableState getMutableStates() {
+        return EmptyMutableState.INSTANCE;
+    }
+
     /** getOrInitMutableState */
     default <T> T getOrInitMutableState(String key, Supplier<T> initState) {
         Optional<T> mutableState = getMutableState(key);
@@ -69,6 +76,22 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     void setMutableState(String key, Object value);
+
+    /** getAllChildrenTypes */
+    default BitSet getAllChildrenTypes() {
+        BitSet bitSet = new BitSet();
+        for (TreeNode<?> child : children()) {
+            bitSet.or(child.getAllChildrenTypes());
+        }
+        bitSet.or(getSuperClassTypes());
+        return bitSet;
+    }
+
+    default BitSet getSuperClassTypes() {
+        BitSet bitSet = new BitSet();
+        SuperClassId.getSuperClassIds(getClass());
+        return bitSet;
+    }
 
     default NODE_TYPE withChildren(NODE_TYPE... children) {
         return withChildren(Utils.fastToImmutableList(children));
@@ -310,14 +333,14 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @return true if it has any instance of the types
      */
     default boolean containsType(Class... types) {
-        return anyMatch(node -> {
-            for (Class type : types) {
-                if (type.isInstance(node)) {
-                    return true;
-                }
+        BitSet allChildrenTypes = getAllChildrenTypes();
+        for (Class type : types) {
+            int classId = SuperClassId.getClassId(type);
+            if (allChildrenTypes.get(classId)) {
+                return true;
             }
-            return false;
-        });
+        }
+        return false;
     }
 
     /**
@@ -326,6 +349,9 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @return true if all the tree is equals
      */
     default boolean deepEquals(TreeNode<?> that) {
+        if (this == that) {
+            return true;
+        }
         Deque<TreeNode<?>> thisDeque = new ArrayDeque<>();
         Deque<TreeNode<?>> thatDeque = new ArrayDeque<>();
 

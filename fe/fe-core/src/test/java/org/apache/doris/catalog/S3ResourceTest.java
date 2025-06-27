@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -28,6 +27,8 @@ import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -107,9 +108,10 @@ public class S3ResourceTest {
         };
 
         // resource with default settings
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, s3Properties);
-        stmt.analyze(analyzer);
-        S3Resource s3Resource = (S3Resource) Resource.fromStmt(stmt);
+        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
+        createResourceCommand.getInfo().validate();
+
+        S3Resource s3Resource = (S3Resource) Resource.fromCommand(createResourceCommand);
         Assert.assertEquals(name, s3Resource.getName());
         Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
         Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
@@ -126,10 +128,11 @@ public class S3ResourceTest {
         s3Properties.put(S3Properties.REQUEST_TIMEOUT_MS, "2000");
         s3Properties.put(S3Properties.CONNECTION_TIMEOUT_MS, "2000");
         s3Properties.put(S3Properties.VALIDITY_CHECK, "false");
-        stmt = new CreateResourceStmt(true, false, name, s3Properties);
-        stmt.analyze(analyzer);
 
-        s3Resource = (S3Resource) Resource.fromStmt(stmt);
+        createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
+        createResourceCommand.getInfo().validate();
+
+        s3Resource = (S3Resource) Resource.fromCommand(createResourceCommand);
         Assert.assertEquals(name, s3Resource.getName());
         Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
         Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
@@ -154,9 +157,11 @@ public class S3ResourceTest {
             }
         };
         s3Properties.remove("AWS_ENDPOINT");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, s3Properties);
-        stmt.analyze(analyzer);
-        Resource.fromStmt(stmt);
+
+        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(s3Properties)));
+        createResourceCommand.getInfo().validate();
+
+        Resource.fromCommand(createResourceCommand);
     }
 
     @Test

@@ -998,7 +998,7 @@ public class TypeCoercionUtils {
                 throw new AnalysisException("data type " + left.getDataType()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
-            return comparisonPredicate.withChildren(left, right);
+            return comparisonPredicate;
         }
 
         // process string literal with numeric

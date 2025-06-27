@@ -23,6 +23,7 @@ import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
 import org.apache.doris.nereids.util.Utils;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -37,6 +38,8 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
 
     protected final Optional<Origin> origin = ParserUtils.getOrigin();
 
+    protected final BitSet containsTypes;
+
     protected final List<NODE_TYPE> children;
 
     // this field is special, because other fields in tree node is immutable, but in some scenes, mutable
@@ -50,12 +53,26 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         // NOTE: ImmutableList.copyOf has additional clone of the list, so here we
         //       direct generate a ImmutableList
         this.children = Utils.fastToImmutableList(children);
+
+        this.containsTypes = new BitSet();
+        for (NODE_TYPE child : children) {
+            BitSet childTypes = child.getAllChildrenTypes();
+            containsTypes.or(childTypes);
+        }
+        containsTypes.or(getSuperClassTypes());
     }
 
     protected AbstractTreeNode(List<NODE_TYPE> children) {
         // NOTE: ImmutableList.copyOf has additional clone of the list, so here we
         //       direct generate a ImmutableList
         this.children = Utils.fastToImmutableList(children);
+
+        this.containsTypes = new BitSet();
+        for (NODE_TYPE child : children) {
+            BitSet childTypes = child.getAllChildrenTypes();
+            containsTypes.or(childTypes);
+        }
+        containsTypes.or(getSuperClassTypes());
     }
 
     @Override
@@ -83,7 +100,23 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         this.mutableState = this.mutableState.set(key, state);
     }
 
+    @Override
+    public MutableState getMutableStates() {
+        return mutableState;
+    }
+
+    @Override
+    public BitSet getAllChildrenTypes() {
+        return containsTypes;
+    }
+
+    @Override
     public int arity() {
         return children.size();
+    }
+
+    @Override
+    public BitSet getSuperClassTypes() {
+        return SuperClassId.getSuperClassIds(getClass());
     }
 }

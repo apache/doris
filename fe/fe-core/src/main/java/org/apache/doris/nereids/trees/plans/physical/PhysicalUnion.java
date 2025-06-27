@@ -51,6 +51,7 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
     // in doris, we use union node to present one row relation
     private final List<List<NamedExpression>> constantExprsList;
 
+    /** PhysicalUnion */
     public PhysicalUnion(Qualifier qualifier,
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
@@ -62,6 +63,7 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
+    /** PhysicalUnion */
     public PhysicalUnion(Qualifier qualifier,
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
@@ -75,6 +77,7 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
+    /** PhysicalUnion */
     public PhysicalUnion(Qualifier qualifier, List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs, List<List<NamedExpression>> constantExprsList,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,

@@ -44,7 +44,7 @@ public class IcebergHMSSource implements IcebergSource {
         this.icebergTable =
                 Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
                         .getIcebergTable(hmsTable.getCatalog(),
-                                hmsTable.getDbName(), hmsTable.getName());
+                                hmsTable.getRemoteDbName(), hmsTable.getRemoteName());
     }
 
     @Override

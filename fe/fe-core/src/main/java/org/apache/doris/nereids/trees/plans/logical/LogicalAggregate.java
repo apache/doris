@@ -237,6 +237,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     @Override
     public List<? extends Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()
+                .addAll(groupByExpressions)
                 .addAll(outputExpressions)
                 .build();
     }

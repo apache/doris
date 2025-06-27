@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -242,7 +243,8 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                     Expression newFunc = replaceAggFunc(func, rightSlotToOutput.get(slot).toSlot());
                     newOutputExprs.add((NamedExpression) ne.withChildren(newFunc));
                 } else {
-                    throw new IllegalStateException("Slot " + slot + " not found in join output");
+                    // unsupported
+                    return (LogicalAggregate<Plan>) agg;
                 }
             } else {
                 newOutputExprs.add(ne);
@@ -266,7 +268,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
 
     private static Expression replaceAggFunc(AggregateFunction func, Slot inputSlot) {
         if (func instanceof Count) {
-            return new Sum(inputSlot);
+            return new Sum0(inputSlot);
         } else {
             return func.withChildren(inputSlot);
         }
