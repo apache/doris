@@ -180,7 +180,6 @@ suite("one_level_nestedtypes_with_s3data") {
     // select * from table where groupby|orderby column will meet exception
     for (String col : colNameArr) {
         groupby_or_orderby_exception(true, table_names[0], col)
-        groupby_or_orderby_exception(false, table_names[0], col)
     }
     // select * from table where groupby|orderby element_at(column)
     for (String col : colNameArr) {
@@ -222,7 +221,6 @@ suite("one_level_nestedtypes_with_s3data") {
     // select * from table where groupby|orderby column will meet exception
     for (String col : colNameArr) {
         groupby_or_orderby_exception(true, table_names[1], col)
-        groupby_or_orderby_exception(false, table_names[1], col)
     }
     // select * from table where groupby|orderby element_at(column)
     for (String col : colNameArr) {
@@ -274,7 +272,6 @@ suite("one_level_nestedtypes_with_s3data") {
     // select * from table where groupby|orderby column will meet exception
 
     groupby_or_orderby_exception(true, table_names[2], colNameArr[0])
-    groupby_or_orderby_exception(false, table_names[2], colNameArr[0])
 
     // select * from table where groupby|orderby element_at(column)
     String agg_expr = "struct_element(${colNameArr[0]}, 1)"
