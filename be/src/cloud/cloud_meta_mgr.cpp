@@ -579,7 +579,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         .error(st);
                 return st;
             }
-            tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
+            tablet->tablet_meta()->delete_bitmap()->merge(delete_bitmap);
             if (config::enable_mow_verbose_log && !resp.rowset_meta().empty() &&
                 delete_bitmap.cardinality() > 0) {
                 std::vector<std::string> new_rowset_msgs;
@@ -650,6 +650,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         .tag("new_rowsets(rowset,count,cardinality)",
                              fmt::format("[{}]", fmt::join(new_rowset_msgs, ", ")));
             }
+>>>>>>> e0302c141c82264f32bd3d533885bd723da9fd95
         }
         DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta", {
             auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
