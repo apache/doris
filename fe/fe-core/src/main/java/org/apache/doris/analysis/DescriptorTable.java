@@ -71,6 +71,11 @@ public class DescriptorTable {
         return d;
     }
 
+    /**
+     *  Create a new SlotDescriptor.
+     *  Add it to input TupleDescriptor, store it to slot descriptors map.
+     *  Return the newly created SlotDescriptor.
+     */
     public SlotDescriptor addSlotDescriptor(TupleDescriptor d) {
         SlotDescriptor result = new SlotDescriptor(slotIdGenerator.getNextId(), d);
         d.addSlot(result);

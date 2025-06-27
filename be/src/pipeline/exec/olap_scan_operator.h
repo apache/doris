@@ -43,6 +43,7 @@ public:
     OlapScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
@@ -206,6 +207,13 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
+
+    RuntimeProfile::Counter* _ann_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_range_search_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_topn_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_filter_timer = nullptr;
+    RuntimeProfile::Counter* _ann_index_range_search_timer = nullptr;
+    RuntimeProfile::Counter* _ann_index_topn_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

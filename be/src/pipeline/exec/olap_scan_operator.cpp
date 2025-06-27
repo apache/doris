@@ -18,6 +18,7 @@
 #include "pipeline/exec/olap_scan_operator.h"
 
 #include <fmt/format.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <memory>
 #include <numeric>
@@ -29,24 +30,43 @@
 #include "cloud/config.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
+#include "runtime/runtime_state.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/olap_scanner.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vslot_ref.h"
-#include "vec/functions/in.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
+
+    if (olap_scan_node.__isset.ann_sort_info || olap_scan_node.__isset.ann_sort_limit) {
+        DCHECK(olap_scan_node.__isset.ann_sort_info);
+        DCHECK(olap_scan_node.__isset.ann_sort_limit);
+        DCHECK(olap_scan_node.ann_sort_info.ordering_exprs.size() == 1);
+        const doris::TExpr& ordering_expr = olap_scan_node.ann_sort_info.ordering_exprs.front();
+        // order by 的表达式需要是一个 slot_ref，并且类型需要是虚拟列
+        DCHECK(ordering_expr.nodes[0].__isset.slot_ref);
+        DCHECK(ordering_expr.nodes[0].slot_ref.is_virtual_slot);
+        DCHECK(olap_scan_node.ann_sort_info.is_asc_order.size() == 1);
+        const bool asc = olap_scan_node.ann_sort_info.is_asc_order[0];
+        const size_t limit = olap_scan_node.ann_sort_limit;
+        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        _ann_topn_runtime =
+                vectorized::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
+    }
+
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(_sync_cloud_tablets(state));
     return Status::OK();
@@ -194,6 +214,17 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
     _inverted_index_downgrade_count_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT);
+
+    _ann_index_filter_counter = ADD_COUNTER(_segment_profile, "AnnIndexFiltered", TUnit::UNIT);
+    _ann_index_range_search_filter_counter = ADD_CHILD_COUNTER(
+            _segment_profile, "AnnIndexRangeSearchFiltered", TUnit::UNIT, "AnnIndexFiltered");
+    _ann_index_topn_filter_counter = ADD_CHILD_COUNTER(_segment_profile, "AnnIndexTopNFiltered",
+                                                       TUnit::UNIT, "AnnIndexFiltered");
+    _ann_index_filter_timer = ADD_TIMER(_segment_profile, "AnnIndexFilterTime");
+    _ann_index_topn_timer =
+            ADD_CHILD_TIMER(_segment_profile, "AnnIndexTopNTimer", "AnnIndexFilterTime");
+    _ann_index_range_search_timer =
+            ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeSearchTimer", "AnnIndexFilterTime");
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
@@ -350,6 +381,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     for (auto uid : p._olap_scan_node.output_column_unique_ids) {
         _maybe_read_column_ids.emplace(uid);
     }
+
+    LOG_INFO("Output column unique ids: {}", fmt::join(_maybe_read_column_ids, ", "));
 
     // ranges constructed from scan keys
     RETURN_IF_ERROR(_scan_keys.get_key_range(&_cond_ranges));
@@ -653,6 +686,10 @@ Status OlapScanLocalState::open(RuntimeState* state) {
         }
     }
 
+    if (_ann_topn_runtime) {
+        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.intermediate_row_desc()));
+    }
+
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
 
     return Status::OK();
@@ -831,6 +868,7 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
         : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
           _olap_scan_node(tnode.olap_scan_node),
           _cache_param(param) {
+    // _output_tuple_id of olap scan operator
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;

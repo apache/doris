@@ -52,6 +52,8 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/ann_topn_runtime.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
@@ -169,6 +171,8 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_index_iterators();
+
+    Status _apply_ann_topn_predicate();
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -214,9 +218,7 @@ private:
                                        vectorized::MutableColumns& column_block, size_t nrows);
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read);
     void _replace_version_col(size_t num_rows);
-    Status _init_current_block(vectorized::Block* block,
-                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector,
-                               uint32_t nrows_read_limit);
+    Status _init_return_columns(vectorized::Block* block, uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _collect_runtime_filter_predicate();
@@ -379,6 +381,9 @@ private:
     // storage type schema related to _schema, since column in segment may be different with type in _schema
     std::vector<vectorized::IndexFieldNameAndTypePair> _storage_name_and_type;
     // vector idx -> column iterarator
+    // should not use vector.
+    // if a column as 10000 columns, the size of _column_iterators will be 10000, even though involved
+    // columns of query is only 10.
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
     std::vector<std::unique_ptr<IndexIterator>> _index_iterators;
@@ -393,7 +398,7 @@ private:
     // whether lazy materialization read should be used.
     bool _lazy_materialization_read;
     // columns to read after predicate evaluation and remaining expr execute
-    std::vector<ColumnId> _non_predicate_columns;
+    std::vector<ColumnId> _cols_not_included_by_any_predicates;
     std::set<ColumnId> _common_expr_columns;
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
@@ -407,7 +412,7 @@ private:
             _vec_pred_column_ids; // keep columnId of columns for vectorized predicate evaluation
     std::vector<ColumnId>
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
-    std::vector<bool> _is_pred_column; // columns hold _init segmentIter
+
     std::map<uint32_t, bool> _need_read_data_indices;
     std::vector<bool> _is_common_expr_column;
     vectorized::MutableColumns _current_return_columns;
@@ -419,9 +424,9 @@ private:
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
-    std::vector<ColumnId> _predicate_column_ids;
-    std::vector<ColumnId> _non_predicate_column_ids;
-    // TODO: Should use std::vector<size_t>
+    std::vector<ColumnId> _cols_read_by_column_predicate;
+    std::vector<bool> _is_pred_column;
+    std::vector<ColumnId> _cols_read_by_common_expr;
     std::vector<ColumnId> _columns_to_filter;
     std::vector<ColumnId> _converted_column_ids;
     // TODO: Should use std::vector<size_t>
@@ -485,6 +490,8 @@ private:
     */
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
+
+    std::shared_ptr<vectorized::AnnTopNRuntime> _ann_topn_runtime;
 
     // cid to virtual column expr
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;

@@ -268,6 +268,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                         break;
                     }
                 }
+                // TODO: Why not add a flag for inverted index?
             }
         }
     }
@@ -293,6 +294,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                 break;
             case TIndexType::INVERTED:
                 index_pb->set_index_type(IndexType::INVERTED);
+                break;
+            case TIndexType::ANN:
+                index_pb->set_index_type(IndexType::ANN);
                 break;
             case TIndexType::BLOOMFILTER:
                 index_pb->set_index_type(IndexType::BLOOMFILTER);

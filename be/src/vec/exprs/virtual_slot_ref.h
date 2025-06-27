@@ -20,7 +20,7 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class VirtualSlotRef MOCK_REMOVE(final) : public VExpr {
     ENABLE_FACTORY_CREATOR(VirtualSlotRef);
 
@@ -48,6 +48,40 @@ public:
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         return _virtual_column_expr->evaluate_inverted_index(context, segment_num_rows);
     }
+    /*
+    select * from tbl where distance_function(columnA, ArrayLiterat) > 100
+    1. should not happen.
+    VirtualSlotRef
+    |
+    BINARY_PRED
+    |---------------------------------------|
+    |                                       |
+    FUNCTION_CALL(l2_distance_approximate)  IntLiteral
+    |
+    |-----------------------|
+    |                       |
+    SlotRef                 ArrayLiteral
+
+    2.
+    select distance_function(columnA, ArrayLiterat) as dis from tbl where dis > 100
+    BINARY_PRED
+    |
+    |---------------------------------------|
+    |                                       |
+    VIRTUAL_SLOT_REF                        IntLiteral
+    |
+    FUNCTION_CALL(l2_distance_approximate)
+    |
+    |-----------------------|
+    |                       |
+    SlotRef                 ArrayLiteral
+    */
+    Status evaluate_ann_range_search(
+            const RangeSearchRuntimeInfo& range_search_runtime,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+            roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) override;
 
 private:
     int _column_id;
@@ -57,5 +91,5 @@ private:
     std::shared_ptr<VExpr> _virtual_column_expr;
     DataTypePtr _column_data_type;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

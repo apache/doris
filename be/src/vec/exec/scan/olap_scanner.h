@@ -68,7 +68,7 @@ public:
         int64_t version;
         TabletReader::ReadSource read_source;
         int64_t limit;
-        bool aggregation;
+        bool is_pre_aggregation;
     };
 
     OlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);
@@ -93,8 +93,8 @@ private:
                                       const pipeline::FilterPredicates& filter_predicates,
                                       const std::vector<FunctionFilter>& function_filters);
 
-    [[nodiscard]] Status _init_return_columns();
-    [[nodiscard]] Status _init_variant_columns();
+    Status _init_return_columns();
+    Status _init_variant_columns();
 
     std::vector<OlapScanRange*> _key_ranges;
 
@@ -117,6 +117,10 @@ public:
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
     // The idx of vir_col in block to its data type.
     std::map<size_t, vectorized::DataTypePtr> _vir_col_idx_to_type;
+
+    std::shared_ptr<vectorized::AnnTopNRuntime> _ann_topn_runtime;
+
+    VectorSearchUserParams _vector_search_params;
 };
 } // namespace vectorized
 } // namespace doris

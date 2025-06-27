@@ -257,6 +257,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 }
                 // We got a new created block or a reused block.
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
+
+                _make_sure_virtual_col_is_materialized(scanner, free_block.get());
+
                 first_read = false;
                 if (!status.ok()) {
                     LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();

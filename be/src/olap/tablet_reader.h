@@ -153,7 +153,7 @@ public:
         // return_columns is init from query schema
         std::vector<ColumnId> return_columns;
         // output_columns only contain columns in OrderByExprs and outputExprs
-        std::set<int32_t> output_columns;
+        std::set<int32_t> output_column_unique_ids;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
@@ -198,6 +198,8 @@ public:
         std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
         std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
         std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+
+        std::shared_ptr<vectorized::AnnTopNRuntime> ann_topn_runtime;
     };
 
     TabletReader() = default;

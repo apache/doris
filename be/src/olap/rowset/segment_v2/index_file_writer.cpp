@@ -31,6 +31,7 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/tmp_file_dirs.h"
 #include "olap/tablet_schema.h"
 
 namespace doris::segment_v2 {
@@ -49,6 +50,10 @@ IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_p
           _can_use_ram_dir(can_use_ram_dir) {
     auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
     _tmp_dir = tmp_file_dir.native();
+    LOG_INFO(
+            "IndexFileWriter created with index_path_prefix: {}, rowset_id: {}, seg_id: {}, "
+            "tmp_file_dir: {}",
+            _index_path_prefix, _rowset_id, _seg_id, _tmp_dir);
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         _index_storage_format = std::make_unique<IndexStorageFormatV1>(this);
     } else {

@@ -77,6 +77,7 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
     size_t offset = 0;
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
     for (int cid = 0; cid < cols.size(); ++cid) {
+        // 如果没有在col_ids中找到cid, 说明这个列不需要被读取
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }

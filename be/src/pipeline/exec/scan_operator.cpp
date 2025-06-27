@@ -1262,6 +1262,7 @@ template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+
     RETURN_IF_ERROR(OperatorX<LocalStateType>::prepare(state));
 
     const auto slots = _output_tuple_desc->slots();
