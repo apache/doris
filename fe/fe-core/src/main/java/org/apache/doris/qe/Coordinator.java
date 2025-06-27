@@ -609,14 +609,19 @@ public class Coordinator implements CoordInterface {
     }
 
     protected void processFragmentAssignmentAndParams() throws Exception {
-        // prepare information
-        prepare();
-        // compute Fragment Instance
-        computeScanRangeAssignment();
+        try {
+            // prepare information
+            prepare();
+            // compute Fragment Instance
+            computeScanRangeAssignment();
 
-        computeFragmentExecParams();
+            computeFragmentExecParams();
+        } finally {
+            if (context != null && context.getExecutor() != null) {
+                context.getExecutor().getSummaryProfile().setDistributeTime();
+            }
+        }
     }
-
 
     public TPipelineFragmentParams getStreamLoadPlan() throws Exception {
         processFragmentAssignmentAndParams();

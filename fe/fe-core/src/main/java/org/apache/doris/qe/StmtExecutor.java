@@ -832,8 +832,10 @@ public class StmtExecutor {
             } catch (Exception e) {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
+            } finally {
+                profile.getSummaryProfile().setQueryPlanFinishTime();
             }
-            profile.getSummaryProfile().setQueryPlanFinishTime();
+
             handleQueryWithRetry(queryId);
         }
     }
@@ -861,7 +863,9 @@ public class StmtExecutor {
         }
         List<StatementBase> statements;
         try {
+            getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
+            getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
@@ -1546,7 +1550,6 @@ public class StmtExecutor {
                 }
             }
         }
-        profile.getSummaryProfile().setQueryAnalysisFinishTime();
         planner = new OriginalPlanner(analyzer);
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             planner.plan(parsedStmt, tQueryOptions);
