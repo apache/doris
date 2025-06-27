@@ -372,7 +372,7 @@ Status CloudBaseCompaction::modify_rowsets() {
                 .tag("num_output_delete_bitmap", output_rowset_delete_bitmap->delete_bitmap.size());
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
-
+    _state = CompactionState::COMMITTING;
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -382,6 +382,7 @@ Status CloudBaseCompaction::modify_rowsets() {
         g_base_compaction_hold_delete_bitmap_lock_time_ms << hold_delete_bitmap_lock_time_ms;
     }
     if (!st.ok()) {
+        _state = CompactionState::INITED;
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
         } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
@@ -463,7 +464,7 @@ Status CloudBaseCompaction::garbage_collection() {
 
 void CloudBaseCompaction::do_lease() {
     cloud::TabletJobInfoPB job;
-    if (_state == CompactionState::SUCCESS) {
+    if (_state == CompactionState::COMMITTING || _state == CompactionState::SUCCESS) {
         return;
     }
     auto idx = job.mutable_idx();
