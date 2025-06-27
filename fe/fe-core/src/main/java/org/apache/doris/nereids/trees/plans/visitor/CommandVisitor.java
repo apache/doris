@@ -178,6 +178,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewC
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
@@ -749,6 +750,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCreateFunctionCommand(ShowCreateFunctionCommand showCreateFunctionCommand, C context) {
         return visitCommand(showCreateFunctionCommand, context);
+    }
+
+    default R visitShowCreateUserCommand(ShowCreateUserCommand showCreateUserCommand, C context) {
+        return visitCommand(showCreateUserCommand, context);
     }
 
     default R visitShowCreateViewCommand(ShowCreateViewCommand showCreateViewCommand, C context) {
