@@ -94,7 +94,8 @@ public class EnforceMissingPropertiesHelper {
         // keep consistent in DistributionSpec with the oldOutputProperty
         PhysicalProperties newOutputProperty = new PhysicalProperties(
                 oldOutputProperty.getDistributionSpec(), required.getOrderSpec());
-        GroupExpression enforcer = required.getOrderSpec().addGlobalQuickSortEnforcer(groupExpression.getOwnerGroup());
+        GroupExpression enforcer = required.getOrderSpec().addGlobalQuickSortEnforcer(groupExpression.getOwnerGroup(),
+                groupExpression.getPlan().getHintContext());
 
         addEnforcerUpdateCost(enforcer, oldOutputProperty, newOutputProperty);
 
@@ -105,7 +106,8 @@ public class EnforceMissingPropertiesHelper {
         // keep consistent in DistributionSpec with the oldOutputProperty
         PhysicalProperties newOutputProperty = new PhysicalProperties(
                 oldOutputProperty.getDistributionSpec(), required.getOrderSpec());
-        GroupExpression enforcer = required.getOrderSpec().addLocalQuickSortEnforcer(groupExpression.getOwnerGroup());
+        GroupExpression enforcer = required.getOrderSpec().addLocalQuickSortEnforcer(groupExpression.getOwnerGroup(),
+                groupExpression.getPlan().getHintContext());
 
         addEnforcerUpdateCost(enforcer, oldOutputProperty, newOutputProperty);
 

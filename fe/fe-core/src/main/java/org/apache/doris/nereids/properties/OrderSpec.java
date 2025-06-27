@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -27,6 +28,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Spec of sort order.
@@ -64,10 +66,10 @@ public class OrderSpec {
     /**
      * add a local quick sort as order enforcer on child group.
      */
-    public GroupExpression addLocalQuickSortEnforcer(Group child) {
+    public GroupExpression addLocalQuickSortEnforcer(Group child, Optional<HintContext> hintContext) {
         return new GroupExpression(
                 new PhysicalQuickSort<>(orderKeys, SortPhase.LOCAL_SORT, child.getLogicalProperties(),
-                        new GroupPlan(child), child.getLogicalExpression().getPlan().getHintContext()),
+                        new GroupPlan(child), hintContext),
                 Lists.newArrayList(child)
         );
     }
@@ -75,10 +77,10 @@ public class OrderSpec {
     /**
      * add a global quick sort as order enforcer on child group.
      */
-    public GroupExpression addGlobalQuickSortEnforcer(Group child) {
+    public GroupExpression addGlobalQuickSortEnforcer(Group child, Optional<HintContext> hintContext) {
         return new GroupExpression(
                 new PhysicalQuickSort<>(orderKeys, SortPhase.MERGE_SORT, child.getLogicalProperties(),
-                        new GroupPlan(child), child.getLogicalExpression().getPlan().getHintContext()),
+                        new GroupPlan(child), hintContext),
                 Lists.newArrayList(child)
         );
     }
