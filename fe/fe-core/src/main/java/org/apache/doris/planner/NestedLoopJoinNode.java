@@ -27,7 +27,6 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNestedLoopJoinNode;
@@ -201,14 +200,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         msg.node_type = TPlanNodeType.CROSS_JOIN_NODE;
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
-        joinConjuncts = Expr.substituteList(joinConjuncts, combinedChildSmap, analyzer, false);
-        computeCrossRuntimeFilterExpr();
-        computeOutputTuple(analyzer);
-    }
 
     private void computeCrossRuntimeFilterExpr() {
         for (int i = conjuncts.size() - 1; i >= 0; --i) {

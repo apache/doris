@@ -17,32 +17,23 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.GroupByClause;
 import org.apache.doris.analysis.GroupingInfo;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
-import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TRepeatNode;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -110,61 +101,6 @@ public class RepeatNode extends PlanNode {
         }
 
         return slotIdList;
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        avgRowSize = 0;
-        numNodes = 1;
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Sort: cardinality=" + cardinality);
-        }
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        Preconditions.checkState(conjuncts.isEmpty());
-        ExprSubstitutionMap childSmap = getCombinedChildSmap();
-        groupByClause.substituteGroupingExprs(groupingInfo.getVirtualSlotRefs(), childSmap, analyzer);
-        groupingInfo.substitutePreRepeatExprs(childSmap, analyzer);
-        outputSmap = groupingInfo.getOutputTupleSmap();
-        conjuncts = Expr.substituteList(conjuncts, outputSmap, analyzer, false);
-        outputTupleDesc = groupingInfo.getOutputTupleDesc();
-        List<TupleId> inputTupleIds = input.getOutputTupleIds();
-        if (inputTupleIds.size() == 1) {
-            // used for MaterializedViewSelector getTableIdToColumnNames
-            outputTupleDesc.setTable(analyzer.getTupleDesc(inputTupleIds.get(0)).getTable());
-        }
-
-        outputTupleDesc.computeStatAndMemLayout();
-
-        List<Set<SlotId>> groupingIdList = new ArrayList<>();
-        List<SlotDescriptor> groupingSlotDescList = groupingInfo.getGroupingSlotDescList();
-        for (BitSet bitSet : Collections.unmodifiableList(groupingInfo.getGroupingIdList())) {
-            Set<SlotId> slotIdSet = new HashSet<>();
-            for (int i = 0; i < groupingSlotDescList.size(); i++) {
-                if (bitSet.get(i)) {
-                    slotIdSet.add(groupingSlotDescList.get(i).getId());
-                }
-            }
-            groupingIdList.add(slotIdSet);
-        }
-
-        this.repeatSlotIdList = buildIdSetList(groupingIdList);
-        allSlotId = new HashSet<>();
-        for (Set<Integer> s : this.repeatSlotIdList) {
-            allSlotId.addAll(s);
-        }
-        this.groupingList = groupingInfo.genGroupingList(groupByClause.getGroupingExprs());
-        for (TupleId id : tupleIds) {
-            analyzer.getTupleDesc(id).setIsMaterialized(true);
-        }
-        computeTupleStatAndMemLayout(analyzer);
-        computeStats(analyzer);
     }
 
     @Override

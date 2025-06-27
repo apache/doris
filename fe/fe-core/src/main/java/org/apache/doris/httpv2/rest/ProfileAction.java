@@ -17,8 +17,12 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.profile.ProfileManager;
+import org.apache.doris.common.profile.ProfileManager.ProfileElement;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -45,13 +49,21 @@ public class ProfileAction extends RestBaseController {
     @RequestMapping(path = "/api/profile", method = RequestMethod.GET)
     protected Object profile(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         String queryId = request.getParameter("query_id");
         if (Strings.isNullOrEmpty(queryId)) {
             return ResponseEntityBuilder.badRequest("Missing query_id");
         }
-
+        ProfileElement profileElementObject = ProfileManager.getInstance().findProfileElementObject(queryId);
+        if (profileElementObject == null) {
+            return ResponseEntityBuilder.okWithCommonError("query id " + queryId + " not found.");
+        }
+        String user = profileElementObject.infoStrings.get(SummaryProfile.USER);
+        if (!ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(user) || Env.getCurrentEnv()
+                .getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            throw new UnauthorizedException(
+                    "Access denied; You can only view your own profile unless you have admin_priv.");
+        }
         String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);
         if (queryProfileStr == null) {
             return ResponseEntityBuilder.okWithCommonError("query id " + queryId + " not found.");
