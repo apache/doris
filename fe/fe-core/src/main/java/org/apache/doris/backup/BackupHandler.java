@@ -1011,7 +1011,13 @@ public class BackupHandler extends MasterDaemon implements Writable {
     private void checkAndFilterRestoreObjsExistInSnapshot(BackupJobInfo jobInfo,
                                                           RestoreCommand command)
             throws DdlException {
-        // case1: exclude table ref
+
+        // case1: all table in job info
+        if (command.getTableRefInfos().isEmpty()) {
+            return;
+        }
+
+        // case2: exclude table ref
         if (command.isExclude()) {
             for (TableRefInfo tableRefInfo : command.getTableRefInfos()) {
                 TableRef tableRef = tableRefInfo.translateToLegacyTableRef();
@@ -1030,7 +1036,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
             return;
         }
-        // case2: include table ref
+        // case3: include table ref
         Set<String> olapTableNames = Sets.newHashSet();
         Set<String> viewNames = Sets.newHashSet();
         Set<String> odbcTableNames = Sets.newHashSet();
