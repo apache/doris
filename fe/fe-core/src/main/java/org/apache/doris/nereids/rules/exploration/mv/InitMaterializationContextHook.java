@@ -32,6 +32,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.ConnectContext;
 
@@ -60,6 +61,15 @@ public class InitMaterializationContextHook implements PlannerHook {
 
     @Override
     public void afterRewrite(NereidsPlanner planner) {
+        CascadesContext cascadesContext = planner.getCascadesContext();
+        // collect partitions table used, this is for query rewrite by materialized view
+        // this is needed before init hook, because compare partition version in init hook would use this
+        MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(), cascadesContext);
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsCollectTablePartitionFinishTime();
+        }
         initMaterializationContext(planner.getCascadesContext());
     }
 
@@ -142,12 +152,17 @@ public class InitMaterializationContextHook implements PlannerHook {
                 // so regenerate the struct info table bitset
                 StructInfo mvStructInfo = mtmvCache.getStructInfo();
                 BitSet tableBitSetInCurrentCascadesContext = new BitSet();
-                mvStructInfo.getRelations().forEach(relation -> tableBitSetInCurrentCascadesContext.set(
-                        cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt()));
+                BitSet relationIdBitSetInCurrentCascadesContext = new BitSet();
+                mvStructInfo.getRelations().forEach(relation -> {
+                    tableBitSetInCurrentCascadesContext.set(
+                            cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt());
+                    relationIdBitSetInCurrentCascadesContext.set(relation.getRelationId().asInt());
+                });
                 asyncMaterializationContext.add(new AsyncMaterializationContext(materializedView,
                         mtmvCache.getLogicalPlan(), mtmvCache.getOriginalPlan(), ImmutableList.of(),
                         ImmutableList.of(), cascadesContext,
-                        mtmvCache.getStructInfo().withTableBitSet(tableBitSetInCurrentCascadesContext)));
+                        mtmvCache.getStructInfo().withTableBitSet(tableBitSetInCurrentCascadesContext,
+                                relationIdBitSetInCurrentCascadesContext)));
             } catch (Exception e) {
                 LOG.warn(String.format("MaterializationContext init mv cache generate fail, current queryId is %s",
                         cascadesContext.getConnectContext().getQueryIdentifier()), e);
