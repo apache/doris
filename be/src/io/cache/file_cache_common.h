@@ -48,6 +48,9 @@ struct UInt128Wrapper {
     explicit UInt128Wrapper(const uint128_t& value) : value_(value) {}
 
     bool operator==(const UInt128Wrapper& other) const { return value_ == other.value_; }
+
+    uint64_t high() const { return static_cast<uint64_t>(value_ >> 64); }
+    uint64_t low() const { return static_cast<uint64_t>(value_); }
 };
 
 struct ReadStatistics {
