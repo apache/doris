@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -338,6 +339,12 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
                 if (ctx == null) {
                     tmpCreate = true;
                     ctx = ConnectContextUtil.getDummyCtx(dbName);
+                } else {
+                    if (ctx.getStatementContext() == null) {
+                        StatementContext statementContext = new StatementContext();
+                        statementContext.setConnectContext(ctx);
+                        ctx.setStatementContext(statementContext);
+                    }
                 }
                 command.validate(ctx);
             } finally {
