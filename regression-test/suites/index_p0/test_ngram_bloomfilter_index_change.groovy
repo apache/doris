@@ -63,8 +63,6 @@ suite("test_ngram_bloomfilter_index_change") {
     def query = "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/  * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     // Test Case 1: Test with enable_add_index_for_new_data = true
     logger.info("=== Test Case 1: enable_add_index_for_new_data = true ===")
-    // Set enable_add_index_for_new_data = true
-    sql "set enable_add_index_for_new_data = true"
     // Create table
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
@@ -87,7 +85,7 @@ suite("test_ngram_bloomfilter_index_change") {
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false"
+    "disable_auto_compaction" = "true"
     );
     """
     
@@ -108,6 +106,7 @@ suite("test_ngram_bloomfilter_index_change") {
             assertTrue(profileString.contains("RowsBloomFilterFiltered:  0"))
         }
     }
+    sql "set enable_add_index_for_new_data = true"
 
     // Add NGRAM Bloom Filter index (should be immediate in light mode)
     sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
@@ -177,7 +176,7 @@ suite("test_ngram_bloomfilter_index_change") {
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false"
+    "disable_auto_compaction" = "true"
     );
     """
     // Insert test data
@@ -276,7 +275,7 @@ suite("test_ngram_bloomfilter_index_change") {
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false"
+    "disable_auto_compaction" = "true"
     );
     """
 
