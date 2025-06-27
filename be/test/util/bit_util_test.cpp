@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <bit>
 #include <boost/utility/binary.hpp>
 
 #include "gtest/gtest_pred_impl.h"
@@ -44,12 +45,12 @@ TEST(BitUtil, BigEndianToHost) {
     wide::UInt256 v256 =
             wide::UInt256(0x123456789abcdef0) << 192 | wide::UInt256(0x123456789abcdef0) << 128 |
             wide::UInt256(0x123456789abcdef0) << 64 | wide::UInt256(0x123456789abcdef0);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v16), 0x3412);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v32), 0x78563412);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v64), 0xf0debc9a78563412);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v128),
+    EXPECT_EQ(to_endian<std::endian::big>(v16), 0x3412);
+    EXPECT_EQ(to_endian<std::endian::big>(v32), 0x78563412);
+    EXPECT_EQ(to_endian<std::endian::big>(v64), 0xf0debc9a78563412);
+    EXPECT_EQ(to_endian<std::endian::big>(v128),
               ((__int128)0xf0debc9a78563412LL << 64) | 0xf0debc9a78563412LL);
-    EXPECT_EQ(BitUtil::big_endian_to_host(v256),
+    EXPECT_EQ(to_endian<std::endian::big>(v256),
               wide::UInt256(0xf0debc9a78563412) << 192 | wide::UInt256(0xf0debc9a78563412) << 128 |
                       wide::UInt256(0xf0debc9a78563412) << 64 | wide::UInt256(0xf0debc9a78563412));
 }
