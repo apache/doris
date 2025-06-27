@@ -140,8 +140,7 @@ public:
     void put(const std::initializer_list<std::string>& dim_values, ValType value) {
         BvarType* stats = counter_.get_stats(std::list<std::string>(dim_values));
         if (stats) {
-            if constexpr (std::is_same_v<BvarType, bvar::Status<double>> ||
-                          std::is_same_v<BvarType, bvar::Status<long>>) {
+            if constexpr (is_bvar_status<BvarType>::value) {
                 stats->set_value(value);
             } else {
                 *stats << value;
@@ -171,6 +170,10 @@ private:
     struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
     template <>
     struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
+    template <typename T>
+    struct is_bvar_status : std::false_type {};
+    template <typename T>
+    struct is_bvar_status<bvar::Status<T>> : std::true_type {};
 
     bvar::MultiDimension<BvarType> counter_;
 };
@@ -479,6 +482,6 @@ extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter;
 extern bvar::Status<int64_t> g_bvar_meta_ranges_txn_count;
 extern bvar::Status<int64_t> g_bvar_meta_ranges_meta_count;
 extern bvar::Status<int64_t> g_bvar_meta_ranges_recycle_count;
-extern mBvarLongStatus g_bvar_meta_ranges_txn_instance_tag_count;
-extern mBvarLongStatus g_bvar_meta_ranges_meta_instance_tag_count;
-extern mBvarLongStatus g_bvar_meta_ranges_recycle_instance_tag_count;
+extern mBvarStatus<int64_t> g_bvar_meta_ranges_txn_instance_tag_count;
+extern mBvarStatus<int64_t> g_bvar_meta_ranges_meta_instance_tag_count;
+extern mBvarStatus<int64_t> g_bvar_meta_ranges_recycle_instance_tag_count;
