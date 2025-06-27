@@ -168,7 +168,8 @@ inline bool parse_ipv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t fir
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parse_ipv4(const char* src, const char* end, unsigned char* dst) {
-    if (parse_ipv4(src, [&src, end]() { return src == end; }, dst)) {
+    if (parse_ipv4(
+                src, [&src, end]() { return src == end; }, dst)) {
         return src;
     }
     return nullptr;
@@ -181,7 +182,8 @@ inline bool parse_ipv4_whole(const char* src, const char* end, unsigned char* ds
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parse_ipv4(const char* src, unsigned char* dst) {
-    if (parse_ipv4(src, []() { return false; }, dst)) {
+    if (parse_ipv4(
+                src, []() { return false; }, dst)) {
         return src;
     }
     return nullptr;
@@ -459,7 +461,9 @@ inline bool parse_ipv6(T*& src, EOFfunction eof, unsigned char* dst, int32_t fir
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parse_ipv6(const char* src, const char* end, unsigned char* dst) {
-    if (parse_ipv6(src, [&src, end]() { return src == end; }, dst)) return src;
+    if (parse_ipv6(
+                src, [&src, end]() { return src == end; }, dst))
+        return src;
     return nullptr;
 }
 
@@ -470,7 +474,9 @@ inline bool parse_ipv6_whole(const char* src, const char* end, unsigned char* ds
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parse_ipv6(const char* src, unsigned char* dst) {
-    if (parse_ipv6(src, []() { return false; }, dst)) return src;
+    if (parse_ipv6(
+                src, []() { return false; }, dst))
+        return src;
     return nullptr;
 }
 
