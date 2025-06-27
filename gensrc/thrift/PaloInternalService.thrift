@@ -362,6 +362,7 @@ struct TQueryOptions {
   150: optional bool enable_runtime_filter_partition_prune = true;
 
   163: optional bool inverted_index_compatible_read = false
+  164: optional bool check_orc_init_sargs_success = false
   // upgrade options. keep them same in every branch.
   200: optional bool new_is_ip_address_in_range = false;
 
