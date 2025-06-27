@@ -320,6 +320,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 "CumulativeCompaction.modify_rowsets.trigger_abort_job_failed for tablet_id {}",
                 cloud_tablet()->tablet_id());
     });
+    _state = CompactionState::COMMITTING;
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -332,6 +333,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
     }
     if (!st.ok()) {
+        _state = CompactionState::INITED;
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
         } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
@@ -613,7 +615,7 @@ void CloudCumulativeCompaction::update_cumulative_point() {
 
 void CloudCumulativeCompaction::do_lease() {
     TEST_INJECTION_POINT_RETURN_WITH_VOID("CloudCumulativeCompaction::do_lease");
-    if (_state == CompactionState::SUCCESS) {
+    if (_state == CompactionState::COMMITTING || _state == CompactionState::SUCCESS) {
         return;
     }
     cloud::TabletJobInfoPB job;
