@@ -516,12 +516,6 @@ AZURE_NAME="azure-core_1.10.3.tar.gz"
 AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.10.3"
 AZURE_MD5SUM="aa470cfdba93dd69a6f3112a6958c13c"
 
-# libdragonbox for faster double/float to string
-DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
-DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
-DRAGONBOX_SOURCE=dragonbox-1.1.3
-DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
-
 # icu
 ICU_DOWNLOAD="https://github.com/unicode-org/icu/archive/refs/tags/release-69-1.tar.gz"
 ICU_NAME=release-69-1.tar.gz
@@ -629,7 +623,6 @@ export TP_ARCHIVES=(
     'ALI_SDK'
     'BASE64'
     'AZURE'
-    'DRAGONBOX'
     'ICU'
     'JINDOFS'
     'PUGIXML'
