@@ -37,6 +37,21 @@ protected:
     void TearDown() override {}
 };
 
+std::string bytesToString(const char* data, size_t size) {
+    if (data == nullptr) {
+        return "(null)";
+    }
+
+    std::ostringstream oss;
+    for (size_t i = 0; i < size; ++i) {
+        oss << static_cast<unsigned int>(static_cast<unsigned char>(data[i]));
+        if (i < size - 1) {
+            oss << " ";
+        }
+    }
+    return oss.str();
+}
+
 TEST_F(JsonbDocumentTest, writer) {
     JsonbWriter writer;
     writer.writeStartObject();
@@ -206,6 +221,7 @@ TEST_F(JsonbDocumentTest, writer) {
     {
         auto column_string = vectorized::ColumnString::create();
         JsonbWriter writer;
+        writer.reset();
         vectorized::Decimal128V3 decimal_value(123456);
         if (!writer.writeDecimal(decimal_value, 12, 5)) {
             return;
@@ -213,6 +229,7 @@ TEST_F(JsonbDocumentTest, writer) {
 
         column_string->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
         const auto jsonb_val = column_string->get_data_at(0);
+        LOG_WARNING("yxc test").tag("jsonb", bytesToString(jsonb_val.data, jsonb_val.size));
 
         if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
             return;
