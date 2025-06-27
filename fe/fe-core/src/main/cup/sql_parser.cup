@@ -1354,10 +1354,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterViewStmt(tbl, columns, view_def);
     :}
-    | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
-    {:
-        RESULT = new AlterResourceStmt(resourceName, properties);
-    :}
     | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
@@ -1389,10 +1385,6 @@ alter_stmt ::=
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
-    :}
-    | KW_ALTER KW_STORAGE KW_POLICY ident_or_text:policyName opt_properties:properties
-    {:
-        RESULT = new AlterPolicyStmt(policyName, properties);
     :}
     | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
     {:
