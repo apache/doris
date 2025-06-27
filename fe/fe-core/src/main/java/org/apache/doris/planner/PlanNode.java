@@ -163,8 +163,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected int nereidsId = -1;
 
     private List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
-    private final List<TupleDescriptor> intermediateOutputTupleDescList = Lists.newArrayList();
-    private final List<List<Expr>> intermediateProjectListList = Lists.newArrayList();
+    private List<TupleDescriptor> intermediateOutputTupleDescList = Lists.newArrayList();
+    private List<List<Expr>> intermediateProjectListList = Lists.newArrayList();
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
             StatisticalType statisticalType) {
@@ -635,6 +635,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
         if (this instanceof ExchangeNode) {
             msg.num_children = 0;
+            return;
         } else {
             msg.num_children = children.size();
             for (PlanNode child : children) {
@@ -772,9 +773,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected String debugString() {
         // not using Objects.toStrHelper because
-        String output = "preds=" + Expr.debugString(conjuncts)
-                + " limit=" + limit;
-        return output;
+        StringBuilder output = new StringBuilder();
+        output.append("preds=" + Expr.debugString(conjuncts));
+        output.append(" limit=" + Long.toString(limit));
+        return output.toString();
     }
 
     public static String getExplainString(List<? extends Expr> exprs) {
@@ -895,10 +897,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public String getPlanTreeExplainStr() {
-        String sb = "[" + getId().asInt() + ": " + getPlanNodeName() + "]"
-                + "\n[Fragment: " + getFragmentSeqenceNum() + "]"
-                + "\n" + getNodeExplainString("", TExplainLevel.BRIEF);
-        return sb;
+        StringBuilder sb = new StringBuilder();
+        sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
+        sb.append("\n[Fragment: ").append(getFragmentSeqenceNum()).append("]");
+        sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
+        return sb.toString();
     }
 
     protected void addRuntimeFilter(RuntimeFilter filter) {
