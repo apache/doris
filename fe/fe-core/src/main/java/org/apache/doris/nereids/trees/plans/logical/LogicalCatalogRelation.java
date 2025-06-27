@@ -33,6 +33,7 @@ import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -44,6 +45,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
@@ -63,22 +65,40 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     protected final ImmutableList<Slot> operativeSlots;
 
+    // use for virtual slot
+    protected final List<NamedExpression> virtualColumns;
+
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier) {
         this(relationId, type, table, qualifier, Optional.empty(), Optional.empty());
     }
 
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        this(relationId, type, table, qualifier, groupExpression, logicalProperties, ImmutableList.of());
+        this(relationId, type, table, qualifier, ImmutableList.of(), ImmutableList.of(),
+                groupExpression, logicalProperties);
     }
 
+    /**
+     * Constructs a LogicalCatalogRelation with specified parameters.
+     *
+     * @param relationId Unique identifier for this relation
+     * @param type Plan type
+     * @param table Table object associated with this relation
+     * @param qualifier List of qualifiers, typically [catalogName, databaseName]
+     * @param operativeSlots Collection of operative slots
+     * @param virtualColumns List of virtual columns
+     * @param groupExpression Optional group expression
+     * @param logicalProperties Optional logical properties
+     */
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            Collection<Slot> operativeSlots) {
+            Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(relationId, type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = Utils.fastToImmutableList(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.operativeSlots = Utils.fastToImmutableList(operativeSlots);
+        this.virtualColumns = Utils.fastToImmutableList(Objects.requireNonNull(virtualColumns,
+                "virtualColumns can not be null"));
     }
 
     @Override
@@ -112,10 +132,16 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public List<Slot> computeOutput() {
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
-        return table.getBaseSchema()
+        Builder<Slot> slots = ImmutableList.builder();
+        table.getBaseSchema()
                 .stream()
                 .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
-                .collect(ImmutableList.toImmutableList());
+                .forEach(slots::add);
+        // add virtual slots
+        for (NamedExpression virtualColumn : virtualColumns) {
+            slots.add(virtualColumn.toSlot());
+        }
+        return slots.build();
     }
 
     @Override
@@ -135,6 +161,15 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      */
     public String qualifiedName() {
         return Utils.qualifiedName(qualifier, table.getName());
+    }
+
+    @Override
+    public List<Slot> getOperativeSlots() {
+        return operativeSlots;
+    }
+
+    public List<NamedExpression> getVirtualColumns() {
+        return virtualColumns;
     }
 
     @Override
@@ -208,5 +243,29 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public void computeFd(DataTrait.Builder builder) {
         // don't generate any equal pair
+    }
+
+    public LogicalCatalogRelation withVirtualColumns(List<NamedExpression> virtualColumns) {
+        return this;
+    }
+
+    public abstract LogicalCatalogRelation withRelationId(RelationId relationId);
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        LogicalCatalogRelation that = (LogicalCatalogRelation) o;
+        return Objects.equals(operativeSlots, that.operativeSlots)
+                && Objects.equals(virtualColumns, that.virtualColumns);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
     }
 }

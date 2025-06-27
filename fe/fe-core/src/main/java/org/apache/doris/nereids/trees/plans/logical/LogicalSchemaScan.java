@@ -20,11 +20,14 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -41,18 +44,31 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     private final Optional<String> schemaTable;
 
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier) {
-        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier);
-        this.filterPushed = false;
-        this.schemaCatalog = Optional.empty();
-        this.schemaDatabase = Optional.empty();
-        this.schemaTable = Optional.empty();
+        this(id, table, qualifier, false,
+                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(),
+                Optional.empty(), Optional.empty());
     }
 
-    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            boolean filterPushed, Optional<String> schemaCatalog, Optional<String> schemaDatabase,
-            Optional<String> schemaTable) {
-        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties);
+    /**
+     * Constructs a LogicalSchemaScan with the specified parameters.
+     *
+     * @param id Unique identifier for this relation
+     * @param table The table interface representing the underlying data source
+     * @param qualifier The qualifier list representing the path to this table
+     * @param filterPushed Whether filter has been pushed down to this scan operation
+     * @param schemaCatalog Optional catalog name in the schema
+     * @param schemaDatabase Optional database name in the schema
+     * @param schemaTable Optional table name in the schema
+     * @param virtualColumns List of virtual columns to be included in the scan
+     * @param groupExpression Optional group expression for memo representation
+     * @param logicalProperties Optional logical properties for this plan node
+     */
+    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier, boolean filterPushed,
+            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
+            List<NamedExpression> virtualColumns,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, ImmutableList.of(), virtualColumns,
+                groupExpression, logicalProperties);
         this.filterPushed = filterPushed;
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
@@ -76,39 +92,34 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     }
 
     @Override
-    public TableIf getTable() {
-        return table;
-    }
-
-    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalSchemaScan(this, context);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSchemaScan(relationId, table, qualifier,
-                groupExpression, Optional.of(getLogicalProperties()), filterPushed,
-                schemaCatalog, schemaDatabase, schemaTable);
+        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns,
+                groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalSchemaScan(relationId, table, qualifier, groupExpression, logicalProperties, filterPushed,
-            schemaCatalog, schemaDatabase, schemaTable);
+        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, groupExpression, logicalProperties);
     }
 
     @Override
     public LogicalSchemaScan withRelationId(RelationId relationId) {
-        return new LogicalSchemaScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), filterPushed,
-            schemaCatalog, schemaDatabase, schemaTable);
+        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, Optional.empty(), Optional.empty());
     }
 
     public LogicalSchemaScan withSchemaIdentifier(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
             Optional<String> schemaTable) {
-        return new LogicalSchemaScan(relationId, table, qualifier, Optional.empty(),
-            Optional.of(getLogicalProperties()), true, schemaCatalog, schemaDatabase, schemaTable);
+        return new LogicalSchemaScan(relationId, table, qualifier, true, schemaCatalog, schemaDatabase, schemaTable,
+                virtualColumns, Optional.empty(), Optional.of(getLogicalProperties()));
     }
 
     @Override
