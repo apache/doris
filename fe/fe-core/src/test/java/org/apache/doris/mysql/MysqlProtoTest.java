@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
@@ -76,6 +77,7 @@ public class MysqlProtoTest {
 
     @Before
     public void setUp() throws DdlException, AuthenticationException, IOException {
+        FeConstants.runningUnitTest = true;
 
         // mock auth
         new Expectations() {
