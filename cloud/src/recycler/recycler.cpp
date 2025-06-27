@@ -2236,7 +2236,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
     const std::string task_name = "recycle_tmp_rowsets";
     int64_t num_scanned = 0;
     int64_t num_expired = 0;
-    int64_t num_recycled = 0;
+    std::atomic_long num_recycled = 0;
     size_t expired_rowset_size = 0;
     size_t total_rowset_key_size = 0;
     size_t total_rowset_value_size = 0;
@@ -2261,15 +2261,18 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
-                .tag("num_recycled", num_recycled)
+                .tag("num_recycled", num_recycled.load())
                 .tag("total_rowset_meta_key_size_scanned", total_rowset_key_size)
                 .tag("total_rowset_meta_value_size_scanned", total_rowset_value_size)
                 .tag("expired_rowset_meta_size_recycled", expired_rowset_size);
     };
 
     // Elements in `tmp_rowset_keys` has the same lifetime as `it`
-    std::vector<std::string_view> tmp_rowset_keys;
+    std::vector<std::string> tmp_rowset_keys;
     std::vector<doris::RowsetMetaCloudPB> tmp_rowsets;
+    auto worker_pool = std::make_unique<SimpleThreadPool>(
+            config::instance_recycler_worker_pool_size, "recycle_tmp_rowsets");
+    worker_pool->start();
 
     int64_t earlest_ts = std::numeric_limits<int64_t>::max();
     auto calc_expiration = [&earlest_ts, this](const doris::RowsetMetaCloudPB& rowset) {
@@ -2330,7 +2333,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                 return -1;
             }
             // might be a delete pred rowset
-            tmp_rowset_keys.push_back(k);
+            tmp_rowset_keys.emplace_back(k);
             return 0;
         }
         // TODO(plat1ko): check rowset not referenced
@@ -2341,32 +2344,42 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                   << " creation_time=" << rowset.creation_time() << " num_scanned=" << num_scanned
                   << " num_expired=" << num_expired;
 
-        tmp_rowset_keys.push_back(k);
+        tmp_rowset_keys.emplace_back(k);
         if (rowset.num_segments() > 0) { // Skip empty rowset
             tmp_rowsets.push_back(std::move(rowset));
         }
         return 0;
     };
 
-    auto loop_done = [&tmp_rowset_keys, &tmp_rowsets, &num_recycled, this]() -> int {
-        DORIS_CLOUD_DEFER {
-            tmp_rowset_keys.clear();
-            tmp_rowsets.clear();
-        };
-        if (delete_rowset_data(tmp_rowsets, RowsetRecyclingState::TMP_ROWSET) != 0) {
-            LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
-            return -1;
-        }
-        if (txn_remove(txn_kv_.get(), tmp_rowset_keys) != 0) {
-            LOG(WARNING) << "failed to delete tmp rowset kv, instance_id=" << instance_id_;
-            return -1;
-        }
-        num_recycled += tmp_rowset_keys.size();
+    auto loop_done = [&, this]() -> int {
+        std::vector<std::string> tmp_rowset_keys_to_delete;
+        std::vector<doris::RowsetMetaCloudPB> tmp_rowsets_to_delete;
+        tmp_rowset_keys_to_delete.swap(tmp_rowset_keys);
+        tmp_rowsets_to_delete.swap(tmp_rowsets);
+        worker_pool->submit([&, tmp_rowset_keys_to_delete = std::move(tmp_rowset_keys_to_delete),
+                             tmp_rowsets_to_delete = std::move(tmp_rowsets_to_delete)]() {
+            if (delete_rowset_data(tmp_rowsets_to_delete, RowsetRecyclingState::TMP_ROWSET) != 0) {
+                LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
+                return;
+            }
+            if (txn_remove(txn_kv_.get(), tmp_rowset_keys_to_delete) != 0) {
+                LOG(WARNING) << "failed to delete tmp rowset kv, instance_id=" << instance_id_;
+                return;
+            }
+            LOG(INFO) << "finish recycle tmp rowsets, num_recycled="
+                      << tmp_rowset_keys_to_delete.size() << " instance_id=" << instance_id_;
+            num_recycled += tmp_rowset_keys_to_delete.size();
+            return;
+        });
         return 0;
     };
 
-    return scan_and_recycle(tmp_rs_key0, tmp_rs_key1, std::move(handle_rowset_kv),
-                            std::move(loop_done));
+    int ret = scan_and_recycle(tmp_rs_key0, tmp_rs_key1, std::move(handle_rowset_kv),
+                               std::move(loop_done));
+
+    worker_pool->stop();
+
+    return ret;
 }
 
 int InstanceRecycler::scan_and_recycle(
