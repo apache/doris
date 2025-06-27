@@ -23,6 +23,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowid_conversion.h"
 #include "runtime/runtime_state.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -50,7 +51,7 @@ struct RowsetReaderContext {
     // filter_block arguments
     vectorized::VExprContextSPtrs filter_block_conjuncts;
     // projection columns: the set of columns rowset reader should return
-    const std::vector<uint32_t>* return_columns = nullptr;
+    const std::vector<ColumnId>* return_columns = nullptr;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
@@ -83,6 +84,11 @@ struct RowsetReaderContext {
     // slots that cast may be eliminated in storage layer
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
     int64_t ttl_seconds = 0;
+    std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+    std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
+    std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+
+    std::shared_ptr<vectorized::AnnTopNRuntime> ann_topn_runtime;
 };
 
 } // namespace doris

@@ -21,11 +21,13 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <iterator>
 #include <memory>
 #include <ostream>
 #include <set>
 #include <utility>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
@@ -41,6 +43,7 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
@@ -454,6 +457,7 @@ VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader
 
 Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
     _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
+    // WHy create a block here?
     if (!_get_data_by_ref) {
         _block = std::make_shared<Block>(_schema.create_block(
                 _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
@@ -480,6 +484,7 @@ void VCollectIterator::Level0Iterator::init_for_union(bool get_data_by_ref) {
 
 Status VCollectIterator::Level0Iterator::ensure_first_row_ref() {
     DCHECK(!_get_data_by_ref);
+    // TODO: Why not return error directly?
     auto s = refresh_current_row();
     _ref = {_block, 0, false};
 
@@ -504,6 +509,7 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
         }
 
         if (!_is_empty() && _current_valid()) {
+            LOG_INFO("Level0Iterator refresh current row end");
             return Status::OK();
         } else {
             _reset();
@@ -552,6 +558,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
     if (_ref.row_pos <= 0 && _ref.block != nullptr && UNLIKELY(_ref.block->rows() > 0)) {
         block->swap(*_ref.block);
         _ref.reset();
+        LOG_INFO("Level0Iterator next block do swap");
         return Status::OK();
     } else {
         if (_rs_reader == nullptr) {

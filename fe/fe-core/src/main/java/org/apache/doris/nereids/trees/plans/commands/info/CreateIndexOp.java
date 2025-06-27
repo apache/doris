@@ -20,7 +20,13 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.CreateIndexClause;
+import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -33,8 +39,6 @@ import java.util.Map;
  * CreateIndexOp
  */
 public class CreateIndexOp extends AlterTableOp {
-    // in which table the index on, only used when alter = false
-    private TableNameInfo tableName;
     // index definition class
     private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
@@ -79,6 +83,23 @@ public class CreateIndexOp extends AlterTableOp {
         if (tableName != null) {
             tableName.analyze(ctx);
         }
+        DatabaseIf<Table> db = Env.getCurrentEnv().getCatalogMgr().getInternalCatalog()
+                .getDb(tableName.getDb()).orElse(null);
+        if (db == null) {
+            throw new AnalysisException("Database[" + tableName.getDb() + "] is not exist");
+        }
+
+        TableIf table = db.getTable(tableName.getTbl()).orElse(null);
+        if (table == null) {
+            throw new AnalysisException("Table[" + tableName.getTbl() + "] is not exist");
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("Only olap table support create index");
+        }
+        if (indexDef.getIndexType() == IndexDef.IndexType.ANN) {
+            throw new AnalysisException("Do not support create ANN index, append index definition in your DDL.");
+        }
+
         indexDef.validate();
         index = indexDef.translateToCatalogStyle();
     }

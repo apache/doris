@@ -44,14 +44,20 @@ class TabletColumn;
 namespace segment_v2 {
 class IndexFileWriter;
 
-class InvertedIndexColumnWriter {
+class IndexColumnWriter {
 public:
-    static Status create(const Field* field, std::unique_ptr<InvertedIndexColumnWriter>* res,
+    static Status create(const Field* field, std::unique_ptr<IndexColumnWriter>* res,
                          IndexFileWriter* index_file_writer, const TabletIndex* inverted_index);
-    virtual Status init() = 0;
+    // check if the column is valid for inverted index, some columns
+    // are generated from variant, but not all of them are supported
+    static bool check_support_inverted_index(const TabletColumn& column);
+    static bool check_support_ann_index(const TabletColumn& column);
 
-    InvertedIndexColumnWriter() = default;
-    virtual ~InvertedIndexColumnWriter() = default;
+    IndexColumnWriter() = default;
+    virtual ~IndexColumnWriter() = default;
+
+    virtual Status init() = 0;
+    virtual int64_t size() const = 0;
 
     virtual Status add_values(const std::string name, const void* values, size_t count) = 0;
     virtual Status add_array_values(size_t field_size, const CollectionValue* values,
@@ -66,44 +72,10 @@ public:
 
     virtual Status finish() = 0;
 
-    virtual int64_t size() const = 0;
-
     virtual void close_on_error() = 0;
 
-    // check if the column is valid for inverted index, some columns
-    // are generated from variant, but not all of them are supported
-    static bool check_support_inverted_index(const TabletColumn& column);
-
 private:
-    DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);
+    DISALLOW_COPY_AND_ASSIGN(IndexColumnWriter);
 };
-
-class TmpFileDirs {
-public:
-    TmpFileDirs(const std::vector<doris::StorePath>& store_paths) {
-        for (const auto& store_path : store_paths) {
-            _tmp_file_dirs.emplace_back(store_path.path + "/" + config::tmp_file_dir);
-        }
-    };
-
-    Status init() {
-        for (auto& tmp_file_dir : _tmp_file_dirs) {
-            // delete the tmp dir to avoid the tmp files left by last crash
-            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tmp_file_dir));
-            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_file_dir));
-        }
-        return Status::OK();
-    };
-
-    io::Path get_tmp_file_dir() {
-        size_t cur_index = _next_index.fetch_add(1);
-        return _tmp_file_dirs[cur_index % _tmp_file_dirs.size()];
-    };
-
-private:
-    std::vector<io::Path> _tmp_file_dirs;
-    std::atomic_size_t _next_index {0}; // use for round-robin
-};
-
 } // namespace segment_v2
 } // namespace doris

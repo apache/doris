@@ -50,7 +50,8 @@ class RuntimeState;
 class TDataSink;
 namespace vectorized {
 class AsyncResultWriter;
-}
+class AnnTopNRuntime;
+} // namespace vectorized
 } // namespace doris
 
 namespace doris::pipeline {
@@ -76,9 +77,9 @@ struct LocalStateInfo {
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
-    const int task_idx;
+    const int task_idx = 0;
     RuntimeProfile* parent_profile = nullptr;
-    const int sender_id;
+    const int sender_id = 0;
     BasicSharedState* shared_state;
     const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
                                   std::vector<std::shared_ptr<Dependency>>>>& shared_state_map;
@@ -244,6 +245,7 @@ protected:
     RuntimeState* _state = nullptr;
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
+    std::shared_ptr<vectorized::AnnTopNRuntime> _ann_topn_runtime;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
@@ -792,11 +794,14 @@ public:
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
+            LOG_INFO("Operator {}, node_id {}, output_tuple_id {}", this->_op_name, tnode.node_id,
+                     tnode.output_tuple_id);
             _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
-            _output_row_descriptor = std::make_unique<RowDescriptor>(
-                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
         }
         if (!tnode.intermediate_output_tuple_id_list.empty()) {
+            LOG_INFO("Operator {}, node_id {}, intermediate_output_tuple_id_list: [{}]",
+                     this->_op_name, tnode.node_id,
+                     fmt::join(tnode.intermediate_output_tuple_id_list, ","));
             // common subexpression elimination
             _intermediate_output_row_descriptor.reserve(
                     tnode.intermediate_output_tuple_id_list.size());

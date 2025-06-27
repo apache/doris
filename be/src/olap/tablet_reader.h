@@ -126,7 +126,7 @@ public:
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
-        bool aggregation = false;
+        bool is_pre_aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query and config::disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
@@ -151,14 +151,14 @@ public:
         DeleteBitmap* delete_bitmap = nullptr;
 
         // return_columns is init from query schema
-        std::vector<uint32_t> return_columns;
+        std::vector<ColumnId> return_columns;
         // output_columns only contain columns in OrderByExprs and outputExprs
-        std::set<int32_t> output_columns;
+        std::set<int32_t> output_column_unique_ids;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
         // use only in vec exec engine
-        std::vector<uint32_t>* origin_return_columns = nullptr;
+        std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         vectorized::VExpr* remaining_vconjunct_root = nullptr;
@@ -194,6 +194,11 @@ public:
         std::string to_string() const;
 
         int64_t batch_size = -1;
+
+        std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+        std::shared_ptr<vectorized::AnnTopNRuntime> ann_topn_runtime;
+        std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
+        std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
     };
 
     TabletReader() = default;
@@ -279,7 +284,7 @@ protected:
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
     std::unique_ptr<vectorized::Arena> _predicate_arena;
-    std::vector<uint32_t> _return_columns;
+    std::vector<ColumnId> _return_columns;
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys
     std::vector<uint32_t> _orderby_key_columns;

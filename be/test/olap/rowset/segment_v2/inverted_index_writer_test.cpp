@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
-
 #include <CLucene.h>
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/index/IndexReader.h>
@@ -36,6 +34,7 @@
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
+#include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -333,9 +332,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values
@@ -395,9 +394,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add null values
@@ -469,9 +468,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -536,9 +535,9 @@ public:
         config::enable_inverted_index_correct_term_write = enable_correct_term_write;
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values with Unicode characters above 0xFFFF
@@ -711,18 +710,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     bool original_config_value = config::enable_inverted_index_correct_term_write;
 
     // Create column writers with different settings
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer_enabled, column_writer_disabled;
+    std::unique_ptr<IndexColumnWriter> column_writer_enabled, column_writer_disabled;
 
     // Set config to enabled for first writer
     config::enable_inverted_index_correct_term_write = true;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer_enabled,
-                                                    index_file_writer_enabled.get(), &idx_meta);
+    auto status = IndexColumnWriter::create(field.get(), &column_writer_enabled,
+                                            index_file_writer_enabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Set config to disabled for second writer
     config::enable_inverted_index_correct_term_write = false;
-    status = InvertedIndexColumnWriter::create(field.get(), &column_writer_disabled,
-                                               index_file_writer_disabled.get(), &idx_meta);
+    status = IndexColumnWriter::create(field.get(), &column_writer_disabled,
+                                       index_file_writer_disabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add string values with Unicode characters above 0xFFFF
@@ -862,9 +861,9 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Test with empty values array to trigger certain error paths
@@ -939,9 +938,9 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Construct arrays with mixed null and non-null elements (reference inverted_index_array_test.cpp)
@@ -1067,9 +1066,9 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Construct numeric arrays (reference inverted_index_array_test.cpp)
@@ -1181,9 +1180,9 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some values to create index files
@@ -1235,9 +1234,9 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Create collection values for testing
@@ -1307,9 +1306,9 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some numeric values with edge cases
@@ -1367,9 +1366,9 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some values to ensure files are created

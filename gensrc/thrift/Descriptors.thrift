@@ -66,6 +66,7 @@ struct TSlotDescriptor {
   15: optional list<string> column_paths
   16: optional string col_default_value
   17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
+  18: optional Exprs.TExpr virtual_column_expr
 }
 
 struct TTupleDescriptor {
@@ -160,7 +161,8 @@ enum TIndexType {
   BITMAP = 0,
   INVERTED = 1,
   BLOOMFILTER = 2,
-  NGRAM_BF = 3
+  NGRAM_BF = 3,
+  ANN = 4
 }
 
 enum TPartialUpdateNewRowPolicy {

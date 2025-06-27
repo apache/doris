@@ -250,8 +250,6 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
 
 Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores,
                                     RuntimeProfile* profile) {
-    DorisMetrics::instance()->create_tablet_requests_total->increment(1);
-
     int64_t tablet_id = request.tablet_id;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id
               << ", table_id=" << request.table_id << ", partition_id=" << request.partition_id

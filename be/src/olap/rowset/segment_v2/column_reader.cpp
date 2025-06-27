@@ -38,6 +38,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/ann_index_reader.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -645,33 +646,39 @@ Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_rea
         type = _type_info->type();
     }
 
-    if (is_string_type(type)) {
-        if (should_analyzer) {
+    if (index_meta->index_type() == IndexType::ANN) {
+        _index_reader = std::make_shared<AnnIndexReader>(index_meta, index_file_reader);
+    } else {
+        if (is_string_type(type)) {
+            if (should_analyzer) {
+                try {
+                    _index_reader =
+                            FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                } catch (const CLuceneError& e) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "create FullTextIndexReader error: {}", e.what());
+                }
+            } else {
+                try {
+                    _index_reader = StringTypeInvertedIndexReader::create_shared(index_meta,
+                                                                                 index_file_reader);
+                } catch (const CLuceneError& e) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "create StringTypeInvertedIndexReader error: {}", e.what());
+                }
+            }
+        } else if (is_numeric_type(type)) {
             try {
-                _index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                _index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                        "create FullTextIndexReader error: {}", e.what());
+                        "create BkdIndexReader error: {}", e.what());
             }
         } else {
-            try {
-                _index_reader =
-                        StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
-            } catch (const CLuceneError& e) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                        "create StringTypeInvertedIndexReader error: {}", e.what());
-            }
+            _index_reader.reset();
         }
-    } else if (is_numeric_type(type)) {
-        try {
-            _index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
-        } catch (const CLuceneError& e) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "create BkdIndexReader error: {}", e.what());
-        }
-    } else {
-        _index_reader.reset();
     }
+
     // TODO: move has null to inverted_index_reader's query function
     //bool has_null = true;
     //RETURN_IF_ERROR(index_file_reader->has_null(index_meta, &has_null));

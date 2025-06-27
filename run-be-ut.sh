@@ -52,12 +52,14 @@ Usage: $0 <options>
      --run --filter=xx  build and run specified ut
      --run --gen_out    generate expected check data for test
      --coverage         coverage after run ut
+     --wait       wait before run ut, user can use debugger to tell the process to continue
      -j                 build parallel
      -h                 print this help message
 
   Eg.
     $0                                                              build tests
     $0 --run                                                        build and run all tests
+    $0 --run --wait=true                                           wait before run ut, user can use debugger to tell the process to continue
     $0 --run --filter=*                                             also runs everything
     $0 --run --filter=FooTest.*                                     runs everything in test suite FooTest
     $0 --run --filter=*Null*:*Constructor*                          runs any test whose full name contains either 'Null' or 'Constructor'
@@ -71,7 +73,7 @@ Usage: $0 <options>
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,coverage,benchmark,run,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,coverage,benchmark,run,clean,wait:,filter: -- "$@")"; then
     usage
 fi
 
@@ -83,6 +85,7 @@ DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
 FILTER=""
 GEN_OUT=""
+WAIT="false"
 if [[ "$#" != 1 ]]; then
     while true; do
         case "$1" in
@@ -101,6 +104,10 @@ if [[ "$#" != 1 ]]; then
         --gen_out)
             GEN_OUT='--gen_out'
             shift
+            ;;
+        --wait)
+            WAIT="$2"
+            shift 2
             ;;
         -f | --filter)
             FILTER="--gtest_filter=$2"
@@ -474,7 +481,7 @@ if [[ -f "${test}" ]]; then
         echo "${cmd2}"
         eval "${cmd2}"
     else
-        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}"
+        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" --wait="${WAIT}" "${GEN_OUT}"
     fi
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
 else

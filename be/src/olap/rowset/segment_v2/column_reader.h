@@ -221,15 +221,16 @@ private:
         return Status::OK();
     }
 
-    [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
-                                              const ColumnIteratorOptions& iter_opts);
-    [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
-                                             const ColumnIteratorOptions& iter_opts);
-    [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
-    [[nodiscard]] Status _load_index(std::shared_ptr<IndexFileReader> index_file_reader,
-                                     const TabletIndex* index_meta);
-    [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
-                                                  const ColumnIteratorOptions& iter_opts);
+    Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
+                                const ColumnIteratorOptions& iter_opts);
+    Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
+                               const ColumnIteratorOptions& iter_opts);
+    Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
+
+    Status _load_index(std::shared_ptr<IndexFileReader> index_file_reader,
+                       const TabletIndex* index_meta);
+    Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
+                                    const ColumnIteratorOptions& iter_opts);
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                    WrapperField* max_value_container,

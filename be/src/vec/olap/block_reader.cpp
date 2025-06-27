@@ -146,7 +146,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
             }
         }
     }
-
+    // read_params.vir_cid_to_idx_in_block
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
         RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
@@ -206,9 +206,12 @@ Status BlockReader::init(const ReaderParams& read_params) {
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
     int32_t return_column_size = read_params.origin_return_columns->size();
+    // _return_columns_loc is a mapping.
+    // 记录了 _return_columns 中的每个 cid 在 _origin_return_columns 中的位置
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
         auto cid = read_params.origin_return_columns->at(i);
+        // For each original cid, find the index in return_columns
         for (int j = 0; j < read_params.return_columns.size(); ++j) {
             if (read_params.return_columns[j] == cid) {
                 if (j < _tablet->num_key_columns() || _tablet->keys_type() != AGG_KEYS) {
@@ -221,7 +224,9 @@ Status BlockReader::init(const ReaderParams& read_params) {
             }
         }
     }
-
+    /*
+    where abs()
+    */
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
@@ -236,6 +241,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
     }
 
     switch (tablet()->keys_type()) {
+        // What is the difference between direct_mode and DUP_KEYS?
     case KeysType::DUP_KEYS:
         _next_block_func = &BlockReader::_direct_next_block;
         break;
@@ -295,7 +301,13 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     RETURN_IF_ERROR(_insert_data_normal(target_columns));
     target_block_row++;
     _append_agg_data(target_columns);
+    /*
+    colK, cloA
+    select colA from tbl where abs(colA) > 10;
 
+    block: colA
+
+    */
     while (true) {
         auto res = _vcollect_iter.next(&_next_row);
         if (UNLIKELY(res.is<END_OF_FILE>())) {

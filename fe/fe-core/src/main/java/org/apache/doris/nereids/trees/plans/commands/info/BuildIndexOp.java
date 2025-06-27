@@ -40,8 +40,6 @@ import java.util.Map;
  * BuildIndexOp
  */
 public class BuildIndexOp extends AlterTableOp {
-    // in which table the index on, only used when alter = false
-    private final TableNameInfo tableName;
     // index definition class
     private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
@@ -126,6 +124,9 @@ public class BuildIndexOp extends AlterTableOp {
                 throw new AnalysisException("table " + table.getName()
                     + " is not partitioned, cannot build index with partitions.");
             }
+        }
+        if (indexDef.getIndexType() == IndexDef.IndexType.ANN) {
+            throw new AnalysisException("Do not support build ANN index, append index definition in your DDL.");
         }
         indexDef.validate();
         this.index = existedIdx.clone();
