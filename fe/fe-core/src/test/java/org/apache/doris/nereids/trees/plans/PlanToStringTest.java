@@ -67,7 +67,7 @@ public class PlanToStringTest {
                 ImmutableList.of(
                         new Alias(Literal.of(1L), "a"),
                         new Alias(Literal.of(2L), "b")
-                )
+                ), Optional.empty()
         );
         LogicalAggregate<Plan> plan = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child, Optional.empty());
@@ -96,13 +96,13 @@ public class PlanToStringTest {
                 new RelationId(1),
                 ImmutableList.of(
                         new Alias(Literal.of(1L), "a")
-                )
+                ), Optional.empty()
         );
         LogicalOneRowRelation right = new LogicalOneRowRelation(
                 new RelationId(1),
                 ImmutableList.of(
                         new Alias(Literal.of(2L), "b")
-                )
+                ), Optional.empty()
         );
         LogicalJoin<Plan, Plan> plan = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(
                 new EqualTo(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
@@ -129,7 +129,7 @@ public class PlanToStringTest {
                 ImmutableList.of(
                         new Alias(Literal.of(1L), "a"),
                         new Alias(Literal.of(2L), "b")
-                )
+                ), Optional.empty()
         );
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child, Optional.empty());
@@ -143,7 +143,7 @@ public class PlanToStringTest {
                 ImmutableList.of(
                         new Alias(Literal.of(1L), "col1"),
                         new Alias(Literal.of(2L), "col2")
-                )
+                ), Optional.empty()
         );
         List<OrderKey> orderKeyList = Lists.newArrayList(
                 new OrderKey(new SlotReference("col1", IntegerType.INSTANCE), true, true),

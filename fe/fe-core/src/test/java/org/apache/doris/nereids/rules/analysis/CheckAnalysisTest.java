@@ -49,7 +49,7 @@ public class CheckAnalysisTest {
     private GroupExpression ge = new GroupExpression(
             new LogicalOneRowRelation(
                     new RelationId(1),
-                    ImmutableList.of(new Alias(Literal.of(1)))
+                    ImmutableList.of(new Alias(Literal.of(1))), Optional.empty()
             ),
             ImmutableList.of()
     );

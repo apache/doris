@@ -39,7 +39,7 @@ public class PhysicalTopNTest {
     @Test
     public void testEquals() {
         LogicalOneRowRelation oneRowRelation
-                = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(new Alias(Literal.of(1))));
+                = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(new Alias(Literal.of(1))), Optional.empty());
         SlotReference a = new SlotReference(new ExprId(0), "a",
                 BigIntType.INSTANCE, true, Lists.newArrayList());
         List<OrderKey> orderKeysA = Lists.newArrayList();
