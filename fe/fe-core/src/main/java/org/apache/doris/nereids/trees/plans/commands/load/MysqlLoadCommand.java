@@ -84,6 +84,7 @@ public class MysqlLoadCommand extends Command {
     public static final String KEY_IN_PARAM_COLUMNS = "columns";
     public static final String KEY_IN_PARAM_TEMP_PARTITIONS = "temporary_partitions";
     public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
+    public static final String KEY_CLOUD_CLUSTER = "cloud_cluster";
     private static final Logger LOG = LogManager.getLogger(MysqlLoadCommand.class);
 
     private static final ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()

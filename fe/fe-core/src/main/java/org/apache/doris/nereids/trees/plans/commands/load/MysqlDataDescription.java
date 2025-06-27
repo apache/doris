@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
@@ -36,6 +37,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -62,6 +64,11 @@ public class MysqlDataDescription {
     private boolean isAnalyzed = false;
     private boolean clientLocal;
     private List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
+    private FileFormatProperties fileFormatProperties;
+
+    // This map is used to collect information of file format properties.
+    // The map should be only used in `constructor` and `analyzeWithoutCheckPriv` method.
+    private Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     /**
      * MysqlDataDescription
@@ -98,6 +105,7 @@ public class MysqlDataDescription {
         this.columns = columns;
         this.columnsMapping = columnsMapping;
         this.properties = properties;
+        this.analysisMap.putAll(properties);
     }
 
     public List<String> getFilePaths() {
@@ -189,10 +197,16 @@ public class MysqlDataDescription {
         }
     }
 
+    /**
+     * analyzeWithoutCheckPriv
+     */
     public void analyzeWithoutCheckPriv(String fullDbName) throws UserException {
         analyzeFilePaths();
         analyzeLoadAttributes();
         analyzeColumns();
+
+        fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
+        fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
     private void analyzeFilePaths() throws AnalysisException {
@@ -226,6 +240,10 @@ public class MysqlDataDescription {
             ImportColumnDesc importColumnDesc = new ImportColumnDesc(columnName, null);
             parsedColumnExprList.add(importColumnDesc);
         }
+    }
+
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
     }
 
     /**

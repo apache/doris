@@ -450,6 +450,8 @@ public class MysqlLoadManager {
         httpPut.addHeader("token", token);
 
         Map<String, String> props = desc.getProperties();
+        FileFormatProperties fileFormatProperties = desc.getFileFormatProperties();
+
         if (props != null) {
             // max_filter_ratio
             if (props.containsKey(MysqlLoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
@@ -481,38 +483,42 @@ public class MysqlLoadManager {
                 httpPut.addHeader(MysqlLoadCommand.TIMEZONE_PROPERTY, timezone);
             }
 
-            // trim quotes
-            if (props.containsKey(MysqlLoadCommand.TRIM_DOUBLE_QUOTES_PROPERTY)) {
-                String trimQuotes = props.get(MysqlLoadCommand.TRIM_DOUBLE_QUOTES_PROPERTY);
-                httpPut.addHeader(MysqlLoadCommand.TRIM_DOUBLE_QUOTES_PROPERTY, trimQuotes);
-            }
+            if (fileFormatProperties instanceof CsvFileFormatProperties) {
+                // trim quotes
+                if (props.containsKey(MysqlLoadCommand.TRIM_DOUBLE_QUOTES_PROPERTY)) {
+                    String trimQuotes = props.get(MysqlLoadCommand.TRIM_DOUBLE_QUOTES_PROPERTY);
+                    httpPut.addHeader(MysqlLoadCommand.TRIM_DOUBLE_QUOTES_PROPERTY, trimQuotes);
+                }
 
-            // enclose
-            if (props.containsKey(MysqlLoadCommand.ENCLOSE_PROPERTY)) {
-                String enclose = props.get(MysqlLoadCommand.ENCLOSE_PROPERTY);
-                httpPut.addHeader(MysqlLoadCommand.ENCLOSE_PROPERTY, enclose);
-            }
+                // enclose
+                if (props.containsKey(MysqlLoadCommand.ENCLOSE_PROPERTY)) {
+                    String enclose = props.get(MysqlLoadCommand.ENCLOSE_PROPERTY);
+                    httpPut.addHeader(MysqlLoadCommand.ENCLOSE_PROPERTY, enclose);
+                }
 
-            //escape
-            if (props.containsKey(MysqlLoadCommand.ESCAPE_PROPERTY)) {
-                String escape = props.get(MysqlLoadCommand.ESCAPE_PROPERTY);
-                httpPut.addHeader(MysqlLoadCommand.ESCAPE_PROPERTY, escape);
+                //escape
+                if (props.containsKey(MysqlLoadCommand.ESCAPE_PROPERTY)) {
+                    String escape = props.get(MysqlLoadCommand.ESCAPE_PROPERTY);
+                    httpPut.addHeader(MysqlLoadCommand.ESCAPE_PROPERTY, escape);
+                }
             }
         }
 
-        // skip_lines
-        if (desc.getSkipLines() != 0) {
-            httpPut.addHeader(MysqlLoadCommand.KEY_SKIP_LINES, Integer.toString(desc.getSkipLines()));
-        }
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            // skip_lines
+            if (desc.getSkipLines() != 0) {
+                httpPut.addHeader(MysqlLoadCommand.KEY_SKIP_LINES, Integer.toString(desc.getSkipLines()));
+            }
 
-        // column_separator
-        if (desc.getColumnSeparator() != null) {
-            httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_COLUMN_SEPARATOR, desc.getColumnSeparator());
-        }
+            // column_separator
+            if (desc.getColumnSeparator() != null) {
+                httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_COLUMN_SEPARATOR, desc.getColumnSeparator());
+            }
 
-        // line_delimiter
-        if (desc.getLineDelimiter() != null) {
-            httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_LINE_DELIMITER, desc.getLineDelimiter());
+            // line_delimiter
+            if (desc.getLineDelimiter() != null) {
+                httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_LINE_DELIMITER, desc.getLineDelimiter());
+            }
         }
 
         // columns
@@ -531,6 +537,22 @@ public class MysqlLoadManager {
                 httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_PARTITIONS, pNames);
             }
         }
+
+        // cloud cluster
+        if (Config.isCloudMode()) {
+            String clusterName = "";
+            try {
+                clusterName = ConnectContext.get().getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get compute group: " + e.getMessage());
+                throw new LoadException("failed to get compute group: " + e.getMessage());
+            }
+            if (Strings.isNullOrEmpty(clusterName)) {
+                throw new LoadException("cloud compute group is empty");
+            }
+            httpPut.addHeader(MysqlLoadCommand.KEY_CLOUD_CLUSTER, clusterName);
+        }
+
         httpPut.setEntity(entity);
         return httpPut;
     }
