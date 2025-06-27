@@ -35,7 +35,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Use this node to display the subquery in the relational algebra tree.
@@ -63,7 +62,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     private final Optional<Expression> typeCoercionExpr;
 
     // correlation column
-    private final List<Expression> correlationSlot;
+    private final List<Slot> correlationSlot;
     // correlation Conjunction
     private final Optional<Expression> correlationFilter;
     // The slot replaced by the subquery in MarkJoin
@@ -85,7 +84,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
 
     private LogicalApply(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
-            List<Expression> correlationSlot, SubQueryType subqueryType, boolean isNot,
+            List<Slot> correlationSlot, SubQueryType subqueryType, boolean isNot,
             Optional<Expression> compareExpr, Optional<Expression> typeCoercionExpr,
             Optional<Expression> correlationFilter,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
@@ -109,7 +108,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         this.isMarkJoinSlotNotNull = isMarkJoinSlotNotNull;
     }
 
-    public LogicalApply(List<Expression> correlationSlot, SubQueryType subqueryType, boolean isNot,
+    public LogicalApply(List<Slot> correlationSlot, SubQueryType subqueryType, boolean isNot,
             Optional<Expression> compareExpr, Optional<Expression> typeCoercionExpr,
             Optional<Expression> correlationFilter, Optional<MarkJoinSlotReference> markJoinSlotReference,
             boolean needAddSubOutputToProjects, boolean inProject, boolean isMarkJoinSlotNotNull,
@@ -131,7 +130,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         return typeCoercionExpr.orElseGet(() -> right().getOutput().get(0));
     }
 
-    public List<Expression> getCorrelationSlot() {
+    public List<Slot> getCorrelationSlot() {
         return correlationSlot;
     }
 
@@ -196,8 +195,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         }
         if (needAddSubOutputToProjects) {
             if (isScalar()) {
-                builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(),
-                        correlationSlot.stream().map(slot -> (Slot) slot).collect(Collectors.toList())));
+                builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(), correlationSlot));
             } else {
                 builder.add(right().getOutput().get(0));
             }
