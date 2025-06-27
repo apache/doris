@@ -1379,6 +1379,10 @@ public abstract class RoutineLoadJob
             return;
         }
 
+        if (olapTable.isTemporary()) {
+            throw new DdlException("Cannot create routine load for temporary table "
+                + olapTable.getDisplayName());
+        }
         // check partitions
         olapTable.readLock();
         try {

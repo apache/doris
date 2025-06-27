@@ -30,6 +30,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -381,7 +382,6 @@ public class NereidsPlanner extends Planner {
         }
 
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
         }
     }
@@ -499,8 +499,8 @@ public class NereidsPlanner extends Planner {
                     table.isPresent() ? (table.get().getDatabase() != null
                             ? table.get().getDatabase().getFullName() : "") : "",
                     !output.getQualifier().isEmpty() ? output.getQualifier().get(output.getQualifier().size() - 1)
-                            : (table.isPresent() ? table.get().getName() : ""),
-                    table.isPresent() ? table.get().getName() : "",
+                            : (table.isPresent() ? Util.getTempTableDisplayName(table.get().getName()) : ""),
+                    table.isPresent() ? Util.getTempTableDisplayName(table.get().getName()) : "",
                     output.getName(),
                     column.isPresent() ? column.get().getName() : ""
             );
@@ -544,7 +544,7 @@ public class NereidsPlanner extends Planner {
 
         distributedPlans = new DistributePlanner(fragments).plan();
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsDistributeTime();
+            statementContext.getConnectContext().getExecutor().getSummaryProfile().setDistributeTime();
         }
     }
 
@@ -732,7 +732,7 @@ public class NereidsPlanner extends Planner {
 
                 if (distributedPlans != null && !distributedPlans.isEmpty()) {
                     plan += "========== DISTRIBUTED PLAN "
-                            + getTimeMetricString(SummaryProfile::getPrettyNereidsDistributeTime) + " ==========\n";
+                            + getTimeMetricString(SummaryProfile::getPrettyDistributeTime) + " ==========\n";
                     plan += DistributedPlan.toString(Lists.newArrayList(distributedPlans.values())) + "\n\n";
                 }
                 plan += mvSummary;

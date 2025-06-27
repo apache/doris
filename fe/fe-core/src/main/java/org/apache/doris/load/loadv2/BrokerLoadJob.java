@@ -261,6 +261,10 @@ public class BrokerLoadJob extends BulkLoadJob {
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                if (table.isTemporary())  {
+                    throw new UserException("Do not support load into temporary table "
+                        + table.getDisplayName());
+                }
                 boolean isEnableMemtableOnSinkNode =
                         table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
                 // Generate loading task and init the plan of task
