@@ -1239,14 +1239,8 @@ void StorageEngine::start_delete_unused_rowset() {
         // delete delete_bitmap of unused rowsets
         if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
             tablet && tablet->enable_unique_key_merge_on_write()) {
-<<<<<<< HEAD
-            tablet->tablet_meta()->delete_bitmap()->remove({rs->rowset_id(), 0, 0},
-                                                           {rs->rowset_id(), UINT32_MAX, 0});
-            tablet->tablet_meta()->delete_bitmap()->remove_rowset_cache_version(rs->rowset_id());
-=======
             tablet->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
             tablets_to_save_meta.emplace(tablet->tablet_id());
->>>>>>> e0302c141c82264f32bd3d533885bd723da9fd95
         }
         Status status = rs->remove();
         unused_rowsets_counter << -1;
