@@ -26,6 +26,7 @@
 
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
+#include "vec/columns/column_string.h"
 #include "vec/core/types.h"
 
 namespace doris {
@@ -201,5 +202,26 @@ TEST_F(JsonbDocumentTest, writer) {
             R"("key_decimal32":9999.9999,"key_decimal64":99999999999999.9999,"key_decimal128":184467440737.09551615,)"
             R"("key_decimal256":3402823669209384634633746074317.68211454})");
     ASSERT_EQ(json_string, expected_string);
+
+    {
+        auto column_string = vectorized::ColumnString::create();
+        JsonbWriter writer;
+        vectorized::Decimal128V3 decimal_value(123456);
+        if (!writer.writeDecimal(decimal_value, 12, 5)) {
+            return;
+        }
+
+        column_string->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        const auto jsonb_val = column_string->get_data_at(0);
+
+        if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
+            return;
+        } else {
+            std::cout << "yxc test" << std::endl
+                      << "json: "
+                      << JsonbToJson::jsonb_to_json_string(jsonb_val.data, jsonb_val.size)
+                      << std::endl;
+        }
+    }
 }
 } // namespace doris

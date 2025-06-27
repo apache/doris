@@ -27,6 +27,7 @@
 
 #include "arrow/array/builder_binary.h"
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "runtime/jsonb_value.h"
@@ -40,9 +41,25 @@ Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<is_binary_format>& result,
                                                   int64_t row_idx, bool col_const,
                                                   const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnString&>(column);
-    const auto col_index = index_check_const(row_idx, col_const);
-    const auto jsonb_val = data.get_data_at(col_index);
+    // mock
+    auto column_string = ColumnString::create();
+    JsonbWriter writer;
+    Decimal128V3 decimal_value(123456);
+    if (!writer.writeDecimal(decimal_value, 12, 5)) {
+        return Status::RuntimeError("Failed to write Decimal128V3 to jsonb");
+    }
+
+    column_string->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+    const auto jsonb_val = column_string->get_data_at(0);
+
+    if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
+        return Status::InternalError("pack mysql buffer failed.");
+
+    } else {
+        LOG_WARNING("yxc test")
+                .tag("json", JsonbToJson::jsonb_to_json_string(jsonb_val.data, jsonb_val.size));
+    }
+
     // jsonb size == 0 is NULL
     if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
         if (UNLIKELY(0 != result.push_null())) {
