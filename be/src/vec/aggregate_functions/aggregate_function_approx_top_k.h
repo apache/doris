@@ -54,7 +54,9 @@ struct AggregateFunctionTopKGenericData {
 class AggregateFunctionApproxTopK final
         : public IAggregateFunctionDataHelper<AggregateFunctionTopKGenericData,
                                               AggregateFunctionApproxTopK>,
-          AggregateFunctionApproxTop {
+          AggregateFunctionApproxTop,
+          VarargsExpression,
+          NullableAggregateFunction {
 private:
     using State = AggregateFunctionTopKGenericData;
 

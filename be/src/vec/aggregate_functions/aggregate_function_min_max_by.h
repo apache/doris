@@ -148,7 +148,9 @@ struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<VT,
 
 template <typename Data>
 class AggregateFunctionsMinMaxBy final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>>,
+          MultiExpression,
+          NullableAggregateFunction {
 private:
     DataTypePtr& value_type;
     DataTypePtr& key_type;

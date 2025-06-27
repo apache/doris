@@ -81,7 +81,9 @@ struct AggregateFunctionApproxCountDistinctData {
 template <PrimitiveType type>
 class AggregateFunctionApproxCountDistinct final
         : public IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
-                                              AggregateFunctionApproxCountDistinct<type>> {
+                                              AggregateFunctionApproxCountDistinct<type>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 public:
     using ColumnDataType = typename PrimitiveTypeTraits<type>::ColumnType;
     String get_name() const override { return "approx_count_distinct"; }
