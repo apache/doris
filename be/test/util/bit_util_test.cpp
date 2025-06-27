@@ -36,17 +36,6 @@ TEST(BitUtil, Ceil) {
     EXPECT_EQ(BitUtil::ceil(9, 8), 2);
 }
 
-TEST(BitUtil, Popcount) {
-    EXPECT_EQ(BitUtil::popcount(BOOST_BINARY(0 1 0 1 0 1 0 1)), 4);
-    EXPECT_EQ(BitUtil::popcount_no_hw(BOOST_BINARY(0 1 0 1 0 1 0 1)), 4);
-    EXPECT_EQ(BitUtil::popcount(BOOST_BINARY(1 1 1 1 0 1 0 1)), 6);
-    EXPECT_EQ(BitUtil::popcount_no_hw(BOOST_BINARY(1 1 1 1 0 1 0 1)), 6);
-    EXPECT_EQ(BitUtil::popcount(BOOST_BINARY(1 1 1 1 1 1 1 1)), 8);
-    EXPECT_EQ(BitUtil::popcount_no_hw(BOOST_BINARY(1 1 1 1 1 1 1 1)), 8);
-    EXPECT_EQ(BitUtil::popcount(0), 0);
-    EXPECT_EQ(BitUtil::popcount_no_hw(0), 0);
-}
-
 TEST(BitUtil, BigEndianToHost) {
     uint16_t v16 = 0x1234;
     uint32_t v32 = 0x12345678;

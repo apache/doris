@@ -168,8 +168,7 @@ inline bool parse_ipv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t fir
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parse_ipv4(const char* src, const char* end, unsigned char* dst) {
-    if (parse_ipv4(
-                src, [&src, end]() { return src == end; }, dst)) {
+    if (parse_ipv4(src, [&src, end]() { return src == end; }, dst)) {
         return src;
     }
     return nullptr;
@@ -182,8 +181,7 @@ inline bool parse_ipv4_whole(const char* src, const char* end, unsigned char* ds
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parse_ipv4(const char* src, unsigned char* dst) {
-    if (parse_ipv4(
-                src, []() { return false; }, dst)) {
+    if (parse_ipv4(src, []() { return false; }, dst)) {
         return src;
     }
     return nullptr;
@@ -303,9 +301,9 @@ inline void format_ipv6(unsigned char* src, char*& dst, uint8_t zeroed_tail_byte
             uint8_t ipv4_buffer[IPV4_BINARY_LENGTH] = {0};
             memcpy(ipv4_buffer, src + 12, IPV4_BINARY_LENGTH);
             // Due to historical reasons format_ipv4() takes ipv4 in BE format, but inside ipv6 we store it in LE-format.
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-            std::reverse(std::begin(ipv4_buffer), std::end(ipv4_buffer));
-#endif
+            if constexpr (std::endian::native == std::endian::little) {
+                std::reverse(std::begin(ipv4_buffer), std::end(ipv4_buffer));
+            }
             format_ipv4(ipv4_buffer, dst,
                         std::min(zeroed_tail_bytes_count, static_cast<uint8_t>(IPV4_BINARY_LENGTH)),
                         "0");
@@ -461,9 +459,7 @@ inline bool parse_ipv6(T*& src, EOFfunction eof, unsigned char* dst, int32_t fir
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parse_ipv6(const char* src, const char* end, unsigned char* dst) {
-    if (parse_ipv6(
-                src, [&src, end]() { return src == end; }, dst))
-        return src;
+    if (parse_ipv6(src, [&src, end]() { return src == end; }, dst)) return src;
     return nullptr;
 }
 
@@ -474,9 +470,7 @@ inline bool parse_ipv6_whole(const char* src, const char* end, unsigned char* ds
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parse_ipv6(const char* src, unsigned char* dst) {
-    if (parse_ipv6(
-                src, []() { return false; }, dst))
-        return src;
+    if (parse_ipv6(src, []() { return false; }, dst)) return src;
     return nullptr;
 }
 
