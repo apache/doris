@@ -23,6 +23,8 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
@@ -36,6 +38,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -340,10 +343,21 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
                     tmpCreate = true;
                     ctx = ConnectContextUtil.getDummyCtx(dbName);
                 } else {
+                    // may cause by org.apache.doris.alter.AlterJobV2.run
                     if (ctx.getStatementContext() == null) {
                         StatementContext statementContext = new StatementContext();
                         statementContext.setConnectContext(ctx);
                         ctx.setStatementContext(statementContext);
+                    }
+                    if (StringUtils.isEmpty(ctx.getDatabase())) {
+                        ctx.setDatabase(dbName);
+                    }
+                    if (ctx.getEnv() == null) {
+                        ctx.setEnv(Env.getCurrentEnv());
+                    }
+                    if (ctx.getCurrentUserIdentity() == null) {
+                        ctx.setQualifiedUser(Auth.ADMIN_USER);
+                        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
                     }
                 }
                 command.validate(ctx);
