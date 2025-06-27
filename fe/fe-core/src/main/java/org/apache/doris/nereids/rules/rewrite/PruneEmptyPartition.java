@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.transaction.TransactionEntry;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,9 +44,10 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
             OlapTable table = scan.getTable();
             List<Long> partitionIdsToPrune = scan.getSelectedPartitionIds();
             List<Long> ids = table.selectNonEmptyPartitionIds(partitionIdsToPrune);
-            if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()) {
+            if (ctx.connectContext != null && ctx.connectContext.isTxnModel()) {
                 // In transaction load, need to add empty partitions which have invisible data of sub transactions
-                selectNonEmptyPartitionIdsForTxnLoad(table, scan.getSelectedIndexId(), partitionIdsToPrune, ids);
+                selectNonEmptyPartitionIdsForTxnLoad(ctx.connectContext.getTxnEntry(), table, scan.getSelectedIndexId(),
+                        partitionIdsToPrune, ids);
             }
             if (ids.isEmpty()) {
                 return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
@@ -59,8 +61,8 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
         }).toRule(RuleType.PRUNE_EMPTY_PARTITION);
     }
 
-    private void selectNonEmptyPartitionIdsForTxnLoad(OlapTable table, long indexId, List<Long> selectedPartitions,
-            List<Long> nonEmptyPartitionIds) {
+    private void selectNonEmptyPartitionIdsForTxnLoad(TransactionEntry txnEntry, OlapTable table, long indexId,
+            List<Long> selectedPartitions, List<Long> nonEmptyPartitionIds) {
         for (Long selectedPartitionId : selectedPartitions) {
             if (nonEmptyPartitionIds.contains(selectedPartitionId)) {
                 continue;
@@ -69,12 +71,13 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
             if (partition == null) {
                 continue;
             }
-            if (!ConnectContext.get().getTxnEntry().getPartitionSubTxnIds(table.getId(), partition, indexId)
-                    .isEmpty()) {
+            if (!txnEntry.getPartitionSubTxnIds(table.getId(), partition, indexId).isEmpty()) {
                 nonEmptyPartitionIds.add(selectedPartitionId);
             }
         }
-        LOG.debug("add partition for txn load, table: {}, selected partitions: {}, non empty partitions: {}",
-                table.getId(), selectedPartitions, nonEmptyPartitionIds);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("add partition for txn load, table: {}, selected partitions: {}, non empty partitions: {}",
+                    table.getId(), selectedPartitions, nonEmptyPartitionIds);
+        }
     }
 }
