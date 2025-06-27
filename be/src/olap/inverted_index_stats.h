@@ -17,29 +17,18 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/query/disjunction_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/query.h"
+#include <vector>
 
-CL_NS_USE(index)
-CL_NS_USE(search)
+namespace doris {
 
-namespace doris::segment_v2 {
-
-class RegexpQuery : public Query {
-public:
-    RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                const TQueryOptions& query_options, const io::IOContext* io_ctx);
-    ~RegexpQuery() override = default;
-
-    void add(const std::wstring& field_name, const std::vector<std::string>& patterns) override;
-    void search(roaring::Roaring& roaring) override;
-
-private:
-    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
-    const io::IOContext* _io_ctx = nullptr;
-
-    int32_t _max_expansions = 50;
-    DisjunctionQuery _query;
+struct InvertedIndexQueryStatistics {
+    std::string column_name;
+    int64_t hit_rows = 0;
+    int64_t exec_time = 0;
 };
 
-} // namespace doris::segment_v2
+struct InvertedIndexStatistics {
+    std::vector<InvertedIndexQueryStatistics> stats;
+};
+
+} // namespace doris

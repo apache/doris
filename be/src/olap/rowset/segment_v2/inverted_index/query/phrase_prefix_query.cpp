@@ -18,7 +18,6 @@
 #include "phrase_prefix_query.h"
 
 #include "CLucene/util/stringUtil.h"
-#include "olap/rowset//segment_v2/inverted_index/query/prefix_query.h"
 
 namespace doris::segment_v2 {
 
@@ -27,7 +26,8 @@ PhrasePrefixQuery::PhrasePrefixQuery(const std::shared_ptr<lucene::search::Index
                                      const io::IOContext* io_ctx)
         : _searcher(searcher),
           _query(std::make_unique<CL_NS(search)::MultiPhraseQuery>()),
-          _max_expansions(query_options.inverted_index_max_expansions) {}
+          _max_expansions(query_options.inverted_index_max_expansions),
+          _prefix_query(io_ctx) {}
 
 void PhrasePrefixQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
     if (terms.empty()) {
@@ -42,8 +42,8 @@ void PhrasePrefixQuery::add(const std::wstring& field_name, const std::vector<st
             _CLLDECDELETE(t);
         } else {
             std::vector<CL_NS(index)::Term*> prefix_terms;
-            PrefixQuery::get_prefix_terms(_searcher->getReader(), field_name, terms[i],
-                                          prefix_terms, _max_expansions);
+            _prefix_query.get_prefix_terms(_searcher->getReader(), field_name, terms[i],
+                                           prefix_terms, _max_expansions);
             if (prefix_terms.empty()) {
                 std::wstring ws_term = StringUtil::string_to_wstring(terms[i]);
                 Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());

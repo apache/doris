@@ -19,6 +19,8 @@
 
 namespace doris::segment_v2 {
 
+PrefixQuery::PrefixQuery(const io::IOContext* io_ctx) : _io_ctx(io_ctx) {}
+
 void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
                                    const std::string& prefix,
                                    std::vector<CL_NS(index)::Term*>& prefix_terms,
@@ -26,7 +28,7 @@ void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& fiel
     std::wstring ws_prefix = StringUtil::string_to_wstring(prefix);
 
     Term* prefix_term = _CLNEW Term(field_name.c_str(), ws_prefix.c_str());
-    TermEnum* enumerator = reader->terms(prefix_term);
+    TermEnum* enumerator = reader->terms(prefix_term, _io_ctx);
 
     int32_t count = 0;
     Term* lastTerm = nullptr;
