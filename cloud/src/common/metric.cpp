@@ -21,6 +21,7 @@
 #include <rapidjson/encodings.h>
 #include <rapidjson/error/en.h>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -228,10 +229,86 @@ static void export_fdb_status_details(const std::string& status_str) {
     }
 }
 
+static void export_meta_ranges_details(TxnKv* kv) {
+    auto* txn_kv = static_cast<FdbTxnKv*>(kv);
+    if (!txn_kv) {
+        LOG(WARNING) << "this method only support fdb txn kv";
+        return;
+    }
+
+    std::vector<std::string> partition_boundaries;
+    TxnErrorCode code = txn_kv->get_partition_boundaries(&partition_boundaries);
+    if (code != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << fmt::format("failed to get boundaries, code={}", code);
+        return;
+    }
+
+    std::unordered_map<std::string, size_t> partition_count;
+    size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
+    for (auto&& boundary : partition_boundaries) {
+        if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
+            continue;
+        }
+
+        std::string_view user_key(boundary);
+        user_key.remove_prefix(prefix_size + 1); // Skip the KEY_SPACE prefix.
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        decode_key(&user_key, &out); // ignore any error, since the boundary key might be truncated.
+
+        auto visitor = [](auto&& arg) -> std::string {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, std::string>) {
+                return arg;
+            } else {
+                return std::to_string(arg);
+            }
+        };
+
+        if (!out.empty()) {
+            std::string key;
+            for (size_t i = 0; i < 3 && i < out.size(); ++i) {
+                key += std::visit(visitor, std::get<0>(out[i])) + '|';
+            }
+            key.pop_back();
+            partition_count[key]++;
+        }
+    }
+
+    int64_t txn_count {}, meta_count {}, recycle_count {};
+    for (auto&& [key, count] : partition_count) {
+        std::vector<std::string> keys;
+        size_t pos {};
+        // split key with '|'
+        do {
+            size_t p = std::min(key.size(), key.find('|', pos));
+            keys.emplace_back(key.substr(pos, p - pos));
+            pos = p + 1;
+        } while (pos < key.size());
+        keys.resize(3);
+        if (keys[0] == "txn") {
+            txn_count += count;
+            g_bvar_meta_ranges_txn_instance_tag_count.put({keys[1], keys[2]}, count);
+        } else if (keys[0] == "meta") {
+            meta_count += count;
+            g_bvar_meta_ranges_meta_instance_tag_count.put({keys[1], keys[2]}, count);
+        } else if (keys[0] == "recycle") {
+            recycle_count += count;
+            g_bvar_meta_ranges_recycle_instance_tag_count.put({keys[1], keys[2]}, count);
+        } else {
+            LOG(WARNING) << fmt::format("Unknow meta range type: {}", keys[0]);
+            continue;
+        }
+    }
+    g_bvar_meta_ranges_txn_count.set_value(txn_count);
+    g_bvar_meta_ranges_meta_count.set_value(meta_count);
+    g_bvar_meta_ranges_recycle_count.set_value(recycle_count);
+}
+
 void FdbMetricExporter::export_fdb_metrics(TxnKv* txn_kv) {
     int64_t busyness = 0;
     std::string fdb_status = get_fdb_status(txn_kv);
     export_fdb_status_details(fdb_status);
+    export_meta_ranges_details(txn_kv);
     if (auto* kv = dynamic_cast<FdbTxnKv*>(txn_kv); kv != nullptr) {
         busyness = static_cast<int64_t>(kv->get_client_thread_busyness() * 100);
         g_bvar_fdb_client_thread_busyness_percent.set_value(busyness);
