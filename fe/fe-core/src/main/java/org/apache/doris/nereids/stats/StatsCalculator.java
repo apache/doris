@@ -176,6 +176,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
 
+    public static StatsCalculator INSTANCE = new StatsCalculator(null);
     protected static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
     protected final GroupExpression groupExpression;
 
@@ -518,7 +519,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return Optional.empty();
     }
 
-    private Statistics computeOlapScan(OlapScan olapScan) {
+    public Statistics computeOlapScan(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         double tableRowCount = getOlapTableRowCount(olapScan);
         tableRowCount = Math.max(1, tableRowCount);
@@ -1271,7 +1272,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return inputStats.withRowCountAndEnforceValid(rowCount);
     }
 
-    private Statistics computeLimit(Limit limit, Statistics inputStats) {
+    public Statistics computeLimit(Limit limit, Statistics inputStats) {
         return inputStats.withRowCountAndEnforceValid(Math.min(inputStats.getRowCount(), limit.getLimit()));
     }
 
@@ -1314,7 +1315,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return rowCount;
     }
 
-    protected Statistics computeAggregate(Aggregate<? extends Plan> aggregate, Statistics childStats) {
+    public Statistics computeAggregate(Aggregate<? extends Plan> aggregate, Statistics childStats) {
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         double rowCount = estimateGroupByRowCount(groupByExpressions, childStats);
         Map<Expression, ColumnStatistic> slotToColumnStats = Maps.newHashMap();
@@ -1354,7 +1355,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new Statistics(rowCount < 0 ? rowCount : rowCount * groupingSetNum, 1, columnStatisticMap);
     }
 
-    private Statistics computeProject(Project project, Statistics childStats) {
+    public Statistics computeProject(Project project, Statistics childStats) {
         List<NamedExpression> projections = project.getProjects();
         Map<Expression, ColumnStatistic> projectionStats = new LinkedHashMap<>(projections.size());
         for (NamedExpression projection : projections) {
@@ -1364,7 +1365,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new Statistics(childStats.getRowCount(), childStats.getWidthInJoinCluster(), projectionStats);
     }
 
-    private Statistics computeOneRowRelation(List<NamedExpression> projects) {
+    public Statistics computeOneRowRelation(List<NamedExpression> projects) {
         Map<Expression, ColumnStatistic> columnStatsMap = projects.stream()
                 .map(project -> {
                     ColumnStatistic statistic = new ColumnStatisticBuilder().setNdv(1).build();
@@ -1376,7 +1377,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new Statistics(rowCount, 1, columnStatsMap);
     }
 
-    private Statistics computeEmptyRelation(EmptyRelation emptyRelation) {
+    public Statistics computeEmptyRelation(EmptyRelation emptyRelation) {
         Map<Expression, ColumnStatistic> columnStatsMap = emptyRelation.getProjects()
                 .stream()
                 .map(project -> {
