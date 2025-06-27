@@ -43,7 +43,7 @@ add_executable(log_test log_test.cpp)
 
 add_executable(resource_test resource_test.cpp)
 
-add_executable(rpc_kv_bvar_test rpc_kv_bvar_test.cpp mock_accessor.cpp)
+add_executable(rpc_kv_bvar_test rpc_kv_bvar_test.cpp)
 
 add_executable(http_encode_key_test http_encode_key_test.cpp)
 
