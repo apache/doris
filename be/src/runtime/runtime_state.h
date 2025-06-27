@@ -49,6 +49,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/runtime/vector_search_user_params.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -670,6 +671,11 @@ public:
     std::shared_ptr<IdFileMap>& get_id_file_map() { return _id_file_map; }
 
     void set_id_file_map();
+    VectorSearchUserParams get_vector_search_params() const {
+        return VectorSearchUserParams(_query_options.hnsw_ef_search,
+                                      _query_options.hnsw_check_relative_distance,
+                                      _query_options.hnsw_bounded_queue);
+    }
 
 private:
     Status create_error_log_file();

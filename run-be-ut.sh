@@ -53,12 +53,14 @@ Usage: $0 <options>
      --run --gen_out    generate expected check data for test
      --run --gen_regression_case    generate regression test cases corrresponding to ut cases for ut cases that support it
      --coverage         coverage after run ut
+     --wait       wait before run ut, user can use debugger to tell the process to continue
      -j                 build parallel
      -h                 print this help message
 
   Eg.
     $0                                                              build tests
     $0 --run                                                        build and run all tests
+    $0 --run --wait=true                                           wait before run ut, user can use debugger to tell the process to continue
     $0 --run --filter=*                                             also runs everything
     $0 --run --filter=FooTest.*                                     runs everything in test suite FooTest
     $0 --run --filter=*Null*:*Constructor*                          runs any test whose full name contains either 'Null' or 'Constructor'
