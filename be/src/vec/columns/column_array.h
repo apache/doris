@@ -168,6 +168,13 @@ public:
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    size_t get_max_row_byte_size() const override;
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
+                                     const uint8_t* null_map) const override;
+    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
+                                       const uint8_t* null_map) override;
+    StringRef get_data_at(size_t n) const override;
 
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
@@ -209,6 +216,8 @@ public:
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
+
+    void insert_many_strings(const StringRef* strings, size_t num) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

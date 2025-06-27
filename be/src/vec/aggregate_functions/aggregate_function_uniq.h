@@ -57,7 +57,7 @@ class ColumnDecimal;
 
 template <PrimitiveType T>
 struct AggregateFunctionUniqExactData {
-    static constexpr bool is_string_key = is_string_type(T);
+    static constexpr bool is_string_key = is_string_type(T) || T == TYPE_ARRAY;
     using Key =
             std::conditional_t<is_string_key, UInt128,
                                std::conditional_t<T == TYPE_BOOLEAN, UInt8,
@@ -87,7 +87,7 @@ namespace detail {
 template <PrimitiveType T, typename Data>
 struct OneAdder {
     static void ALWAYS_INLINE add(Data& data, const IColumn& column, size_t row_num) {
-        if constexpr (is_string_type(T)) {
+        if constexpr (is_string_type(T) || T == TYPE_ARRAY) {
             StringRef value = column.get_data_at(row_num);
             data.set.insert(Data::get_key(value));
         } else {
@@ -105,7 +105,7 @@ template <PrimitiveType T, typename Data>
 class AggregateFunctionUniq final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>> {
 public:
-    using KeyType = std::conditional_t<is_string_type(T), UInt128,
+    using KeyType = std::conditional_t<is_string_type(T) || T == TYPE_ARRAY, UInt128,
                                        typename PrimitiveTypeTraits<T>::ColumnItemType>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}
@@ -123,7 +123,7 @@ public:
 
     static ALWAYS_INLINE const KeyType* get_keys(std::vector<KeyType>& keys_container,
                                                  const IColumn& column, size_t batch_size) {
-        if constexpr (is_string_type(T)) {
+        if constexpr (is_string_type(T) || T == TYPE_ARRAY) {
             keys_container.resize(batch_size);
             for (size_t i = 0; i != batch_size; ++i) {
                 StringRef value = column.get_data_at(i);

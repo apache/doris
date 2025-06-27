@@ -341,7 +341,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             int groupByExprCount = aggregate.getGroupByExpressions().size();
             context.groupByExprs = Maps.newHashMap();
             for (int i = 0; i < groupByExprCount; ++i) {
-                if (outputs.get(i).getDataType().isOnlyMetricType()) {
+                if (outputs.get(i).getDataType().isOnlyMetricType()
+                        && !outputs.get(i).getDataType().isArrayTypeNestedFixedLengthType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
                 context.groupByExprs.put(outputs.get(i).getExprId(), outputs.get(i));
@@ -359,7 +360,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             checkNoNondeterministicFunction(sort);
             if (sort.getOrderKeys().stream().anyMatch((
                     orderKey -> orderKey.getExpr().getDataType()
-                            .isOnlyMetricType()))) {
+                            .isOnlyMetricType() && !orderKey.getExpr().getDataType().isArrayType()))) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
             context.orderByExprs = (List<NamedExpression>) sort.getExpressions();

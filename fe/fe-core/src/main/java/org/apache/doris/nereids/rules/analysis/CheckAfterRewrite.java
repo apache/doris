@@ -151,7 +151,8 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
             for (Expression groupBy : agg.getGroupByExpressions()) {
-                if (groupBy.getDataType().isOnlyMetricType()) {
+                if (groupBy.getDataType().isOnlyMetricType()
+                        && !groupBy.getDataType().isArrayTypeNestedFixedLengthType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }

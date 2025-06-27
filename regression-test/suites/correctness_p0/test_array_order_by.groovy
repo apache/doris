@@ -36,4 +36,9 @@ suite("test_array_order_by") {
     qt_select4 """ select * from test_array_order_by order by name,arr DESC;  """
     qt_select5 """ select * from test_array_order_by order by typ_id,arr ASC;  """
     qt_select6 """ select * from test_array_order_by order by typ_id,arr DESC;  """
+
+    qt_select7 """ select arr, count(typ_id) from test_array_order_by group by arr order by arr;  """
+    qt_select8 """ select arr,name, count(typ_id) from test_array_order_by group by name,arr order by name,arr;  """
+    qt_select9 """ select arr,name, count(typ_id) from test_array_order_by group by arr,name order by name,arr;  """
+    qt_select10 """ select multi_distinct_count(arr)  from test_array_order_by;  """
 }
