@@ -646,7 +646,6 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         .tag("new_rowsets(rowset,count,cardinality)",
                              fmt::format("[{}]", fmt::join(new_rowset_msgs, ", ")));
             }
->>>>>>> e0302c141c82264f32bd3d533885bd723da9fd95
         }
         DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta", {
             auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
