@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
