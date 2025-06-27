@@ -17,6 +17,12 @@
 
 suite("test_time") {
     qt_sql_const """ select time('2025-1-1 12:12:12') """
+    qt_sql_const_scale1 """ select time(cast('2025-1-1 12:12:12.1' as datetime(1))) """
+    qt_sql_const_scale2 """ select time(cast('2025-1-1 12:12:12.12' as datetime(2))) """
+    qt_sql_const_scale3 """ select time(cast('2025-1-1 12:12:12.121' as datetime(3))) """
+    qt_sql_const_scale4 """ select time(cast('2025-1-1 12:12:12.1212' as datetime(4))) """
+    qt_sql_const_scale5 """ select time(cast('2025-1-1 12:12:12.12121' as datetime(5))) """
+    qt_sql_const_scale6 """ select time(cast('2025-1-1 12:12:12.121212' as datetime(6))) """
     qt_const_null """ select time(null) """
     qt_const_nullable_not_null """ select time(nullable('2025-1-1 12:12:12')) """
     qt_sql_wrong_input1 """ select time('2025-1-1 12:12:61') """
@@ -24,11 +30,18 @@ suite("test_time") {
     qt_sql_wrong_input3 """ select time('2025-1-1 25:12:12') """
     qt_sql_wrong_input4 """ select time('2025-1-32 12:12:12') """
     qt_sql_wrong_input5 """ select time('2025-13-1 12:12:12') """
+    qt_sql_wrong_input6 """ select time('-2025-1-1 12:12:12') """
 
     testFoldConst("select time('2025-1-1 12:00:00');")
     testFoldConst("select time('2025-1-2 12:00:00');")
     testFoldConst("select time('2025-1-1 23:59:59');")
     testFoldConst("select time('2025-1-1 00:00:00');")
+    testFoldConst("select time(cast('2025-1-1 00:00:00.1' as datetime(1)));")
+    testFoldConst("select time(cast('2025-1-1 00:00:00.21' as datetime(2)));")
+    testFoldConst("select time(cast('2025-1-1 00:00:00.321' as datetime(3)));")
+    testFoldConst("select time(cast('2025-1-1 00:00:00.4321' as datetime(4)));")
+    testFoldConst("select time(cast('2025-1-1 00:00:00.54321' as datetime(5)));")
+    testFoldConst("select time(cast('2025-1-1 00:00:00.654321' as datetime(6)));")
 
     def tableName = "test_time_function"
 
@@ -36,8 +49,8 @@ suite("test_time") {
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 k int,
-                time_null datetimev2 NULL,
-                time_not_null datetimev2 NOT NULL
+                time_null datetimev2(3) NULL,
+                time_not_null datetimev2(3) NOT NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(k)
             COMMENT "OLAP"
@@ -56,7 +69,11 @@ suite("test_time") {
                 (1, "2025-1-1 13:21:03", "2025-1-1 13:21:03"),
                 (2, "2025-1-1 13:22:03", "2025-1-1 13:22:03"),
                 (3, "2025-1-1 14:21:03", "2025-1-1 14:21:03"),
-                (4, null, "2025-1-1 14:21:04");
+                (4, "2025-1-1 14:21:03", "2025-1-1 14:21:03.1"),
+                (5, "2025-1-1 14:21:03", "2025-1-1 14:21:03.12"),
+                (6, "2025-1-1 14:21:03", "2025-1-1 14:21:03.123"),
+                (7, "2025-1-1 14:21:03", "2025-1-1 14:21:03.1234"),
+                (8, null, "2025-1-1 14:21:04");
     """
     qt_sql_time_null "select time(time_null) from ${tableName}"
     qt_sql_time_not_null "select time(time_not_null) from ${tableName}"

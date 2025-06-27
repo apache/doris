@@ -2,6 +2,24 @@
 -- !sql_const --
 12:12:12
 
+-- !sql_const_scale1 --
+12:12:12
+
+-- !sql_const_scale2 --
+12:12:12
+
+-- !sql_const_scale3 --
+12:12:12
+
+-- !sql_const_scale4 --
+12:12:12
+
+-- !sql_const_scale5 --
+12:12:12
+
+-- !sql_const_scale6 --
+12:12:12
+
 -- !const_null --
 \N
 
@@ -23,6 +41,9 @@
 -- !sql_wrong_input5 --
 \N
 
+-- !sql_wrong_input6 --
+\N
+
 -- !empty_nullable --
 
 -- !empty_not_nullable --
@@ -31,10 +52,19 @@
 13:21:03
 13:22:03
 14:21:03
+14:21:03
+14:21:03
+14:21:03
+14:21:03
 \N
 
 -- !sql_time_not_null --
 13:21:03
 13:22:03
 14:21:03
+14:21:03
+14:21:03
+14:21:03
+14:21:03
 14:21:04
+
