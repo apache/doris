@@ -1923,12 +1923,19 @@ TEST(VTimestampFunctionsTest, time) {
 
     InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2};
 
-    DataSet data_set = {{{std::string("2020-01-01 12:00:00")}, std::string("12:00:00")},
-                        {{std::string("2020-01-01 05:03:01")}, std::string("05:03:01")},
-                        {{std::string("2000-01-01 25:00:00")}, Null()},
-                        {{std::string("2000-01-01 12:60:00")}, Null()},
-                        {{std::string("2000-01-01 12:00:60")}, Null()},
-                        {{Null()}, Null()}};
+    DataSet data_set = {
+            {{std::string("2020-01-01 12:00:00")}, std::string("12:00:00")},
+            {{std::string("2020-01-01 05:03:01")}, std::string("05:03:01")},
+            {{std::string("2020-01-01 05:03:01.1")}, std::string("05:03:01.1")},
+            {{std::string("2020-01-01 05:03:01.12")}, std::string("05:03:01.12")},
+            {{std::string("2020-01-01 05:03:01.123")}, std::string("05:03:01.123")},
+            {{std::string("2020-01-01 05:03:01.1234")}, std::string("05:03:01.1234")},
+            {{std::string("2020-01-01 05:03:01.12345")}, std::string("05:03:01.12345")},
+            {{std::string("2020-01-01 05:03:01.123456")}, std::string("05:03:01.123456")},
+            {{std::string("2000-01-01 25:00:00")}, Null()},
+            {{std::string("2000-01-01 12:60:00")}, Null()},
+            {{std::string("2000-01-01 12:00:60")}, Null()},
+            {{Null()}, Null()}};
 
     static_cast<void>(check_function<DataTypeTimeV2, true>(func_name, input_types, data_set));
 }
