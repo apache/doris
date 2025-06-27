@@ -734,6 +734,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewC
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
@@ -5016,6 +5017,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowGrantsForUser(ShowGrantsForUserContext ctx) {
         UserIdentity userIdent = visitUserIdentify(ctx.userIdentify());
         return new ShowGrantsCommand(userIdent, false);
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateUser(DorisParser.ShowCreateUserContext ctx) {
+        UserIdentity userIdent = null;
+        if (ctx.userIdentify() != null) {
+            userIdent = visitUserIdentify(ctx.userIdentify());
+        }
+        return new ShowCreateUserCommand(userIdent);
     }
 
     @Override
