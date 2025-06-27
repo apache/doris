@@ -92,7 +92,6 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
                 return status;
             }
             callback(client);
-#endif
         }
     } catch (apache::thrift::TException& e) {
 #ifndef ADDRESS_SANITIZER

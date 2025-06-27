@@ -65,7 +65,7 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     const char* data = line.data;
     const auto& column_sep_positions = _text_line_reader_ctx->column_sep_positions();
@@ -814,5 +814,5 @@ Status CsvReader::close() {
 
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -173,7 +173,7 @@ public:
          *      null
          */
         const char* null_format = "\\N";
-        int null_len = 2;
+        size_t null_len = 2;
 
         /**
          * The wrapper char for string type in nested type.

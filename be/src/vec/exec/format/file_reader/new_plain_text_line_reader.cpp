@@ -47,7 +47,6 @@
 // leave these 2 size small for debugging
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, const size_t length) {
     _total_len = length;
     size_t bound = update_reading_bound(start);

@@ -33,7 +33,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
-#include "vec/exec/scan/scanner.h"
+#include "vec/exec/scan/vscanner.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
