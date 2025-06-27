@@ -92,16 +92,12 @@ public class LoadScanProvider {
         params.setFormatType(fileFormatProperties.getFileFormatType());
         params.setCompressType(fileFormatProperties.getCompressionType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
-        if (fileGroupInfo.getSequenceMapCol() != null) {
-            params.setSequenceMapCol(fileGroupInfo.getSequenceMapCol());
-        }
         if (fileFormatProperties.getFormatName().equals("hive_text")) {
             params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
         }
-        params.setProperties(fileGroupInfo.getBrokerDesc().getBackendConfigProperties());
+        params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc()
-                    .getBackendConfigProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
             params.setHdfsParams(tHdfsParams);
         }
         TFileAttributes fileAttributes = setFileAttributes(ctx.fileGroup);
@@ -210,7 +206,7 @@ public class LoadScanProvider {
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
                 context.fileGroup.getFileFormatProperties().getFileFormatType(), fileGroupInfo.getHiddenColumns(),
-                fileGroupInfo.getUniqueKeyUpdateMode());
+                fileGroupInfo.isPartialUpdate());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {

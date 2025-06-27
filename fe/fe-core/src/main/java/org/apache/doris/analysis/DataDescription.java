@@ -41,7 +41,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -147,8 +146,6 @@ public class DataDescription implements InsertStmt.DataDesc {
     private boolean ignoreCsvRedundantCol = false;
 
     private boolean isAnalyzed = false;
-
-    TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
     private FileFormatProperties fileFormatProperties;
 
@@ -369,8 +366,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE,
                 String.valueOf(taskInfo.isReadJsonByLine()));
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
-
-        this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
         columnsNameToLowerCase(fileFieldNames);
     }
 
@@ -632,31 +627,8 @@ public class DataDescription implements InsertStmt.DataDesc {
         return columnMappingList;
     }
 
-    public String getFileFormat() {
-        return fileFormat;
-    }
-
-    public void setCompressType(TFileCompressType compressType) {
-        this.compressType = compressType;
-    }
-
-    public TFileCompressType getCompressType() {
-        return compressType;
-    }
-
     public List<String> getColumnsFromPath() {
         return columnsFromPath;
-    }
-
-    public String getColumnSeparator() {
-        if (columnSeparator == null) {
-            return null;
-        }
-        return columnSeparator.getSeparator();
-    }
-
-    public Separator getColumnSeparatorObj() {
-        return columnSeparator;
     }
 
     public boolean isNegative() {
@@ -669,25 +641,6 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     public void setBeAddr(TNetworkAddress addr) {
         beAddr = addr;
-    }
-
-    public String getLineDelimiter() {
-        if (lineDelimiter == null) {
-            return null;
-        }
-        return lineDelimiter.getSeparator();
-    }
-
-    public Separator getLineDelimiterObj() {
-        return lineDelimiter;
-    }
-
-    public byte getEnclose() {
-        return enclose;
-    }
-
-    public byte getEscape() {
-        return escape;
     }
 
     public String getSequenceCol() {
@@ -718,44 +671,8 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.backendId = backendId;
     }
 
-    public boolean isStripOuterArray() {
-        return stripOuterArray;
-    }
-
-    public void setStripOuterArray(boolean stripOuterArray) {
-        this.stripOuterArray = stripOuterArray;
-    }
-
-    public boolean isFuzzyParse() {
-        return fuzzyParse;
-    }
-
-    public void setFuzzyParse(boolean fuzzyParse) {
-        this.fuzzyParse = fuzzyParse;
-    }
-
-    public boolean isNumAsString() {
-        return numAsString;
-    }
-
-    public void setNumAsString(boolean numAsString) {
-        this.numAsString = numAsString;
-    }
-
-    public String getJsonPaths() {
-        return jsonPaths;
-    }
-
-    public void setJsonPaths(String jsonPaths) {
-        this.jsonPaths = jsonPaths;
-    }
-
-    public String getJsonRoot() {
-        return jsonRoot;
-    }
-
-    public void setJsonRoot(String jsonRoot) {
-        this.jsonRoot = jsonRoot;
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
     }
 
     public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
@@ -786,20 +703,8 @@ public class DataDescription implements InsertStmt.DataDesc {
         return !Strings.isNullOrEmpty(srcTableName);
     }
 
-    public boolean isReadJsonByLine() {
-        return readJsonByLine;
-    }
-
-    public boolean getTrimDoubleQuotes() {
-        return trimDoubleQuotes;
-    }
-
     public Map<String, String> getProperties() {
         return properties;
-    }
-
-    public int getSkipLines() {
-        return skipLines;
     }
 
     public boolean getIgnoreCsvRedundantCol() {
@@ -981,9 +886,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
-            if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                return;
-            }
             throw new AnalysisException("Table " + olapTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
@@ -1011,60 +913,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         if (!hasSourceSequenceCol) {
             throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + olapTable.getName()
                     + " or the COLUMNS and SET clause");
-        }
-    }
-
-    private void analyzeProperties() throws AnalysisException {
-        Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        analysisMap.putAll(properties);
-
-        // If lineDelimiter had assigned, do not get it from properties again.
-        if (lineDelimiter == null && analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
-            lineDelimiter = new Separator(analysisMap.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER));
-            lineDelimiter.analyze();
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE)) {
-            fuzzyParse = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE));
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY)) {
-            stripOuterArray = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY));
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONPATHS)) {
-            jsonPaths = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONPATHS);
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONROOT)) {
-            jsonRoot = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONROOT);
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING)) {
-            numAsString = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING));
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
-            trimDoubleQuotes = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES));
-        }
-        if (analysisMap.containsKey(LoadStmt.KEY_SKIP_LINES)) {
-            skipLines = Integer.parseInt(analysisMap.get(LoadStmt.KEY_SKIP_LINES));
-        }
-        if (analysisMap.containsKey(LoadStmt.KEY_ENCLOSE)) {
-            String encloseProp = analysisMap.get(LoadStmt.KEY_ENCLOSE);
-            if (encloseProp.length() == 1) {
-                enclose = encloseProp.getBytes(StandardCharsets.UTF_8)[0];
-            } else {
-                throw new AnalysisException("enclose must be single-char");
-            }
-        }
-        if (analysisMap.containsKey(LoadStmt.KEY_ESCAPE)) {
-            String escapeProp = analysisMap.get(LoadStmt.KEY_ESCAPE);
-            if (escapeProp.length() == 1) {
-                escape = escapeProp.getBytes(StandardCharsets.UTF_8)[0];
-            } else {
-                throw new AnalysisException("escape must be single-char");
-            }
         }
     }
 
@@ -1096,7 +944,7 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     // Change all the columns name to lower case, because Doris column is case-insensitive.
     private void columnsNameToLowerCase(List<String> columns) {
-        if (columns == null || columns.isEmpty() || "json".equals(this.fileFormat)) {
+        if (columns == null || columns.isEmpty() || "json".equals(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
             return;
         }
         for (int i = 0; i < columns.size(); i++) {
@@ -1144,15 +992,16 @@ public class DataDescription implements InsertStmt.DataDesc {
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
         analyzeFilePaths();
 
-        analyzeLoadAttributes();
+        if (partitionNames != null) {
+            partitionNames.analyze(null);
+        }
 
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
 
-        if (properties != null) {
-            analyzeProperties();
-        }
+        fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
+        fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
     private void analyzeFilePaths() throws AnalysisException {
@@ -1161,36 +1010,6 @@ public class DataDescription implements InsertStmt.DataDesc {
                 throw new AnalysisException("No file path in load statement.");
             }
             filePaths.replaceAll(String::trim);
-        }
-    }
-
-    private void analyzeLoadAttributes() throws AnalysisException {
-        if (columnSeparator != null) {
-            columnSeparator.analyze();
-        }
-
-        if (lineDelimiter != null) {
-            lineDelimiter.analyze();
-        }
-
-        if (partitionNames != null) {
-            partitionNames.analyze(null);
-        }
-
-        // file format
-        // note(tsy): for historical reason, file format here must be string type rather than TFileFormatType
-        if (fileFormat != null) {
-            if (!fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_PARQUET)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ORC)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_JSON)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_WAL)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ARROW)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_HIVE_TEXT)) {
-                throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
-            }
         }
     }
 
@@ -1221,14 +1040,20 @@ public class DataDescription implements InsertStmt.DataDesc {
             sb.append(" ");
             sb.append(partitionNames.toSql());
         }
-        if (columnSeparator != null) {
-            sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
+        if (analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR) != null) {
+            sb.append(" COLUMNS TERMINATED BY ")
+                    .append("'")
+                    .append(analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR))
+                    .append("'");
         }
-        if (lineDelimiter != null && isMysqlLoad) {
-            sb.append(" LINES TERMINATED BY ").append(lineDelimiter.toSql());
+        if (analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER) != null && isMysqlLoad) {
+            sb.append(" LINES TERMINATED BY ")
+                    .append("'")
+                    .append(analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER))
+                    .append("'");
         }
-        if (fileFormat != null && !fileFormat.isEmpty()) {
-            sb.append(" FORMAT AS '" + fileFormat + "'");
+        if (!Strings.isNullOrEmpty(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+            sb.append(" FORMAT AS '" + analysisMap.get(FileFormatProperties.PROP_FORMAT) + "'");
         }
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             sb.append(" (");
