@@ -124,7 +124,6 @@ void CloudWarmUpManager::handle_jobs() {
 
         std::shared_ptr<bthread::CountdownEvent> wait =
                 std::make_shared<bthread::CountdownEvent>(0);
-      
         for (int64_t tablet_id : cur_job->tablet_ids) {
             if (_cur_job_id == 0) { // The job is canceled
                 break;
