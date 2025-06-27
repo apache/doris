@@ -44,8 +44,8 @@ using SegIdMapping = std::vector<uint32_t>;
 using FailedTablets = std::vector<std::pair<int64_t, Status>>;
 class TabletStream {
 public:
-    TabletStream(const PUniqueId& load_id, int64_t id, int64_t txn_id, LoadStreamMgr* load_stream_mgr,
-                 RuntimeProfile* profile);
+    TabletStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
+                 LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile);
 
     Status init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
                 int64_t partition_id);
