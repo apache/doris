@@ -34,6 +34,7 @@
 
 #include "common/bvars.h"
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
@@ -416,8 +417,9 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
                               int limit) {
     StopWatch sw;
     approximate_bytes_ += begin.size() + end.size();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [&sw](int*) { g_bvar_txn_kv_range_get << sw.elapsed_us(); });
+    DORIS_CLOUD_DEFER {
+        g_bvar_txn_kv_range_get << sw.elapsed_us();
+    };
 
     FDBFuture* fut = fdb_transaction_get_range(
             txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)begin.data(), begin.size()),
@@ -555,10 +557,10 @@ TxnErrorCode Transaction::commit() {
 TxnErrorCode Transaction::get_read_version(int64_t* version) {
     StopWatch sw;
     auto* fut = fdb_transaction_get_read_version(txn_);
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [fut, &sw](...) {
+    DORIS_CLOUD_DEFER {
         fdb_future_destroy(fut);
         g_bvar_txn_kv_get_read_version << sw.elapsed_us();
-    });
+    };
     RETURN_IF_ERROR(await_future(fut));
     auto err = fdb_future_get_error(fut);
     TEST_SYNC_POINT_CALLBACK("transaction:get_read_version:get_err", &err);

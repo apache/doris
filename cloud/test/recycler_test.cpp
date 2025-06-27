@@ -771,8 +771,9 @@ TEST(RecyclerTest, recycle_rowsets) {
     int insert_no_inverted_index = 0;
     int insert_inverted_index = 0;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("InvertedIndexIdCache::insert1", [&](auto&&) { ++insert_no_inverted_index; });
     sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
@@ -848,8 +849,9 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     ASSERT_EQ(recycler.init(), 0);
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("memkv::Transaction::get", [](auto&& args) {
         auto* limit = try_any_cast<int*>(args[0]);
         *limit = 100;
@@ -921,8 +923,9 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     int insert_no_inverted_index = 0;
     int insert_inverted_index = 0;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("InvertedIndexIdCache::insert1", [&](auto&&) { ++insert_no_inverted_index; });
     sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
@@ -1986,8 +1989,9 @@ TEST(RecyclerTest, recycle_copy_jobs) {
 
 TEST(RecyclerTest, recycle_batch_copy_jobs) {
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("MockAccessor::delete_files", [](auto&& args) {
         auto* ret = try_any_cast_ret<int>(args);
         ret->first = -1;
@@ -2109,8 +2113,9 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
 
 TEST(RecyclerTest, recycle_stage) {
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -2407,8 +2412,9 @@ TEST(CheckerTest, normal_inverted_check) {
             },
             &guard);
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -2456,8 +2462,9 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
             },
             &guard);
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -2785,8 +2792,9 @@ TEST(CheckerTest, do_inspect) {
         {
             // empty job info
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
             sp->set_call_back("Checker:do_inspect", [](auto&& args) {
                 auto last_ctime = *try_any_cast<int64_t*>(args[0]);
                 ASSERT_EQ(last_ctime, 11111);
@@ -2807,8 +2815,9 @@ TEST(CheckerTest, do_inspect) {
             ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
             checker.do_inspect(instance);
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
             sp->set_call_back("Checker:do_inspect", [](auto&& args) {
                 ASSERT_EQ(*try_any_cast<int64_t*>(args[0]), 11111);
             });
@@ -2823,8 +2832,9 @@ TEST(CheckerTest, do_inspect) {
             job_info.set_instance_id(instance_id);
             job_info.set_last_ctime_ms(12345);
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
             sp->set_call_back("Checker:do_inspect", [](auto&& args) {
                 ASSERT_EQ(*try_any_cast<int64_t*>(args[0]), 12345);
             });
@@ -2847,8 +2857,9 @@ TEST(CheckerTest, do_inspect) {
             job_info.set_instance_id(instance_id);
             job_info.set_last_ctime_ms(now - expiration_ms - 10);
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
 
             bool alarm = false;
             sp->set_call_back("Checker:do_inspect", [&alarm](auto&&) { alarm = true; });
@@ -2943,8 +2954,9 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
     std::map<std::int64_t, std::set<std::tuple<std::string, int64_t, int64_t>>>
             expected_leaked_delete_bitmaps {}, real_leaked_delete_bitmaps {};
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back(
             "InstanceChecker::do_delete_bitmap_inverted_check.get_abnormal_delete_bitmap",
             [&real_abnormal_delete_bitmaps](auto&& args) {
@@ -3167,8 +3179,9 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_check_abnormal) {
     std::map<std::int64_t, std::set<std::string>> expected_abnormal_rowsets {};
     std::map<std::int64_t, std::set<std::string>> real_abnormal_rowsets {};
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("InstanceChecker::check_delete_bitmap_storage_optimize.get_abnormal_rowset",
                       [&real_abnormal_rowsets](auto&& args) {
                           int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
@@ -3422,11 +3435,11 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
 
 TEST(RecyclerTest, init_vault_accessor_failed_test) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3557,11 +3570,11 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
 
 TEST(RecyclerTest, recycle_tablet_without_resource_id) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3639,11 +3652,11 @@ TEST(RecyclerTest, recycle_tablet_without_resource_id) {
 
 TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3721,11 +3734,11 @@ TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
 
 TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3767,11 +3780,11 @@ TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
 
 TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3901,11 +3914,11 @@ TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
 
 TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -3980,11 +3993,11 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
 
 TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -4058,11 +4071,11 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
 
 TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -4457,8 +4470,9 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     check_multiple_txn_info_kvs(txn_kv, 20000);
 
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
                       [](auto&& args) {
                           auto* recycle_txn_info_keys =
