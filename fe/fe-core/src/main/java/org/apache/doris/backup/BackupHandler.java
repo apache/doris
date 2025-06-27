@@ -1035,6 +1035,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
             return;
         }
+
         // case3: include table ref
         Set<String> olapTableNames = Sets.newHashSet();
         Set<String> viewNames = Sets.newHashSet();

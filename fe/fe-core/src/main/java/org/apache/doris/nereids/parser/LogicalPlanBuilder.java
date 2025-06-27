@@ -5766,7 +5766,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
-            tableAlias = ctx.tableAlias().getText();
+            tableAlias = ctx.tableAlias().strictIdentifier().getText();
         }
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         List<String> hints = visitRelationHintContext(ctx.relationHint());
