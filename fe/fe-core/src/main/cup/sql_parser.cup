@@ -1885,21 +1885,6 @@ create_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
     :}
-    /* external resource */
-    | KW_CREATE KW_EXTERNAL KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
-    {:
-        RESULT = new CreateResourceStmt(true, ifNotExists, resourceName, properties);
-    :}
-    /* resource */
-    | KW_CREATE KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
-    {:
-        RESULT = new CreateResourceStmt(false, ifNotExists, resourceName, properties);
-    :}
-    /* storage vault */
-    | KW_CREATE KW_STORAGE KW_VAULT opt_if_not_exists:ifNotExists ident_or_text:storageVaultName opt_properties:properties
-    {:
-        RESULT = new CreateStorageVaultStmt(ifNotExists, storageVaultName, properties);
-    :}
     /* workload schedule policy */
     | KW_CREATE KW_WORKLOAD KW_POLICY opt_if_not_exists:ifNotExists ident_or_text:workloadPolicyName opt_conditions:conditions opt_actions:actions opt_properties:properties
     {:
