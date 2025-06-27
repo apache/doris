@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
@@ -163,13 +162,6 @@ public class ResourceMgr implements Writable {
         // log alter
         Env.getCurrentEnv().getEditLog().logAlterResource(resource);
         LOG.info("Alter resource success. Resource: {}", resource);
-    }
-
-    public void alterResource(AlterResourceStmt stmt) throws DdlException {
-        String resourceName = stmt.getResourceName();
-        Map<String, String> properties = stmt.getProperties();
-
-        alterResource(resourceName, properties);
     }
 
     public void replayAlterResource(Resource resource) {

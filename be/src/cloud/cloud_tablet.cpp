@@ -317,10 +317,10 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                     },
                             .download_done {[](Status st) {
-                                        if (!st) {
-                                            LOG_WARNING("add rowset warm up error ").error(st);
-                                        }
-                                    }},
+                                if (!st) {
+                                    LOG_WARNING("add rowset warm up error ").error(st);
+                                }
+                            }},
                     });
 
                     auto download_idx_file = [&](const io::Path& idx_path, int64_t idx_size) {
@@ -333,7 +333,11 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                                 .expiration_time = expiration_time,
                                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                         },
-                                .download_done {},
+                                .download_done {[](Status st) {
+                                    if (!st) {
+                                        LOG_WARNING("add rowset warm up error ").error(st);
+                                    }
+                                }},
                         };
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
                         g_file_cache_cloud_tablet_submitted_index_num << 1;
