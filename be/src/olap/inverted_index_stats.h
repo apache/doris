@@ -17,29 +17,18 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/prefix_query.h"
+#include <vector>
 
-CL_NS_USE(search)
+namespace doris {
 
-namespace doris::segment_v2 {
-
-class PhrasePrefixQuery : public Query {
-public:
-    PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                      const TQueryOptions& query_options, const io::IOContext* io_ctx);
-    ~PhrasePrefixQuery() override = default;
-
-    void add(const InvertedIndexQueryInfo& query_info) override;
-    void search(roaring::Roaring& roaring) override;
-
-private:
-    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
-
-    int32_t _term_size = 0;
-    int32_t _max_expansions = 50;
-    PhraseQuery _phrase_query;
-    PrefixQuery _prefix_query;
+struct InvertedIndexQueryStatistics {
+    std::string column_name;
+    int64_t hit_rows = 0;
+    int64_t exec_time = 0;
 };
 
-} // namespace doris::segment_v2
+struct InvertedIndexStatistics {
+    std::vector<InvertedIndexQueryStatistics> stats;
+};
+
+} // namespace doris
