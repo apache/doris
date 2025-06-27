@@ -191,8 +191,8 @@ struct creator_with_type_base {
     template <typename Class, typename... TArgs>
     static AggregateFunctionPtr create_base(const DataTypes& argument_types,
                                             const bool result_is_nullable, TArgs&&... args) {
-        auto create = [&]<PrimitiveType T>() {
-            return creator_without_type::create<typename Class::template T<TYPE_BOOLEAN>>(
+        auto create = [&]<PrimitiveType Ptype>() {
+            return creator_without_type::create<typename Class::template T<Ptype>>(
                     argument_types, result_is_nullable, std::forward<TArgs>(args)...);
         };
         if constexpr (allow_integer) {
