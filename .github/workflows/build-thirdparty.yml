@@ -183,8 +183,8 @@ jobs:
           brew unlink cmake || true
           # faiss requires cmake 3.29.0 or later
           wget https://github.com/Kitware/CMake/releases/download/v3.29.0/cmake-3.29.0-macos-universal.tar.gz
-          tar -xzf cmake-3.22.1-macos-universal.tar.gz
-          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          tar -xzf cmake-3.29.0-macos-universal.tar.gz
+          sudo cp -r cmake-3.29.0-macos-universal/CMake.app/Contents/* /usr/local/
           cmake --version
 
       - name: Build
@@ -242,8 +242,8 @@ jobs:
           brew unlink cmake || true
           # faiss requires cmake 3.29.0 or later
           wget https://github.com/Kitware/CMake/releases/download/v3.29.0/cmake-3.29.0-macos-universal.tar.gz
-          tar -xzf cmake-3.22.1-macos-universal.tar.gz
-          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          tar -xzf cmake-3.29.0-macos-universal.tar.gz
+          sudo cp -r cmake-3.29.0-macos-universal/CMake.app/Contents/* /usr/local/
           cmake --version
 
       - name: Build
