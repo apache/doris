@@ -23,7 +23,11 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.SimpleAuthenticationConfig;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -44,7 +48,9 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -83,7 +89,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     /**
      * Lazily initializes HMSProperties from catalog properties.
      * This method is thread-safe using double-checked locking.
-     *
+     * <p>
      * TODO: After all metastore integrations are completed,
      * consider moving this initialization logic into the superclass constructor
      * for unified management.
@@ -95,16 +101,39 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (hmsProperties == null) {
             synchronized (this) {
                 if (hmsProperties == null) {
-                    try {
-                        this.hmsProperties = (HMSProperties) MetastoreProperties.create(catalogProperty
-                                .getProperties());
-                    } catch (UserException e) {
-                        throw new RuntimeException("Failed to create HMSProperties from catalog properties", e);
-                    }
+                    initHmsProperties();
                 }
             }
         }
         return hmsProperties;
+    }
+
+    private HiveConf getHiveConf() {
+        if (StringUtils.isNotBlank(catalogProperty.getProperties().get("hive.metastore.type"))) {
+            HiveConf hiveConf = new HiveConf();
+            for (Map.Entry<String, String> entry : catalogProperty.getHadoopProperties().entrySet()) {
+                hiveConf.set(entry.getKey(), entry.getValue());
+            }
+            return hiveConf;
+        }
+        return getHmsProperties().getHiveConf();
+    }
+
+    private HadoopAuthenticator getHadoopAuthenticator() {
+        if (StringUtils.isNotBlank(catalogProperty.getProperties().get("hive.metastore.type"))) {
+            SimpleAuthenticationConfig authConfig = (SimpleAuthenticationConfig) AuthenticationConfig
+                    .getSimpleAuthenticationConfig(getHiveConf());
+            return new HadoopSimpleAuthenticator(authConfig);
+        }
+        return getHmsProperties().getHdfsAuthenticator();
+    }
+
+    private void initHmsProperties() {
+        try {
+            this.hmsProperties = (HMSProperties) MetastoreProperties.create(catalogProperty.getProperties());
+        } catch (UserException e) {
+            throw new RuntimeException("Failed to create HMSProperties from catalog properties", e);
+        }
     }
 
     @VisibleForTesting
@@ -174,19 +203,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
                         "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
             }
         }
+        //todo check ms properties
     }
 
     @Override
     protected synchronized void initPreExecutionAuthenticator() {
         if (preExecutionAuthenticator == null) {
-            preExecutionAuthenticator = new PreExecutionAuthenticator(hmsProperties.getHdfsAuthenticator());
+            preExecutionAuthenticator = new PreExecutionAuthenticator(getHadoopAuthenticator());
         }
     }
 
     @Override
     protected void initLocalObjectsImpl() {
         initPreExecutionAuthenticator();
-        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(getHmsProperties().getHiveConf(), this);
+        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(getHiveConf(), this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
                 ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE,

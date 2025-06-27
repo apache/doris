@@ -78,6 +78,29 @@ public class ParamRules {
     }
 
     /**
+     * Require that the requiredValues are present if conditionValue is non-empty and equals expectedValue.
+     *
+     * @param conditionValue the value to check for presence and match
+     * @param expectedValue the expected value to match against
+     * @param requiredValues values that must be present if conditionValue matches expectedValue
+     * @param errorMessage error message to throw if any required value is missing
+     * @return this ParamRules instance for chaining
+     */
+    public ParamRules requireIf(String conditionValue, String expectedValue, String[] requiredValues,
+                                String errorMessage) {
+        rules.add(() -> {
+            if (isPresent(conditionValue) && Objects.equals(expectedValue, conditionValue)) {
+                for (String val : requiredValues) {
+                    if (!isPresent(val)) {
+                        throw new IllegalArgumentException(errorMessage);
+                    }
+                }
+            }
+        });
+        return this;
+    }
+
+    /**
      * Execute all validation rules.
      *
      * @throws IllegalArgumentException if any rule fails
@@ -115,6 +138,28 @@ public class ParamRules {
             if (isPresent(conditionValue)) {
                 for (String val : requiredValues) {
                     if (!isPresent(val)) {
+                        throw new IllegalArgumentException(errorMessage);
+                    }
+                }
+            }
+        });
+        return this;
+    }
+
+    /**
+     * Require that if a is present and equals expectedValue, then none of the forbiddenValues may be present.
+     *
+     * @param a the condition value
+     * @param expectedValue the expected value of a
+     * @param forbiddenValues values that must not be present if a matches expectedValue
+     * @param errorMessage the error message to throw if any forbiddenValue is present
+     * @return this ParamRules instance for chaining
+     */
+    public ParamRules forbidIf(String a, String expectedValue, String[] forbiddenValues, String errorMessage) {
+        rules.add(() -> {
+            if (Objects.equals(a, expectedValue)) {
+                for (String val : forbiddenValues) {
+                    if (isPresent(val)) {
                         throw new IllegalArgumentException(errorMessage);
                     }
                 }

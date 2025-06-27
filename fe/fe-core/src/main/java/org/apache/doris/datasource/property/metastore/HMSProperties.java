@@ -186,19 +186,15 @@ public class HMSProperties extends MetastoreProperties {
     private ParamRules buildRules() {
 
         return new ParamRules()
-                // required
-                // .require(this.hiveMetastoreUri, "hive.metastore.uris is required")
-                .require(this.hiveMetastoreAuthenticationType, "hive.metastore.authentication.type is required")
-                // mutually exclusive
-                .mutuallyExclusive(hiveMetastoreClientKeytab, hdfsKerberosKeytab,
-                        "hive.metastore.client.keytab and hadoop.kerberos.keytab can not be set at the same time")
-                .mutuallyExclusive(hiveMetastoreClientPrincipal, hdfsKerberosPrincipal,
-                        "hive.metastore.client.principal and hadoop.kerberos.principal can not be set at the same time")
-                .requireIf(hiveMetastoreAuthenticationType, "kerberos", hiveMetastoreClientKeytab,
-                        "hive.metastore.client.keytab is required when hive.metastore.authentication.type is kerberos")
-                .requireIf(hiveMetastoreAuthenticationType, "kerberos", hiveMetastoreClientPrincipal,
-                        "hive.metastore.client.principal is required when hive.metastore.authentication"
-                                + ".type is kerberos");
+                .forbidIf(hiveMetastoreAuthenticationType, "simple", new String[]{
+                        hiveMetastoreClientPrincipal, hiveMetastoreClientKeytab},
+                        "hive.metastore.client.principal and hive.metastore.client.keytab cannot be set when "
+                                + "hive.metastore.authentication.type is simple"
+                        )
+                .requireIf(hiveMetastoreAuthenticationType, "kerberos", new String[]{
+                        hiveMetastoreClientPrincipal, hiveMetastoreClientKeytab},
+                        "hive.metastore.client.principal and hive.metastore.client.keytab are required when "
+                                + "hive.metastore.authentication.type is kerberos");
 
     }
 

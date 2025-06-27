@@ -94,11 +94,11 @@ public class MetastoreProperties extends ConnectionProperties {
      * These are checked in order to resolve the type from provided config.
      */
     private static final List<String> POSSIBLE_TYPE_KEYS = Arrays.asList(
-            "type",
             "metastore.type",
             "hive.metastore.type",
             "iceberg.catalog.type",
-            "paimon.catalog.type"
+            "paimon.catalog.type",
+            "type"
     );
 
     /**
