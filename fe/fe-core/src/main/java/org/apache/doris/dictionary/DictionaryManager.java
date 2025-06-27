@@ -461,9 +461,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 // already dropped. abort temporary version without lock.
                 // haven't increase version so use getVersion() + 1
                 if (ctx.getStatementContext().isPartialLoadDictionary()) {
-                    abortNextVersion(ctx, dictionary, dictionary.getVersion());
+                    abortSpecificVersion(ctx, dictionary, dictionary.getVersion());
                 } else {
-                    abortNextVersion(ctx, dictionary, dictionary.getVersion() + 1);
+                    abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
                 }
                 throw new RuntimeException("Dictionary " + dictionary.getName() + " has been dropped during loading");
             }
@@ -480,13 +480,13 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
 
         // commit and check the result. not modify metadata so dont need lock.
-        if (!commitNextVersion(ctx, dictionary)) {
+        if (!commitNowVersion(ctx, dictionary)) {
             dictionary.decreaseVersion();
             Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
             dictionary.trySetStatus(oldStatus);
-            abortNextVersion(ctx, dictionary, dictionary.getVersion());
-            throw new RuntimeException(
-                    "Dictionary " + dictionary.getName() + " commit version " + dictionary.getVersion() + " failed");
+            abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
+            throw new RuntimeException("Dictionary " + dictionary.getName() + " commit version "
+                    + (dictionary.getVersion() + 1) + " failed");
         }
 
         // commit succeed. update metadata.
@@ -502,7 +502,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
     }
 
-    private boolean commitNextVersion(ConnectContext ctx, Dictionary dictionary) {
+    private boolean commitNowVersion(ConnectContext ctx, Dictionary dictionary) {
         // use the same BEs when we get before start loading.
         List<Backend> beList = ctx.getStatementContext().getUsedBackendsDistributing();
 
@@ -550,7 +550,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     // abort could to all BE. swallow any failures.
-    private void abortNextVersion(ConnectContext ctx, Dictionary dictionary, long versionId) {
+    private void abortSpecificVersion(ConnectContext ctx, Dictionary dictionary, long versionId) {
         // use the same BEs when we get before start loading.
         List<Backend> beList = ctx.getStatementContext().getUsedBackendsDistributing();
 
