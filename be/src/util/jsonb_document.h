@@ -79,6 +79,15 @@
 #include "common/status.h"
 #include "vec/core/types.h"
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wzero-length-array"
+#endif
+#pragma pack(push, 1)
+
+#define JSONB_VER 1
+
+using int128_t = __int128;
 // #include "util/string_parser.hpp"
 
 // Concept to check for supported decimal types
@@ -129,16 +138,6 @@ concept JsonbPodType = (std::same_as<T, JsonbStringVal> || std::same_as<T, Objec
                         std::same_as<T, JsonbInt32Val> || std::same_as<T, JsonbInt64Val> ||
                         std::same_as<T, JsonbInt128Val> || std::same_as<T, JsonbFloatVal> ||
                         std::same_as<T, JsonbFloatVal> || std::same_as<T, JsonbDoubleVal>);
-
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wzero-length-array"
-#endif
-#pragma pack(push, 1)
-
-#define JSONB_VER 1
-
-using int128_t = __int128;
 
 // forward declaration
 struct JsonbValue;
