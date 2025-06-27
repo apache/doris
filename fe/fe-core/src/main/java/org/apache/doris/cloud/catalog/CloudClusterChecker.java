@@ -200,11 +200,11 @@ public class CloudClusterChecker extends MasterDaemon {
                 // edit log
                 Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
             }
-            checkComputeNodeChangedNet(remoteClusterPb, be);
+            updateIfComputeNodeEndpointChanged(remoteClusterPb, be);
         }
     }
 
-    private void checkComputeNodeChangedNet(ClusterPB remoteClusterPb, Backend be) {
+    private void updateIfComputeNodeEndpointChanged(ClusterPB remoteClusterPb, Backend be) {
         // check PublicEndpoint、PrivateEndpoint is changed?
         boolean netChanged = false;
         String remotePublicEndpoint = remoteClusterPb.getPublicEndpoint();
