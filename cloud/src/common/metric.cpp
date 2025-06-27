@@ -235,6 +235,7 @@ static void export_meta_ranges_details(TxnKv* kv) {
         LOG(WARNING) << "this method only support fdb txn kv";
         return;
     }
+    txn_kv->init();
 
     std::vector<std::string> partition_boundaries;
     TxnErrorCode code = txn_kv->get_partition_boundaries(&partition_boundaries);
