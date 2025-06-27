@@ -39,8 +39,8 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -204,6 +204,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     @Test
     public void testScalarSubquerySlotNullable() {
         List<String> nullableSqls = ImmutableList.of(
+                // project list
                 "select (select T3.id as k from T3 limit 1) from T1",
                 "select (select T3.id as k from T3 where T3.score = T1.score limit 1) from T1",
                 "select (select sum(T3.id) as k from T3) from T1",
@@ -211,12 +212,27 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
                 "select (select sum(T3.id) as k from T3 group by T3.score limit 1) from T1",
                 "select (select sum(T3.id) as k from T3 group by T3.score having T3.score = T1.score + 10 limit 1) from T1",
                 "select (select count(T3.id) as k from T3 group by T3.score limit 1) from T1",
-                "select (select count(T3.id) as k from T3 group by T3.score having T3.score = T1.score + 10 limit 1) from T1"
+                "select (select count(T3.id) as k from T3 group by T3.score having T3.score = T1.score + 10 limit 1) from T1",
+
+                // filter
+                "select * from T1 where T1.id > (select T3.id as k from T3 limit 1)",
+                "select * from T1 where T1.id > (select T3.id as k from T3 where T3.score = T1.score limit 1)",
+                "select * from T1 where T1.id > (select sum(T3.id) as k from T3)",
+                "select * from T1 where T1.id > (select sum(T3.id) as k from T3 where T3.score = T1.score)",
+                "select * from T1 where T1.id > (select sum(T3.id) as k from T3 group by T3.score limit 1)",
+                "select * from T1 where T1.id > (select sum(T3.id) as k from T3 group by T3.score having T3.score = T1.score + 10 limit 1)",
+                "select * from T1 where T1.id > (select count(T3.id) as k from T3 group by T3.score limit 1)",
+                "select * from T1 where T1.id > (select count(T3.id) as k from T3 group by T3.score having T3.score = T1.score + 10 limit 1)"
         );
 
         List<String> notNullableSqls = ImmutableList.of(
+                // project
                 "select (select count(T3.id) as k from T3) from T1",
-                "select (select count(T3.id) as k from T3 where T3.score = T1.score) from T1"
+                "select (select count(T3.id) as k from T3 where T3.score = T1.score) from T1",
+
+                // filter
+                "select * from T1 where T1.id > (select count(T3.id) as k from T3)",
+                "select * from T1 where T1.id > (select count(T3.id) as k from T3 where T3.score = T1.score)"
         );
 
         for (String sql : nullableSqls) {
