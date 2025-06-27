@@ -131,6 +131,7 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
+    bool has_char_type() const;
 
     void set_aggregation_method(FieldAggregationMethod agg) {
         _aggregation = agg;
@@ -543,13 +544,10 @@ private:
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
     TabletSchema(const TabletSchema&) = default;
 
-    void clear_column_cache_handlers();
-
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
     std::vector<TabletColumnPtr> _cols;
-    std::vector<Cache::Handle*> _column_cache_handlers;
 
     std::vector<TabletIndex> _indexes;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;

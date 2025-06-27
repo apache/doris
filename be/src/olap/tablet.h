@@ -254,9 +254,19 @@ public:
         _last_full_compaction_success_millis = millis;
     }
 
+    int64_t last_cumu_compaction_schedule_time() { return _last_cumu_compaction_schedule_millis; }
+    void set_last_cumu_compaction_schedule_time(int64_t millis) {
+        _last_cumu_compaction_schedule_millis = millis;
+    }
+
     int64_t last_base_compaction_schedule_time() { return _last_base_compaction_schedule_millis; }
     void set_last_base_compaction_schedule_time(int64_t millis) {
         _last_base_compaction_schedule_millis = millis;
+    }
+
+    int64_t last_full_compaction_schedule_time() { return _last_full_compaction_schedule_millis; }
+    void set_last_full_compaction_schedule_time(int64_t millis) {
+        _last_full_compaction_schedule_millis = millis;
     }
 
     void set_last_single_compaction_failure_status(std::string status) {
@@ -315,11 +325,23 @@ public:
         return _cumulative_compaction_policy;
     }
 
+    void set_last_cumu_compaction_status(std::string status) {
+        _last_cumu_compaction_status = std::move(status);
+    }
+
+    std::string get_last_cumu_compaction_status() { return _last_cumu_compaction_status; }
+
     void set_last_base_compaction_status(std::string status) {
         _last_base_compaction_status = std::move(status);
     }
 
     std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
+
+    void set_last_full_compaction_status(std::string status) {
+        _last_full_compaction_status = std::move(status);
+    }
+
+    std::string get_last_full_compaction_status() { return _last_full_compaction_status; }
 
     std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
 
@@ -544,13 +566,19 @@ private:
     std::atomic<int64_t> _last_base_compaction_success_millis;
     // timestamp of last full compaction success
     std::atomic<int64_t> _last_full_compaction_success_millis;
+    // timestamp of last cumu compaction schedule time
+    std::atomic<int64_t> _last_cumu_compaction_schedule_millis;
     // timestamp of last base compaction schedule time
     std::atomic<int64_t> _last_base_compaction_schedule_millis;
+    // timestamp of last full compaction schedule time
+    std::atomic<int64_t> _last_full_compaction_schedule_millis;
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int64_t> _cumulative_promotion_size;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
+    std::string _last_cumu_compaction_status;
     std::string _last_base_compaction_status;
+    std::string _last_full_compaction_status;
 
     // single replica compaction status
     std::string _last_single_compaction_failure_status;

@@ -37,6 +37,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -69,6 +70,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
@@ -725,6 +727,25 @@ public class StatisticsUtil {
                 || type instanceof AggStateType;
     }
 
+    public static boolean canCollectColumn(Column c, TableIf table, boolean isSampleAnalyze, long indexId) {
+        // Full analyze can collect all columns.
+        if (!isSampleAnalyze) {
+            return true;
+        }
+        // External table can collect all columns.
+        if (!(table instanceof OlapTable)) {
+            return true;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        // Skip agg table value columns
+        KeysType keysType = olapTable.getIndexMetaByIndexId(indexId).getKeysType();
+        if (KeysType.AGG_KEYS.equals(keysType) && !c.isKey()) {
+            return false;
+        }
+        // Skip mor unique table value columns
+        return !KeysType.UNIQUE_KEYS.equals(keysType) || olapTable.isUniqKeyMergeOnWrite() || c.isKey();
+    }
+
     public static void sleep(long millis) {
         try {
             Thread.sleep(millis);
@@ -1178,7 +1199,13 @@ public class StatisticsUtil {
         // For olap table, if the table visible version and row count doesn't change since last analyze,
         // we don't need to analyze it because its data is not changed.
         OlapTable olapTable = (OlapTable) table;
-        return olapTable.getVisibleVersion() != columnStats.tableVersion
+        long version = 0;
+        try {
+            version = ((OlapTable) table).getVisibleVersion();
+        } catch (RpcException e) {
+            LOG.warn("in cloud getVisibleVersion exception", e);
+        }
+        return version != columnStats.tableVersion
                 || olapTable.getRowCount() != columnStats.rowCount;
     }
 

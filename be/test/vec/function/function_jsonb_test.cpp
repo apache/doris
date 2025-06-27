@@ -667,7 +667,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
     // json_extract root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
-            {{STRING("null"), STRING("$")}, STRING("null")},
+            {{STRING("null"), STRING("$")}, Null()},
             {{STRING("true"), STRING("$")}, STRING("true")},
             {{STRING("false"), STRING("$")}, STRING("false")},
             {{STRING("100"), STRING("$")}, STRING("100")},                                 //int8
@@ -751,7 +751,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
             {{STRING(R"(["abc", "def"])"), STRING("$[1]")}, STRING("def")},   // string array
             {{STRING(R"(["abc", "def"])"), STRING("$[2]")}, Null()},          // string array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[0]")},
-             STRING("null")}, // multi type array
+             Null()}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[1]")},
              STRING("true")}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[2]")},
@@ -1521,7 +1521,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
     // get json from root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
-            {{STRING("null"), STRING("$")}, STRING("null")},
+            {{STRING("null"), STRING("$")}, Null()},
             {{STRING("true"), STRING("$")}, STRING("true")},
             {{STRING("false"), STRING("$")}, STRING("false")},
             {{STRING("100"), STRING("$")}, STRING("100")},                                 //int8
@@ -1605,7 +1605,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
             {{STRING(R"(["abc", "def"])"), STRING("$[1]")}, STRING("def")},   // string array
             {{STRING(R"(["abc", "def"])"), STRING("$[2]")}, Null()},          // string array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[0]")},
-             STRING("null")}, // multi type array
+             Null()}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[1]")},
              STRING("true")}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[2]")},

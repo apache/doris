@@ -25,8 +25,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
@@ -53,7 +51,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.hive.HiveCatalog;
@@ -84,15 +81,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // from remoteTable object.
     public static final String GET_SCHEMA_FROM_TABLE = "get_schema_from_table";
 
-    // -1 means cache with no ttl
-    public static final int CACHE_NO_TTL = -1;
-    // 0 means cache is disabled; >0 means cache with ttl;
-    public static final int CACHE_TTL_DISABLE_CACHE = 0;
-
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
-    @Getter
-    private HadoopAuthenticator authenticator;
 
     private int hmsEventsBatchSizePerRpc = -1;
     private boolean enableHmsEventsIncrementalSync = false;
@@ -170,14 +160,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
-        this.preExecutionAuthenticator = new PreExecutionAuthenticator();
-        if (this.authenticator == null) {
-            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-            this.authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-            this.preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
         }
+    }
 
+    @Override
+    protected void initLocalObjectsImpl() {
+        initPreExecutionAuthenticator();
         HiveConf hiveConf = null;
         JdbcClientConfig jdbcClientConfig = null;
         String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");

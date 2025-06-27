@@ -38,6 +38,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.Triple;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.rpc.RpcException;
@@ -52,7 +53,6 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -124,12 +124,16 @@ public class CacheHotspotManager extends MasterDaemon {
             jobDaemon.start();
             startJobDaemon = true;
         }
+
         if (!tableCreated) {
             try {
                 CacheHotspotManagerUtils.execCreateCacheTable();
                 tableCreated = true;
+                this.intervalMs = Config.fetch_cluster_cache_hotspot_interval_ms;
             } catch (Exception e) {
-                LOG.warn("Create cache hot spot table failed", e);
+                // sleep 60s wait for syncing storage vault info from ms and retry
+                this.intervalMs = 60000;
+                LOG.warn("Create cache hot spot table failed, sleep 60s and retry", e);
                 return;
             }
         }
@@ -629,7 +633,13 @@ public class CacheHotspotManager extends MasterDaemon {
         Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
 
         CloudWarmUpJob.JobType jobType = stmt.isWarmUpWithTable() ? JobType.TABLE : JobType.CLUSTER;
-        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType);
+        CloudWarmUpJob warmUpJob;
+        if (jobType == JobType.TABLE) {
+            warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType,
+                    stmt.getTables(), stmt.isForce());
+        } else {
+            warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType);
+        }
         addCloudWarmUpJob(warmUpJob);
 
         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(warmUpJob);

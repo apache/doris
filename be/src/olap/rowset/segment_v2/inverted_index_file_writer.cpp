@@ -23,6 +23,7 @@
 #include <filesystem>
 
 #include "common/status.h"
+#include "io/fs/stream_sink_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -124,6 +125,10 @@ Status InvertedIndexFileWriter::close() {
     DCHECK(!_closed) << debug_string();
     _closed = true;
     if (_indices_dirs.empty()) {
+        // An empty file must still be created even if there are no indexes to write
+        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+            return _idx_v2_writer->close();
+        }
         return Status::OK();
     }
     DBUG_EXECUTE_IF("inverted_index_storage_format_must_be_v2", {

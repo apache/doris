@@ -207,8 +207,6 @@ Status NewOlapScanner::init() {
                          tablet->tablet_id(), print_id(_state->query_id()));
             }
 
-
-            read_source = std::move(maybe_read_source.value());
             if (!_state->skip_delete_predicate()) {
                 read_source.fill_delete_predicates();
             }
@@ -371,6 +369,12 @@ Status NewOlapScanner::_init_tablet_reader_params(
     }
 
     _tablet_reader_params.use_page_cache = _state->enable_page_cache();
+
+    if (tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
+        _tablet_reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap();
+    }
+
+    DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
     if (!_state->skip_storage_engine_merge()) {
         TOlapScanNode& olap_scan_node =

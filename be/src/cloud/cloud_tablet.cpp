@@ -57,6 +57,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
+bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
+
 static constexpr int LOAD_INITIATOR_ID = -1;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
@@ -306,6 +308,19 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                 // replace existed rowset with `to_add` rowset. This may occur when:
                 //  1. schema change converts rowsets which have been double written to new tablet
                 //  2. cumu compaction picks single overlapping input rowset to perform compaction
+
+                // add existed rowset to unused_rowsets to remove delete bitmap and recycle cached data
+                std::vector<RowsetSharedPtr> unused_rowsets;
+                if (auto find_it = _rs_version_map.find(rs->version());
+                    find_it != _rs_version_map.end()) {
+                    DCHECK(find_it->second->rowset_id() != rs->rowset_id())
+                            << "tablet_id=" << tablet_id()
+                            << ", rowset_id=" << rs->rowset_id().to_string()
+                            << ", existed rowset_id=" << find_it->second->rowset_id().to_string();
+                    unused_rowsets.push_back(find_it->second);
+                }
+                add_unused_rowsets(unused_rowsets);
+
                 _tablet_meta->delete_rs_meta_by_version(rs->version(), nullptr);
                 _rs_version_map[rs->version()] = rs;
                 _tablet_meta->add_rowsets_unchecked({rs});
@@ -416,7 +431,47 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
     }
+    add_unused_rowsets(expired_rowsets);
     return expired_rowsets.size();
+}
+
+bool CloudTablet::need_remove_unused_rowsets() {
+    std::lock_guard<std::mutex> lock(_gc_mutex);
+    return !_unused_rowsets.empty();
+}
+
+void CloudTablet::add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets) {
+    std::lock_guard<std::mutex> lock(_gc_mutex);
+    for (const auto& rowset : rowsets) {
+        _unused_rowsets[rowset->rowset_id()] = rowset;
+    }
+    g_unused_rowsets_count << rowsets.size();
+}
+
+void CloudTablet::remove_unused_rowsets() {
+    int64_t removed_rowsets_num = 0;
+    OlapStopWatch watch;
+    std::lock_guard<std::mutex> lock(_gc_mutex);
+    // 1. remove unused rowsets's cache data and delete bitmap
+    for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
+        // it->second is std::shared_ptr<Rowset>
+        auto&& rs = it->second;
+        if (rs.use_count() > 1) {
+            LOG(WARNING) << "tablet_id:" << tablet_id() << " rowset: " << rs->rowset_id() << " has "
+                         << rs.use_count() << " references, it cannot be removed";
+            ++it;
+            continue;
+        }
+        tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
+        rs->clear_cache();
+        it = _unused_rowsets.erase(it);
+        g_unused_rowsets_count << -1;
+        removed_rowsets_num++;
+    }
+
+    LOG(INFO) << "tablet_id=" << tablet_id() << ", unused_rowset size=" << _unused_rowsets.size()
+              << ", removed_rowsets_num=" << removed_rowsets_num
+              << ", cost(us)=" << watch.get_elapse_time_us();
 }
 
 void CloudTablet::update_base_size(const Rowset& rs) {
@@ -584,6 +639,81 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     // get snapshot version path json_doc
     _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
+    rapidjson::Value cumu_value;
+    std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
+    cumu_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
+                         root.GetAllocator());
+    root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
+    rapidjson::Value base_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_failure_millis.load());
+    base_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
+                         root.GetAllocator());
+    root.AddMember("last base failure time", base_value, root.GetAllocator());
+    rapidjson::Value full_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_failure_millis.load());
+    full_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
+                         root.GetAllocator());
+    root.AddMember("last full failure time", full_value, root.GetAllocator());
+    rapidjson::Value cumu_success_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_millis.load());
+    cumu_success_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
+                                 root.GetAllocator());
+    root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
+    rapidjson::Value base_success_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_success_millis.load());
+    base_success_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
+                                 root.GetAllocator());
+    root.AddMember("last base success time", base_success_value, root.GetAllocator());
+    rapidjson::Value full_success_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
+    full_success_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
+                                 root.GetAllocator());
+    root.AddMember("last full success time", full_success_value, root.GetAllocator());
+    rapidjson::Value cumu_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_schedule_millis.load());
+    cumu_schedule_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
+                                  root.GetAllocator());
+    root.AddMember("last cumulative schedule time", cumu_schedule_value, root.GetAllocator());
+    rapidjson::Value base_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_schedule_millis.load());
+    base_schedule_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
+                                  root.GetAllocator());
+    root.AddMember("last base schedule time", base_schedule_value, root.GetAllocator());
+    rapidjson::Value full_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_schedule_millis.load());
+    full_schedule_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
+                                  root.GetAllocator());
+    root.AddMember("last full schedule time", full_schedule_value, root.GetAllocator());
+    rapidjson::Value cumu_compaction_status_value;
+    cumu_compaction_status_value.SetString(_last_cumu_compaction_status.c_str(),
+                                           static_cast<uint>(_last_cumu_compaction_status.length()),
+                                           root.GetAllocator());
+    root.AddMember("last cumulative status", cumu_compaction_status_value, root.GetAllocator());
+    rapidjson::Value base_compaction_status_value;
+    base_compaction_status_value.SetString(_last_base_compaction_status.c_str(),
+                                           static_cast<uint>(_last_base_compaction_status.length()),
+                                           root.GetAllocator());
+    root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
+    rapidjson::Value full_compaction_status_value;
+    full_compaction_status_value.SetString(_last_full_compaction_status.c_str(),
+                                           static_cast<uint>(_last_full_compaction_status.length()),
+                                           root.GetAllocator());
+    root.AddMember("last full status", full_compaction_status_value, root.GetAllocator());
+    rapidjson::Value exec_compaction_time;
+    std::string num_str {std::to_string(exec_compaction_time_us.load())};
+    exec_compaction_time.SetString(num_str.c_str(), static_cast<uint>(num_str.length()),
+                                   root.GetAllocator());
+    root.AddMember("exec compaction time us", exec_compaction_time, root.GetAllocator());
+    rapidjson::Value local_read_time;
+    num_str = std::to_string(local_read_time_us.load());
+    local_read_time.SetString(num_str.c_str(), static_cast<uint>(num_str.length()),
+                              root.GetAllocator());
+    root.AddMember("compaction local read time us", local_read_time, root.GetAllocator());
+    rapidjson::Value remote_read_time;
+    num_str = std::to_string(remote_read_time_us.load());
+    remote_read_time.SetString(num_str.c_str(), static_cast<uint>(num_str.length()),
+                               root.GetAllocator());
+    root.AddMember("compaction remote read time us", remote_read_time, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;

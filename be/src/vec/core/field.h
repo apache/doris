@@ -43,6 +43,7 @@
 #include "util/quantile_state.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 namespace vectorized {
@@ -153,13 +154,7 @@ DEFINE_FIELD_VECTOR(Tuple);
 DEFINE_FIELD_VECTOR(Map);
 #undef DEFINE_FIELD_VECTOR
 
-using FieldMap = std::map<String, Field, std::less<String>>;
-#define DEFINE_FIELD_MAP(X)       \
-    struct X : public FieldMap {  \
-        using FieldMap::FieldMap; \
-    }
-DEFINE_FIELD_MAP(VariantMap);
-#undef DEFINE_FIELD_MAP
+using VariantMap = std::map<PathInData, Field>;
 
 class JsonbField {
 public:

@@ -66,7 +66,7 @@ DEFINE_mBool(save_load_error_log_to_s3, "false");
 
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
-DEFINE_mBool(enable_new_tablet_do_compaction, "false");
+DEFINE_mBool(enable_new_tablet_do_compaction, "true");
 
 DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
 
@@ -85,5 +85,8 @@ DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
 DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "5000");
 
 DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
+
+DEFINE_Bool(enable_check_storage_vault, "true");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

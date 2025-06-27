@@ -91,7 +91,7 @@ public:
         // Support all input of datetime is valind to make sure not null return
         if (sources) {
             if (is_nullable) {
-                auto null_map = ColumnVector<UInt8>::create(input_rows_count);
+                auto null_map = ColumnVector<UInt8>::create(input_rows_count, false);
                 TransformerToStringOneArgument<Transform>::vector(
                         context, sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
                         null_map->get_data());

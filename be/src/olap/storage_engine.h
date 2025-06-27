@@ -109,7 +109,8 @@ public:
     virtual Status start_bg_threads() = 0;
 
     virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
-                                              SyncRowsetStats* sync_stats = nullptr) = 0;
+                                              SyncRowsetStats* sync_stats = nullptr,
+                                              bool force_use_cache = false) = 0;
 
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
@@ -227,8 +228,8 @@ public:
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
-    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
-                                      SyncRowsetStats* sync_stats = nullptr) override;
+    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats = nullptr,
+                                      bool force_use_cache = false) override;
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,

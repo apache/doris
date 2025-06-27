@@ -47,7 +47,11 @@ public:
     Result<std::shared_ptr<CloudTablet>> get_tablet(int64_t tablet_id, bool warmup_data = false,
                                                     bool sync_delete_bitmap = true,
                                                     SyncRowsetStats* sync_stats = nullptr,
+<<<<<<< HEAD
                                                     bool local_only = false);
+=======
+                                                    bool force_use_cache = false);
+>>>>>>> e0302c141c82264f32bd3d533885bd723da9fd95
 
     void erase_tablet(int64_t tablet_id);
 

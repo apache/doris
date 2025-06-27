@@ -579,7 +579,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         List<FieldSchema> schema = null;
         Map<String, String> colDefaultValues = Maps.newHashMap();
         if (getFromTable) {
-            schema = getSchemaFromRemoteTable(remoteTable);
+            schema = getSchemaFromRemoteTable();
         } else {
             HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
             schema = client.getSchema(dbName, name);
@@ -597,10 +597,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
-    private static List<FieldSchema> getSchemaFromRemoteTable(Table table) {
+    private List<FieldSchema> getSchemaFromRemoteTable() {
+        // Here we should get a new remote table instead of using this.remoteTable
+        // Because we need to get the latest schema from HMS.
+        Table newTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
         List<FieldSchema> schema = Lists.newArrayList();
-        schema.addAll(table.getSd().getCols());
-        schema.addAll(table.getPartitionKeys());
+        schema.addAll(newTable.getSd().getCols());
+        schema.addAll(newTable.getPartitionKeys());
         return schema;
     }
 

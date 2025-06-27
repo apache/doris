@@ -39,10 +39,20 @@ namespace doris::cloud {
 class Transaction;
 
 constexpr std::string_view BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
+static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
+static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 
 void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
                          const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
                          std::string& msg, GetRowsetResponse* response);
+
+// for wrapping stateful lambda to run in bthread
+static void* run_bthread_work(void* arg) {
+    auto f = reinterpret_cast<std::function<void()>*>(arg);
+    (*f)();
+    delete f;
+    return nullptr;
+}
 
 class MetaServiceImpl : public cloud::MetaService {
 public:
@@ -318,6 +328,11 @@ private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
+
+    bool get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
+                                       const GetDeleteBitmapUpdateLockRequest* request,
+                                       GetDeleteBitmapUpdateLockResponse* response,
+                                       std::string& instance_id, std::string& lock_key);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
@@ -718,8 +733,12 @@ private:
         static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
 
         using namespace std::chrono;
-
         brpc::ClosureGuard done_guard(done);
+
+        // life span of this defer MUST be longer than `done`
+        std::unique_ptr<int, std::function<void(int*)>> defer_injection(
+                (int*)(0x01), [&, this](int*) { idempotent_injection(method, req, resp); });
+
         if (!config::enable_txn_store_retry) {
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
             if (DCHECK_IS_ON()) {
@@ -786,6 +805,44 @@ private:
                          << ", code: " << MetaServiceCode_Name(code)
                          << ", msg: " << resp->status().msg();
             bthread_usleep(duration_ms * 1000);
+        }
+    }
+
+    template <typename Request, typename Response>
+    void idempotent_injection(MetaServiceMethod<Request, Response> method, const Request* requ,
+                              Response* resp) {
+        if (!config::enable_idempotent_request_injection) return;
+
+        using namespace std::chrono;
+        auto s = system_clock::now();
+        static std::mt19937_64 rng(duration_cast<milliseconds>(s.time_since_epoch()).count());
+        // clang-format off
+        // FIXME(gavin): make idempotent_request_replay_exclusion configurable via HTTP
+        static auto exclusion = []{ std::istringstream iss(config::idempotent_request_replay_exclusion); std::string e; std::unordered_set<std::string> r;
+            while (std::getline(iss, e, ',')) { r.insert(e); } return r;
+        }();
+        auto f = new std::function<void()>([s, req = *requ, res = *resp, method, this]() mutable { // copy and capture
+            auto dist = std::uniform_int_distribution(-config::idempotent_request_replay_delay_range_ms,
+                                                      config::idempotent_request_replay_delay_range_ms);
+            int64_t sleep_ms = config::idempotent_request_replay_delay_base_ms + dist(rng);
+            LOG(INFO) << " request_name=" << req.GetDescriptor()->name()
+                      << " response_name=" << res.GetDescriptor()->name()
+                      << " queue_ts=" << duration_cast<milliseconds>(s.time_since_epoch()).count()
+                      << " now_ts=" << duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()
+                      << " idempotent_request_replay_delay_base_ms=" << config::idempotent_request_replay_delay_base_ms
+                      << " idempotent_request_replay_delay_range_ms=" << config::idempotent_request_replay_delay_range_ms
+                      << " idempotent_request_replay_delay_ms=" << sleep_ms
+                      << " request=" << req.ShortDebugString();
+            if (sleep_ms < 0 || exclusion.count(req.GetDescriptor()->name())) return;
+            brpc::Controller ctrl;
+            bthread_usleep(sleep_ms * 1000);
+            (impl_.get()->*method)(&ctrl, &req, &res, brpc::DoNothing());
+        });
+        // clang-format on
+        bthread_t bid;
+        if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
+            LOG(WARNING) << "failed to bthread_start_background, run in current thread";
+            run_bthread_work(f);
         }
     }
 

@@ -166,6 +166,31 @@ MetaServiceCode get_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t t
     return res.status().code();
 }
 
+MetaServiceCode update_delete_bitmap(MetaServiceProxy* meta_service, int64_t table_id,
+                                     int64_t partition_id, int64_t tablet_id, int64_t lock_id,
+                                     int64_t initor,
+                                     std::string cloud_unique_id = "test_cloud_unique_id") {
+    brpc::Controller cntl;
+    UpdateDeleteBitmapRequest update_delete_bitmap_req;
+    UpdateDeleteBitmapResponse update_delete_bitmap_res;
+    update_delete_bitmap_req.set_cloud_unique_id(cloud_unique_id);
+    update_delete_bitmap_req.set_table_id(table_id);
+    update_delete_bitmap_req.set_partition_id(partition_id);
+    update_delete_bitmap_req.set_lock_id(lock_id);
+    update_delete_bitmap_req.set_initiator(initor);
+    update_delete_bitmap_req.set_tablet_id(tablet_id);
+    for (int i = 0; i < 3; i++) {
+        update_delete_bitmap_req.add_rowset_ids("0200000003ea308a3647dbea83220ed4b8897f2288244a91");
+        update_delete_bitmap_req.add_segment_ids(0);
+        update_delete_bitmap_req.add_versions(i);
+        update_delete_bitmap_req.add_segment_delete_bitmaps("1");
+    }
+    meta_service->update_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                       &update_delete_bitmap_req, &update_delete_bitmap_res,
+                                       nullptr);
+    return update_delete_bitmap_res.status().code();
+}
+
 void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id) {
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::unique_ptr<Transaction> txn;
@@ -1789,11 +1814,45 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
 
         res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, 12345);
         ASSERT_EQ(res_code, MetaServiceCode::OK);
+
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
+        std::string pending_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        res_code = update_delete_bitmap(meta_service.get(), table_id, partition_id, new_tablet_id,
+                                        -2, 12345);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+
+        // schema change job should write pending delete bitmap key
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_OK);
+        PendingDeleteBitmapPB pending_info;
+        ASSERT_TRUE(pending_info.ParseFromString(pending_val));
+        ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 3);
+        for (int i = 0; i < 3; ++i) {
+            std::string_view k1 = pending_info.delete_bitmap_keys(i);
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+            ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[3])), new_tablet_id);
+            ASSERT_EQ(std::get<std::string>(std::get<0>(out[4])),
+                      "0200000003ea308a3647dbea83220ed4b8897f2288244a91");
+            ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[5])), i);
+            ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[6])), 0);
+        }
+
         finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job1", "be1",
                                  output_rowsets, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         remove_delete_bitmap_lock(meta_service.get(), table_id);
         res.Clear();
+
+        // pending delete bitmap key on new tablet should be removed after schema change job finishes
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     }
 
     {
@@ -1819,6 +1878,28 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job2", "be1",
                                  output_rowsets, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        remove_delete_bitmap_lock(meta_service.get(), table_id);
+        res.Clear();
+    }
+
+    // alter version < 2
+    {
+        int64_t new_tablet_id = 16;
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                              new_tablet_id, true, true));
+        StartTabletJobResponse sc_res;
+        ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                        partition_id, tablet_id, new_tablet_id,
+                                                        "job2", "be1", sc_res));
+        std::vector<doris::RowsetMetaCloudPB> output_rowsets;
+        auto res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, 12345);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+        FinishTabletJobResponse res;
+        finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job2", "be1",
+                                 output_rowsets, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
         remove_delete_bitmap_lock(meta_service.get(), table_id);
         res.Clear();
     }

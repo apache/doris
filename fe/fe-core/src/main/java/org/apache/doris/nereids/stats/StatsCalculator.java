@@ -1198,8 +1198,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             catalogId = -1;
             dbId = -1;
         }
-        return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+        ColumnStatistic columnStatistics = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                 catalogId, dbId, table.getId(), idxId, colName);
+        if (!columnStatistics.isUnKnown
+                && columnStatistics.ndv == 0
+                && (columnStatistics.minExpr != null || columnStatistics.maxExpr != null)
+                && columnStatistics.numNulls == columnStatistics.count) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        return columnStatistics;
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId, List<String> partitionNames) {

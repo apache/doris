@@ -58,6 +58,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.util.List;
+import java.util.Optional;
 
 public class AuditLogHelper {
 
@@ -90,16 +91,20 @@ public class AuditLogHelper {
         if (origStmt == null) {
             return null;
         }
-        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
-        if (origStmt.length() <= maxLen) {
-            return origStmt.replace("\n", "\\n")
-                .replace("\t", "\\t")
-                .replace("\r", "\\r");
+        // 1. handle insert statement first
+        Optional<String> res = handleInsertStmt(origStmt, parsedStmt);
+        if (res.isPresent()) {
+            return res.get();
         }
-        origStmt = truncateByBytes(origStmt)
-            .replace("\n", "\\n")
-            .replace("\t", "\\t")
-            .replace("\r", "\\r");
+
+        // 2. handle other statement
+        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
+        origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
+                + " */");
+        return origStmt;
+    }
+
+    private static Optional<String> handleInsertStmt(String origStmt, StatementBase parsedStmt) {
         int rowCnt = 0;
         // old planner
         if (parsedStmt instanceof NativeInsertStmt) {
@@ -122,17 +127,18 @@ public class AuditLogHelper {
             }
         }
         if (rowCnt > 0) {
-            return origStmt + " ... /* total " + rowCnt + " rows, truncated audit_plugin_max_sql_length="
-                + GlobalVariable.auditPluginMaxSqlLength + " */";
+            // This is an insert statement.
+            int maxLen = Math.max(0,
+                    Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
+            origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
+                    + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
+            return Optional.of(origStmt);
         } else {
-            return origStmt
-                + " ... /* truncated audit_plugin_max_sql_length="
-                + GlobalVariable.auditPluginMaxSqlLength + " */";
+            return Optional.empty();
         }
     }
 
-    private static String truncateByBytes(String str) {
-        int maxLen = Math.min(GlobalVariable.auditPluginMaxSqlLength, str.getBytes().length);
+    private static String truncateByBytes(String str, int maxLen, String suffix) {
         // use `getBytes().length` to get real byte length
         if (maxLen >= str.getBytes().length) {
             return str;
@@ -145,7 +151,7 @@ public class AuditLogHelper {
         decoder.onMalformedInput(CodingErrorAction.IGNORE);
         decoder.decode(buffer, charBuffer, true);
         decoder.flush(charBuffer);
-        return new String(charBuffer.array(), 0, charBuffer.position());
+        return new String(charBuffer.array(), 0, charBuffer.position()) + suffix;
     }
 
     /**
@@ -306,3 +312,4 @@ public class AuditLogHelper {
         }
     }
 }
+

@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_delete_bitmap_metrics", "p0") {
+    if (!isCloudMode()) {
+        return
+    }
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     def backendId_to_params = [string: [:]]
@@ -72,9 +75,9 @@ suite("test_delete_bitmap_metrics", "p0") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
-        code = process.waitFor()
-        out = process.getText()
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.getText()
         logger.info("Get local delete bitmap count status:  =" + code + ", out=" + out)
         assertEquals(code, 0)
         def deleteBitmapStatus = parseJson(out.trim())
@@ -90,9 +93,9 @@ suite("test_delete_bitmap_metrics", "p0") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
-        code = process.waitFor()
-        out = process.getText()
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.getText()
         logger.info("Get ms delete bitmap count status:  =" + code + ", out=" + out)
         assertEquals(code, 0)
         def deleteBitmapStatus = parseJson(out.trim())

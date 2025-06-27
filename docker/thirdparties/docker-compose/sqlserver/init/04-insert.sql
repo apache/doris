@@ -121,3 +121,5 @@ insert into dbo.extreme_test_multi_block select * from dbo.extreme_test_multi_bl
 insert into dbo.extreme_test_multi_block select * from dbo.extreme_test_multi_block;
 insert into dbo.extreme_test_multi_block select * from dbo.extreme_test_multi_block;
 insert into dbo.extreme_test_multi_block select * from dbo.extreme_test;
+
+INSERT INTO dbo.test_identity_decimal(col) select 1;

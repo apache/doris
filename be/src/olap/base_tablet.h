@@ -82,6 +82,8 @@ public:
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() { return _tablet_meta; }
 
+    int32 max_version_config();
+
     // FIXME(plat1ko): It is not appropriate to expose this lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
 
@@ -145,7 +147,6 @@ public:
                            RowsetSharedPtr rowset, const TupleDescriptor* desc,
                            OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false);
-
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.

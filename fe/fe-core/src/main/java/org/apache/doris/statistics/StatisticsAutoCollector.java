@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
@@ -141,10 +142,20 @@ public class StatisticsAutoCollector extends MasterDaemon {
     protected void processOneJob(TableIf table, Set<Pair<String, String>> columns,
             JobPriority priority) throws DdlException {
         appendAllColumns(table, columns);
-        columns = columns.stream().filter(
-                c -> StatisticsUtil.needAnalyzeColumn(table, c) || StatisticsUtil.isLongTimeColumn(table, c))
+        AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
+                ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
+        if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
+            analysisMethod = AnalysisMethod.FULL;
+        }
+        boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
+        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
+        columns = columns.stream()
+                .filter(c -> StatisticsUtil.needAnalyzeColumn(table, c) || StatisticsUtil.isLongTimeColumn(table, c))
+                .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
+                        olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                        table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
             .collect(Collectors.toSet());
-        AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
+        AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority, analysisMethod);
         if (analyzeJob == null) {
             return;
         }
@@ -187,12 +198,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
     }
 
     protected AnalysisInfo createAnalyzeJobForTbl(
-            TableIf table, Set<Pair<String, String>> jobColumns, JobPriority priority) {
-        AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
-                ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
-        if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
-            analysisMethod = AnalysisMethod.FULL;
-        }
+            TableIf table, Set<Pair<String, String>> jobColumns, JobPriority priority, AnalysisMethod analysisMethod) {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
         if (table instanceof OlapTable && analysisMethod.equals(AnalysisMethod.SAMPLE)) {
@@ -221,6 +227,14 @@ public class StatisticsAutoCollector extends MasterDaemon {
         for (Pair<String, String> pair : jobColumns) {
             stringJoiner.add(pair.toString());
         }
+        long version = 0;
+        try {
+            if (table instanceof OlapTable) {
+                version = ((OlapTable) table).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+        }
         return new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
                 .setCatalogId(table.getDatabase().getCatalog().getId())
@@ -241,7 +255,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setTblUpdateTime(table.getUpdateTime())
                 .setRowCount(rowCount)
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
-                .setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0)
+                .setTableVersion(version)
                 .setPriority(priority)
                 .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
                 .setEnablePartition(StatisticsUtil.enablePartitionAnalyze())

@@ -227,7 +227,7 @@ suite("test_show_index_data_p2", "p2") {
         Set<String> rowsetids = new HashSet<>();
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -248,7 +248,7 @@ suite("test_show_index_data_p2", "p2") {
             tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
-                (code, out, err) = curl("GET", tablet.CompactionStatus)
+                def (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def tabletJson = parseJson(out.trim())
@@ -271,7 +271,7 @@ suite("test_show_index_data_p2", "p2") {
         Set<String> rowsetids = new HashSet<>();
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -295,7 +295,7 @@ suite("test_show_index_data_p2", "p2") {
             tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
-                (code, out, err) = curl("GET", tablet.CompactionStatus)
+                def (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def tabletJson = parseJson(out.trim())
@@ -318,7 +318,7 @@ suite("test_show_index_data_p2", "p2") {
         Set<String> rowsetids = new HashSet<>();
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -339,7 +339,7 @@ suite("test_show_index_data_p2", "p2") {
             tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
-                (code, out, err) = curl("GET", tablet.CompactionStatus)
+                def (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def tabletJson = parseJson(out.trim())

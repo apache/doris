@@ -153,10 +153,38 @@ public:
         _last_full_compaction_success_millis = millis;
     }
 
+    int64_t last_cumu_compaction_schedule_time() { return _last_cumu_compaction_schedule_millis; }
+    void set_last_cumu_compaction_schedule_time(int64_t millis) {
+        _last_cumu_compaction_schedule_millis = millis;
+    }
+
     int64_t last_base_compaction_schedule_time() { return _last_base_compaction_schedule_millis; }
     void set_last_base_compaction_schedule_time(int64_t millis) {
         _last_base_compaction_schedule_millis = millis;
     }
+
+    int64_t last_full_compaction_schedule_time() { return _last_full_compaction_schedule_millis; }
+    void set_last_full_compaction_schedule_time(int64_t millis) {
+        _last_full_compaction_schedule_millis = millis;
+    }
+
+    void set_last_cumu_compaction_status(std::string status) {
+        _last_cumu_compaction_status = std::move(status);
+    }
+
+    std::string get_last_cumu_compaction_status() { return _last_cumu_compaction_status; }
+
+    void set_last_base_compaction_status(std::string status) {
+        _last_base_compaction_status = std::move(status);
+    }
+
+    std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
+
+    void set_last_full_compaction_status(std::string status) {
+        _last_full_compaction_status = std::move(status);
+    }
+
+    std::string get_last_full_compaction_status() { return _last_full_compaction_status; }
 
     int64_t alter_version() const { return _alter_version; }
     void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
@@ -220,6 +248,10 @@ public:
     int64_t last_cumu_no_suitable_version_ms = 0;
     int64_t last_access_time_ms = 0;
 
+    std::atomic<int64_t> local_read_time_us = 0;
+    std::atomic<int64_t> remote_read_time_us = 0;
+    std::atomic<int64_t> exec_compaction_time_us = 0;
+
     // Return merged extended schema
     TabletSchemaSPtr merged_tablet_schema() const override;
 
@@ -229,6 +261,11 @@ public:
 
     // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
     Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
+
+    bool need_remove_unused_rowsets();
+
+    void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
+    void remove_unused_rowsets();
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
@@ -263,8 +300,16 @@ private:
     std::atomic<int64_t> _last_base_compaction_success_millis;
     // timestamp of last full compaction success
     std::atomic<int64_t> _last_full_compaction_success_millis;
+    // timestamp of last cumu compaction schedule time
+    std::atomic<int64_t> _last_cumu_compaction_schedule_millis;
     // timestamp of last base compaction schedule time
     std::atomic<int64_t> _last_base_compaction_schedule_millis;
+    // timestamp of last full compaction schedule time
+    std::atomic<int64_t> _last_full_compaction_schedule_millis;
+
+    std::string _last_cumu_compaction_status;
+    std::string _last_base_compaction_status;
+    std::string _last_full_compaction_status;
 
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;
@@ -281,6 +326,10 @@ private:
 
     // Schema will be merged from all rowsets when sync_rowsets
     TabletSchemaSPtr _merged_tablet_schema;
+
+    // unused_rowsets, [start_version, end_version]
+    std::mutex _gc_mutex;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

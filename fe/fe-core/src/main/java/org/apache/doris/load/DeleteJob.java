@@ -79,6 +79,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -582,7 +583,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE
                         || olapTable.getPartitionInfo().getType() == PartitionType.LIST) {
                     Set<String> partitionColumnNameSet = olapTable.getPartitionColumnNames();
-                    Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
+                    Map<String, ColumnRange> columnNameToRange = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
                     for (String colName : partitionColumnNameSet) {
                         ColumnRange columnRange = createColumnRange(olapTable, colName, deleteConditions);
                         // Not all partition columns are involved in predicate conditions

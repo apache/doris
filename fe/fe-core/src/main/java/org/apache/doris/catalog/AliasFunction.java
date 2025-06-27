@@ -251,7 +251,7 @@ public class AliasFunction extends Function {
                 .append(" WITH PARAMETER(")
                 .append(getParamsSting(parameters))
                 .append(") AS ")
-                .append(originFunction.toSql())
+                .append(originFunction.toSqlWithoutTbl())
                 .append(";");
         return sb.toString();
     }
@@ -271,7 +271,7 @@ public class AliasFunction extends Function {
         Map<String, String> properties = new HashMap<>();
         properties.put("parameter", getParamsSting(parameters));
         setSlotRefLabel(originFunction);
-        String functionStr = originFunction.toSql();
+        String functionStr = originFunction.toSqlWithoutTbl();
         functionStr = functionStr.replaceAll("'", "`");
         properties.put("origin_function", functionStr);
         return new Gson().toJson(properties);

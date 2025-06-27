@@ -48,14 +48,24 @@ CloudFullCompaction::CloudFullCompaction(CloudStorageEngine& engine, CloudTablet
 CloudFullCompaction::~CloudFullCompaction() = default;
 
 Status CloudFullCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        if (!st.ok()) {
+            cloud_tablet()->set_last_full_compaction_status(st.to_string());
+            cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
+        }
+    });
     if (_tablet->tablet_state() != TABLET_RUNNING) {
-        return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        st = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        return st;
     }
 
     // always sync latest rowset for full compaction
-    RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
+    st = cloud_tablet()->sync_rowsets();
+    RETURN_IF_ERROR(st);
 
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
+    st = pick_rowsets_to_compact();
+    RETURN_IF_ERROR(st);
 
     for (auto& rs : _input_rowsets) {
         _input_row_num += rs->num_rows();
@@ -152,7 +162,9 @@ Status CloudFullCompaction::execute_compact() {
     using namespace std::chrono;
     auto start = steady_clock::now();
     auto res = CloudCompactionMixin::execute_compact();
+    cloud_tablet()->set_last_full_compaction_status(res.to_string());
     if (!res.ok()) {
+        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->tablet_id()
                      << ", output_version=" << _output_version;
@@ -171,7 +183,11 @@ Status CloudFullCompaction::execute_compact() {
             .tag("output_segments", _output_rowset->num_segments())
             .tag("output_rowset_data_size", _output_rowset->data_disk_size())
             .tag("output_rowset_index_size", _output_rowset->index_disk_size())
-            .tag("output_rowset_total_size", _output_rowset->total_disk_size());
+            .tag("output_rowset_total_size", _output_rowset->total_disk_size())
+            .tag("local_read_time_us", _stats.cloud_local_read_time)
+            .tag("remote_read_time_us", _stats.cloud_remote_read_time)
+            .tag("local_read_bytes", _local_read_bytes_total)
+            .tag("remote_read_bytes", _remote_read_bytes_total);
 
     _state = CompactionState::SUCCESS;
 
@@ -179,6 +195,8 @@ Status CloudFullCompaction::execute_compact() {
     DorisMetrics::instance()->full_compaction_bytes_total->increment(_input_rowsets_total_size);
     full_output_size << _output_rowset->total_disk_size();
 
+    cloud_tablet()->set_last_full_compaction_success_time(UnixMillis());
+    cloud_tablet()->set_last_full_compaction_status(Status::OK().to_string());
     return Status::OK();
 }
 

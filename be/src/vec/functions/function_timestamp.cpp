@@ -713,7 +713,7 @@ struct UnixTimeStampStrImpl {
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
         auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 6);
-        auto null_map = ColumnVector<UInt8>::create(input_rows_count);
+        auto null_map = ColumnVector<UInt8>::create(input_rows_count, false);
         auto& col_result_data = col_result->get_data();
         auto& null_map_data = null_map->get_data();
 
@@ -723,6 +723,9 @@ struct UnixTimeStampStrImpl {
         const auto* col_source = assert_cast<const ColumnString*>(col_left.get());
         const auto* col_format = assert_cast<const ColumnString*>(col_right.get());
         for (int i = 0; i < input_rows_count; i++) {
+            if (null_map_data[i]) [[unlikely]] {
+                continue;
+            }
             StringRef source = col_source->get_data_at(index_check_const(i, source_const));
             StringRef fmt = col_format->get_data_at(index_check_const(i, format_const));
 

@@ -36,6 +36,7 @@ Usage: $0 <options>
      -c mysql,hive3     start MySQL and Hive3
      --stop             stop the specified components
      --reserve-ports    reserve host ports by setting 'net.ipv4.ip_local_reserved_ports' to avoid port already bind error
+     --no-load-data     do not load data into the components
 
   All valid components:
     mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger
@@ -48,6 +49,7 @@ COMPONENTS=$2
 HELP=0
 STOP=0
 NEED_RESERVE_PORTS=0
+export NEED_LOAD_DATA=1
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -55,6 +57,7 @@ if ! OPTS="$(getopt \
     -l 'help' \
     -l 'stop' \
     -l 'reserve-ports' \
+    -l 'no-load-data' \
     -o 'hc:' \
     -- "$@")"; then
     usage
@@ -86,6 +89,10 @@ else
             ;;
         --reserve-ports)
             NEED_RESERVE_PORTS=1
+            shift
+            ;;
+        --no-load-data)
+            export NEED_LOAD_DATA=0
             shift
             ;;
         --)
