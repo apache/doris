@@ -577,7 +577,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         .error(st);
                 return st;
             }
-            tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
+            tablet->tablet_meta()->delete_bitmap()->merge(delete_bitmap);
             if (config::enable_mow_verbose_log && !resp.rowset_meta().empty() &&
                 delete_bitmap.cardinality() > 0) {
                 std::vector<std::string> new_rowset_msgs;

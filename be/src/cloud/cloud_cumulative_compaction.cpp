@@ -376,7 +376,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         cloud_tablet()->set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
         cloud_tablet()->set_cumulative_layer_point(stats.cumulative_point());
         if (output_rowset_delete_bitmap) {
-            _tablet->tablet_meta()->delete_bitmap().merge(*output_rowset_delete_bitmap);
+            _tablet->tablet_meta()->delete_bitmap()->merge(*output_rowset_delete_bitmap);
         }
         if (stats.base_compaction_cnt() >= cloud_tablet()->base_compaction_cnt()) {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
@@ -416,7 +416,7 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                 rowset->rowset_id().to_string();
                 DeleteBitmap::BitmapKey start {rowset->rowset_id(), seg_id, 0};
                 DeleteBitmap::BitmapKey end {rowset->rowset_id(), seg_id, pre_max_version};
-                auto d = _tablet->tablet_meta()->delete_bitmap().get_agg(
+                auto d = _tablet->tablet_meta()->delete_bitmap()->get_agg(
                         {rowset->rowset_id(), seg_id, pre_max_version});
                 to_remove_vec.emplace_back(std::make_tuple(_tablet->tablet_id(), start, end));
                 if (d->isEmpty()) {
@@ -440,10 +440,10 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                             _input_rowsets.back()->end_version());
             for (auto it = new_delete_bitmap->delete_bitmap.begin();
                  it != new_delete_bitmap->delete_bitmap.end(); it++) {
-                _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
+                _tablet->tablet_meta()->delete_bitmap()->set(it->first, it->second);
             }
-            _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
-                                                                        to_remove_vec);
+            _tablet->tablet_meta()->delete_bitmap()->add_to_remove_queue(version.to_string(),
+                                                                         to_remove_vec);
             DBUG_EXECUTE_IF(
                     "CloudCumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets",
                     { static_cast<CloudTablet*>(_tablet.get())->delete_expired_stale_rowsets(); });

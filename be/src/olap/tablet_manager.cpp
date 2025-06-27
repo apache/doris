@@ -1764,7 +1764,7 @@ void TabletManager::get_topn_tablet_delete_bitmap_score(
     buf.reserve(n + 1);
     auto handler = [&](const TabletSharedPtr& tablet) {
         uint64_t delete_bitmap_count =
-                tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
+                tablet->tablet_meta()->delete_bitmap()->get_delete_bitmap_count();
         total_delete_map_count += delete_bitmap_count;
         if (delete_bitmap_count > *max_delete_bitmap_score) {
             max_delete_bitmap_score_tablet_id = tablet->tablet_id();

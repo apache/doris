@@ -27,6 +27,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "olap/base_tablet.h"
 #include "olap/compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_common.h"
@@ -143,8 +144,9 @@ Status FullCompaction::modify_rowsets() {
         int64_t max_version = tablet()->max_version().second;
         DCHECK(max_version >= _output_rowset->version().second);
         if (max_version > _output_rowset->version().second) {
-            RETURN_IF_ERROR(_tablet->capture_consistent_rowsets_unlocked(
-                    {_output_rowset->version().second + 1, max_version}, &tmp_rowsets));
+            auto ret = DORIS_TRY(_tablet->capture_consistent_rowsets_unlocked(
+                    {_output_rowset->version().second + 1, max_version}, CaptureRowsetOps {}));
+            tmp_rowsets = std::move(ret.rowsets);
         }
 
         for (const auto& it : tmp_rowsets) {
@@ -219,7 +221,7 @@ Status FullCompaction::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
     for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
         if (std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
-            _tablet->tablet_meta()->delete_bitmap().merge(
+            _tablet->tablet_meta()->delete_bitmap()->merge(
                     {std::get<0>(k), std::get<1>(k), cur_version}, v);
         }
     }
