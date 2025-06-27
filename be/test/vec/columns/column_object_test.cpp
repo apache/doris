@@ -145,6 +145,9 @@ TEST(ColumnVariantTest, insert_try_insert) {
 
     info.num_dimensions = 2;
     sub->insert(value, info);
+
+    info.num_dimensions = 3;
+    sub->insert(value, info);
 }
 
 TEST(ColumnVariantTest, basic_finalize) {
