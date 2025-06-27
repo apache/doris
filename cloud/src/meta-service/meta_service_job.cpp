@@ -1467,7 +1467,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
             msg = ss.str();
             return;
         }
-    }
+    };
 
     // Process compaction commit
     if (!request->job().compaction().empty()) {
