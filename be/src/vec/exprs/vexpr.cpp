@@ -40,6 +40,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
@@ -47,8 +48,10 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
+#include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
 #include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
@@ -181,7 +184,9 @@ bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
     auto is_a_slot = std::any_of(children.begin(), children.end(),
                                  [](const auto& child) { return is_acting_on_a_slot(*child); });
 
-    return is_a_slot ? true : (expr.node_type() == TExprNodeType::SLOT_REF);
+    return is_a_slot ? true
+                     : (expr.node_type() == TExprNodeType::SLOT_REF ||
+                        expr.node_type() == TExprNodeType::VIRTUAL_SLOT_REF);
 }
 
 VExpr::VExpr(const TExprNode& node)
@@ -225,7 +230,9 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
         RETURN_IF_ERROR(i->prepare(state, row_desc, context));
     }
     --context->_depth_num;
+#ifndef BE_TEST
     _enable_inverted_index_query = state->query_options().enable_inverted_index_query;
+#endif
     return Status::OK();
 }
 
@@ -278,7 +285,12 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             break;
         }
         case TExprNodeType::SLOT_REF: {
-            expr = VSlotRef::create_shared(expr_node);
+            if (expr_node.slot_ref.__isset.is_virtual_slot && expr_node.slot_ref.is_virtual_slot) {
+                expr = VirtualSlotRef::create_shared(expr_node);
+                expr->_node_type = TExprNodeType::VIRTUAL_SLOT_REF;
+            } else {
+                expr = VSlotRef::create_shared(expr_node);
+            }
             break;
         }
         case TExprNodeType::COLUMN_REF: {
@@ -784,6 +796,35 @@ bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vector
 
 bool VExpr::equals(const VExpr& other) {
     return false;
+}
+
+Status VExpr::evaluate_ann_range_search(
+        const RangeSearchRuntimeInfo& runtime,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
+        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        roaring::Roaring& row_bitmap) {
+    return Status::OK();
+}
+
+Status VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                       RangeSearchRuntimeInfo& range_search_runtime,
+                                       bool& suitable_for_ann_index) {
+    if (!suitable_for_ann_index) {
+        return Status::OK();
+    }
+    for (auto& child : _children) {
+        RETURN_IF_ERROR(child->prepare_ann_range_search(params, range_search_runtime,
+                                                        suitable_for_ann_index));
+        if (!suitable_for_ann_index) {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
+bool VExpr::has_been_executed() {
+    return _has_been_executed;
 }
 
 #include "common/compile_check_end.h"

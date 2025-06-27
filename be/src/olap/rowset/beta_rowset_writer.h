@@ -94,20 +94,18 @@ public:
     Status close();
 
     // Get inverted index file info in segment id order.
-    // `seg_id_offset` is the offset of the segment id relative to the subscript of `_inverted_index_file_writers`,
+    // `seg_id_offset` is the offset of the segment id relative to the subscript of `_index_file_writers`,
     // for more details, see `Tablet::create_transient_rowset_writer`.
     Result<std::vector<const InvertedIndexFileInfo*>> inverted_index_file_info(int seg_id_offset);
 
     // return all inverted index file writers
-    std::unordered_map<int, IndexFileWriterPtr>& get_file_writers() {
-        return _inverted_index_file_writers;
-    }
+    std::unordered_map<int, IndexFileWriterPtr>& get_file_writers() { return _index_file_writers; }
 
     int64_t get_total_index_size() const { return _total_size; }
 
 private:
     mutable std::mutex _lock;
-    std::unordered_map<int /* seg_id */, IndexFileWriterPtr> _inverted_index_file_writers;
+    std::unordered_map<int /* seg_id */, IndexFileWriterPtr> _index_file_writers;
     int64_t _total_size = 0;
 };
 
@@ -190,7 +188,7 @@ public:
         return _seg_files.get_file_writers();
     }
 
-    std::unordered_map<int, IndexFileWriterPtr>& inverted_index_file_writers() {
+    std::unordered_map<int, IndexFileWriterPtr>& index_file_writers() {
         return this->_idx_files.get_file_writers();
     }
 
@@ -215,7 +213,7 @@ protected:
     // Only during vertical compaction is this method called
     // Some index files are written during normal compaction and some files are written during index compaction.
     // After all index writes are completed, call this method to write the final compound index file.
-    Status _close_inverted_index_file_writers() {
+    Status _close_index_file_writers() {
         RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.close(),
                                        "failed to close index file when build new rowset");
         this->_total_index_size += _idx_files.get_total_index_size();

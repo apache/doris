@@ -24,6 +24,7 @@ import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -126,6 +127,10 @@ public class BuildIndexOp extends AlterTableOp {
                 throw new AnalysisException("table " + table.getName()
                     + " is not partitioned, cannot build index with partitions.");
             }
+        }
+        if (indexDef.getIndexType() == IndexDef.IndexType.ANN
+            && ((OlapTable) table).getKeysType() != KeysType.DUP_KEYS) {
+            throw new AnalysisException("ANN index can only be built on DUP KEYS tables");
         }
         indexDef.validate();
         this.index = existedIdx.clone();

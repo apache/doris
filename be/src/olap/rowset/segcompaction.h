@@ -70,7 +70,7 @@ public:
     DeleteBitmapPtr get_converted_delete_bitmap() { return _converted_delete_bitmap; }
 
     io::FileWriterPtr& get_file_writer() { return _file_writer; }
-    IndexFileWriterPtr& get_inverted_index_file_writer() { return _index_file_writer; }
+    IndexFileWriterPtr& get_index_file_writer() { return _index_file_writer; }
 
     // set the cancel flag, tasks already started will not be cancelled.
     bool cancel();

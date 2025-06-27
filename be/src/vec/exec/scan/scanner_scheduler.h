@@ -18,7 +18,6 @@
 #pragma once
 
 #include <atomic>
-#include <cstdint>
 #include <memory>
 
 #include "common/be_mock_util.h"
@@ -30,6 +29,7 @@ class ExecEnv;
 
 namespace vectorized {
 class Scanner;
+class Block;
 } // namespace vectorized
 
 template <typename T>
@@ -72,6 +72,12 @@ public:
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
+
+    static void _make_sure_virtual_col_is_materialized(const std::shared_ptr<Scanner>& scanner,
+                                                       vectorized::Block* block);
+
+    // _limited_scan_thread_pool is a special pool for queries with resource limit
+    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};

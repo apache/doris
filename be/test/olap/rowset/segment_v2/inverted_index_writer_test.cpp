@@ -333,9 +333,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values
@@ -395,9 +395,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add null values
@@ -469,9 +469,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -536,9 +536,9 @@ public:
         config::enable_inverted_index_correct_term_write = enable_correct_term_write;
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values with Unicode characters above 0xFFFF
@@ -711,18 +711,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     bool original_config_value = config::enable_inverted_index_correct_term_write;
 
     // Create column writers with different settings
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer_enabled, column_writer_disabled;
+    std::unique_ptr<IndexColumnWriter> column_writer_enabled, column_writer_disabled;
 
     // Set config to enabled for first writer
     config::enable_inverted_index_correct_term_write = true;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer_enabled,
-                                                    index_file_writer_enabled.get(), &idx_meta);
+    auto status = IndexColumnWriter::create(field.get(), &column_writer_enabled,
+                                            index_file_writer_enabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Set config to disabled for second writer
     config::enable_inverted_index_correct_term_write = false;
-    status = InvertedIndexColumnWriter::create(field.get(), &column_writer_disabled,
-                                               index_file_writer_disabled.get(), &idx_meta);
+    status = IndexColumnWriter::create(field.get(), &column_writer_disabled,
+                                       index_file_writer_disabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add string values with Unicode characters above 0xFFFF

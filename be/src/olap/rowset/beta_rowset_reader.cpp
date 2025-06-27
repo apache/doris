@@ -44,6 +44,7 @@
 #include "olap/schema_cache.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
@@ -100,6 +101,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.push_down_agg_type_opt = _read_context->push_down_agg_type_opt;
     _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;
     _read_options.common_expr_ctxs_push_down = _read_context->common_expr_ctxs_push_down;
+    _read_options.virtual_column_exprs = _read_context->virtual_column_exprs;
+    _read_options.ann_topn_runtime = _read_context->ann_topn_runtime;
+    _read_options.vir_cid_to_idx_in_block = _read_context->vir_cid_to_idx_in_block;
+    _read_options.vir_col_idx_to_type = _read_context->vir_col_idx_to_type;
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
@@ -121,13 +126,15 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 &_read_options.del_predicates_for_zone_map);
     }
 
-    std::vector<uint32_t> read_columns;
-    std::set<uint32_t> read_columns_set;
-    std::set<uint32_t> delete_columns_set;
-    for (int i = 0; i < _read_context->return_columns->size(); ++i) {
-        read_columns.push_back(_read_context->return_columns->at(i));
-        read_columns_set.insert(_read_context->return_columns->at(i));
-    }
+    std::vector<ColumnId> read_columns;
+    // std::vector<SlotDescriptor*>* return_columns = _read_context->return_columns;
+    std::set<ColumnId> read_columns_set;
+    std::set<ColumnId> delete_columns_set;
+    // all columns used fro delete condition all added to the read columns.
+    read_columns.insert(read_columns.end(), _read_context->return_columns->begin(),
+                        _read_context->return_columns->end());
+    read_columns_set.insert(_read_context->return_columns->begin(),
+                            _read_context->return_columns->end());
     _read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
     for (auto cid : delete_columns_set) {
         if (read_columns_set.find(cid) == read_columns_set.end()) {
@@ -135,11 +142,16 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
     VLOG_NOTICE << "read columns size: " << read_columns.size();
+    LOG_INFO("After add delete predicates, tablet columns count {}, read columns cid [{}]",
+             _read_context->tablet_schema->num_columns(), fmt::join(read_columns, ", "));
     _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
     if (_read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                _read_context->predicates->begin(),
                                                _read_context->predicates->end());
+        LOG_INFO("Rowset reader, read options column predicates size: {}",
+                 _read_options.column_predicates.size());
+
         for (auto pred : *(_read_context->predicates)) {
             if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
                 _read_options.col_id_to_predicates.insert(
@@ -174,6 +186,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                    _read_context->value_predicates->begin(),
                                                    _read_context->value_predicates->end());
+            LOG_INFO(
+                    "Rowset reader, read options add value predicates, column predicates size now: "
+                    "{}",
+                    _read_options.column_predicates.size());
             for (auto pred : *(_read_context->value_predicates)) {
                 if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
                     _read_options.col_id_to_predicates.insert(

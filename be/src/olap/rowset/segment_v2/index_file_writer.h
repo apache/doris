@@ -25,6 +25,7 @@
 #include <string>
 #include <utility>
 
+#include "common/be_mock_util.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -52,7 +53,7 @@ public:
                     io::FileWriterPtr file_writer = nullptr, bool can_use_ram_dir = true);
     virtual ~IndexFileWriter() = default;
 
-    Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
+    MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     Status add_into_searcher_cache();

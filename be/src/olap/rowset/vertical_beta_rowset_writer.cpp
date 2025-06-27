@@ -217,7 +217,7 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::_close_file_writers() {
-    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_inverted_index_file_writers());
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_index_file_writers());
     return this->_seg_files.close();
 }
 

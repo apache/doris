@@ -32,9 +32,6 @@ class IndexIterator;
 class InvertedIndexReader;
 using InvertedIndexReaderPtr = std::shared_ptr<InvertedIndexReader>;
 
-class AnnIndexReader;
-using AnnIndexReaderPtr = std::shared_ptr<AnnIndexReader>;
-
 class IndexReader : public std::enable_shared_from_this<IndexReader>,
                     public MetadataAdder<IndexReader> {
 public:
@@ -50,7 +47,6 @@ public:
     virtual bool is_fulltext_index() { return false; }
     virtual bool is_string_index() { return false; }
     virtual bool is_bkd_index() { return false; }
-
     virtual bool is_support_phrase() { return false; }
 };
 using IndexReaderPtr = std::shared_ptr<IndexReader>;

@@ -41,10 +41,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 
-namespace doris::segment_v2 {
-struct FuncExprParams;
-} // namespace doris::segment_v2
-
 namespace doris::vectorized {
 
 struct FunctionAttr {

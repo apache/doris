@@ -177,7 +177,7 @@ endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
-option(BUILD_FAISS "Link doris with faiss for vector similarity search" OFF)
+option(BUILD_FAISS "Link doris with faiss for vector similarity search" ON)
 message(STATUS "build faiss: ${BUILD_FAISS}")
 
 include (cmake/thirdparty.cmake)
@@ -283,6 +283,7 @@ add_compile_options(-g
 
 add_compile_options(-Wno-unused-parameter
                     -Wno-deprecated-declarations
+                    -Wno-self-assign-field
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
@@ -380,6 +381,10 @@ endif()
 
 if (USE_DWARF)
     add_compile_options(-gdwarf-5)
+endif()
+
+if (BUILD_FAISS)
+    add_definitions(-DBUILD_FAISS)
 endif()
 
 # For CMAKE_BUILD_TYPE=Debug
@@ -519,6 +524,7 @@ set(DORIS_LINK_LIBS
     Cloud
     ${WL_END_GROUP}
     CommonCPP
+    vector
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
@@ -760,6 +766,7 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/exec)
@@ -775,6 +782,8 @@ add_subdirectory(${SRC_DIR}/runtime_filter)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
+add_subdirectory(${SRC_DIR}/vector)
+
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
 if (BUILD_META_TOOL)
