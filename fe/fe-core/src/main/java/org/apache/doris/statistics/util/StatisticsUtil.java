@@ -73,6 +73,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
@@ -164,7 +165,6 @@ public class StatisticsUtil {
                 }
             }
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
             return stmtExecutor.executeInternalQuery();
         }
     }
@@ -174,7 +174,6 @@ public class StatisticsUtil {
         AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
         try {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
             QueryState state = r.connectContext.getState();
             if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
@@ -211,8 +210,8 @@ public class StatisticsUtil {
 
     public static AutoCloseConnectContext buildConnectContext(boolean useFileCacheForStat) {
         ConnectContext connectContext = new ConnectContext();
+        connectContext.getState().setInternal(true);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.internalSession = true;
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
@@ -895,12 +894,7 @@ public class StatisticsUtil {
     }
 
     public static boolean enableAutoAnalyze() {
-        try {
-            return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_AUTO_ANALYZE).enableAutoAnalyze;
-        } catch (Exception e) {
-            LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
-        }
-        return false;
+        return VariableMgr.getDefaultSessionVariable().enableAutoAnalyze;
     }
 
     public static boolean enableAutoAnalyzeInternalCatalog() {
@@ -1256,7 +1250,13 @@ public class StatisticsUtil {
         // For olap table, if the table visible version and row count doesn't change since last analyze,
         // we don't need to analyze it because its data is not changed.
         OlapTable olapTable = (OlapTable) table;
-        return olapTable.getVisibleVersion() != columnStats.tableVersion
+        long version = 0;
+        try {
+            version = ((OlapTable) table).getVisibleVersion();
+        } catch (RpcException e) {
+            LOG.warn("in cloud getVisibleVersion exception", e);
+        }
+        return version != columnStats.tableVersion
                 || olapTable.getRowCount() != columnStats.rowCount;
     }
 

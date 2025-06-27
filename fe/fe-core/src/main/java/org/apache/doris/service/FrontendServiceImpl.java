@@ -2133,7 +2133,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 LOG.info("block initHttpStreamPlan");
             }
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
-            ctx.setExecutor(executor);
             httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
 
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
@@ -3621,20 +3620,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        // check partition's number limit.
-        int partitionNum = olapTable.getPartitionNum() + addPartitionClauseMap.size();
-        if (partitionNum > Config.max_auto_partition_num) {
-            String errorMessage = String.format(
-                    "create partition failed. partition numbers %d will exceed limit variable "
-                            + "max_auto_partition_num %d",
-                    partitionNum, Config.max_auto_partition_num);
-            LOG.warn(errorMessage);
-            errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
-            result.setStatus(errorStatus);
-            LOG.warn("send create partition error status: {}", result);
-            return result;
-        }
-
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
@@ -3647,6 +3632,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 LOG.warn("send create partition error status: {}", result);
                 return result;
             }
+        }
+
+        // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with existing
+        // partitions, which would lead to false positive. so we should check the partition number AFTER adding new
+        // partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
+        if (olapTable.getPartitionNum() > Config.max_auto_partition_num) {
+            String errorMessage = String.format(
+                    "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
+                    olapTable.getPartitionNum(), Config.max_auto_partition_num);
+            LOG.warn(errorMessage);
+            errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
+            result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
+            return result;
         }
 
         // build partition & tablets

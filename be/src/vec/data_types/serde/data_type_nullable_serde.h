@@ -21,11 +21,9 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_writer.h"
 
 namespace doris {
 class PValues;
-class JsonbValue;
 
 namespace vectorized {
 class IColumn;
@@ -35,6 +33,8 @@ class DataTypeNullableSerDe : public DataTypeSerDe {
 public:
     DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
             : DataTypeSerDe(nesting_level), nested_serde(_nested_serde) {}
+
+    std::string get_name() const override { return "Nullable(" + nested_serde->get_name() + ")"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;

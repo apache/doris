@@ -261,6 +261,8 @@ DEFINE_mBool(enable_batch_download, "true");
 DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
 DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
+// the interval time(seconds) for agent report index policy to FE
+DEFINE_mInt32(report_index_policy_interval_seconds, "10");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -762,9 +764,6 @@ DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DEFINE_Int32(max_flush_thread_num_per_cpu, "4");
 
-DEFINE_mInt32(wg_flush_thread_num_per_store, "6");
-DEFINE_mInt32(wg_flush_thread_num_per_cpu, "4");
-
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
 DEFINE_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
@@ -836,7 +835,18 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-DEFINE_Int32(aws_log_level, "2");
+DEFINE_Int32(aws_log_level, "3");
+DEFINE_Validator(aws_log_level,
+                 [](const int config) -> bool { return config >= 0 && config <= 6; });
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+DEFINE_Int32(azure_log_level, "3");
+DEFINE_Validator(azure_log_level,
+                 [](const int config) -> bool { return config >= 1 && config <= 4; });
 
 // the buffer size when read data from remote storage like s3
 DEFINE_mInt32(remote_storage_read_buffer_mb, "16");
@@ -1103,6 +1113,9 @@ DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
+
+DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
+DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");

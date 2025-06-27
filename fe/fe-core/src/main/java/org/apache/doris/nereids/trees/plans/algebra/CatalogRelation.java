@@ -43,5 +43,4 @@ public interface CatalogRelation extends Relation {
     default List<Slot> getOperativeSlots() {
         return ImmutableList.of();
     }
-
 }

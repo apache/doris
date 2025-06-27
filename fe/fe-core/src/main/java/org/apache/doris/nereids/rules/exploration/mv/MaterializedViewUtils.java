@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -80,6 +81,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -181,7 +183,7 @@ public class MaterializedViewUtils {
         // If plan belong to some group, construct it with group struct info
         if (plan.getGroupExpression().isPresent()) {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
-            StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
+            StructInfoMap structInfoMap = ownerGroup.getStructInfoMap();
             // Refresh struct info in current level plan from top to bottom
             structInfoMap.refresh(ownerGroup, cascadesContext, new HashSet<>());
             structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
@@ -266,7 +268,12 @@ public class MaterializedViewUtils {
         rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         try {
             rewrittenPlanContext.getConnectContext().setSkipAuth(true);
-            rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+            AtomicReference<Plan> rewriteResult = new AtomicReference<>();
+            rewrittenPlanContext.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+                rewriteResult.set(planRewriter.apply(rewrittenPlanContext));
+            });
+            cascadesContext.addPlanProcesses(rewrittenPlanContext.getPlanProcesses());
+            rewrittenPlan = rewriteResult.get();
         } finally {
             rewrittenPlanContext.getConnectContext().setSkipAuth(false);
             // Recover old disable rules variable
@@ -299,6 +306,15 @@ public class MaterializedViewUtils {
         List<Expression> nondeterministicFunctions = new ArrayList<>();
         plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
         return nondeterministicFunctions;
+    }
+
+    /**
+     * Collect table used partitions, this is used for mv rewrite partition union
+     * can not cumulative, if called multi times, should clean firstly
+     */
+    public static void collectTableUsedPartitions(Plan plan, CascadesContext cascadesContext) {
+        // the recorded partition is based on relation id
+        plan.accept(new QueryPartitionCollector(), cascadesContext);
     }
 
     /**

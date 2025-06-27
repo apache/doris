@@ -222,7 +222,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
     private static boolean shouldSkipFold(Expression expr) {
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
-                || expr.getDataType().isVariantType() || expr.getDataType().isTimeLikeType()
+                || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
                 || expr.getDataType().isIPv6Type()) {
             return true;
         }

@@ -22,9 +22,11 @@
 #include <cstdint>
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
-#include "util/jsonb_parser_simd.h"
+#include "runtime/jsonb_value.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
@@ -122,11 +124,11 @@ void DataTypeVariantSerDe::read_one_cell_from_jsonb(IColumn& column, const Jsonb
     auto& variant = assert_cast<ColumnVariant&>(column);
     Field field;
     if (arg->isBinary()) {
-        const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+        const auto* blob = arg->unpack<JsonbBinaryVal>();
         field = Field::create_field<TYPE_JSONB>(JsonbField(blob->getBlob(), blob->getBlobLen()));
     } else if (arg->isString()) {
         // not a valid jsonb type, insert as string
-        const auto* str = static_cast<const JsonbStringVal*>(arg);
+        const auto* str = arg->unpack<JsonbStringVal>();
         field = Field::create_field<TYPE_STRING>(String(str->getBlob(), str->getBlobLen()));
     } else {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid jsonb type");
@@ -165,6 +167,38 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                     static_cast<int>(serialized_value.size())),
                                      column.get_name(), array_builder->type()->name()));
         }
+    }
+    return Status::OK();
+}
+
+Status DataTypeVariantSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                    rapidjson::Document::AllocatorType& allocator,
+                                                    Arena& mem_pool, int64_t row_num) const {
+    const auto& var = assert_cast<const ColumnVariant&>(column);
+    if (!var.is_finalized()) {
+        var.assume_mutable()->finalize();
+    }
+    result.SetObject();
+    // sort to make output stable, todo add a config
+    auto subcolumns = schema_util::get_sorted_subcolumns(var.get_subcolumns());
+    for (const auto& entry : subcolumns) {
+        const auto& subcolumn = entry->data.get_finalized_column();
+        const auto& subtype_serde = entry->data.get_least_common_type_serde();
+        if (subcolumn.is_null_at(row_num)) {
+            continue;
+        }
+        rapidjson::Value key;
+        key.SetString(entry->path.get_path().data(),
+                      cast_set<unsigned>(entry->path.get_path().size()));
+        rapidjson::Value val;
+        RETURN_IF_ERROR(subtype_serde->write_one_cell_to_json(subcolumn, val, allocator, mem_pool,
+                                                              row_num));
+        if (val.IsNull() && entry->path.empty()) {
+            // skip null value with empty key, indicate the null json value of root in variant map,
+            // usally padding in nested arrays
+            continue;
+        }
+        result.AddMember(key, val, allocator);
     }
     return Status::OK();
 }

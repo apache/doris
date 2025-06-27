@@ -247,7 +247,7 @@ public:
 
     // get root path for creating tablet. The returned vector of root path should be round robin,
     // for avoiding that all the tablet would be deployed one disk.
-    std::vector<DataDir*> get_stores_for_create_tablet(int64 partition_id,
+    std::vector<DataDir*> get_stores_for_create_tablet(int64_t partition_id,
                                                        TStorageMedium::type storage_medium);
 
     DataDir* get_store(const std::string& path);
@@ -327,7 +327,6 @@ public:
 
     ThreadPool* tablet_publish_txn_thread_pool() { return _tablet_publish_txn_thread_pool.get(); }
     bool stopped() override { return _stopped; }
-    ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
     Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
 
@@ -340,7 +339,7 @@ public:
     bool add_broken_path(std::string path);
     bool remove_broken_path(std::string path);
 
-    std::set<string> get_broken_paths() { return _broken_paths; }
+    std::set<std::string> get_broken_paths() { return _broken_paths; }
 
 private:
     // Instance should be inited from `static open()`
@@ -445,7 +444,7 @@ private:
     void _get_candidate_stores(TStorageMedium::type storage_medium,
                                std::vector<DirInfo>& dir_infos);
 
-    int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
+    int _get_and_set_next_disk_index(int64_t partition_id, TStorageMedium::type storage_medium);
 
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 
@@ -508,7 +507,6 @@ private:
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
-    std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 

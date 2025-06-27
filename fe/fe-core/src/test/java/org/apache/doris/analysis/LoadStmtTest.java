@@ -19,16 +19,14 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ResourceMgr;
-import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadExprTransformUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.task.LoadTaskInfo;
@@ -89,8 +87,6 @@ public class LoadStmtTest {
             throws UserException, AnalysisException {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(desc);
-        String resourceName = "spark0";
-        SparkResource resource = new SparkResource(resourceName);
 
         new Expectations() {
             {
@@ -105,14 +101,6 @@ public class LoadStmtTest {
                 desc.analyzeFullDbName("testDb", (Analyzer) any);
                 minTimes = 0;
                 result = "testDb";
-                env.getResourceMgr();
-                result = resourceMgr;
-                resourceMgr.getResource(resourceName);
-                result = resource;
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkResourcePriv((ConnectContext) any, resourceName, PrivPredicate.USAGE);
-                result = true;
             }
         };
 
@@ -124,14 +112,6 @@ public class LoadStmtTest {
 
         Assert.assertEquals("LOAD LABEL `testDb`.`testLabel`\n"
                 + "(XXX)", stmt.toString());
-
-        // test ResourceDesc
-        stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList,
-                            new ResourceDesc(resourceName, null), null, "");
-        stmt.analyze(analyzer);
-        Assert.assertEquals(EtlJobType.SPARK, stmt.getResourceDesc().getEtlJobType());
-        Assert.assertEquals("LOAD LABEL `testDb`.`testLabel`\n(XXX)\nWITH RESOURCE 'spark0'",
-                            stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -155,7 +135,7 @@ public class LoadStmtTest {
         List<ImportColumnDesc> columns1 = getColumns("c1,c2,c3,tmp_c4=c1 + 1, tmp_c5 = tmp_c4+1");
         columnDescs.descs = columns1;
         columnDescs.isColumnDescsRewrited = false;
-        Load.rewriteColumns(columnDescs);
+        LoadExprTransformUtils.rewriteColumns(columnDescs);
         String orig = "((`c1` + 1) + 1)";
         Assert.assertEquals(orig, columns1.get(4).getExpr().toString());
 
@@ -163,26 +143,26 @@ public class LoadStmtTest {
         columnDescs.descs = columns2;
         columnDescs.isColumnDescsRewrited = false;
         String orig2 = "(`tmp_c4` + 1)";
-        Load.rewriteColumns(columnDescs);
+        LoadExprTransformUtils.rewriteColumns(columnDescs);
         Assert.assertEquals(orig2, columns2.get(3).getExpr().toString());
 
         List<ImportColumnDesc> columns3 = getColumns("c1,c2,c3");
         columnDescs.descs = columns3;
         columnDescs.isColumnDescsRewrited = false;
         String orig3 = "c3";
-        Load.rewriteColumns(columnDescs);
+        LoadExprTransformUtils.rewriteColumns(columnDescs);
         Assert.assertEquals(orig3, columns3.get(2).toString());
 
         List<ImportColumnDesc> columns4 = getColumns("c1, c1=ifnull(c1, 0), c2=ifnull(c1, 0)");
         columnDescs.descs = columns4;
         columnDescs.isColumnDescsRewrited = false;
-        Load.rewriteColumns(columnDescs);
+        LoadExprTransformUtils.rewriteColumns(columnDescs);
         Assert.assertEquals("c1", columns4.get(0).toString());
         Assert.assertEquals("c1=ifnull(`c1`, 0)", columns4.get(1).toString());
         Assert.assertEquals("c2=ifnull(ifnull(`c1`, 0), 0)", columns4.get(2).toString());
         // will not rewrite again
         Assert.assertTrue(columnDescs.isColumnDescsRewrited);
-        Load.rewriteColumns(columnDescs);
+        LoadExprTransformUtils.rewriteColumns(columnDescs);
         Assert.assertEquals("c1", columns4.get(0).toString());
         Assert.assertEquals("c1=ifnull(`c1`, 0)", columns4.get(1).toString());
         Assert.assertEquals("c2=ifnull(ifnull(`c1`, 0), 0)", columns4.get(2).toString());

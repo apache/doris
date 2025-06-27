@@ -74,6 +74,7 @@ import org.apache.doris.thrift.TOlapTablePartitionParam;
 import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloNodesInfo;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
@@ -110,6 +111,7 @@ public class OlapTableSink extends DataSink {
     // partial update input columns
     private TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
     private HashSet<String> partialUpdateInputColumns;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     // set after init called
     protected TDataSink tDataSink;
@@ -246,8 +248,12 @@ public class OlapTableSink extends DataSink {
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
             int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
             long txnExpirationS, TUniqueKeyUpdateMode uniquekeyUpdateMode,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             HashSet<String> partialUpdateInputColumns) throws UserException {
         setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
+        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            setPartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
+        }
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
                 isStrictMode, txnExpirationS);
         for (Long partitionId : partitionIds) {
@@ -304,6 +310,10 @@ public class OlapTableSink extends DataSink {
         if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
             this.partialUpdateInputColumns = columns;
         }
+    }
+
+    public void setPartialUpdateNewRowPolicy(TPartialUpdateNewRowPolicy policy) {
+        this.partialUpdateNewKeyPolicy = policy;
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -364,11 +374,13 @@ public class OlapTableSink extends DataSink {
         boolean isPartialUpdate = uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT;
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
         if (isPartialUpdate) {
+            strBuilder.append("\n");
             if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
                 strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: UPDATE_FIXED_COLUMNS");
             } else {
                 strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: UPDATE_FLEXIBLE_COLUMNS");
             }
+            strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_KEY_BEHAVIOR: " + partialUpdateNewKeyPolicy);
         }
         return strBuilder.toString();
     }
@@ -443,33 +455,7 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
-        // for backward compatibility
-        schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
-        schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
-        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
-            if (table.getState() == OlapTable.OlapTableState.ROLLUP
-                    || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
-                throw new AnalysisException("Can't do partial update when table is doing schema change.");
-            }
-
-        }
-        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && table.getSequenceMapCol() != null) {
-            Column seqMapCol = table.getFullSchema().stream()
-                    .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
-                    .findFirst().get();
-            schemaParam.setSequenceMapColUniqueId(seqMapCol.getUniqueId());
-        }
-        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
-            for (String s : partialUpdateInputColumns) {
-                schemaParam.addToPartialUpdateInputColumns(s);
-            }
-            for (Column col : table.getFullSchema()) {
-                if (col.isAutoInc()) {
-                    schemaParam.setAutoIncrementColumn(col.getName());
-                    schemaParam.setAutoIncrementColumnUniqueId(col.getUniqueId());
-                }
-            }
-        }
+        setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;
     }
@@ -519,7 +505,7 @@ public class OlapTableSink extends DataSink {
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
                 if (expr == null) {
-                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSql()));
+                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSqlWithoutTbl()));
                 }
                 indexSchema.setWhereClause(expr.treeToThrift());
             }
@@ -527,6 +513,13 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
+        setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
+        schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
+        return schemaParam;
+    }
+
+    private void setPartialUpdateInfoForParam(TOlapTableSchemaParam schemaParam, OlapTable table,
+            TUniqueKeyUpdateMode uniqueKeyUpdateMode) throws AnalysisException {
         // for backward compatibility
         schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
         schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
@@ -535,6 +528,7 @@ public class OlapTableSink extends DataSink {
                     || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
                 throw new AnalysisException("Can't do partial update when table is doing schema change.");
             }
+            schemaParam.setPartialUpdateNewKeyPolicy(partialUpdateNewKeyPolicy);
         }
         if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && table.getSequenceMapCol() != null) {
             Column seqMapCol = table.getFullSchema().stream()
@@ -553,8 +547,6 @@ public class OlapTableSink extends DataSink {
                 }
             }
         }
-        schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
-        return schemaParam;
     }
 
     private List<String> getDistColumns(DistributionInfo distInfo) throws UserException {
@@ -984,23 +976,22 @@ public class OlapTableSink extends DataSink {
         }
         for (int i = 0; i < table.getIndexNumber(); i++) {
             // only one fake tablet here
+            Long[] nodes = aliveBe.toArray(new Long[0]);
+            Random random = new SecureRandom();
+            int nodeIndex = random.nextInt(nodes.length);
             if (singleReplicaLoad) {
-                Long[] nodes = aliveBe.toArray(new Long[0]);
                 List<Long> slaveBe = aliveBe;
-
-                Random random = new SecureRandom();
-                int masterNode = random.nextInt(nodes.length);
                 locationParam.addToTablets(new TTabletLocation(fakeTabletId,
-                        Arrays.asList(nodes[masterNode])));
+                        Arrays.asList(nodes[nodeIndex])));
 
-                slaveBe.remove(masterNode);
+                slaveBe.remove(nodeIndex);
                 slaveLocationParam.addToTablets(new TTabletLocation(fakeTabletId,
                         slaveBe));
             } else {
                 locationParam.addToTablets(new TTabletLocation(fakeTabletId,
-                        Arrays.asList(aliveBe.get(0)))); // just one fake location is enough
+                        Arrays.asList(nodes[nodeIndex]))); // just one fake location is enough
 
-                LOG.info("created dummy location tablet_id={}, be_id={}", fakeTabletId, aliveBe.get(0));
+                LOG.info("created dummy location tablet_id={}, be_id={}", fakeTabletId, nodes[nodeIndex]);
             }
         }
 

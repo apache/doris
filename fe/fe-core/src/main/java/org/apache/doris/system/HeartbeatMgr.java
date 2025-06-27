@@ -109,6 +109,9 @@ public class HeartbeatMgr extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
+        if (Config.isCloudMode() && masterInfo.get() != null) {
+            masterInfo.get().setMetaServiceEndpoint(Config.meta_service_endpoint);
+        }
         // Get feInfos of previous iteration.
         List<TFrontendInfo> feInfos = Env.getCurrentEnv().getFrontendInfos();
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();

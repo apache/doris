@@ -27,18 +27,11 @@
 
 #include "common/status.h"
 #include "data_type_number_serde.h"
-#include "olap/olap_common.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
-namespace doris {
-class JsonbOutStream;
-
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 
 template <PrimitiveType T = PrimitiveType::TYPE_DATE>
@@ -110,5 +103,4 @@ public:
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
 };
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

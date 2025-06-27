@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CleanQueryStatsStmt;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -136,16 +135,15 @@ public class CleanQueryStatsCommand extends Command implements ForwardWithSync {
         switch (scope) {
             case ALL:
                 cleanQueryStatsInfo = new CleanQueryStatsInfo(
-                    translateToLegacyScope(Scope.ALL), env.getCurrentCatalog().getName(), null, null);
+                        Scope.ALL, env.getCurrentCatalog().getName(), null, null);
                 break;
             case DB:
                 cleanQueryStatsInfo = new CleanQueryStatsInfo(
-                    translateToLegacyScope(Scope.DB), env.getCurrentCatalog().getName(), tableNameInfo.getDb(), null);
+                        Scope.DB, env.getCurrentCatalog().getName(), tableNameInfo.getDb(), null);
                 break;
             case TABLE:
                 cleanQueryStatsInfo = new CleanQueryStatsInfo(
-                    translateToLegacyScope(Scope.TABLE), env.getCurrentCatalog().getName(), tableNameInfo.getDb(),
-                        tableNameInfo.getTbl());
+                        Scope.TABLE, env.getCurrentCatalog().getName(), tableNameInfo.getDb(), tableNameInfo.getTbl());
                 break;
             default:
                 throw new DdlException("Unknown scope: " + scope);
@@ -163,10 +161,6 @@ public class CleanQueryStatsCommand extends Command implements ForwardWithSync {
      */
     public enum Scope {
         ALL, DB, TABLE
-    }
-
-    private CleanQueryStatsStmt.Scope translateToLegacyScope(Scope scope) {
-        return CleanQueryStatsStmt.Scope.valueOf(scope.name());
     }
 
     @Override

@@ -210,7 +210,7 @@ struct PercentRankData {
 class WindowFunctionPercentRank final
         : public IAggregateFunctionDataHelper<PercentRankData, WindowFunctionPercentRank> {
 private:
-    static double _cal_percent(int64 rank, int64 total_rows) {
+    static double _cal_percent(int64_t rank, int64_t total_rows) {
         return total_rows <= 1 ? 0.0 : double(rank - 1) * 1.0 / double(total_rows - 1);
     }
 
@@ -360,9 +360,9 @@ public:
         int64_t bucket_num = columns[0]->get_int(0);
         int64_t partition_size = partition_end - partition_start;
 
-        int64 small_bucket_size = partition_size / bucket_num;
-        int64 big_bucket_num = partition_size % bucket_num;
-        int64 first_small_bucket_row_index = big_bucket_num * (small_bucket_size + 1);
+        int64_t small_bucket_size = partition_size / bucket_num;
+        int64_t big_bucket_num = partition_size % bucket_num;
+        int64_t first_small_bucket_row_index = big_bucket_num * (small_bucket_size + 1);
         if (row_index >= first_small_bucket_row_index) {
             // small_bucket_size can't be zero
             WindowFunctionNTile::data(place).bucket_index =
@@ -400,6 +400,20 @@ struct FirstLastData
         : public ReaderFirstAndLastData<ColVecType, result_is_nullable, arg_is_nullable, false> {
 public:
     void set_is_null() { this->_data_value.reset(); }
+};
+
+template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
+struct NthValueData : public FirstLastData<ColVecType, result_is_nullable, arg_is_nullable> {
+public:
+    void reset() {
+        this->_data_value.reset();
+        this->_has_value = false;
+        this->_frame_start_pose = 0;
+        this->_frame_total_rows = 0;
+    }
+
+    int64_t _frame_start_pose = 0;
+    int64_t _frame_total_rows = 0;
 };
 
 template <typename ColVecType, bool arg_is_nullable>
@@ -556,7 +570,13 @@ struct WindowFunctionLastImpl : Data {
         DCHECK_LE(frame_start, frame_end);
         if ((frame_end <= partition_start) ||
             (frame_start >= partition_end)) { //beyond or under partition, set null
-            this->set_is_null();
+            if ((this->has_set_value()) &&
+                (!arg_ignore_null || (arg_ignore_null && !this->is_null()))) {
+                // have set value, do nothing, because like rows unbouned preceding and M following
+                // it's caculated as the cumulative mode, so it's could reuse the previous
+            } else {
+                this->set_is_null();
+            }
             return;
         }
         frame_end = std::min<int64_t>(frame_end, partition_end);
@@ -596,16 +616,20 @@ struct WindowFunctionNthValueImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
         DCHECK_LE(frame_start, frame_end);
-        frame_start = std::max<int64_t>(frame_start, partition_start);
-        frame_end = std::min<int64_t>(frame_end, partition_end);
+        int64_t real_frame_start = std::max<int64_t>(frame_start, partition_start);
+        int64_t real_frame_end = std::min<int64_t>(frame_end, partition_end);
+        this->_frame_start_pose =
+                this->_frame_total_rows ? this->_frame_start_pose : real_frame_start;
+        this->_frame_total_rows += real_frame_end - real_frame_start;
         int64_t offset = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                  .get_data()[0] -
                          1;
-        if (frame_end - frame_start <= offset) {
+        if (offset >= this->_frame_total_rows) {
+            // offset is beyond the frame, so set null
             this->set_is_null();
             return;
         }
-        this->set_value(columns, offset + frame_start);
+        this->set_value(columns, offset + this->_frame_start_pose);
     }
 
     static const char* name() { return "nth_value"; }

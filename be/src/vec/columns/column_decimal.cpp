@@ -249,7 +249,7 @@ void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
 }
 
 template <PrimitiveType T>
-ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = limit ? std::min(data.size(), limit) : data.size();
     if (perm.size() < size) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -467,8 +467,8 @@ void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags
 template <PrimitiveType T>
 void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                         int nan_direction_hint, int direction,
-                                        std::vector<uint8>& cmp_res,
-                                        uint8* __restrict filter) const {
+                                        std::vector<uint8_t>& cmp_res,
+                                        uint8_t* __restrict filter) const {
     auto sz = this->size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnDecimal<T>&>(rhs).get_data()[rhs_row_id];

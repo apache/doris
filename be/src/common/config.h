@@ -305,6 +305,8 @@ DECLARE_mBool(enable_batch_download);
 DECLARE_mBool(enable_download_md5sum_check);
 // download binlog meta timeout
 DECLARE_mInt32(download_binlog_meta_timeout_ms);
+// the interval time(seconds) for agent report index policy to FE
+DECLARE_mInt32(report_index_policy_interval_seconds);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
@@ -797,10 +799,6 @@ DECLARE_Int32(high_priority_flush_thread_num_per_store);
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DECLARE_Int32(max_flush_thread_num_per_cpu);
 
-// workload group flush pool params
-DECLARE_mInt32(wg_flush_thread_num_per_store);
-DECLARE_mInt32(wg_flush_thread_num_per_cpu);
-
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
 DECLARE_mInt32(tablet_meta_checkpoint_min_interval_secs);
@@ -876,6 +874,13 @@ DECLARE_mInt32(zone_map_row_num_threshold);
 //    Debug = 5,
 //    Trace = 6
 DECLARE_Int32(aws_log_level);
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+DECLARE_Int32(azure_log_level);
 
 // the buffer size when read data from remote storage like s3
 DECLARE_mInt32(remote_storage_read_buffer_mb);
@@ -1147,6 +1152,9 @@ DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
+
+DECLARE_Int32(file_cache_downloader_thread_num_min);
+DECLARE_Int32(file_cache_downloader_thread_num_max);
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);

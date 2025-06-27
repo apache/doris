@@ -72,6 +72,11 @@ public:
     /// Name of a Column. It is used in info messages.
     virtual std::string get_name() const = 0;
 
+    // used to check the column data is valid or not.
+    virtual void sanity_check() const {
+        // do nothing by default, but some column may need to check
+    }
+
     /** If column isn't constant, returns nullptr (or itself).
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
       */
@@ -427,7 +432,7 @@ public:
     /// Permutes elements using specified permutation. Is used in sortings.
     /// limit - if it isn't 0, puts only first limit elements in the result.
     using Permutation = PaddedPODArray<size_t>;
-    virtual Ptr permute(const Permutation& perm, size_t limit) const = 0;
+    virtual MutablePtr permute(const Permutation& perm, size_t limit) const = 0;
 
     /** Compares (*this)[n] and rhs[m]. Column rhs should have the same type.
       * Returns negative number, 0, or positive number (*this)[n] is less, equal, greater than rhs[m] respectively.
@@ -452,8 +457,8 @@ public:
      * @param filter this stores comparison results for all rows. filter[i] = 1 means row i is less than row rhs_row_id in rhs
      */
     virtual void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                                  int direction, std::vector<uint8>& cmp_res,
-                                  uint8* __restrict filter) const;
+                                  int direction, std::vector<uint8_t>& cmp_res,
+                                  uint8_t* __restrict filter) const;
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.

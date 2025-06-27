@@ -37,8 +37,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
@@ -61,13 +59,15 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
+import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.transaction.TransactionManager;
@@ -79,7 +79,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
@@ -89,8 +88,6 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -107,9 +104,8 @@ import java.util.stream.Collectors;
 /**
  * The abstract class for all types of external catalogs.
  */
-@Data
 public abstract class ExternalCatalog
-        implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
+        implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
 
     public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
@@ -182,6 +178,8 @@ public abstract class ExternalCatalog
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
+
+    private volatile boolean isInitializing = false;
 
     public ExternalCatalog() {
     }
@@ -305,38 +303,46 @@ public abstract class ExternalCatalog
      * So you have to make sure the client of third system is initialized before any method was called.
      */
     public final synchronized void makeSureInitialized() {
-        initLocalObjects();
-        if (!initialized) {
-            if (useMetaCache.get()) {
-                if (metaCache == null) {
-                    metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
-                            name,
-                            OptionalLong.of(86400L),
-                            OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_meta_object_cache_num,
-                            ignored -> getFilteredDatabaseNames(),
-                            localDbName -> Optional.ofNullable(
-                                    buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
-                                            true)),
-                            (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
-                }
-                setLastUpdateTime(System.currentTimeMillis());
-            } else {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                    try {
-                        remoteExecutor.forward(id, -1);
-                    } catch (Exception e) {
-                        Util.logAndThrowRuntimeException(LOG,
-                                String.format("failed to forward init catalog %s operation to master.", name), e);
+        if (isInitializing) {
+            return;
+        }
+        isInitializing = true;
+        try {
+            initLocalObjects();
+            if (!initialized) {
+                if (useMetaCache.get()) {
+                    if (metaCache == null) {
+                        metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+                                name,
+                                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                                Config.max_meta_object_cache_num,
+                                ignored -> getFilteredDatabaseNames(),
+                                localDbName -> Optional.ofNullable(
+                                        buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
+                                                true)),
+                                (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
                     }
-                    return;
+                    setLastUpdateTime(System.currentTimeMillis());
+                } else {
+                    if (!Env.getCurrentEnv().isMaster()) {
+                        // Forward to master and wait the journal to replay.
+                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
+                        MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
+                        try {
+                            remoteExecutor.forward(id, -1);
+                        } catch (Exception e) {
+                            Util.logAndThrowRuntimeException(LOG,
+                                    String.format("failed to forward init catalog %s operation to master.", name), e);
+                        }
+                        return;
+                    }
+                    init();
                 }
-                init();
+                initialized = true;
             }
-            initialized = true;
+        } finally {
+            isInitializing = false;
         }
     }
 
@@ -354,7 +360,7 @@ public abstract class ExternalCatalog
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
         // check refresh parameter of catalog
-        Map<String, String> properties = getCatalogProperty().getProperties();
+        Map<String, String> properties = catalogProperty.getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
                 int metadataRefreshIntervalSec = Integer.parseInt(
@@ -387,7 +393,7 @@ public abstract class ExternalCatalog
      * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */
     public void initAccessController(boolean isDryRun) {
-        Map<String, String> properties = getCatalogProperty().getProperties();
+        Map<String, String> properties = catalogProperty.getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
         if (Strings.isNullOrEmpty(className)) {
@@ -547,7 +553,7 @@ public abstract class ExternalCatalog
      * @param invalidCache if {@code true}, the catalog cache will be invalidated
      *                     and reloaded during the refresh process.
      */
-    public void resetToUninitialized(boolean invalidCache) {
+    public synchronized void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         synchronized (this.propLock) {
@@ -764,11 +770,6 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Override
     public void onClose() {
         removeAccessController();
         if (threadPoolWithPreAuth != null) {
@@ -954,11 +955,6 @@ public abstract class ExternalCatalog
         return null;
     }
 
-    public static ExternalCatalog read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
-    }
-
     @Override
     public void gsonPostProcess() throws IOException {
         if (idToDb == null) {
@@ -997,6 +993,14 @@ public abstract class ExternalCatalog
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
         idToDb.put(db.getId(), db);
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
+    }
+
+    /**
+     * Set the initialized status for testing purposes only.
+     * This method should only be used in test cases.
+     */
+    public void setInitializedForTest(boolean initialized) {
+        this.initialized = initialized;
     }
 
     @Override
@@ -1302,4 +1306,78 @@ public abstract class ExternalCatalog
     public ThreadPoolExecutor getThreadPoolExecutor() {
         return threadPoolWithPreAuth;
     }
+
+    public CatalogProperty getCatalogProperty() {
+        return catalogProperty;
+    }
+
+    public Optional<Boolean> getUseMetaCache() {
+        return useMetaCache;
+    }
+
+    public Map<Pair<String, String>, String> getTableAutoAnalyzePolicy() {
+        return tableAutoAnalyzePolicy;
+    }
+
+    public TransactionManager getTransactionManager() {
+        return transactionManager;
+    }
+
+    public ThreadPoolExecutor getThreadPoolWithPreAuth() {
+        return threadPoolWithPreAuth;
+    }
+
+    /**
+     * Check if an external view exists.
+     * @param dbName
+     * @param viewName
+     * @return
+     */
+    public boolean viewExists(String dbName, String viewName) {
+        throw new UnsupportedOperationException("View is not supported.");
+    }
+
+    @Override
+    public void createOrReplaceBranch(String db, String tbl, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("branching operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.createOrReplaceBranch(db, tbl, branchInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), db, tbl);
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to create or replace branch for table {}.{} in catalog {}",
+                    db, tbl, getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void createOrReplaceTag(String db, String tbl, CreateOrReplaceTagInfo tagInfo)
+            throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("Tagging operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.createOrReplaceTag(db, tbl, tagInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), db, tbl);
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to create or replace tag for table {}.{} in catalog {}",
+                    db, tbl, getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void replayCreateOrReplaceBranchOrTag(String dbName, String tblName) {
+        if (metadataOps != null) {
+            metadataOps.afterCreateOrReplaceBranchOrTag(dbName, tblName);
+        }
+    }
 }
+

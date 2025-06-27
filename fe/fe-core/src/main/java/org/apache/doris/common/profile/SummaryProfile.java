@@ -21,6 +21,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
@@ -242,6 +244,8 @@ public class SummaryProfile {
 
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
     private long nereidsCollectTablePartitionFinishTime = -1;
+    @SerializedName(value = "nereidsCollectTablePartitionTime")
+    private long nereidsCollectTablePartitionTime = 0;
     @SerializedName(value = "nereidsAnalysisFinishTime")
     private long nereidsAnalysisFinishTime = -1;
     @SerializedName(value = "nereidsRewriteFinishTime")
@@ -536,6 +540,10 @@ public class SummaryProfile {
         this.nereidsCollectTablePartitionFinishTime = TimeUtils.getStartTimeMs();
     }
 
+    public void addCollectTablePartitionTime(long elapsed) {
+        nereidsCollectTablePartitionTime += elapsed;
+    }
+
     public void setNereidsAnalysisTime() {
         this.nereidsAnalysisFinishTime = TimeUtils.getStartTimeMs();
     }
@@ -778,6 +786,99 @@ public class SummaryProfile {
         }
     }
 
+    public int getParseSqlTimeMs() {
+        return getTimeMs(parseSqlFinishTime, parseSqlStartTime);
+    }
+
+    public int getPlanTimeMs() {
+        return getTimeMs(queryPlanFinishTime, parseSqlFinishTime);
+    }
+
+    public int getNereidsLockTableTimeMs() {
+        return getTimeMs(nereidsLockTableFinishTime, parseSqlFinishTime);
+    }
+
+    public int getNereidsAnalysisTimeMs() {
+        return getTimeMs(nereidsAnalysisFinishTime, nereidsLockTableFinishTime);
+    }
+
+    public int getNereidsRewriteTimeMs() {
+        return getTimeMs(nereidsRewriteFinishTime, nereidsAnalysisFinishTime);
+    }
+
+    public int getNereidsCollectTablePartitionTimeMs() {
+        return getTimeMs(nereidsCollectTablePartitionFinishTime, nereidsRewriteFinishTime)
+                + (int) nereidsCollectTablePartitionTime;
+    }
+
+    public int getNereidsOptimizeTimeMs() {
+        return getTimeMs(nereidsOptimizeFinishTime, nereidsCollectTablePartitionFinishTime);
+    }
+
+    public int getNereidsTranslateTimeMs() {
+        return getTimeMs(nereidsTranslateFinishTime, nereidsOptimizeFinishTime);
+    }
+
+    public int getNereidsGarbageCollectionTimeMs() {
+        return (int) (nereidsGarbageCollectionTime);
+    }
+
+    public int getNereidsBeFoldConstTimeMs() {
+        return (int) (nereidsBeFoldConstTime);
+    }
+
+    public int getNereidsDistributeTimeMs() {
+        return getTimeMs(nereidsDistributeFinishTime, nereidsTranslateFinishTime);
+    }
+
+    public int getInitScanNodeTimeMs() {
+        return getTimeMs(initScanNodeFinishTime, initScanNodeStartTime);
+    }
+
+    public int getFinalizeScanNodeTimeMs() {
+        return getTimeMs(finalizeScanNodeFinishTime, finalizeScanNodeStartTime);
+    }
+
+    public int getCreateScanRangeTimeMs() {
+        return getTimeMs(createScanRangeFinishTime, getSplitsFinishTime);
+    }
+
+    public int getScheduleTimeMs() {
+        return getTimeMs(queryScheduleFinishTime, queryPlanFinishTime);
+    }
+
+    public int getFragmentAssignTimsMs() {
+        return getTimeMs(assignFragmentTime, queryPlanFinishTime);
+    }
+
+    public int getFragmentSerializeTimeMs() {
+        return getTimeMs(fragmentSerializeTime, assignFragmentTime);
+    }
+
+    public int getFragmentRPCPhase1TimeMs() {
+        return getTimeMs(fragmentSendPhase1Time, fragmentSerializeTime);
+    }
+
+    public int getFragmentRPCPhase2TimeMs() {
+        return getTimeMs(fragmentSendPhase2Time, fragmentSendPhase1Time);
+    }
+
+    public double getFragmentCompressedSizeByte() {
+        return fragmentCompressedSize;
+    }
+
+    public long getFragmentRPCCount() {
+        return fragmentRpcCount;
+    }
+
+    public int getTimeMs(long end, long start) {
+        if (end == -1 || start == -1) {
+            return -1;
+        } else {
+            return (int) (end - start);
+        }
+    }
+
     public String getPrettyParseSqlTime() {
         return getPrettyTime(parseSqlFinishTime, parseSqlStartTime, TUnit.TIME_MS);
     }
@@ -796,7 +897,9 @@ public class SummaryProfile {
 
 
     public String getPrettyNereidsCollectTablePartitionTime() {
-        return getPrettyTime(nereidsCollectTablePartitionFinishTime, nereidsRewriteFinishTime, TUnit.TIME_MS);
+        long totalTime = nereidsCollectTablePartitionFinishTime
+                - nereidsRewriteFinishTime + nereidsCollectTablePartitionTime;
+        return RuntimeProfile.printCounter(totalTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsOptimizeTime() {
@@ -852,6 +955,26 @@ public class SummaryProfile {
 
     private String getPrettyGetTableVersionCount() {
         return RuntimeProfile.printCounter(getTableVersionCount, TUnit.UNIT);
+    }
+
+    public long getGetPartitionVersionTime() {
+        return getPartitionVersionTime;
+    }
+
+    public long getGetPartitionVersionCount() {
+        return getPartitionVersionCount;
+    }
+
+    public long getGetPartitionVersionByHasDataCount() {
+        return getPartitionVersionByHasDataCount;
+    }
+
+    public long getGetTableVersionTime() {
+        return getTableVersionTime;
+    }
+
+    public long getGetTableVersionCount() {
+        return getTableVersionCount;
     }
 
     private String getPrettyTime(long end, long start, TUnit unit) {
@@ -970,5 +1093,16 @@ public class SummaryProfile {
 
     public void setAssignedWeightPerBackend(Map<Backend, Long> assignedWeightPerBackend) {
         this.assignedWeightPerBackend = assignedWeightPerBackend;
+    }
+
+    public static SummaryProfile getSummaryProfile(ConnectContext connectContext) {
+        ConnectContext ctx = connectContext == null ? ConnectContext.get() : connectContext;
+        if (ctx != null) {
+            StmtExecutor executor = ctx.getExecutor();
+            if (executor != null) {
+                return executor.getSummaryProfile();
+            }
+        }
+        return null;
     }
 }

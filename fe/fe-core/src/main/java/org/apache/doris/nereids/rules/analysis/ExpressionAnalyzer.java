@@ -36,6 +36,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
@@ -323,6 +324,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (currentPlan != null) {
             message += "' in " + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause";
         }
+        Optional<Origin> origin = unboundSlot.getOrigin();
+        if (origin.isPresent()) {
+            message += "(" + origin.get() + ")";
+        }
         throw new AnalysisException(message);
     }
 
@@ -330,11 +335,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundStar(UnboundStar unboundStar, ExpressionRewriteContext context) {
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
-        List<Slot> slots = getScope().getAsteriskSlots()
-                .stream()
-                .filter(slot -> !(slot instanceof SlotReference)
-                        || (((SlotReference) slot).isVisible()) || showHidden)
-                .collect(Collectors.toList());
+
+        List<Slot> scopeSlots = getScope().getAsteriskSlots();
+        ImmutableList.Builder<Slot> showSlots = ImmutableList.builderWithExpectedSize(scopeSlots.size());
+        for (Slot slot : scopeSlots) {
+            if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
+                showSlots.add(slot);
+            }
+        }
+        ImmutableList<Slot> slots = showSlots.build();
         switch (qualifier.size()) {
             case 0: // select *
                 return new BoundStar(slots);
@@ -545,7 +554,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
 
-            if (! child.equals(newChild)) {
+            if (!child.equals(newChild)) {
                 hasNewChild = true;
             }
             newChildren.add(newChild);
@@ -656,9 +665,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitWhenClause(WhenClause whenClause, ExpressionRewriteContext context) {
-        return whenClause.withChildren(TypeCoercionUtils.castIfNotSameType(
-                        whenClause.getOperand().accept(this, context), BooleanType.INSTANCE),
-                whenClause.getResult().accept(this, context));
+        Expression operand = whenClause.getOperand().accept(this, context);
+        Expression result = whenClause.getResult().accept(this, context);
+        return whenClause.withChildren(TypeCoercionUtils.castIfNotSameType(operand, BooleanType.INSTANCE), result);
     }
 
     @Override
@@ -711,6 +720,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitMatch(Match match, ExpressionRewriteContext context) {
         Expression left = match.left().accept(this, context);
         Expression right = match.right().accept(this, context);
+
         // check child type
         if (!left.getDataType().isStringLikeType()
                 && !(left.getDataType() instanceof ArrayType
@@ -739,6 +749,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
+
         // NOTICE: just for compatibility with legacy planner.
         if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {
             TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());

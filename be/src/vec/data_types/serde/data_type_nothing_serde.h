@@ -28,7 +28,7 @@
 
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
 
 namespace vectorized {
 class IColumn;
@@ -37,6 +37,8 @@ class Arena;
 class DataTypeNothingSerde : public DataTypeSerDe {
 public:
     DataTypeNothingSerde() = default;
+
+    std::string get_name() const override { return "Nothing"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {

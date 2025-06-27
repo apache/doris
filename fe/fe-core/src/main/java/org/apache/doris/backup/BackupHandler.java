@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AbstractBackupStmt;
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupType;
-import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.PartitionNames;
@@ -222,7 +221,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         RemoteFileSystem fileSystem;
-        fileSystem = FileSystemFactory.get(command.getStorageType(), command.getBrokerName(), command.getProperties());
+        fileSystem = FileSystemFactory.get(command.getStorageProperties());
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, command.getName(), command.isReadOnly(), command.getLocation(),
                 fileSystem);
@@ -247,7 +246,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         RemoteFileSystem fileSystem;
-        fileSystem = FileSystemFactory.get(stmt.getStorageType(), stmt.getBrokerName(), stmt.getProperties());
+        fileSystem = FileSystemFactory.get(stmt.getStorageProperties());
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
                 fileSystem);
@@ -1179,26 +1178,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
         LOG.info("finished to cancel {} job: {}", (command.isRestore() ? "restore" : "backup"), job);
     }
 
-    public void cancel(CancelBackupStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
-
-        AbstractJob job = getCurrentJob(db.getId());
-        if (job == null || (job instanceof BackupJob && stmt.isRestore())
-                || (job instanceof RestoreJob && !stmt.isRestore())) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "No "
-                    + (stmt.isRestore() ? "restore" : "backup" + " job")
-                    + " is currently running");
-        }
-
-        Status status = job.cancel();
-        if (!status.ok()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Failed to cancel job: " + status.getErrMsg());
-        }
-
-        LOG.info("finished to cancel {} job: {}", (stmt.isRestore() ? "restore" : "backup"), job);
-    }
-
     public boolean handleFinishedSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         AbstractJob job = getCurrentJob(task.getDbId());
         if (job == null) {
@@ -1362,12 +1341,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         return backupJob.getSnapshot();
-    }
-
-    public static BackupHandler read(DataInput in) throws IOException {
-        BackupHandler backupHandler = new BackupHandler();
-        backupHandler.readFields(in);
-        return backupHandler;
     }
 
     @Override

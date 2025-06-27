@@ -21,11 +21,10 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_writer.h"
 
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
 
 namespace vectorized {
 class IColumn;
@@ -34,6 +33,8 @@ class Arena;
 class DataTypeBitMapSerDe : public DataTypeSerDe {
 public:
     DataTypeBitMapSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+
+    std::string get_name() const override { return "BitMap"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;

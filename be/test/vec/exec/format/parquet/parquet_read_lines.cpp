@@ -150,7 +150,6 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    static_cast<void>(p_reader->open());
     static_cast<void>(p_reader->init_reader(column_names, missing_column_names, nullptr, {},
                                             nullptr, nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
@@ -290,7 +289,7 @@ TEST_F(ParquetReadLinesTest, test2) {
     std::vector<TPrimitiveType::type> types = {TPrimitiveType::DOUBLE, TPrimitiveType::INT,
                                                TPrimitiveType::FLOAT};
     std::list<int64_t> read_lines {1, 4, 9};
-    string block_dump =
+    std::string block_dump =
             "+----------------------------+----------------------+--------------------------+\n"
             "|double_col(Nullable(DOUBLE))|int_col(Nullable(INT))|float_col(Nullable(FLOAT))|\n"
             "+----------------------------+----------------------+--------------------------+\n"
