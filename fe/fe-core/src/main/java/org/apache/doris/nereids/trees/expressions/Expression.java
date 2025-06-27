@@ -183,12 +183,12 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     private void checkLimit() {
         if (depth > Config.expr_depth_limit) {
-            throw new DoNotFallbackException(String.format("Exceeded the maximum depth of an "
-                    + "expression tree (%s).", Config.expr_depth_limit));
+            throw new DoNotFallbackException(String.format("Expression %s with depth %s, Exceeded the maximum depth "
+                    + "of an expression tree (%s).", getClass().getSimpleName(), depth, Config.expr_depth_limit));
         }
         if (width > Config.expr_children_limit) {
-            throw new DoNotFallbackException(String.format("Exceeded the maximum children of an "
-                    + "expression tree (%s).", Config.expr_children_limit));
+            throw new DoNotFallbackException(String.format("Expression %s with width %s, Exceeded the maximum children "
+                    + "of an expression tree (%s).", getClass().getSimpleName(), width, Config.expr_children_limit));
         }
     }
 
