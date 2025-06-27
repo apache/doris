@@ -46,9 +46,9 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.log4j.Logger;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
