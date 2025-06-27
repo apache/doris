@@ -49,7 +49,9 @@ struct StatFunc {
 template <typename StatFunc>
 struct AggregateFunctionBinary
         : public IAggregateFunctionDataHelper<typename StatFunc::Data,
-                                              AggregateFunctionBinary<StatFunc>> {
+                                              AggregateFunctionBinary<StatFunc>>,
+          MultiExpression,
+          NullableAggregateFunction {
     static constexpr PrimitiveType ResultType = StatFunc::ResultPrimitiveType;
 
     using ColVecT1 = typename StatFunc::ColVecT1;
@@ -98,81 +100,6 @@ struct AggregateFunctionBinary
         dst.push_back(data.get());
     }
 };
-
-template <template <PrimitiveType> typename Moments, PrimitiveType FirstType, typename... TArgs>
-AggregateFunctionPtr create_with_two_basic_numeric_types_second(const DataTypePtr& second_type,
-                                                                TArgs&&... args) {
-    switch (second_type->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<FirstType, TYPE_BOOLEAN, Moments>>>(
-                std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<FirstType, TYPE_TINYINT, Moments>>>(
-                std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<FirstType, TYPE_SMALLINT, Moments>>>(
-                std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_INT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<FirstType, TYPE_INT, Moments>>>(
-                std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<FirstType, TYPE_BIGINT, Moments>>>(
-                std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<FirstType, TYPE_LARGEINT, Moments>>>(
-                std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<FirstType, TYPE_FLOAT, Moments>>>(
-                std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<FirstType, TYPE_DOUBLE, Moments>>>(
-                std::forward<TArgs>(args)...);
-    default:
-        return nullptr;
-    }
-}
-
-template <template <PrimitiveType> typename Moments, typename... TArgs>
-AggregateFunctionPtr create_with_two_basic_numeric_types(const DataTypePtr& first_type,
-                                                         const DataTypePtr& second_type,
-                                                         TArgs&&... args) {
-    switch (first_type->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        return create_with_two_basic_numeric_types_second<Moments, TYPE_BOOLEAN>(
-                second_type, std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_TINYINT:
-        return create_with_two_basic_numeric_types_second<Moments, TYPE_TINYINT>(
-                second_type, std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_SMALLINT:
-        return create_with_two_basic_numeric_types_second<Moments, TYPE_SMALLINT>(
-                second_type, std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_INT:
-        return create_with_two_basic_numeric_types_second<Moments, TYPE_INT>(
-                second_type, std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_BIGINT:
-        return create_with_two_basic_numeric_types_second<Moments, TYPE_BIGINT>(
-                second_type, std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_LARGEINT:
-        return create_with_two_basic_numeric_types_second<Moments, TYPE_LARGEINT>(
-                second_type, std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_FLOAT:
-        return create_with_two_basic_numeric_types_second<Moments, TYPE_FLOAT>(
-                second_type, std::forward<TArgs>(args)...);
-    case PrimitiveType::TYPE_DOUBLE:
-        return create_with_two_basic_numeric_types_second<Moments, TYPE_DOUBLE>(
-                second_type, std::forward<TArgs>(args)...);
-    default:
-        return nullptr;
-    }
-}
 
 } // namespace doris::vectorized
 

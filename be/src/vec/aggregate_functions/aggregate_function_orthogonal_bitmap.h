@@ -379,7 +379,9 @@ private:
 
 template <typename Impl>
 class AggFunctionOrthBitmapFunc final
-        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>> {
+        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     String get_name() const override { return Impl::name; }
 
