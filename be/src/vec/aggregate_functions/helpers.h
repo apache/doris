@@ -191,26 +191,24 @@ struct creator_with_type_base {
     template <typename Class, typename... TArgs>
     static AggregateFunctionPtr create_base(const DataTypes& argument_types,
                                             const bool result_is_nullable, TArgs&&... args) {
+        auto create = [&]<PrimitiveType T>() {
+            return creator_without_type::create<typename Class::template T<TYPE_BOOLEAN>>(
+                    argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+        };
         if constexpr (allow_integer) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_BOOLEAN:
-                return creator_without_type::create<typename Class::template T<TYPE_BOOLEAN>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_BOOLEAN>();
             case PrimitiveType::TYPE_TINYINT:
-                return creator_without_type::create<typename Class::template T<TYPE_TINYINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_TINYINT>();
             case PrimitiveType::TYPE_SMALLINT:
-                return creator_without_type::create<typename Class::template T<TYPE_SMALLINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_SMALLINT>();
             case PrimitiveType::TYPE_INT:
-                return creator_without_type::create<typename Class::template T<TYPE_INT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_INT>();
             case PrimitiveType::TYPE_BIGINT:
-                return creator_without_type::create<typename Class::template T<TYPE_BIGINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_BIGINT>();
             case PrimitiveType::TYPE_LARGEINT:
-                return creator_without_type::create<typename Class::template T<TYPE_LARGEINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_LARGEINT>();
             default:
                 break;
             }
@@ -218,11 +216,9 @@ struct creator_with_type_base {
         if constexpr (allow_float) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_FLOAT:
-                return creator_without_type::create<typename Class::template T<TYPE_FLOAT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_FLOAT>();
             case PrimitiveType::TYPE_DOUBLE:
-                return creator_without_type::create<typename Class::template T<TYPE_DOUBLE>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DOUBLE>();
             default:
                 break;
             }
@@ -230,20 +226,15 @@ struct creator_with_type_base {
         if constexpr (allow_decimal) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_DECIMAL32:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL32>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL32>();
             case PrimitiveType::TYPE_DECIMAL64:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL64>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL64>();
             case PrimitiveType::TYPE_DECIMALV2:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMALV2>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMALV2>();
             case PrimitiveType::TYPE_DECIMAL128I:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL128I>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL128I>();
             case PrimitiveType::TYPE_DECIMAL256:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL256>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL256>();
             default:
                 break;
             }
@@ -255,8 +246,7 @@ struct creator_with_type_base {
             case PrimitiveType::TYPE_VARCHAR:
             case PrimitiveType::TYPE_STRING:
             case PrimitiveType::TYPE_JSONB:
-                return creator_without_type::create<typename Class::template T<TYPE_STRING>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_VARCHAR>();
             default:
                 break;
             }
@@ -265,15 +255,13 @@ struct creator_with_type_base {
         if constexpr (allow_datelike) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_DATE:
+                return create.template operator()<PrimitiveType::TYPE_DATE>();
             case PrimitiveType::TYPE_DATETIME:
-                return creator_without_type::create<typename Class::template T<TYPE_DATETIME>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DATETIME>();
             case PrimitiveType::TYPE_DATEV2:
-                return creator_without_type::create<typename Class::template T<TYPE_DATEV2>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DATEV2>();
             case PrimitiveType::TYPE_DATETIMEV2:
-                return creator_without_type::create<typename Class::template T<TYPE_DATETIMEV2>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return create.template operator()<PrimitiveType::TYPE_DATETIMEV2>();
             default:
                 break;
             }
