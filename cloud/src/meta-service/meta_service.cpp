@@ -3342,6 +3342,13 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         get_delete_bitmap_update_lock_v1(controller, request, response, done, instance_id, code,
                                          msg, ss);
     }
+
+    if (request->lock_id() > 0 && code == MetaServiceCode::KV_TXN_CONFLICT) {
+        // For load, the only fdb txn conflict here is due to compaction(sc) job.
+        // We turn it into a lock conflict error to skip the MS RPC backoff becasue it's too long
+        // and totally let FE to control the retry backoff sleep time
+        code = MetaServiceCode::LOCK_CONFLICT;
+    }
 }
 
 void MetaServiceImpl::remove_delete_bitmap_update_lock(
