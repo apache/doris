@@ -230,12 +230,11 @@ static void export_fdb_status_details(const std::string& status_str) {
 }
 
 static void export_meta_ranges_details(TxnKv* kv) {
-    auto* txn_kv = static_cast<FdbTxnKv*>(kv);
+    auto* txn_kv = dynamic_cast<FdbTxnKv*>(kv);
     if (!txn_kv) {
         LOG(WARNING) << "this method only support fdb txn kv";
         return;
     }
-    txn_kv->init();
 
     std::vector<std::string> partition_boundaries;
     TxnErrorCode code = txn_kv->get_partition_boundaries(&partition_boundaries);
