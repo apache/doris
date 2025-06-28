@@ -141,7 +141,8 @@ enum TSchemaTableType {
     SCH_CATALOG_META_CACHE_STATISTICS = 52;
     // consistent with the master
     SCH_ROUTINE_LOAD_JOBS = 54,
-    SCH_BACKEND_CONFIGURATION=55;
+    SCH_BACKEND_CONFIGURATION=55,
+    SCH_BACKEND_TABLETS = 56;
 }
 
 enum THdfsCompression {
