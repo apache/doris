@@ -15,32 +15,42 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef _SCHEMA_SCANNER_HELPER_H_
+#pragma once
 
-#include <stdint.h>
-
-#include <string>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
-// this is a util class which can be used by all shema scanner
-// all common functions are added in this class.
+#include "common/status.h"
+#include "exec/schema_scanner.h"
+#include "olap/tablet.h"
+
 namespace doris {
+class RuntimeState;
 
 namespace vectorized {
 class Block;
 } // namespace vectorized
-class SchemaScannerHelper {
+
+class SchemaTabletsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaTabletsScanner)
+
 public:
-    static void insert_string_value(int col_index, std::string str_val, vectorized::Block* block);
-    static void insert_datetime_value(int col_index, int64_t timestamp, const std::string& ctz,
-                                      vectorized::Block* block);
+    SchemaTabletsScanner();
 
-    static void insert_bool_value(int col_index, bool bool_val, vectorized::Block* block);
+    ~SchemaTabletsScanner() override = default;
 
-    static void insert_int32_value(int col_index, int32_t int_val, vectorized::Block* block);
-    static void insert_int64_value(int col_index, int64_t int_val, vectorized::Block* block);
-    static void insert_double_value(int col_index, double double_val, vectorized::Block* block);
+    Status start(RuntimeState* state) override;
+
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+
+private:
+    Status _get_all_tablets();
+
+    Status _fill_block_impl(vectorized::Block* block);
+
+    int64_t _backend_id {};
+    std::vector<BaseTabletSPtr> _tablets;
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
-
 } // namespace doris
-#endif
