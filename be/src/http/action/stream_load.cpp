@@ -639,6 +639,25 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_partial_update(false);
         }
     }
+
+    if (!http_req->header(HTTP_PARTIAL_UPDATE_NEW_ROW_POLICY).empty()) {
+        static const std::map<std::string, TPartialUpdateNewRowPolicy::type> policy_map {
+                {"APPEND", TPartialUpdateNewRowPolicy::APPEND},
+                {"ERROR", TPartialUpdateNewRowPolicy::ERROR}};
+
+        auto policy_name = http_req->header(HTTP_PARTIAL_UPDATE_NEW_ROW_POLICY);
+        std::transform(policy_name.begin(), policy_name.end(), policy_name.begin(),
+                       [](unsigned char c) { return std::toupper(c); });
+        auto it = policy_map.find(policy_name);
+        if (it == policy_map.end()) {
+            return Status::InvalidArgument(
+                    "Invalid partial_update_new_key_behavior {}, must be one of {'APPEND', "
+                    "'ERROR'}",
+                    policy_name);
+        }
+        request.__set_partial_update_new_key_policy(it->second);
+    }
+
     if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
@@ -705,7 +724,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
         ctx->put_result.params.__set_content_length(content_length);
     }
-
     VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
     // if we not use streaming, we must download total content before we begin
     // to process this load
