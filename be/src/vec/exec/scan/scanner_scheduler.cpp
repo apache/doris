@@ -61,18 +61,10 @@ void ScannerScheduler::stop() {
 
     _is_closed = true;
 
-    _limited_scan_thread_pool->shutdown();
-    _limited_scan_thread_pool->wait();
-
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
-    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
-                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                            .build(&_limited_scan_thread_pool));
     _is_init = true;
     return Status::OK();
 }
@@ -148,11 +140,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     }
 
     return Status::OK();
-}
-
-std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
-        ThreadPool::ExecutionMode mode, int max_concurrency) {
-    return _limited_scan_thread_pool->new_token(mode, max_concurrency);
 }
 
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
