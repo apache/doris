@@ -231,7 +231,9 @@ public:
         auto create_null_map_column = [&](ColumnPtr& null_map_column,
                                           uint8_t* __restrict null_map_data) {
             if (null_map_data == nullptr) {
-                null_map_column = ColumnUInt8::create(size, 0);
+                if (null_map_column == nullptr) {
+                    null_map_column = ColumnUInt8::create(size, 0);
+                }
                 null_map_data = assert_cast<ColumnUInt8*>(null_map_column->assume_mutable().get())
                                         ->get_data()
                                         .data();
