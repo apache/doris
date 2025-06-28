@@ -39,6 +39,7 @@
 #include "vec/common/memcpy_small.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
+#include "vec/core/sort_block.h"
 #include "vec/data_types/data_type.h"
 
 class SipHash;
@@ -221,6 +222,12 @@ void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_
     } else {
         pdqsort(res.begin(), res.end(), less<true>(*this, nan_direction_hint));
     }
+}
+
+void ColumnArray::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                              IColumn::Permutation& perms, EqualRange& range,
+                              bool last_column) const {
+    sorter->sort_column(static_cast<const ColumnArray&>(*this), flags, perms, range, last_column);
 }
 
 int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {

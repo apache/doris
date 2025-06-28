@@ -168,6 +168,8 @@ public:
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
     void deserialize_vec(StringRef* keys, const size_t num_rows) override;
     size_t get_max_row_byte_size() const override;
     void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
