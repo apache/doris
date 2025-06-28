@@ -1024,8 +1024,8 @@ public:
     }
 
     bool operator==(const VecDateTimeValue& other) const {
-        int64_t ts1;
-        int64_t ts2;
+        int64_t ts1 = 0;
+        int64_t ts2 = 0;
         this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
         other.unix_timestamp(&ts2, TimezoneUtils::default_time_zone);
         return ts1 == ts2;
@@ -1040,8 +1040,8 @@ public:
     bool operator<=(const DateV2Value<T>& other) const { return !(*this > other); }
 
     bool operator<=(const VecDateTimeValue& other) const {
-        int64_t ts1;
-        int64_t ts2;
+        int64_t ts1 = 0;
+        int64_t ts2 = 0;
         this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
         other.unix_timestamp(&ts2, TimezoneUtils::default_time_zone);
         return ts1 <= ts2;
@@ -1050,8 +1050,8 @@ public:
     bool operator>=(const DateV2Value<T>& other) const { return !(*this < other); }
 
     bool operator>=(const VecDateTimeValue& other) const {
-        int64_t ts1;
-        int64_t ts2;
+        int64_t ts1 = 0;
+        int64_t ts2 = 0;
         this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
         other.unix_timestamp(&ts2, TimezoneUtils::default_time_zone);
         return ts1 >= ts2;
@@ -1062,8 +1062,8 @@ public:
     }
 
     bool operator<(const VecDateTimeValue& other) const {
-        int64_t ts1;
-        int64_t ts2;
+        int64_t ts1 = 0;
+        int64_t ts2 = 0;
         this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
         other.unix_timestamp(&ts2, TimezoneUtils::default_time_zone);
         return ts1 < ts2;
@@ -1074,8 +1074,8 @@ public:
     }
 
     bool operator>(const VecDateTimeValue& other) const {
-        int64_t ts1;
-        int64_t ts2;
+        int64_t ts1 = 0;
+        int64_t ts2 = 0;
         this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
         other.unix_timestamp(&ts2, TimezoneUtils::default_time_zone);
         return ts1 > ts2;
