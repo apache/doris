@@ -874,7 +874,9 @@ suite("test_date_function") {
     (4,'2023-01-01',366,12,100,'2023-01-01 00:00:00','2023-01-01'    );
 """
 
-    order_qt_sql """ SELECT 
+    order_qt_sql1 """ SELECT 
     DATE_ADD(invalid_col, INTERVAL '1+2' DAY)
     FROM date_add_test123; """
+
+    order_qt_sql2 """ SELECT invalid_col,     DATE_ADD(invalid_col, INTERVAL 1+2 DAY)     FROM date_add_test123 """
 }
