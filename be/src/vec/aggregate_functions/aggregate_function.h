@@ -629,7 +629,6 @@ struct UnaryExpression {};   // Can only have one parameter
 struct MultiExpression {};   // Must have multiple parameters (more than 1)
 struct VarargsExpression {}; // Uncertain number of parameters
 
-
 } // namespace doris::vectorized
 
 #include "common/compile_check_end.h"
