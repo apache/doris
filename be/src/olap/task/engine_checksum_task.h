@@ -22,6 +22,7 @@
 
 #include <memory>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/task/engine_task.h"
 
@@ -31,6 +32,8 @@ class StorageEngine;
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineChecksumTask final : public EngineTask {
+    ENABLE_FACTORY_CREATOR(EngineChecksumTask);
+
 public:
     Status execute() override;
 
