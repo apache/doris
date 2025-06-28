@@ -19,7 +19,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d1.d_week_seq = d2.d_week_seq)) otherCondition=()
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=()
+------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=()
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk)) otherCondition=((d3.d_date > days_add(d_date, INTERVAL 5 DAY)))
 ------------------------------------------PhysicalProject
