@@ -365,7 +365,7 @@ private:
         int new_limit = _limit;
         auto comparator = [&](const size_t a, const size_t b) {
             if constexpr (!std::is_same_v<ColumnType, ColumnString> &&
-                          !std::is_same_v<ColumnType, ColumnString64>&&
+                          !std::is_same_v<ColumnType, ColumnString64> &&
                           !std::is_same_v<ColumnType, ColumnArray>) {
                 auto value_a = column.get_data()[a];
                 auto value_b = column.get_data()[b];
