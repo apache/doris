@@ -748,7 +748,7 @@ public:
     JsonbDecimalVal() = delete;
 
     // get the decimal value
-    T val() const { return T(value); }
+    NativeType val() const { return value; }
 
     static constexpr int numPackedBytes() {
         return sizeof(JsonbValue) + sizeof(precision) + sizeof(scale) + sizeof(value);
