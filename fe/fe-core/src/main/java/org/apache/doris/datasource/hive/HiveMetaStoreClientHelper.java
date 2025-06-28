@@ -836,7 +836,6 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
-
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login
         AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf);
