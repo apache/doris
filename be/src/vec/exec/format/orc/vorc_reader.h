@@ -138,7 +138,6 @@ public:
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
             const std::vector<std::string>* column_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const std::vector<std::string>& missing_column_names,
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, bool is_acid,

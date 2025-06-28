@@ -370,6 +370,7 @@ Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_na
                                                 bool* exist_attribute) {
     RETURN_IF_ERROR(_create_file_reader());
     *exist_attribute = true;
+    auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(get_field_name_lower_case(&root_type, i));
 
