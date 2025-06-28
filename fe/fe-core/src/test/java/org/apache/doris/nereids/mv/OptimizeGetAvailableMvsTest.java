@@ -18,13 +18,16 @@
 package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
@@ -48,6 +51,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -127,6 +131,14 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
                         + "inner join T3 on T4.id = T3.id",
                 connectContext
         );
+        CatalogIf internal = getCatalog("internal");
+        Optional table = internal.getDbOrAnalysisException("test").getTable("mv1");
+        new MockUp<MTMVRelationManager>() {
+            @Mock
+            public Set<MTMV> getCandidateMTMVs(List<BaseTableInfo> baseTableInfos) {
+                return Sets.newHashSet((MTMV) table.get());
+            }
+        };
         PlanChecker.from(c1)
                 .analyze()
                 .rewrite()
@@ -238,6 +250,14 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
                         + "where T4.id > 0",
                 connectContext
         );
+        CatalogIf internal = getCatalog("internal");
+        Optional table = internal.getDbOrAnalysisException("test").getTable("mv2");
+        new MockUp<MTMVRelationManager>() {
+            @Mock
+            public Set<MTMV> getCandidateMTMVs(List<BaseTableInfo> baseTableInfos) {
+                return Sets.newHashSet((MTMV) table.get());
+            }
+        };
         PlanChecker.from(c1)
                 .analyze()
                 .rewrite()
