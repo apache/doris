@@ -519,7 +519,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 preExecutionAuthenticator.execute(() -> manageSnapshots.removeTag(tagName).commit());
             } catch (Exception e) {
                 throw new RuntimeException(
-                    "Failed to drop tag: " + tagName + " in table: " + icebergTable.name()
+                        "Failed to drop tag: " + tagName + " in table: " + icebergTable.name()
                         + ", error message is: " + e.getMessage(), e);
             }
         }
@@ -538,7 +538,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 preExecutionAuthenticator.execute(() -> manageSnapshots.removeBranch(branchName).commit());
             } catch (Exception e) {
                 throw new RuntimeException(
-                    "Failed to drop tag: " + branchName + " in table: " + icebergTable.name()
+                        "Failed to drop branch: " + branchName + " in table: " + icebergTable.name()
                         + ", error message is: " + e.getMessage(), e);
             }
         }
