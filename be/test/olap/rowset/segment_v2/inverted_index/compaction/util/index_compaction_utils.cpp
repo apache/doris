@@ -169,8 +169,9 @@ class IndexCompactionUtils {
                                 PrimitiveType::TYPE_INT, &param_value, query_param)
                                 .ok());
             auto result = std::make_shared<roaring::Roaring>();
+            OlapReaderStatistics stats;
             EXPECT_TRUE(idx_reader
-                                ->invoke_bkd_query(nullptr, query_param->get_value(),
+                                ->invoke_bkd_query(nullptr, &stats, query_param->get_value(),
                                                    InvertedIndexQueryType::EQUAL_QUERY,
                                                    *bkd_searcher, result)
                                 .ok());

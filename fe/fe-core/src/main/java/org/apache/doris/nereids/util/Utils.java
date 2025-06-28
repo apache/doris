@@ -59,6 +59,15 @@ import java.util.stream.Stream;
  * Utils for Nereids.
  */
 public class Utils {
+    public static final boolean enableAssert;
+
+    static {
+        boolean enabled = false;
+        // if run jvm with -ea or -enableassertions, the assert statement will be executed
+        assert enabled = true;
+        enableAssert = enabled;
+    }
+
     /**
      * Quoted string if it contains special character or all characters are digit.
      *

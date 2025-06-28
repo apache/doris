@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -138,8 +137,8 @@ class ConvertOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
                 .filter(Sets.newHashSet(
                         new IsNull(scan1.getOutput().get(0)),
-                        new And(new EqualTo(scan1.getOutput().get(0), new IntegerLiteral(1)),
-                                new EqualTo(scan1.getOutput().get(0), new IntegerLiteral(1))))
+                        new EqualTo(scan1.getOutput().get(0), new IntegerLiteral(1)),
+                        new EqualTo(scan1.getOutput().get(0), new IntegerLiteral(1)))
                 )
                 .project(ImmutableList.of(2, 3))
                 .build();
