@@ -211,6 +211,7 @@ void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_
 
 StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
                                                      char const*& begin) const {
+    LOG(WARNING) << "====1";
     const auto& arr = get_null_map_data();
     static constexpr auto s = sizeof(arr[0]);
 
@@ -251,6 +252,7 @@ size_t ColumnNullable::get_max_row_byte_size() const {
 
 void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows,
                                    size_t max_row_byte_size) const {
+    LOG(WARNING) << "====2";
     const auto& arr = get_null_map_data();
     get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
 }

@@ -179,11 +179,13 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
                 WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
                 if (windowExpression.getOrderKeys().stream().anyMatch((
-                        orderKey -> orderKey.getDataType().isOnlyMetricType()))) {
+                        orderKey -> orderKey.getDataType().isOnlyMetricType()
+                                && !orderKey.getDataType().isArrayType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
                 if (windowExpression.getPartitionKeys().stream().anyMatch((
-                        partitionKey -> partitionKey.getDataType().isOnlyMetricType()))) {
+                        partitionKey -> partitionKey.getDataType().isOnlyMetricType()
+                                && !partitionKey.getDataType().isArrayTypeNestedFixedLengthType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });

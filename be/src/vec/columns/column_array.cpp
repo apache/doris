@@ -254,12 +254,6 @@ size_t ColumnArray::get_max_row_byte_size() const {
     return sizeof(size_t) + max_size * data->get_max_row_byte_size();
 }
 
-StringRef ColumnArray::get_data_at(size_t n) const {
-    DCHECK(!data->is_variable_length());
-    return StringRef(remove_nullable(data->get_ptr())->get_raw_data().data + offset_at(n),
-                     size_at(n) * remove_nullable(data->get_ptr())->get_max_row_byte_size());
-}
-
 void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                               const UInt8* null_map) const {
     DCHECK(null_map != nullptr);
@@ -267,6 +261,12 @@ void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
 
     const bool has_null = simd::contain_byte(null_map, num_rows, 1);
 
+    const auto* nested_col = data->get_ptr().get();
+    if (data->is_nullable()) {
+        nested_col = assert_cast<const ColumnNullable*>(data->get_ptr().get())
+                             ->get_nested_column_ptr()
+                             .get();
+    }
     if (has_null) {
         for (size_t i = 0; i < num_rows; ++i) {
             char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
@@ -275,30 +275,30 @@ void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
             dest += sizeof(uint8_t);
             keys[i].size += sizeof(uint8_t);
             if (null_map[i] == 0) {
-                auto offset(offset_at(i));
-                size_t string_size(size_at(i) * data->get_ptr()->get_max_row_byte_size());
+                size_t array_size = size_at(i);
+                size_t offset = offset_at(i);
 
-                memcpy(dest, (char*)&string_size, sizeof(string_size));
-                dest += sizeof(string_size);
-                keys[i].size += sizeof(string_size);
-                auto null_sz = 0;
-                if (data->is_nullable()) {
-                    null_sz = size_at(i);
+                memcpy(dest, &array_size, sizeof(array_size));
+                dest += sizeof(array_size);
+                keys[i].size += sizeof(array_size);
+                for (size_t j = 0; j < array_size; ++j) {
+                    if (data->is_nullable()) {
+                        auto flag = assert_cast<const ColumnNullable*>(data->get_ptr().get())
+                                            ->get_null_map_data()[offset + j];
+                        memcpy(dest, &flag, sizeof(flag));
+                        dest += sizeof(flag);
+                        keys[i].size += sizeof(flag);
+                        if (flag) {
+                            continue;
+                        }
+                    }
                     memcpy(dest,
-                           assert_cast<const ColumnNullable*>(data->get_ptr().get())
-                                           ->get_null_map_column_ptr()
-                                           ->get_raw_data()
-                                           .data +
-                                   offset,
-                           null_sz);
+                           nested_col->get_raw_data().data +
+                                   (offset + j) * nested_col->get_max_row_byte_size(),
+                           nested_col->get_max_row_byte_size());
+                    dest += nested_col->get_max_row_byte_size();
+                    keys[i].size += nested_col->get_max_row_byte_size();
                 }
-                dest += null_sz;
-                keys[i].size += null_sz;
-                memcpy(dest,
-                       remove_nullable(data->get_ptr())->get_raw_data().data +
-                               offset * remove_nullable(data->get_ptr())->get_max_row_byte_size(),
-                       string_size - null_sz);
-                keys[i].size += string_size - null_sz;
             }
         }
     } else {
@@ -307,27 +307,33 @@ void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
             char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
             // serialize null first
             memcpy(dest, null_map + i, sizeof(uint8_t));
+            dest += sizeof(uint8_t);
+            keys[i].size += sizeof(uint8_t);
 
-            auto offset(offset_at(i));
-            size_t string_size(size_at(i) * data->get_ptr()->get_max_row_byte_size());
+            size_t array_size = size_at(i);
+            size_t offset = offset_at(i);
 
-            memcpy(dest + 1, (char*)&string_size, sizeof(string_size));
-            auto null_sz = 0;
-            if (data->is_nullable()) {
-                null_sz = size_at(i);
-                memcpy(dest + 1 + sizeof(string_size),
-                       assert_cast<const ColumnNullable*>(data->get_ptr().get())
-                                       ->get_null_map_column_ptr()
-                                       ->get_raw_data()
-                                       .data +
-                               offset,
-                       null_sz);
+            memcpy(dest, &array_size, sizeof(array_size));
+            dest += sizeof(array_size);
+            keys[i].size += sizeof(array_size);
+            for (size_t j = 0; j < array_size; ++j) {
+                if (data->is_nullable()) {
+                    auto flag = assert_cast<const ColumnNullable*>(data->get_ptr().get())
+                                        ->get_null_map_data()[offset + j];
+                    memcpy(dest, &flag, sizeof(flag));
+                    dest += sizeof(flag);
+                    keys[i].size += sizeof(flag);
+                    if (flag) {
+                        continue;
+                    }
+                }
+                memcpy(dest,
+                       nested_col->get_raw_data().data +
+                               (offset + j) * nested_col->get_max_row_byte_size(),
+                       nested_col->get_max_row_byte_size());
+                dest += nested_col->get_max_row_byte_size();
+                keys[i].size += nested_col->get_max_row_byte_size();
             }
-            memcpy(dest + 1 + sizeof(string_size) + null_sz,
-                   remove_nullable(data->get_ptr())->get_raw_data().data +
-                           offset * data->get_ptr()->get_max_row_byte_size(),
-                   string_size - null_sz);
-            keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
         }
     }
 }
@@ -335,59 +341,54 @@ void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
 void ColumnArray::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                                 const uint8_t* null_map) {
     DCHECK(!data->is_variable_length());
-    auto* nested_col = data->get_ptr().get();
-    if (data->is_nullable()) {
-        nested_col =
-                assert_cast<ColumnNullable*>(data->get_ptr().get())->get_nested_column_ptr().get();
-    }
+    auto item_sz = remove_nullable(get_data().get_ptr())->get_max_row_byte_size();
     for (size_t i = 0; i != num_rows; ++i) {
         const auto* original_ptr = keys[i].data;
+        const auto* pos = keys[i].data;
         if (null_map[i] == 0) {
-            const auto* pos = keys[i].data;
-            const size_t string_size = unaligned_load<size_t>(pos);
-            pos += sizeof(string_size);
-            DCHECK(string_size % data->get_max_row_byte_size() == 0);
-            auto num_items = string_size / data->get_max_row_byte_size();
-            if (data->is_nullable()) {
-                assert_cast<ColumnNullable*>(data->get_ptr().get())
-                        ->get_null_map_column_ptr()
-                        ->insert_many_fix_len_data(pos, num_items);
-                pos += num_items;
+            size_t array_size = unaligned_load<size_t>(pos);
+            pos += sizeof(size_t);
+            for (size_t j = 0; j < array_size; j++) {
+                auto null_flag = unaligned_load<uint8_t>(pos);
+                pos += sizeof(uint8_t);
+                if (null_flag) {
+                    DCHECK(data->is_nullable()) << data->get_name();
+                    get_data().insert_default();
+                } else {
+                    get_data().insert_data(pos, item_sz);
+                    pos += item_sz;
+                }
             }
-            nested_col->insert_many_fix_len_data(pos, num_items);
-            get_offsets().push_back(get_offsets().back() + num_items);
-            keys[i].data = keys[i].data + sizeof(string_size) + string_size;
+            get_offsets().push_back(get_offsets().back() + array_size);
+            keys[i].data = pos;
         } else {
             insert_default();
         }
-        keys[i].size -= keys[i].data - original_ptr;
+        keys[i].size -= (keys[i].data - original_ptr);
     }
 }
 
 void ColumnArray::deserialize_vec(StringRef* keys, const size_t num_rows) {
-    auto* nested_col = data->get_ptr().get();
-    if (data->is_nullable()) {
-        nested_col =
-                assert_cast<ColumnNullable*>(data->get_ptr().get())->get_nested_column_ptr().get();
-    }
+    auto item_sz = remove_nullable(get_data().get_ptr())->get_max_row_byte_size();
     for (size_t i = 0; i != num_rows; ++i) {
         const auto* original_ptr = keys[i].data;
         const auto* pos = keys[i].data;
-        const size_t string_size = unaligned_load<size_t>(pos);
-        pos += sizeof(string_size);
-        DCHECK(string_size % data->get_max_row_byte_size() == 0);
-        auto num_items = string_size / data->get_max_row_byte_size();
-        if (data->is_nullable()) {
-            assert_cast<ColumnNullable*>(data->get_ptr().get())
-                    ->get_null_map_column_ptr()
-                    ->insert_many_fix_len_data(pos, num_items);
-            pos += num_items;
+        size_t array_size = unaligned_load<size_t>(pos);
+        pos += sizeof(size_t);
+        for (size_t j = 0; j < array_size; j++) {
+            auto null_flag = unaligned_load<uint8_t>(pos);
+            pos += sizeof(uint8_t);
+            if (null_flag) {
+                DCHECK(data->is_nullable()) << data->get_name();
+                get_data().insert_default();
+            } else {
+                get_data().insert_data(pos, item_sz);
+                pos += item_sz;
+            }
         }
-        nested_col->insert_many_fix_len_data(pos, num_items);
-        get_offsets().push_back(get_offsets().back() + num_items);
-
-        keys[i].data = keys[i].data + sizeof(string_size) + string_size;
-        keys[i].size -= keys[i].data - original_ptr;
+        get_offsets().push_back(get_offsets().back() + array_size);
+        keys[i].data = pos;
+        keys[i].size -= (keys[i].data - original_ptr);
     }
 }
 
@@ -518,25 +519,6 @@ void ColumnArray::insert(const Field& x) {
             get_data().insert(array[i]);
         }
         get_offsets().push_back(get_offsets().back() + size);
-    }
-}
-
-void ColumnArray::insert_many_strings(const StringRef* strings, size_t num) {
-    DCHECK(!data->is_variable_length());
-    auto item_sz = remove_nullable(get_data().get_ptr())->get_max_row_byte_size();
-    for (size_t i = 0; i < num; i++) {
-        size_t item_num = 0;
-        if (strings[i].data == nullptr) {
-            DCHECK(data->is_nullable()) << data->get_name();
-            get_data().insert_data(nullptr, 0);
-        } else {
-            DCHECK(strings[i].size % item_sz == 0) << strings[i].size << " " << item_sz;
-            item_num = strings[i].size / item_sz;
-            for (size_t j = 0; j < item_num; j++) {
-                get_data().insert_data(strings[i].data + j * item_sz, item_sz);
-            }
-        }
-        get_offsets().push_back(get_offsets().back() + item_num);
     }
 }
 

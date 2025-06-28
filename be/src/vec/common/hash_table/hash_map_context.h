@@ -339,25 +339,9 @@ struct MethodStringNoCache : public MethodBase<TData> {
         if (nested_column.is_column_string64()) {
             const auto& column_string = assert_cast<const ColumnString64&>(nested_column);
             serialized_str(column_string, stored_keys);
-        } else if (nested_column.is_column_string()) {
+        } else {
             const auto& column_string = assert_cast<const ColumnString&>(nested_column);
             serialized_str(column_string, stored_keys);
-        } else if (nested_column.is_variable_length()) {
-            const auto& column_arr = assert_cast<const ColumnArray&>(nested_column);
-            const auto& offsets = column_arr.get_offsets();
-            const auto& data = remove_nullable(column_arr.get_data().get_ptr());
-            if (data->is_variable_length()) {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "only support group by Array(Fixed-length type) column");
-            }
-            stored_keys.resize(column_arr.size());
-            for (size_t row = 0; row < column_arr.size(); row++) {
-                size_t size = column_arr.size_at(row);
-                stored_keys[row] =
-                        StringRef(data->get_raw_data().data +
-                                          offsets[row - 1] * data->get_max_row_byte_size(),
-                                  size * data->get_max_row_byte_size());
-            }
         }
         Base::keys = stored_keys.data();
     }

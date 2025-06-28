@@ -96,6 +96,9 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
     if (data_types.empty()) {
         return HashKeyType::without_key;
     }
+    if (data_types[0]->get_primitive_type() == TYPE_ARRAY) {
+        return HashKeyType::serialized;
+    }
 
     auto t = remove_nullable(data_types[0]);
     // serialized cannot be used in the case of single column, because the join operator will have some processing of column nullable, resulting in incorrect serialized results.

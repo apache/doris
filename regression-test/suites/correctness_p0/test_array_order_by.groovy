@@ -29,7 +29,7 @@ suite("test_array_order_by") {
                    DUPLICATE KEY(typ_id)
                    DISTRIBUTED BY HASH(typ_id) BUCKETS 10
                    PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
-    sql """insert into test_array_order_by values(1,'name1',NULL), (1,'name2',[1,2,3,4,5]), (1,'name3',[-1,2,-2]), (1,'name4',[6]), (1,'name2',[1,2,3,4,5]), (1,'name2',[1,2,3]);"""
+    sql """insert into test_array_order_by values(1,'name1',NULL), (1,'name2',[1,2,3,4,5]), (1,'name3',[-1,2,-2]), (1,'name4',[6]), (1,'name2',[1,2,3,4,5]), (1,'name2',[1,2,3]), (1,'name2',[1,NULL,3]), (1,'name2',[1,0,3]);"""
     qt_select1 """ select * from test_array_order_by order by arr ASC;  """
     qt_select2 """ select * from test_array_order_by order by arr DESC;  """
     qt_select3 """ select * from test_array_order_by order by name,arr ASC;  """
