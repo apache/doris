@@ -30,7 +30,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
@@ -215,7 +214,7 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .getFsViewProcessor(hmsTable.getCatalog())
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
-        if (HudiUtils.getSchemaCacheValue(hmsTable).isEnableSchemaEvolution()) {
+        if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
             params.setHistorySchemaInfo(new ConcurrentHashMap<>());
         }
     }
@@ -268,9 +267,8 @@ public class HudiScanNode extends HiveScanNode {
             fileDesc.setColumnTypes(hudiSplit.getHudiColumnTypes());
             // TODO(gaoxin): support complex types
             // fileDesc.setNestedFields(hudiSplit.getNestedFields());
-            fileDesc.setHudiJniScanner(hudiSplit.getHudiJniScanner());
         } else {
-            HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable);
+            HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
             if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
                 long commitInstantTime = Long.parseLong(FSUtils.getCommitTime(
                         new File(hudiSplit.getPath().get()).getName()));
