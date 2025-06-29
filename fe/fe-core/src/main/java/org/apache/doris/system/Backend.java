@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
@@ -198,6 +199,10 @@ public class Backend implements Writable {
 
     public String getCloudClusterName() {
         return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_NAME, "");
+    }
+
+    public boolean isInStandbyCluster() {
+        return (((CloudSystemInfoService) Env.getCurrentSystemInfo()).isStandByComputeGroup(getCloudClusterName()));
     }
 
     public void setCloudClusterName(final String clusterName) {

@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -277,7 +278,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
-    _cluster_info = new ClusterInfo();
+    if (config::is_cloud_mode()) {
+        _cluster_info = new CloudClusterInfo();
+    } else {
+        _cluster_info = new ClusterInfo();
+    }
+
     _load_path_mgr = new LoadPathMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);

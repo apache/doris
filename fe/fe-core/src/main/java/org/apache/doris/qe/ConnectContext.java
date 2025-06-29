@@ -1339,6 +1339,10 @@ public class ConnectContext {
         for (String cloudClusterName : cloudClusterNames) {
             if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(getCurrentUserIdentity(),
                     cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                if (((CloudSystemInfoService) Env.getCurrentSystemInfo()).isStandByComputeGroup(cloudClusterName)) {
+                    continue;
+                }
+
                 hasAuthCluster.add(cloudClusterName);
                 // find a cluster has more than one alive be
                 List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
