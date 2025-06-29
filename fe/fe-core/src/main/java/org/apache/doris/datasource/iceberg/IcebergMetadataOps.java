@@ -604,3 +604,4 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
 }
+
