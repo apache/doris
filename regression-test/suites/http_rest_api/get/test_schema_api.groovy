@@ -44,7 +44,7 @@ suite("test_schema_api") {
 
     //exist table
     def url = String.format("http://%s/api/%s/%s/_schema", context.config.feHttpAddress, thisDb, tbName)
-    def result = Http.GET(url, true)
+    def result = Http.GET(url, true, true, context.config.feHttpUser, context.config.feHttpPassword)
     assertTrue(result.code == 0)
     assertEquals(result.msg, "success")
     // parsing
