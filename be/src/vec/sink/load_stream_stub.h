@@ -216,6 +216,26 @@ public:
         _failed_tablets[tablet_id] = reason;
     }
 
+    void update_bytes_written(size_t bytes) {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        _bytes_written += bytes;
+    }
+
+    int64_t bytes_written() {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        return _bytes_written;
+    }
+
+    void write_tablets(int64_t tablet_id) {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        _write_tablets.insert(tablet_id);
+    }
+
+    std::set<int64_t> write_tablets() {
+        std::lock_guard<bthread::Mutex> lock(_write_mutex);
+        return _write_tablets;
+    }
+
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
@@ -266,6 +286,10 @@ protected:
     std::unordered_map<int64_t, Status> _failed_tablets;
 
     bool _is_incremental = false;
+
+    bthread::Mutex _write_mutex;
+    std::set<int64_t> _write_tablets;
+    size_t _bytes_written = 0;
 };
 
 // a collection of LoadStreams connect to the same node
