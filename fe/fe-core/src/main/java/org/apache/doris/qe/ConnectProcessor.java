@@ -35,6 +35,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -53,6 +54,7 @@ import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.DoNotFallbackException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -280,6 +282,11 @@ public abstract class ConnectProcessor {
                     // Because ParseException means the sql is not supported by Nereids.
                     // It should be parsed by old parser, so not setting nereidsParseException to avoid
                     // suppressing the exception thrown by old parser.
+                } catch (DoNotFallbackException e) {
+                    LOG.warn("nereids parse met not fallback error, ", e);
+                    handleQueryException(new UserException(InternalErrorCode.INTERNAL_ERR, e.getMessage()),
+                            convertedStmt, null, null);
+                    return;
                 } catch (Exception e) {
                     // TODO: We should catch all exception here until we support all query syntax.
                     if (LOG.isDebugEnabled()) {
