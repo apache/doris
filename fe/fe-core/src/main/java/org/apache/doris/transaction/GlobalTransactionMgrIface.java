@@ -45,13 +45,15 @@ import java.util.Set;
 import java.util.concurrent.TimeoutException;
 
 public interface GlobalTransactionMgrIface extends Writable {
-    default void checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond,
+    default long checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond,
             int minLoadTimeOutSecond) throws AnalysisException {
-        if (timeoutSecond > maxLoadTimeoutSecond || timeoutSecond < minLoadTimeOutSecond) {
-            throw new AnalysisException("Invalid timeout: " + timeoutSecond + ". Timeout should between "
-                    + minLoadTimeOutSecond + " and " + maxLoadTimeoutSecond
-                    + " seconds");
+        if (timeoutSecond < minLoadTimeOutSecond) {
+            throw new AnalysisException("Invalid timeout: " + timeoutSecond + ". Timeout should be higher than "
+                    + minLoadTimeOutSecond);
+        } else if (timeoutSecond > maxLoadTimeoutSecond) {
+            return maxLoadTimeoutSecond;
         }
+        return timeoutSecond;
     }
 
     public void setEditLog(EditLog editLog);
