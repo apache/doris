@@ -125,7 +125,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 if (childDataType.isBigIntType() && !targetType.isLargeIntType() && !targetType.isBigIntType()) {
                     return true;
                 }
-                if (childDataType.isIntegerType() && (targetType.isSmallIntType() && targetType.isTinyIntType())) {
+                if (childDataType.isIntegerType() && (targetType.isSmallIntType() || targetType.isTinyIntType())) {
                     return true;
                 }
                 return childDataType.isSmallIntType() && targetType.isTinyIntType();
@@ -144,7 +144,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 } else if (childDataType.isBigIntType() && range < 19) {
                     return true;
                 } else {
-                    return range < 39;
+                    return childDataType.isLargeIntType() && range < 39;
                 }
             }
         } else if (childDataType.isFloatType() || childDataType.isDoubleType()) {
