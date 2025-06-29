@@ -36,90 +36,117 @@ AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
         const AggregateFunctionAttr& attr) {
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BOOLEAN>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BOOLEAN>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_TINYINT>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_TINYINT>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_SMALLINT>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_SMALLINT>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_INT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_INT>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_INT>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BIGINT>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BIGINT>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_LARGEINT>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_LARGEINT>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_FLOAT>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_FLOAT>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DOUBLE>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DOUBLE>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL32:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL32>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL32>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL64:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL64>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL64>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL128I:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL128I>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL128I>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMALV2:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMALV2>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMALV2>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL256:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL256>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL256>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_STRING:
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_JSONB:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRING>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRING>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATE:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATE>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATE>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIME:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATETIME>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATETIME>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATEV2:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATEV2>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATEV2>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIMEV2:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATETIMEV2>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATETIMEV2>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_IPV4:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV4>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV4>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_IPV6:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV6>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV6>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_ARRAY:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_ARRAY>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_ARRAY>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_MAP:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_MAP>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_MAP>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_STRUCT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRUCT>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRUCT>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_VARIANT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_VARIANT>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_VARIANT>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_BITMAP:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BITMAP>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BITMAP>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_HLL:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_HLL>>(
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_HLL>,
+                                            ArgReturnJudge::UnaryArgumentsResultNotNullable>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_QUANTILE_STATE:
         return creator_without_type::create<
-                AggregateFunctionApproxCountDistinct<TYPE_QUANTILE_STATE>>(argument_types,
-                                                                           result_is_nullable);
+                AggregateFunctionApproxCountDistinct<TYPE_QUANTILE_STATE>,
+                ArgReturnJudge::UnaryArgumentsResultNotNullable>(argument_types,
+                                                                 result_is_nullable);
     default:
         return nullptr;
     }

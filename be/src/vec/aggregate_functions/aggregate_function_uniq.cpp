@@ -38,7 +38,8 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 1) {
-        AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionUniq, Data>(
+        AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionUniq, Data,
+                                                                   ArgReturnJudge::UnaryArguments>(
                 argument_types, result_is_nullable));
         if (res) {
             return res;
@@ -46,30 +47,30 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
             switch (argument_types[0]->get_primitive_type()) {
             case TYPE_DECIMAL32:
                 return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMAL32, Data<TYPE_DECIMAL32>>>(
-                        argument_types, result_is_nullable);
+                        AggregateFunctionUniq<TYPE_DECIMAL32, Data<TYPE_DECIMAL32>>,
+                        ArgReturnJudge::UnaryArguments>(argument_types, result_is_nullable);
             case TYPE_DECIMAL64:
                 return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMAL64, Data<TYPE_DECIMAL64>>>(
-                        argument_types, result_is_nullable);
+                        AggregateFunctionUniq<TYPE_DECIMAL64, Data<TYPE_DECIMAL64>>,
+                        ArgReturnJudge::UnaryArguments>(argument_types, result_is_nullable);
             case TYPE_DECIMAL128I:
                 return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMAL128I, Data<TYPE_DECIMAL128I>>>(
-                        argument_types, result_is_nullable);
+                        AggregateFunctionUniq<TYPE_DECIMAL128I, Data<TYPE_DECIMAL128I>>,
+                        ArgReturnJudge::UnaryArguments>(argument_types, result_is_nullable);
             case TYPE_DECIMAL256:
                 return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMAL256, Data<TYPE_DECIMAL256>>>(
-                        argument_types, result_is_nullable);
+                        AggregateFunctionUniq<TYPE_DECIMAL256, Data<TYPE_DECIMAL256>>,
+                        ArgReturnJudge::UnaryArguments>(argument_types, result_is_nullable);
             case TYPE_DECIMALV2:
                 return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMALV2, Data<TYPE_DECIMALV2>>>(
-                        argument_types, result_is_nullable);
+                        AggregateFunctionUniq<TYPE_DECIMALV2, Data<TYPE_DECIMALV2>>,
+                        ArgReturnJudge::UnaryArguments>(argument_types, result_is_nullable);
             case TYPE_STRING:
             case TYPE_CHAR:
             case TYPE_VARCHAR:
                 return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_STRING, Data<TYPE_STRING>>>(argument_types,
-                                                                               result_is_nullable);
+                        AggregateFunctionUniq<TYPE_STRING, Data<TYPE_STRING>>,
+                        ArgReturnJudge::UnaryArguments>(argument_types, result_is_nullable);
             default:
                 break;
             }

@@ -52,11 +52,12 @@ void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
                                            const bool result_is_nullable,
                                            const AggregateFunctionAttr& attr) {
         if (attr.enable_decimal256) {
-            return creator_with_type::creator<AggregateFuncAvgDecimal256>(name, types,
-                                                                          result_is_nullable, attr);
+            return creator_with_type::creator<AggregateFuncAvgDecimal256,
+                                              ArgReturnJudge::UnaryArguments>(
+                    name, types, result_is_nullable, attr);
         } else {
-            return creator_with_type::creator<AggregateFuncAvg>(name, types, result_is_nullable,
-                                                                attr);
+            return creator_with_type::creator<AggregateFuncAvg, ArgReturnJudge::UnaryArguments>(
+                    name, types, result_is_nullable, attr);
         }
     };
     factory.register_function_both("avg", creator);

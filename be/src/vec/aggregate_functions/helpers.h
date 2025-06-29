@@ -78,43 +78,80 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+enum class ArgReturnJudge {
+    RuntimeJudge =
+            0, // The number of arguments and whether the return value is nullable are judged at runtime
+    UnaryArguments =
+            1, // Single argument (determined at compile time), nullable return value is judged at runtime
+    MultiArguments =
+            2, // Multiple arguments (determined at compile time), nullable return value is judged at runtime
+    UnaryArgumentsResultNotNullable =
+            3, // Single argument with non-nullable return value (both determined at compile time)
+    MultiArgumentsResultNotNullable =
+            4, // Multiple arguments with non-nullable return value (both determined at compile time)
+};
+
 struct creator_without_type {
     template <bool multi_arguments, bool f, typename T>
     using NullableT = std::conditional_t<multi_arguments, AggregateFunctionNullVariadicInline<T, f>,
                                          AggregateFunctionNullUnaryInline<T, f>>;
 
-    template <typename AggregateFunctionTemplate>
+    template <typename AggregateFunctionTemplate,
+              ArgReturnJudge jude = ArgReturnJudge::RuntimeJudge>
     static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
                                         const bool result_is_nullable,
                                         const AggregateFunctionAttr& attr) {
         CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
-        return create<AggregateFunctionTemplate>(argument_types, result_is_nullable);
+        return create<AggregateFunctionTemplate, jude>(argument_types, result_is_nullable);
     }
 
-    template <typename AggregateFunctionTemplate, typename... TArgs>
+    template <typename AggregateFunctionTemplate,
+              ArgReturnJudge jude = ArgReturnJudge::RuntimeJudge, typename... TArgs>
     static AggregateFunctionPtr create(const DataTypes& argument_types_,
                                        const bool result_is_nullable, TArgs&&... args) {
-        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
-                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
-        if (have_nullable(argument_types_)) {
-            std::visit(
-                    [&](auto multi_arguments, auto result_is_nullable) {
-                        result.reset(new NullableT<multi_arguments, result_is_nullable,
-                                                   AggregateFunctionTemplate>(result.release(),
-                                                                              argument_types_));
-                    },
-                    make_bool_variant(argument_types_.size() > 1),
-                    make_bool_variant(result_is_nullable));
-        }
+        if constexpr (jude == ArgReturnJudge::RuntimeJudge) {
+            std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                    std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+            if (have_nullable(argument_types_)) {
+                std::visit(
+                        [&](auto multi_arguments, auto result_is_nullable) {
+                            result.reset(new NullableT<multi_arguments, result_is_nullable,
+                                                       AggregateFunctionTemplate>(result.release(),
+                                                                                  argument_types_));
+                        },
+                        make_bool_variant(argument_types_.size() > 1),
+                        make_bool_variant(result_is_nullable));
+            }
 
-        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
-        return AggregateFunctionPtr(result.release());
+            CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+            return AggregateFunctionPtr(result.release());
+        } else if constexpr (jude == ArgReturnJudge::UnaryArguments) {
+            return create_unary_arguments<AggregateFunctionTemplate>(
+                    argument_types_, result_is_nullable, std::forward<TArgs>(args)...);
+        } else if constexpr (jude == ArgReturnJudge::MultiArguments) {
+            return create_multi_arguments<AggregateFunctionTemplate>(
+                    argument_types_, result_is_nullable, std::forward<TArgs>(args)...);
+        } else if constexpr (jude == ArgReturnJudge::UnaryArgumentsResultNotNullable) {
+            return create_unary_arguments_return_not_nullable<AggregateFunctionTemplate>(
+                    argument_types_, result_is_nullable, std::forward<TArgs>(args)...);
+        } else if constexpr (jude == ArgReturnJudge::MultiArgumentsResultNotNullable) {
+            return create_multi_arguments_return_not_nullable<AggregateFunctionTemplate>(
+                    argument_types_, result_is_nullable, std::forward<TArgs>(args)...);
+        } else {
+            throw doris::Exception(Status::InternalError("Unsupported ArgReturnJudge type: {}",
+                                                         static_cast<int>(jude)));
+            return nullptr; // Unsupported type
+        }
     }
 
     template <typename AggregateFunctionTemplate, typename... TArgs>
     static AggregateFunctionPtr create_multi_arguments(const DataTypes& argument_types_,
                                                        const bool result_is_nullable,
                                                        TArgs&&... args) {
+        if (!(argument_types_.size() > 1)) {
+            throw doris::Exception(Status::InternalError(
+                    "create_multi_arguments: argument_types_ size must be > 1"));
+        }
         std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
                 std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
         if (have_nullable(argument_types_)) {
@@ -131,9 +168,36 @@ struct creator_without_type {
     }
 
     template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_multi_arguments_return_not_nullable(
+            const DataTypes& argument_types_, const bool result_is_nullable, TArgs&&... args) {
+        if (!(argument_types_.size() > 1)) {
+            throw doris::Exception(
+                    Status::InternalError("create_multi_arguments_return_not_nullable: "
+                                          "argument_types_ size must be > 1"));
+        }
+        if (result_is_nullable) {
+            throw doris::Exception(
+                    Status::InternalError("create_multi_arguments_return_not_nullable: "
+                                          "result_is_nullable must be false"));
+        }
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            result.reset(new NullableT<true, false, AggregateFunctionTemplate>(result.release(),
+                                                                               argument_types_));
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
+    template <typename AggregateFunctionTemplate, typename... TArgs>
     static AggregateFunctionPtr create_unary_arguments(const DataTypes& argument_types_,
                                                        const bool result_is_nullable,
                                                        TArgs&&... args) {
+        if (!(argument_types_.size() == 1)) {
+            throw doris::Exception(Status::InternalError(
+                    "create_unary_arguments: argument_types_ size must be 1"));
+        }
         std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
                 std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
         if (have_nullable(argument_types_)) {
@@ -144,6 +208,28 @@ struct creator_without_type {
                 result.reset(new NullableT<false, false, AggregateFunctionTemplate>(
                         result.release(), argument_types_));
             }
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_unary_arguments_return_not_nullable(
+            const DataTypes& argument_types_, const bool result_is_nullable, TArgs&&... args) {
+        if (!(argument_types_.size() == 1)) {
+            throw doris::Exception(Status::InternalError(
+                    "create_unary_arguments_return_not_nullable: argument_types_ size must be 1"));
+        }
+        if (result_is_nullable) {
+            throw doris::Exception(
+                    Status::InternalError("create_unary_arguments_return_not_nullable: "
+                                          "result_is_nullable must be false"));
+        }
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            result.reset(new NullableT<false, false, AggregateFunctionTemplate>(result.release(),
+                                                                                argument_types_));
         }
         CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return AggregateFunctionPtr(result.release());
@@ -187,29 +273,31 @@ struct CurryDirectAndData {
 
 template <bool allow_integer, bool allow_float, bool allow_decimal, int define_index = 0>
 struct creator_with_type_base {
-    template <typename Class, typename... TArgs>
+    template <typename Class, ArgReturnJudge jude = ArgReturnJudge::RuntimeJudge, typename... TArgs>
     static AggregateFunctionPtr create_base(const DataTypes& argument_types,
                                             const bool result_is_nullable, TArgs&&... args) {
         if constexpr (allow_integer) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_BOOLEAN:
-                return creator_without_type::create<typename Class::template T<TYPE_BOOLEAN>>(
+                return creator_without_type::create<typename Class::template T<TYPE_BOOLEAN>, jude>(
                         argument_types, result_is_nullable, std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_TINYINT:
-                return creator_without_type::create<typename Class::template T<TYPE_TINYINT>>(
+                return creator_without_type::create<typename Class::template T<TYPE_TINYINT>, jude>(
                         argument_types, result_is_nullable, std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_SMALLINT:
-                return creator_without_type::create<typename Class::template T<TYPE_SMALLINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return creator_without_type::create<typename Class::template T<TYPE_SMALLINT>,
+                                                    jude>(argument_types, result_is_nullable,
+                                                          std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_INT:
-                return creator_without_type::create<typename Class::template T<TYPE_INT>>(
+                return creator_without_type::create<typename Class::template T<TYPE_INT>, jude>(
                         argument_types, result_is_nullable, std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_BIGINT:
-                return creator_without_type::create<typename Class::template T<TYPE_BIGINT>>(
+                return creator_without_type::create<typename Class::template T<TYPE_BIGINT>, jude>(
                         argument_types, result_is_nullable, std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_LARGEINT:
-                return creator_without_type::create<typename Class::template T<TYPE_LARGEINT>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return creator_without_type::create<typename Class::template T<TYPE_LARGEINT>,
+                                                    jude>(argument_types, result_is_nullable,
+                                                          std::forward<TArgs>(args)...);
             default:
                 break;
             }
@@ -217,10 +305,10 @@ struct creator_with_type_base {
         if constexpr (allow_float) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_FLOAT:
-                return creator_without_type::create<typename Class::template T<TYPE_FLOAT>>(
+                return creator_without_type::create<typename Class::template T<TYPE_FLOAT>, jude>(
                         argument_types, result_is_nullable, std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_DOUBLE:
-                return creator_without_type::create<typename Class::template T<TYPE_DOUBLE>>(
+                return creator_without_type::create<typename Class::template T<TYPE_DOUBLE>, jude>(
                         argument_types, result_is_nullable, std::forward<TArgs>(args)...);
             default:
                 break;
@@ -229,20 +317,25 @@ struct creator_with_type_base {
         if constexpr (allow_decimal) {
             switch (argument_types[define_index]->get_primitive_type()) {
             case PrimitiveType::TYPE_DECIMAL32:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL32>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL32>,
+                                                    jude>(argument_types, result_is_nullable,
+                                                          std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_DECIMAL64:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL64>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL64>,
+                                                    jude>(argument_types, result_is_nullable,
+                                                          std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_DECIMALV2:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMALV2>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return creator_without_type::create<typename Class::template T<TYPE_DECIMALV2>,
+                                                    jude>(argument_types, result_is_nullable,
+                                                          std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_DECIMAL128I:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL128I>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL128I>,
+                                                    jude>(argument_types, result_is_nullable,
+                                                          std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_DECIMAL256:
-                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL256>>(
-                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+                return creator_without_type::create<typename Class::template T<TYPE_DECIMAL256>,
+                                                    jude>(argument_types, result_is_nullable,
+                                                          std::forward<TArgs>(args)...);
             default:
                 break;
             }
@@ -250,33 +343,39 @@ struct creator_with_type_base {
         return nullptr;
     }
 
-    template <template <PrimitiveType> class AggregateFunctionTemplate>
+    template <template <PrimitiveType> class AggregateFunctionTemplate,
+              ArgReturnJudge jude = ArgReturnJudge::RuntimeJudge>
     static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
                                         const bool result_is_nullable,
                                         const AggregateFunctionAttr& attr) {
-        return create_base<CurryDirect<AggregateFunctionTemplate>>(argument_types,
-                                                                   result_is_nullable);
+        return create_base<CurryDirect<AggregateFunctionTemplate>, jude>(argument_types,
+                                                                         result_is_nullable);
     }
 
-    template <template <PrimitiveType> class AggregateFunctionTemplate, typename... TArgs>
+    template <template <PrimitiveType> class AggregateFunctionTemplate,
+              ArgReturnJudge jude = ArgReturnJudge::RuntimeJudge, typename... TArgs>
     static AggregateFunctionPtr create(TArgs&&... args) {
-        return create_base<CurryDirect<AggregateFunctionTemplate>>(std::forward<TArgs>(args)...);
-    }
-
-    template <template <typename> class AggregateFunctionTemplate,
-              template <PrimitiveType> class Data>
-    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
-                                        const bool result_is_nullable,
-                                        const AggregateFunctionAttr& attr) {
-        return create_base<CurryData<AggregateFunctionTemplate, Data>>(argument_types,
-                                                                       result_is_nullable);
-    }
-
-    template <template <typename> class AggregateFunctionTemplate,
-              template <PrimitiveType> class Data, typename... TArgs>
-    static AggregateFunctionPtr create(TArgs&&... args) {
-        return create_base<CurryData<AggregateFunctionTemplate, Data>>(
+        return create_base<CurryDirect<AggregateFunctionTemplate>, jude>(
                 std::forward<TArgs>(args)...);
+    }
+
+    template <template <typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data,
+              ArgReturnJudge jude = ArgReturnJudge::RuntimeJudge>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable,
+                                        const AggregateFunctionAttr& attr) {
+        return create_base<CurryData<AggregateFunctionTemplate, Data>, jude>(argument_types,
+                                                                             result_is_nullable);
+    }
+
+    template <template <typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data,
+              ArgReturnJudge jude = ArgReturnJudge::RuntimeJudge, typename... TArgs>
+    static AggregateFunctionPtr create(const DataTypes& argument_types,
+                                       const bool result_is_nullable) {
+        return create_base<CurryData<AggregateFunctionTemplate, Data>, jude>(argument_types,
+                                                                             result_is_nullable);
     }
 
     template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
@@ -296,19 +395,22 @@ struct creator_with_type_base {
     }
 
     template <template <PrimitiveType, typename> class AggregateFunctionTemplate,
-              template <PrimitiveType> class Data>
+              template <PrimitiveType> class Data,
+              ArgReturnJudge jude = ArgReturnJudge::RuntimeJudge>
     static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
                                         const bool result_is_nullable,
                                         const AggregateFunctionAttr& attr) {
-        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(argument_types,
-                                                                                result_is_nullable);
+        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>, jude>(
+                argument_types, result_is_nullable);
     }
 
     template <template <PrimitiveType, typename> class AggregateFunctionTemplate,
-              template <PrimitiveType> class Data, typename... TArgs>
-    static AggregateFunctionPtr create(TArgs&&... args) {
-        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(
-                std::forward<TArgs>(args)...);
+              template <PrimitiveType> class Data,
+              ArgReturnJudge jude = ArgReturnJudge::RuntimeJudge, typename... TArgs>
+    static AggregateFunctionPtr create(const DataTypes& argument_types,
+                                       const bool result_is_nullable) {
+        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>, jude>(
+                argument_types, result_is_nullable);
     }
 };
 

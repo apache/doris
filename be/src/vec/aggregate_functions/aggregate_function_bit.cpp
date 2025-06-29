@@ -29,13 +29,16 @@ namespace doris::vectorized {
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both(
             "group_bit_or", creator_with_integer_type::creator<AggregateFunctionBitwise,
-                                                               AggregateFunctionGroupBitOrData>);
+                                                               AggregateFunctionGroupBitOrData,
+                                                               ArgReturnJudge::UnaryArguments>);
     factory.register_function_both(
             "group_bit_and", creator_with_integer_type::creator<AggregateFunctionBitwise,
-                                                                AggregateFunctionGroupBitAndData>);
+                                                                AggregateFunctionGroupBitAndData,
+                                                                ArgReturnJudge::UnaryArguments>);
     factory.register_function_both(
             "group_bit_xor", creator_with_integer_type::creator<AggregateFunctionBitwise,
-                                                                AggregateFunctionGroupBitXorData>);
+                                                                AggregateFunctionGroupBitXorData,
+                                                                ArgReturnJudge::UnaryArguments>);
 }
 
 } // namespace doris::vectorized
