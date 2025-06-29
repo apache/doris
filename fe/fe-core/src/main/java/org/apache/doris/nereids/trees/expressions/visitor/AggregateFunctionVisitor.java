@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ContextNgrams;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -141,6 +142,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitCollectSet(CollectSet collectSet, C context) {
         return visitAggregateFunction(collectSet, context);
+    }
+
+    default R visitContextNgrams(ContextNgrams contextNgrams, C context) {
+        return visitNullableAggregateFunction(contextNgrams, context);
     }
 
     default R visitCorr(Corr corr, C context) {
