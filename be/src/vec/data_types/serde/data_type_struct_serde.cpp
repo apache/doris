@@ -335,6 +335,35 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
     return Status::OK();
 }
 
+Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                      JsonbWriter& writer) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(from_column);
+
+    if (!writer.writeStartObject()) {
+        return Status::InternalError("writeStartObject failed");
+    }
+
+    for (size_t i = 0; i < elem_serdes_ptrs.size(); ++i) {
+        // check key
+        if (elem_names[i].size() > std::numeric_limits<uint8_t>::max()) {
+            return Status::InternalError("key size exceeds max limit {} ", elem_names[i]);
+        }
+        // write key
+        if (!writer.writeKey(elem_names[i].data(), (uint8_t)elem_names[i].size())) {
+            return Status::InternalError("writeKey failed : {}", elem_names[i]);
+        }
+        // write value
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->serialize_column_to_jsonb(struct_column.get_column(i),
+                                                                       row_num, writer));
+    }
+
+    if (!writer.writeEndObject()) {
+        return Status::InternalError("writeEndObject failed");
+    }
+
+    return Status::OK();
+}
+
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
