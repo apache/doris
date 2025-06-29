@@ -22,6 +22,7 @@
 #include "vec/common/allocator.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /// `Allocator_` implements several interfaces of `std::allocator`
 /// which `phmap::flat_hash_map` will use.
@@ -51,4 +52,5 @@ template <typename K, typename Hash = phmap::Hash<K>, typename Eq = phmap::Equal
           typename Alloc = Allocator_<K>>
 using flat_hash_set = phmap::flat_hash_set<K, Hash, Eq, Alloc>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

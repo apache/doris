@@ -27,6 +27,7 @@
 #include "vec/common/allocator_fwd.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 inline constexpr size_t integerRoundUp(size_t value, size_t dividend) {
     return ((value + dividend - 1) / dividend) * dividend;
@@ -56,4 +57,5 @@ using PODArrayWithStackMemory = PODArray<
         AllocatorWithStackMemory<Allocator<false, false, false, NoTrackingDefaultMemoryAllocator>,
                                  rounded_bytes, alignof(T)>>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
