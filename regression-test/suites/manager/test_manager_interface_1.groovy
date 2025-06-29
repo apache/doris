@@ -493,7 +493,7 @@ suite('test_manager_interface_1',"p0") {
         futures.add( thread {
             
             try{
-                sql """ select sleep(4.7676); """
+                sql """ select sleep(7.7676); """
             }catch(Exception e){
             }
         })
@@ -513,7 +513,7 @@ suite('test_manager_interface_1',"p0") {
             for( int i =0 ;i < result.size();i++ ){
                 assertTrue(result[i]["QUERY_ID"] != null ) // QueryId
 
-                if ( result[i]["SQL"].contains("sleep(4.7676)")  ){
+                if ( result[i]["SQL"].contains("sleep(7.7676)")  ){
                     x = 1 
                     queryId = result[i]["QUERY_ID"]
                     logger.info("result = ${queryId}}")
