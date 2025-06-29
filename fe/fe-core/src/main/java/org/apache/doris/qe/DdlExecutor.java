@@ -46,7 +46,6 @@ import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateIndexPolicyStmt;
 import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
@@ -209,8 +208,6 @@ public class DdlExecutor {
             env.backup((BackupStmt) ddlStmt);
         } else if (ddlStmt instanceof RestoreStmt) {
             env.restore((RestoreStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateRepositoryStmt) {
-            env.getBackupHandler().createRepository((CreateRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRepositoryStmt) {
             env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
@@ -385,7 +382,6 @@ public class DdlExecutor {
 
         if (ddlStmt instanceof BackupStmt
                 || ddlStmt instanceof RestoreStmt
-                || ddlStmt instanceof CreateRepositoryStmt
                 || ddlStmt instanceof DropRepositoryStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
             throw new DdlException("Unsupported operation");
