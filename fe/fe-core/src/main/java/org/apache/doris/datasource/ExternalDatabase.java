@@ -182,7 +182,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 } else {
                     if (!Env.getCurrentEnv().isMaster()) {
                         // Forward to master and wait the journal to replay.
-                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
+                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
                         MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
                         try {
                             remoteExecutor.forward(extCatalog.getId(), id);
