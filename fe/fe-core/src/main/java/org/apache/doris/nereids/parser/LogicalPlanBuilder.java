@@ -871,6 +871,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DictionaryColumnDefini
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.DropAllBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
@@ -881,6 +882,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFromIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
@@ -8530,4 +8532,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             .toMillis(Long.parseLong(ctx.timeValue.getText()));
     }
 
+    @Override
+    public AlterTableOp visitDropTagClauses(DorisParser.DropTagClausesContext ctx) {
+        return visitDropTagClause(ctx.dropTagClause());
+    }
+
+    @Override
+    public AlterTableOp visitDropTagClause(DorisParser.DropTagClauseContext ctx) {
+        return new DropTagOp(ctx.name.getText(), ctx.EXISTS() != null);
+    }
+
+    @Override
+    public AlterTableOp visitDropBranchClauses(DorisParser.DropBranchClausesContext ctx) {
+        return visitDropBranchClause(ctx.dropBranchClause());
+    }
+
+    @Override
+    public AlterTableOp visitDropBranchClause(DorisParser.DropBranchClauseContext ctx) {
+        return new DropBranchOp(ctx.name.getText(), ctx.EXISTS() != null);
+    }
 }

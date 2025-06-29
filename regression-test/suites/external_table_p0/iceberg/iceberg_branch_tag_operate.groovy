@@ -191,4 +191,64 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
 
     /// select by tag will use tag schema
     qt_sc06 """SELECT * FROM tmp_schema_change_branch@tag(test_tag) order by id;"""
+
+    // ----------------------------------------------------------------------------------------
+    // test drop branch / tag
+    // ----------------------------------------------------------------------------------------
+
+    test {
+        sql """ alter table test_branch_tag_operate drop branch if exists t2 """
+        exception "Ref t2 is a tag not a branch"
+    }
+
+    test {
+        sql """ alter table test_branch_tag_operate drop branch t2 """
+        exception "Ref t2 is a tag not a branch"
+    }
+
+    test {
+        sql """ alter table test_branch_tag_operate drop tag if exists b2 """
+        exception "Ref b2 is a branch not a tag"
+    }
+
+    test {
+        sql """ alter table test_branch_tag_operate drop tag b2 """
+        exception "Ref b2 is a branch not a tag"
+    }
+
+    sql """ alter table test_branch_tag_operate drop branch if exists not_exists_branch """
+    test {
+        sql """ alter table test_branch_tag_operate drop branch not_exists_branch """
+        exception "Branch does not exist: not_exists_branch"
+    }
+
+    sql """ alter table test_branch_tag_operate drop tag if exists not_exists_tag """
+    test {
+        sql """ alter table test_branch_tag_operate drop tag not_exists_tag """
+        exception "Tag does not exist: not_exists_tag"
+    }
+
+    // drop tag success, then read
+    sql """ alter table test_branch_tag_operate drop tag t2 """
+    sql """ alter table test_branch_tag_operate drop tag if exists t3 """
+    test {
+        sql """ select * from test_branch_tag_operate@tag(t2) """
+        exception "does not have tag named t2"
+    }
+    test {
+        sql """ select * from test_branch_tag_operate@tag(t3) """
+        exception "does not have tag named t3"
+    }
+
+    // drop branch success, then read
+    sql """ alter table test_branch_tag_operate drop branch b2 """
+    sql """ alter table test_branch_tag_operate drop branch if exists b3 """
+    test {
+        sql """ select * from test_branch_tag_operate@branch(b2) """
+        exception "does not have branch named b2"
+    }
+    test {
+        sql """ select * from test_branch_tag_operate@branch(b3) """
+        exception "does not have branch named b3"
+    }
 }
