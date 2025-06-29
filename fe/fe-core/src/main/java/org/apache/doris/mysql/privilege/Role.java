@@ -301,13 +301,11 @@ public class Role implements GsonPostProcessable {
         mergeNotCheck(other);
     }
 
-    public boolean checkGlobalPriv(PrivPredicate wanted) {
-        PrivBitSet savedPrivs = PrivBitSet.of();
+    public boolean checkGlobalPriv(PrivPredicate wanted, PrivBitSet savedPrivs) {
         return checkGlobalInternal(wanted, savedPrivs);
     }
 
-    public boolean checkCtlPriv(String ctl, PrivPredicate wanted) {
-        PrivBitSet savedPrivs = PrivBitSet.of();
+    public boolean checkCtlPriv(String ctl, PrivPredicate wanted, PrivBitSet savedPrivs) {
         if (checkGlobalInternal(wanted, savedPrivs)
                 || checkCatalogInternal(ctl, wanted, savedPrivs)) {
             return true;
@@ -351,8 +349,7 @@ public class Role implements GsonPostProcessable {
         return false;
     }
 
-    public boolean checkDbPriv(String ctl, String db, PrivPredicate wanted) {
-        PrivBitSet savedPrivs = PrivBitSet.of();
+    public boolean checkDbPriv(String ctl, String db, PrivPredicate wanted, PrivBitSet savedPrivs) {
         if (checkGlobalInternal(wanted, savedPrivs)
                 || checkCatalogInternal(ctl, wanted, savedPrivs)
                 || checkDbInternal(ctl, db, wanted, savedPrivs)) {
@@ -423,8 +420,7 @@ public class Role implements GsonPostProcessable {
         return false;
     }
 
-    public boolean checkTblPriv(String ctl, String db, String tbl, PrivPredicate wanted) {
-        PrivBitSet savedPrivs = PrivBitSet.of();
+    public boolean checkTblPriv(String ctl, String db, String tbl, PrivPredicate wanted, PrivBitSet savedPrivs) {
         if (checkGlobalInternal(wanted, savedPrivs)
                 || checkCatalogInternal(ctl, wanted, savedPrivs)
                 || checkDbInternal(ctl, db, wanted, savedPrivs)
@@ -445,14 +441,13 @@ public class Role implements GsonPostProcessable {
     }
 
     public boolean checkCloudPriv(String cloudName,
-            PrivPredicate wanted, ResourceTypeEnum type) {
+            PrivPredicate wanted, ResourceTypeEnum type, PrivBitSet savedPrivs) {
         ResourcePrivTable cloudPrivTable = getCloudPrivTable(type);
         if (cloudPrivTable == null) {
             LOG.warn("cloud resource type err: {}", type);
             return false;
         }
 
-        PrivBitSet savedPrivs = PrivBitSet.of();
         if (checkGlobalInternal(wanted, savedPrivs)
                 || checkCloudInternal(cloudName, wanted, savedPrivs, cloudPrivTable, type)) {
             return true;
@@ -462,12 +457,14 @@ public class Role implements GsonPostProcessable {
         return false;
     }
 
-    public boolean checkColPriv(String ctl, String db, String tbl, String col, PrivPredicate wanted) {
+    public boolean checkColPriv(String ctl, String db, String tbl, String col, PrivPredicate wanted,
+            PrivBitSet savedPrivs) {
         Optional<Privilege> colPrivilege = wanted.getColPrivilege();
         if (!colPrivilege.isPresent()) {
             throw new IllegalStateException("this privPredicate should not use checkColPriv:" + wanted);
         }
-        return checkTblPriv(ctl, db, tbl, wanted) || onlyCheckColPriv(ctl, db, tbl, col, colPrivilege.get());
+        return checkTblPriv(ctl, db, tbl, wanted, savedPrivs) || onlyCheckColPriv(ctl, db, tbl, col,
+                colPrivilege.get());
     }
 
     private boolean onlyCheckColPriv(String ctl, String db, String tbl, String col,
@@ -484,8 +481,7 @@ public class Role implements GsonPostProcessable {
         return Privilege.satisfy(savedPrivs, wanted);
     }
 
-    public boolean checkResourcePriv(String resourceName, PrivPredicate wanted) {
-        PrivBitSet savedPrivs = PrivBitSet.of();
+    public boolean checkResourcePriv(String resourceName, PrivPredicate wanted, PrivBitSet savedPrivs) {
         if (checkGlobalInternal(wanted, savedPrivs)
                 || checkResourceInternal(resourceName, wanted, savedPrivs)) {
             return true;
@@ -502,8 +498,7 @@ public class Role implements GsonPostProcessable {
         return Privilege.satisfy(savedPrivs, wanted);
     }
 
-    public boolean checkStorageVaultPriv(String storageVaultName, PrivPredicate wanted) {
-        PrivBitSet savedPrivs = PrivBitSet.of();
+    public boolean checkStorageVaultPriv(String storageVaultName, PrivPredicate wanted, PrivBitSet savedPrivs) {
         if (checkGlobalInternal(wanted, savedPrivs)
                 || checkStorageVaultInternal(storageVaultName, wanted, savedPrivs)) {
             return true;
@@ -526,12 +521,11 @@ public class Role implements GsonPostProcessable {
         return Privilege.satisfy(savedPrivs, wanted);
     }
 
-    public boolean checkWorkloadGroupPriv(String workloadGroupName, PrivPredicate wanted) {
+    public boolean checkWorkloadGroupPriv(String workloadGroupName, PrivPredicate wanted, PrivBitSet savedPrivs) {
         // For compatibility with older versions, it is not needed to check the privileges of the default group.
         if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
             return true;
         }
-        PrivBitSet savedPrivs = PrivBitSet.of();
         // usage priv not in global, but grant_priv may in global
         if (checkGlobalInternal(wanted, savedPrivs)
                 || checkWorkloadGroupInternal(workloadGroupName, wanted, savedPrivs)) {
@@ -621,22 +615,6 @@ public class Role implements GsonPostProcessable {
     public void setComment(String comment) {
         this.comment = comment;
     }
-
-    public boolean checkCanEnterCluster(String clusterName) {
-        if (checkGlobalPriv(PrivPredicate.ALL)) {
-            return true;
-        }
-
-        if (dbPrivTable.hasClusterPriv(clusterName)) {
-            return true;
-        }
-
-        if (tablePrivTable.hasClusterPriv(clusterName)) {
-            return true;
-        }
-        return false;
-    }
-
 
     private void grantPrivs(ResourcePattern resourcePattern, PrivBitSet privs) throws DdlException {
         if (privs.isEmpty()) {
