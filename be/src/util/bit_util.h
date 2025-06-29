@@ -192,7 +192,7 @@ public:
     // Returns the rounded up to 32 multiple. Used for conversions of bits to i32.
     constexpr static inline uint32_t round_up_numi32(uint32_t bits) { return (bits + 31) >> 5; }
 
-#if __BYTE_ORDER == __LITTLE_ENDIAN
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
     // Converts to big endian format (if not already in big endian).
     static inline int64_t big_endian(int64_t value) { return byte_swap(value); }
     static inline uint64_t big_endian(uint64_t value) { return byte_swap(value); }
