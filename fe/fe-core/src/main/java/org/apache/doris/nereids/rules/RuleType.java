@@ -334,6 +334,8 @@ public enum RuleType {
     PRUNE_EMPTY_PARTITION(RuleTypeClass.REWRITE),
     PROJECT_OTHER_JOIN_CONDITION(RuleTypeClass.REWRITE),
 
+    // stats deriver
+    STATS_DERIVER(RuleTypeClass.REWRITE),
     // split limit
     SPLIT_LIMIT(RuleTypeClass.REWRITE),
     PULL_UP_JOIN_FROM_UNION_ALL(RuleTypeClass.REWRITE),
