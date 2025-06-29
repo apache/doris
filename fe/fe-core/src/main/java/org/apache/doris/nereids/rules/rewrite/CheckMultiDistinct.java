@@ -34,6 +34,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
  * - sum -> MULTI_DISTINCT_SUM
  * - avg -> MULTI_DISTINCT_AVG
  * - group_concat -> MULTI_DISTINCT_GROUP_CONCAT
+ * - collect_list -> MULTI_DISTINCT_COLLECT_LIST
+ * - array_agg -> MULTI_DISTINCT_ARRAY_AGG
  */
 public class CheckMultiDistinct extends OneRewriteRuleFactory {
     @Override
