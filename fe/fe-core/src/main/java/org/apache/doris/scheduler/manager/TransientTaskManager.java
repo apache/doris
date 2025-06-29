@@ -17,17 +17,27 @@
 
 package org.apache.doris.scheduler.manager;
 
-import org.apache.doris.scheduler.disruptor.TaskDisruptor;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+import org.apache.doris.scheduler.executor.TransientTaskProcessor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadFactory;
 
 public class TransientTaskManager {
     private static final Logger LOG = LogManager.getLogger(TransientTaskManager.class);
+
+    private static final int EXPORT_THREAD_NUM = Config.async_task_consumer_thread_num;
+
+    private static final int EXPORT_TASK_QUEUE_SIZE = Config.async_task_queen_size;
+
+    TransientTaskProcessor exportTaskProcessor;
+
     /**
      * key: taskId
      * value: memory task executor of this task
@@ -35,19 +45,12 @@ public class TransientTaskManager {
      */
     private final ConcurrentHashMap<Long, TransientTaskExecutor> taskExecutorMap = new ConcurrentHashMap<>(128);
 
-    /**
-     * Producer and Consumer model
-     * disruptor is used to handle task
-     * disruptor will start a thread pool to handle task
-     */
-    private TaskDisruptor disruptor;
-
-    public TransientTaskManager() {
-        disruptor = new TaskDisruptor();
-    }
+    public TransientTaskManager() {}
 
     public void start() {
-        disruptor.start();
+        ThreadFactory exportTaskThreadFactory = new CustomThreadFactory("export-task-execute");
+        this.exportTaskProcessor = new TransientTaskProcessor(
+            EXPORT_THREAD_NUM, EXPORT_TASK_QUEUE_SIZE, exportTaskThreadFactory);
     }
 
     public TransientTaskExecutor getMemoryTaskExecutor(Long taskId) {
@@ -57,7 +60,7 @@ public class TransientTaskManager {
     public Long addMemoryTask(TransientTaskExecutor executor) throws JobException {
         Long taskId = executor.getId();
         taskExecutorMap.put(taskId, executor);
-        disruptor.tryPublishTask(taskId);
+        exportTaskProcessor.addTask(taskId);
         LOG.info("add memory task, taskId: {}", taskId);
         return taskId;
     }
