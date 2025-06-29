@@ -1577,6 +1577,10 @@ DECLARE_mInt32(load_trigger_compaction_version_percent);
 DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
 DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
+DECLARE_mDouble(quorum_success_max_wait_time_multiplier);
+DECLARE_mInt64(quorum_success_min_wait_time_ms);
+DECLARE_mInt32(quorum_success_load_timeout_remaining_seconds);
+
 DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
