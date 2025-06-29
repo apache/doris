@@ -119,11 +119,11 @@ public class LocationPath {
     }
 
     /**
-     * Static factory method to create a LocationPath2 instance.
+     * Static factory method to create a LocationPath instance.
      *
      * @param location             the input URI location string
      * @param storagePropertiesMap map of schema type to corresponding storage properties
-     * @return a new LocationPath2 instance
+     * @return a new LocationPath instance
      * @throws UserException if validation fails or required data is missing
      */
     public static LocationPath of(String location,
@@ -163,11 +163,11 @@ public class LocationPath {
     }
 
     /**
-     * Static factory method to create a LocationPath2 instance.
+     * Static factory method to create a LocationPath instance.
      *
      * @param location             the input URI location string
      * @param storagePropertiesMap map of schema type to corresponding storage properties
-     * @return a new LocationPath2 instance
+     * @return a new LocationPath instance
      */
     public static LocationPath of(String location,
                                   Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {

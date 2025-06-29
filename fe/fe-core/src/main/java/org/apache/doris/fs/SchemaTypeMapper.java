@@ -147,6 +147,7 @@ public enum SchemaTypeMapper {
     }
 
     public static TFileType fromSchemaToFileType(String schema) {
+        //todo Currently using schema == null to maintain compatibility with previous logic and avoid unexpected errors
         if (schema == null) {
             return TFileType.FILE_HDFS;
         }
