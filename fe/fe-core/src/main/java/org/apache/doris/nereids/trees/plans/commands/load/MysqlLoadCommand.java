@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -179,7 +180,7 @@ public class MysqlLoadCommand extends Command {
         handleMysqlLoadComand(ctx);
     }
 
-    private void validate(ConnectContext ctx) throws UserException {
+    private void validate(ConnectContext ctx) throws UserException, IOException {
         if (mysqlDataDescription == null) {
             throw new AnalysisException("No data file in load statement.");
         }
@@ -193,9 +194,8 @@ public class MysqlLoadCommand extends Command {
                     throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
                         + " please set the `mysql_load_server_secure_path` for FE to be a right path.");
                 } else {
-                    path = stripQuotes(path);
                     File file = new File(path);
-                    if (!path.startsWith(stripQuotes(Config.mysql_load_server_secure_path))) {
+                    if (!file.getCanonicalPath().startsWith(Config.mysql_load_server_secure_path)) {
                         throw new AnalysisException("Local file should be under the secure path of FE.");
                     }
                     if (!file.exists()) {
