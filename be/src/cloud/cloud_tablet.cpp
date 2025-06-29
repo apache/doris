@@ -286,7 +286,11 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             .expiration_time = expiration_time,
                                             .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                     },
-                            .download_done {},
+                            .download_done {[](Status st) {
+                                if (!st) {
+                                    LOG_WARNING("add rowset warm up error ").error(st);
+                                }
+                            }},
                     });
 
                     auto download_idx_file = [&](const io::Path& idx_path) {
@@ -299,7 +303,11 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                                 .expiration_time = expiration_time,
                                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                         },
-                                .download_done {},
+                                .download_done {[](Status st) {
+                                    if (!st) {
+                                        LOG_WARNING("add rowset warm up error ").error(st);
+                                    }
+                                }},
                         };
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
                     };
@@ -1023,7 +1031,9 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
          config::enable_mow_compaction_correctness_check_core ||
          config::enable_mow_compaction_correctness_check_fail) &&
         !allow_delete_in_cumu_compaction &&
-        compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+         !config::enable_prune_delete_sign_when_base_compaction)) {
+        // also check duplicate key for base compaction when config::enable_prune_delete_sign_when_base_compaction==false
         missed_rows = std::make_unique<RowLocationSet>();
         LOG(INFO) << "RowLocation Set inited succ for tablet:" << tablet_id();
     }
@@ -1045,7 +1055,8 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     if (missed_rows) {
         missed_rows_size = missed_rows->size();
         if (!allow_delete_in_cumu_compaction) {
-            if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
+            if ((compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+                 !config::enable_prune_delete_sign_when_base_compaction) &&
                 tablet_state() == TABLET_RUNNING) {
                 if (merged_rows + filtered_rows >= 0 &&
                     merged_rows + filtered_rows != missed_rows_size) {

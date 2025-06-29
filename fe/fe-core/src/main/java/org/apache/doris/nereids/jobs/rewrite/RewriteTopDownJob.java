@@ -29,8 +29,10 @@ import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
+import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
@@ -50,15 +52,15 @@ public class RewriteTopDownJob extends Job {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, NereidsPlanner.LOG)));
 
     private final Group group;
-    private final List<Rule> rules;
+    private final Rules rules;
 
     public RewriteTopDownJob(Group group, JobContext context, List<RuleFactory> factories) {
-        this(group, factories.stream()
+        this(group, new FilteredRules(factories.stream()
                 .flatMap(factory -> factory.buildRules().stream())
-                .collect(Collectors.toList()), context, true);
+                .collect(Collectors.toList())), context, true);
     }
 
-    public RewriteTopDownJob(Group group, List<Rule> rules, JobContext context) {
+    public RewriteTopDownJob(Group group, Rules rules, JobContext context) {
         this(group, rules, context, true);
     }
 
@@ -69,7 +71,7 @@ public class RewriteTopDownJob extends Job {
      * @param rules rewrite rules
      * @param context planner context
      */
-    public RewriteTopDownJob(Group group, List<Rule> rules, JobContext context, boolean once) {
+    public RewriteTopDownJob(Group group, Rules rules, JobContext context, boolean once) {
         super(JobType.TOP_DOWN_REWRITE, context, once);
         this.group = Objects.requireNonNull(group, "group cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
@@ -84,7 +86,7 @@ public class RewriteTopDownJob extends Job {
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
         countJobExecutionTimesOfGroupExpressions(logicalExpression);
-        for (Rule rule : rules) {
+        for (Rule rule : rules.getCurrentAndChildrenRules()) {
             if (rule.isInvalid(disableRules, logicalExpression)) {
                 continue;
             }

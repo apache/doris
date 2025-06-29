@@ -94,6 +94,7 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* inverted_index_bytes_scanned_from_remote = nullptr;
     RuntimeProfile::Counter* inverted_index_local_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_io_timer = nullptr;
 
     FileCacheProfileReporter(RuntimeProfile* profile) {
         static const char* cache_profile = "FileCache";
@@ -134,6 +135,8 @@ struct FileCacheProfileReporter {
                 profile, "InvertedIndexLocalIOUseTimer", cache_profile, 1);
         inverted_index_remote_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
                 profile, "InvertedIndexRemoteIOUseTimer", cache_profile, 1);
+        inverted_index_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexIOTimer", cache_profile, 1);
     }
 
     void update(const FileCacheStatistics* statistics) const {
@@ -162,6 +165,7 @@ struct FileCacheProfileReporter {
                        statistics->inverted_index_bytes_read_from_remote);
         COUNTER_UPDATE(inverted_index_local_io_timer, statistics->inverted_index_local_io_timer);
         COUNTER_UPDATE(inverted_index_remote_io_timer, statistics->inverted_index_remote_io_timer);
+        COUNTER_UPDATE(inverted_index_io_timer, statistics->inverted_index_io_timer);
     }
 };
 

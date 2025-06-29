@@ -111,6 +111,11 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    void sanity_check() const override {
+        data->sanity_check();
+        offsets->sanity_check();
+    }
+
     void shrink_padding_chars() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
@@ -161,6 +166,8 @@ public:
     bool has_enough_capacity(const IColumn& src) const override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
 
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }

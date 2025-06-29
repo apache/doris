@@ -35,9 +35,6 @@ import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
-import org.apache.doris.analysis.CancelAlterTableStmt;
-import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
@@ -65,7 +62,6 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
@@ -149,6 +145,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -526,6 +523,8 @@ public class Env {
 
     private PolicyMgr policyMgr;
 
+    private IndexPolicyMgr indexPolicyMgr;
+
     private AnalysisManager analysisManager;
 
     private HboPlanStatisticsManager hboPlanStatisticsManager;
@@ -816,6 +815,7 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
+        this.indexPolicyMgr = new IndexPolicyMgr();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr(isCheckpointCatalog);
         this.analysisManager = new AnalysisManager();
         this.hboPlanStatisticsManager = new HboPlanStatisticsManager();
@@ -2476,6 +2476,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadIndexPolicy(DataInputStream in, long checksum) throws IOException {
+        indexPolicyMgr = IndexPolicyMgr.read(in);
+        LOG.info("finished replay index policy from image");
+        return checksum;
+    }
+
     /**
      * Load catalogs through file.
      **/
@@ -2770,6 +2776,11 @@ public class Env {
 
     public long savePolicy(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getPolicyMgr().write(out);
+        return checksum;
+    }
+
+    public long saveIndexPolicy(CountingDataOutputStream out, long checksum) throws IOException {
+        Env.getCurrentEnv().getIndexPolicyMgr().write(out);
         return checksum;
     }
 
@@ -4786,6 +4797,10 @@ public class Env {
         return this.policyMgr;
     }
 
+    public IndexPolicyMgr getIndexPolicyMgr() {
+        return this.indexPolicyMgr;
+    }
+
     public void setMaster(MasterInfo info) {
         this.masterInfo = info;
         LOG.info("setMaster MasterInfo:{}", info);
@@ -4976,21 +4991,6 @@ public class Env {
     }
 
     /*
-     * used for handling CancelAlterStmt (for client is the CANCEL ALTER
-     * command). including SchemaChangeHandler and RollupHandler
-     */
-    public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
-        if (stmt.getAlterType() == AlterType.ROLLUP) {
-            this.getMaterializedViewHandler().cancel(stmt);
-        } else if (stmt.getAlterType() == AlterType.COLUMN
-                       || stmt.getAlterType() == AlterType.INDEX) {
-            this.getSchemaChangeHandler().cancel(stmt);
-        } else {
-            throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");
-        }
-    }
-
-    /*
      * used for handling backup opt
      */
     public void backup(BackupStmt stmt) throws DdlException {
@@ -5003,10 +5003,6 @@ public class Env {
 
     public void cancelBackup(CancelBackupCommand command) throws DdlException {
         getBackupHandler().cancel(command);
-    }
-
-    public void cancelBackup(CancelBackupStmt stmt) throws DdlException {
-        getBackupHandler().cancel(stmt);
     }
 
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
@@ -5841,10 +5837,6 @@ public class Env {
 
     public void analyze(AnalyzeCommand command, boolean isProxy) throws DdlException, AnalysisException {
         this.analysisManager.createAnalyze(command, isProxy);
-    }
-
-    public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {
-        this.alter.getSystemHandler().cancel(stmt);
     }
 
     // Switch catalog of this session

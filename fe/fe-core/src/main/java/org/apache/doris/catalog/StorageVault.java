@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateResourceStmt;
-import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -101,10 +99,6 @@ public abstract class StorageVault {
         this.setAsDefault = setAsDefault;
     }
 
-    public static StorageVault fromStmt(CreateStorageVaultStmt stmt) throws DdlException, UserException {
-        return getStorageVaultInstance(stmt);
-    }
-
     public static StorageVault fromCommand(CreateStorageVaultCommand command) throws DdlException, UserException {
         return getStorageVaultInstanceByCommand(command);
     }
@@ -131,40 +125,6 @@ public abstract class StorageVault {
 
     public void setId(String id) {
         this.id = id;
-    }
-
-    /**
-     * Get StorageVault instance by StorageVault name and type
-     * @param type
-     * @param name
-     * @return
-     * @throws DdlException
-     */
-    private static StorageVault
-            getStorageVaultInstance(CreateStorageVaultStmt stmt) throws DdlException, UserException {
-        StorageVaultType type = stmt.getStorageVaultType();
-        String name = stmt.getStorageVaultName();
-        boolean ifNotExists = stmt.isIfNotExists();
-        boolean setAsDefault = stmt.setAsDefault();
-        StorageVault vault;
-        switch (type) {
-            case HDFS:
-                vault = new HdfsStorageVault(name, ifNotExists, setAsDefault);
-                vault.modifyProperties(stmt.getProperties());
-                break;
-            case S3:
-                CreateResourceStmt resourceStmt =
-                        new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
-                resourceStmt.analyzeResourceType();
-                vault = new S3StorageVault(name, ifNotExists, setAsDefault, resourceStmt);
-                break;
-            default:
-                throw new DdlException("Unknown StorageVault type: " + type);
-        }
-        vault.checkCreationProperties(stmt.getProperties());
-        vault.pathVersion = stmt.getPathVersion();
-        vault.numShard = stmt.getNumShard();
-        return vault;
     }
 
     /**
