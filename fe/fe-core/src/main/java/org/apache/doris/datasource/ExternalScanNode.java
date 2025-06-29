@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
@@ -55,14 +54,6 @@ public abstract class ExternalScanNode extends ScanNode {
             boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType);
         this.needCheckColumnPriv = needCheckColumnPriv;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        computeStats(analyzer);
-        computeColumnsFilter();
-        initBackendPolicy();
     }
 
     // For Nereids

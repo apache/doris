@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.odbc.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -79,11 +78,6 @@ public class OdbcScanNode extends ExternalScanNode {
         this.tbl = tbl;
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-    }
-
     /**
      * Used for Nereids. Should NOT use this function in anywhere else.
      */
@@ -99,14 +93,6 @@ public class OdbcScanNode extends ExternalScanNode {
     protected String debugString() {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         return helper.addValue(super.debugString()).toString();
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        // Convert predicates to Odbc columns and filters.
-        createOdbcColumns();
-        createOdbcFilters();
-        createScanRangeLocations();
     }
 
     @Override
@@ -233,16 +219,6 @@ public class OdbcScanNode extends ExternalScanNode {
 
         msg.odbc_scan_node = odbcScanNode;
         super.toThrift(msg);
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
-        numNodes = numNodes <= 0 ? 1 : numNodes;
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override

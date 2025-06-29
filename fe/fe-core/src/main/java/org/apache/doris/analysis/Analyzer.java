@@ -2662,7 +2662,7 @@ public class Analyzer {
             return;
         }
         List<SlotId> refdIdList = Lists.newArrayList();
-        planRoot.getMaterializedIds(analyzer, refdIdList);
+        // planRoot.getMaterializedIds(analyzer, refdIdList);
         if (outputExprs != null) {
             Expr.getIds(outputExprs, null, refdIdList);
         }

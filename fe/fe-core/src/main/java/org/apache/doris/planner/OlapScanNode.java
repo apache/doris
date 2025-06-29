@@ -24,7 +24,6 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
@@ -72,7 +71,6 @@ import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
@@ -545,35 +543,6 @@ public class OlapScanNode extends ScanNode {
         return helper.toString();
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-
-        filterDeletedRows(analyzer);
-        if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
-            partitionsInfo = olapTable.getPartitionInfo();
-            analyzerPartitionExpr(analyzer, partitionsInfo);
-        }
-        computeColumnsFilter();
-        computePartitionInfo();
-        computeTupleState(analyzer);
-
-        /**
-         * Compute InAccurate cardinality before mv selector and tablet pruning.
-         * - Accurate statistical information relies on the selector of materialized
-         * views and bucket reduction.
-         * - However, Those both processes occur after the reorder algorithm is
-         * completed.
-         * - When Join reorder is turned on, the cardinality must be calculated before
-         * the reorder algorithm.
-         * - So only an inaccurate cardinality can be calculated here.
-         */
-        mockRowCountInStatistic();
-        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            computeInaccurateCardinality();
-        }
-    }
-
     /**
      * Init OlapScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
@@ -598,54 +567,9 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("OlapScanNode get scan range locations. Tuple: {}", desc);
-        }
-        /**
-         * If JoinReorder is turned on, it will be calculated init(), and this value is
-         * not accurate.
-         * In the following logic, cardinality will be accurately calculated again.
-         * So here we need to reset the value of cardinality.
-         */
-        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            cardinality = 0;
-        }
-
-        try {
-            createScanRangeLocations();
-        } catch (AnalysisException e) {
-            throw new UserException(e.getMessage());
-        }
-
-        // Relatively accurate cardinality according to ScanRange in
-        // getScanRangeLocations
-        computeStats(analyzer);
-        computeNumNodes();
-    }
-
     public void computeTupleState(Analyzer analyzer) {
         for (TupleId id : tupleIds) {
             analyzer.getDescTbl().getTupleDesc(id).computeStat();
-        }
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        if (cardinality > 0) {
-            avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
-            capCardinalityAtLimit();
-        }
-        // when node scan has no data, cardinality should be 0 instead of a invalid
-        // value after computeStats()
-        cardinality = cardinality == -1 ? 0 : cardinality;
-
-        // update statsDeriveResult for real statistics
-        // After statistics collection is complete, remove the logic
-        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            statsDeriveResult = new StatsDeriveResult(cardinality, statsDeriveResult.getSlotIdToColumnStats());
         }
     }
 
@@ -1460,16 +1384,6 @@ public class OlapScanNode extends ScanNode {
         return scanRangeLocations.size();
     }
 
-    @Override
-    public void setShouldColoScan() {
-        shouldColoScan = true;
-    }
-
-    @Override
-    public boolean getShouldColoScan() {
-        return shouldColoScan;
-    }
-
     public int getBucketNum() {
         // In bucket shuffle join, we have 2 situation.
         // 1. Only one partition: in this case, we use scanNode.getTotalTabletsNum() to get the right bucket num
@@ -1931,40 +1845,6 @@ public class OlapScanNode extends ScanNode {
                         olapTable.getQualifiedDbName()).getId(),
                 olapTable.getId(), selectedIndexId == -1 ? olapTable.getBaseIndexId() : selectedIndexId,
                 scanReplicaIds);
-    }
-
-    @Override
-    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
-        KeysType type = getOlapTable().getKeysType();
-        if (type == KeysType.UNIQUE_KEYS || type == KeysType.PRIMARY_KEYS) {
-            return false;
-        }
-
-        String aggFunctionName = aggExpr.getFnName().getFunction();
-        if (aggFunctionName.equalsIgnoreCase("COUNT") && type != KeysType.DUP_KEYS) {
-            return false;
-        }
-
-        return true;
-    }
-
-    @Override
-    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
-        KeysType type = getOlapTable().getKeysType();
-
-        // The value column of the agg does not support zone_map index.
-        if (type == KeysType.AGG_KEYS && !col.isKey()) {
-            return false;
-        }
-
-        if (aggExpr.getChild(0) instanceof SlotRef) {
-            SlotRef slot = (SlotRef) aggExpr.getChild(0);
-            if (CreateMaterializedViewStmt.isMVColumn(slot.getColumnName()) && slot.getColumn().isAggregated()) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     @Override

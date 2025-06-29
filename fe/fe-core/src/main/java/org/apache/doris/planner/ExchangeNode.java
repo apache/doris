@@ -20,14 +20,11 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
@@ -36,7 +33,6 @@ import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -132,26 +128,6 @@ public class ExchangeNode extends PlanNode {
             tupleIds.addAll(getChild(0).getTupleIds());
             tblRefIds.addAll(getChild(0).getTblRefIds());
             nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
-        }
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        Preconditions.checkState(conjuncts.isEmpty());
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            return;
-        }
-        computeStats(analyzer);
-    }
-
-    @Override
-    protected void computeStats(Analyzer analyzer) throws UserException {
-        Preconditions.checkState(children.size() == 1);
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Exchange:" + id + ", cardinality: " + cardinality);
         }
     }
 

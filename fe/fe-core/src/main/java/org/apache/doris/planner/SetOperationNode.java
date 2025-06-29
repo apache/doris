@@ -25,7 +25,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
-import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -154,93 +153,6 @@ public abstract class SetOperationNode extends PlanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        super.finalize(analyzer);
-        // the resultExprLists should be substituted by child's output smap
-        // because the result exprs are column A, B, but the child output exprs are column B, A
-        // after substituted, the next computePassthrough method will get correct info to do its job
-        List<List<Expr>> substitutedResultExprLists = Lists.newArrayList();
-        for (int i = 0; i < resultExprLists.size(); ++i) {
-            substitutedResultExprLists.add(Expr.substituteList(
-                    resultExprLists.get(i), children.get(i).getOutputSmap(), analyzer, true));
-        }
-        resultExprLists = substitutedResultExprLists;
-        // In Doris-6380, moved computePassthrough() and the materialized position of resultExprs/constExprs
-        // from this.init() to this.finalize(), and will not call SetOperationNode::init() again at the end
-        // of createSetOperationNodeFragment().
-        //
-        // Reasons for move computePassthrough():
-        //      Because the byteSize of the tuple corresponding to OlapScanNode is updated after
-        //      singleNodePlanner.createSingleNodePlan() and before singleNodePlan.finalize(),
-        //      calling computePassthrough() in SetOperationNode::init() may not be able to accurately determine whether
-        //      the child is pass through. In the previous logic , Will call SetOperationNode::init() again
-        //      at the end of createSetOperationNodeFragment().
-        //
-        // Reasons for move materialized position of resultExprs/constExprs:
-        //     Because the output slot is materialized at various positions in the planner stage, this is to ensure that
-        //     eventually the resultExprs/constExprs and the corresponding output slot have the same materialized state.
-        //     And the order of materialized resultExprs must be the same as the order of child adjusted by
-        //     computePassthrough(), so resultExprs materialized must be placed after computePassthrough().
-
-        // except Node must not reorder the child
-        if (!(this instanceof ExceptNode)) {
-            computePassthrough(analyzer);
-        }
-        // drop resultExprs/constExprs that aren't getting materialized (= where the
-        // corresponding output slot isn't being materialized)
-        materializedResultExprLists.clear();
-        Preconditions.checkState(resultExprLists.size() == children.size());
-        List<SlotDescriptor> slots = analyzer.getDescTbl().getTupleDesc(tupleId).getSlots();
-        for (int i = 0; i < resultExprLists.size(); ++i) {
-            List<Expr> exprList = resultExprLists.get(i);
-            List<Expr> newExprList = Lists.newArrayList();
-            Preconditions.checkState(exprList.size() == slots.size());
-            for (int j = 0; j < exprList.size(); ++j) {
-                if (slots.get(j).isMaterialized()) {
-                    newExprList.add(exprList.get(j));
-                }
-            }
-            materializedResultExprLists.add(newExprList);
-        }
-        Preconditions.checkState(
-                materializedResultExprLists.size() == getChildren().size());
-
-        materializedConstExprLists.clear();
-        for (List<Expr> exprList : constExprLists) {
-            Preconditions.checkState(exprList.size() == slots.size());
-            List<Expr> newExprList = Lists.newArrayList();
-            for (int i = 0; i < exprList.size(); ++i) {
-                if (slots.get(i).isMaterialized()) {
-                    newExprList.add(exprList.get(i));
-                }
-            }
-            materializedConstExprLists.add(newExprList);
-        }
-        if (!resultExprLists.isEmpty()) {
-            List<Expr> exprs = resultExprLists.get(0);
-            TupleDescriptor tupleDescriptor = analyzer.getTupleDesc(tupleId);
-            for (int i = 0; i < exprs.size(); i++) {
-                boolean isNullable = exprs.get(i).isNullable();
-                for (int j = 1; j < resultExprLists.size(); j++) {
-                    isNullable = isNullable || resultExprLists.get(j).get(i).isNullable();
-                }
-                tupleDescriptor.getSlots().get(i).setIsNullable(
-                        tupleDescriptor.getSlots().get(i).getIsNullable() || isNullable);
-                tupleDescriptor.computeMemLayout();
-            }
-        }
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            return;
-        }
-        computeCardinality();
-    }
-
-    @Override
     protected void computeOldCardinality() {
         computeCardinality();
     }
@@ -362,23 +274,6 @@ public abstract class SetOperationNode extends PlanNode {
         resultExprLists = newResultExprLists;
         Preconditions.checkState(children.size() == newChildren.size());
         children = newChildren;
-    }
-
-    /**
-     * Must be called after addChild()/addConstExprList(). Computes the materialized
-     * result/const expr lists based on the materialized slots of this UnionNode's
-     * produced tuple. The UnionNode doesn't need an smap: like a ScanNode, it
-     * materializes an original tuple.
-     * There is no need to call assignConjuncts() because all non-constant conjuncts
-     * have already been assigned to the set operation operands, and all constant conjuncts have
-     * been evaluated during registration to set analyzer.hasEmptyResultSet_.
-     */
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        Preconditions.checkState(conjuncts.isEmpty());
-        createDefaultSmap(analyzer);
-        computeTupleStatAndMemLayout(analyzer);
-        computeStats(analyzer);
     }
 
     protected void toThrift(TPlanNode msg, TPlanNodeType nodeType) {
