@@ -2218,12 +2218,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                                 _execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                     }
                 }
-            } else if (_is_need_expr_eval) {
-                RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_column_ids));
-                for (auto cid : _non_predicate_column_ids) {
-                    auto loc = _schema_block_id_map[cid];
-                    block->replace_by_position(loc, std::move(_current_return_columns[cid]));
-                }
             }
         } else if (_is_need_expr_eval) {
             DCHECK(!_predicate_column_ids.empty());
