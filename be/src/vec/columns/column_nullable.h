@@ -145,9 +145,10 @@ public:
 
     void sanity_check() const override {
         if (nested_column->size() != get_null_map_data().size()) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Size of nested column {} is not equal to size of null map {}",
-                                   nested_column->size(), get_null_map_data().size());
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Size of nested column {} with size {} is not equal to size of null map {}",
+                    nested_column->get_name(), nested_column->size(), get_null_map_data().size());
         }
         nested_column->sanity_check();
     }
