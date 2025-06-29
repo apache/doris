@@ -390,12 +390,22 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
-        List<Object> arguments = unboundFunction.isDistinct()
-                ? ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1)
-                    .add(unboundFunction.isDistinct())
-                    .addAll(unboundFunction.getArguments())
-                    .build()
-                : (List) unboundFunction.getArguments();
+        ImmutableList.Builder<Object> argumentsBuilder
+                = ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1);
+        if (unboundFunction.isDistinct()) {
+            // distinct argument is true
+            argumentsBuilder.add(true);
+        }
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(getCascadesContext());
+        // we should fold constant to compute function signature, e.g. ComputePrecisionForRound
+        for (Expression argument : unboundFunction.getArguments()) {
+            if (!argument.isLiteral() && !argument.isSlot()) {
+                argumentsBuilder.add(FoldConstantRuleOnFE.evaluate(argument, rewriteContext));
+            } else {
+                argumentsBuilder.add(argument);
+            }
+        }
+        List<Object> arguments = argumentsBuilder.build();
 
         String dbName = unboundFunction.getDbName();
         if (StringUtils.isEmpty(dbName)) {
