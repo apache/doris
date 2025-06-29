@@ -58,8 +58,6 @@ template <PrimitiveType, PrimitiveType>
 struct PlusImpl;
 template <PrimitiveType, PrimitiveType>
 struct MinusImpl;
-template <PrimitiveType, PrimitiveType>
-struct MultiplyImpl;
 
 template <template <PrimitiveType, PrimitiveType> typename Operation,
           PrimitiveType OpA = TYPE_BOOLEAN, PrimitiveType OpB = TYPE_BOOLEAN>
@@ -68,12 +66,10 @@ struct OperationTraits {
     using Op = Operation<T, T>;
     static constexpr bool is_plus_minus =
             std::is_same_v<Op, PlusImpl<T, T>> || std::is_same_v<Op, MinusImpl<T, T>>;
-    static constexpr bool is_multiply = std::is_same_v<Op, MultiplyImpl<T, T>>;
-    static constexpr bool allow_decimal = std::is_same_v<Op, PlusImpl<T, T>> ||
-                                          std::is_same_v<Op, MinusImpl<T, T>> ||
-                                          std::is_same_v<Op, MultiplyImpl<T, T>>;
+    static constexpr bool allow_decimal =
+            std::is_same_v<Op, PlusImpl<T, T>> || std::is_same_v<Op, MinusImpl<T, T>>;
     static constexpr bool can_overflow =
-            (is_plus_minus || is_multiply) &&
+            is_plus_minus &&
             (OpA == TYPE_DECIMALV2 || OpB == TYPE_DECIMALV2 || OpA == TYPE_DECIMAL128I ||
              OpB == TYPE_DECIMAL128I || OpA == TYPE_DECIMAL256 || OpB == TYPE_DECIMAL256);
     static constexpr bool has_variadic_argument =
@@ -263,33 +259,17 @@ private:
                               const RightDataType& type_right, const ResultDataType& type_result,
                               size_t size, const ResultType& max_result_number,
                               const ResultType& scale_diff_multiplier) {
-        static_assert(OpTraits::is_plus_minus || OpTraits::is_multiply);
-        if constexpr (OpTraits::is_multiply && IsDecimalV2<A> && IsDecimalV2<B> &&
-                      IsDecimalV2<ResultType>) {
-            Op::template vector_vector<check_overflow>(a, b, c, size);
-        } else {
-            bool need_adjust_scale = scale_diff_multiplier.value > 1;
-            std::visit(
-                    [&](auto need_adjust_scale) {
-                        for (size_t i = 0; i < size; i++) {
-                            c[i] = typename ArrayC::value_type(apply<need_adjust_scale>(
-                                    a[i], b[i], type_left, type_right, type_result,
-                                    max_result_number, scale_diff_multiplier));
-                        }
-                    },
-                    make_bool_variant(need_adjust_scale && check_overflow));
-
-            if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
-                auto sig_uptr = std::unique_ptr<int8_t[]>(new int8_t[size]);
-                int8_t* sig = sig_uptr.get();
-                for (size_t i = 0; i < size; i++) {
-                    sig[i] = sgn(c[i].value);
-                }
-                for (size_t i = 0; i < size; i++) {
-                    c[i].value = (c[i].value - sig[i]) / scale_diff_multiplier.value + sig[i];
-                }
-            }
-        }
+        static_assert(OpTraits::is_plus_minus);
+        bool need_adjust_scale = scale_diff_multiplier.value > 1;
+        std::visit(
+                [&](auto need_adjust_scale) {
+                    for (size_t i = 0; i < size; i++) {
+                        c[i] = typename ArrayC::value_type(apply<need_adjust_scale>(
+                                a[i], b[i], type_left, type_right, type_result, max_result_number,
+                                scale_diff_multiplier));
+                    }
+                },
+                make_bool_variant(need_adjust_scale && check_overflow));
     }
 
     static void vector_constant(const typename Traits::ArrayA::value_type* __restrict a, B b,
@@ -350,8 +330,7 @@ public:
                         *res_data_type)
                         .get_scale());
 
-        if constexpr (check_overflow && !is_to_null_type &&
-                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
+        if constexpr (check_overflow && !is_to_null_type && !OpTraits::is_plus_minus) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "adapt_decimal_constant_constant Invalid function type!");
             return column_result;
@@ -386,8 +365,7 @@ public:
                         .get_scale());
         DCHECK(column_left_ptr != nullptr);
 
-        if constexpr (check_overflow && !is_to_null_type &&
-                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
+        if constexpr (check_overflow && !is_to_null_type && !OpTraits::is_plus_minus) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "adapt_decimal_vector_constant Invalid function type!");
             return column_result;
@@ -422,8 +400,7 @@ public:
                         .get_scale());
         DCHECK(column_right_ptr != nullptr);
 
-        if constexpr (check_overflow && !is_to_null_type &&
-                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
+        if constexpr (check_overflow && !is_to_null_type && !OpTraits::is_plus_minus) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "adapt_decimal_constant_vector Invalid function type!");
             return column_result;
@@ -458,8 +435,7 @@ public:
                                                                       type_result.get_scale());
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
-        if constexpr (check_overflow && !is_to_null_type &&
-                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
+        if constexpr (check_overflow && !is_to_null_type && !OpTraits::is_plus_minus) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "adapt_decimal_vector_vector Invalid function type!");
             return column_result;
@@ -487,7 +463,7 @@ private:
                                                 const ResultDataType& type_result,
                                                 const ResultType& max_result_number,
                                                 const ResultType& scale_diff_multiplier) {
-        static_assert(OpTraits::is_plus_minus || OpTraits::is_multiply);
+        static_assert(OpTraits::is_plus_minus);
         if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
             // Now, Doris only support decimal +-*/ decimal.
             if constexpr (check_overflow) {
@@ -518,16 +494,6 @@ private:
                     // multiply
                     if constexpr (std::is_same_v<NativeResultType, __int128>) {
                         wide::Int256 res256 = Op::template apply<TYPE_DECIMAL256>(a, b);
-                        if constexpr (OpTraits::is_multiply && need_adjust_scale) {
-                            if (res256 > 0) {
-                                res256 = (res256 + scale_diff_multiplier.value / 2) /
-                                         scale_diff_multiplier.value;
-
-                            } else {
-                                res256 = (res256 - scale_diff_multiplier.value / 2) /
-                                         scale_diff_multiplier.value;
-                            }
-                        }
                         // check if final result is overflow
                         if (res256 > wide::Int256(max_result_number.value) ||
                             res256 < wide::Int256(-max_result_number.value)) {
@@ -551,15 +517,6 @@ private:
                     }
                 } else {
                     // round to final result precision
-                    if constexpr (OpTraits::is_multiply && need_adjust_scale) {
-                        if (res >= 0) {
-                            res = (res + scale_diff_multiplier.value / 2) /
-                                  scale_diff_multiplier.value;
-                        } else {
-                            res = (res - scale_diff_multiplier.value / 2) /
-                                  scale_diff_multiplier.value;
-                        }
-                    }
                     if (res > max_result_number.value || res < -max_result_number.value) {
                         auto result_str = DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
                                                               type_result.get_scale()}
@@ -572,13 +529,6 @@ private:
                 return res;
             } else {
                 res = Op::template apply<ResultPType>(a, b);
-                if constexpr (OpTraits::is_multiply && need_adjust_scale) {
-                    if (res >= 0) {
-                        res = (res + scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
-                    } else {
-                        res = (res - scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
-                    }
-                }
                 return res;
             }
         }
@@ -890,8 +840,8 @@ public:
                                          ResultDataType>::DataType::FieldType>);
                         if constexpr (IsDataTypeDecimal<LeftDataType> &&
                                       IsDataTypeDecimal<RightDataType>) {
-                            type_res = decimal_result_type(left, right, OpTraits::is_multiply,
-                                                           false, OpTraits::is_plus_minus);
+                            type_res = decimal_result_type(left, right, false, false,
+                                                           OpTraits::is_plus_minus);
                         } else if constexpr (IsDataTypeDecimal<LeftDataType>) {
                             type_res = std::make_shared<LeftDataType>(left.get_precision(),
                                                                       left.get_scale());
@@ -961,10 +911,9 @@ public:
                             //                   pow, bitxor, bitor, bitand
                             // if check_overflow and params are decimal types:
                             //   for functions pow, bitxor, bitor, bitand, return error
-                            static_assert(
-                                    !(IsDataTypeDecimal<BEResultDataType> && !is_to_null_type &&
-                                      !OpTraits::is_multiply && !OpTraits::is_plus_minus),
-                                    "cannot check overflow with decimal for function");
+                            static_assert(!(IsDataTypeDecimal<BEResultDataType> &&
+                                            !is_to_null_type && !OpTraits::is_plus_minus),
+                                          "cannot check overflow with decimal for function");
 
                             state->impl =
                                     execute_with_type<LeftDataType::PType, RightDataType::PType,
