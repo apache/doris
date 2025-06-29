@@ -787,6 +787,99 @@ public class SummaryProfile {
         }
     }
 
+    public int getParseSqlTimeMs() {
+        return getTimeMs(parseSqlFinishTime, parseSqlStartTime);
+    }
+
+    public int getPlanTimeMs() {
+        return getTimeMs(queryPlanFinishTime, parseSqlFinishTime);
+    }
+
+    public int getNereidsLockTableTimeMs() {
+        return getTimeMs(nereidsLockTableFinishTime, parseSqlFinishTime);
+    }
+
+    public int getNereidsAnalysisTimeMs() {
+        return getTimeMs(nereidsAnalysisFinishTime, nereidsLockTableFinishTime);
+    }
+
+    public int getNereidsRewriteTimeMs() {
+        return getTimeMs(nereidsRewriteFinishTime, nereidsAnalysisFinishTime);
+    }
+
+    public int getNereidsCollectTablePartitionTimeMs() {
+        return getTimeMs(nereidsCollectTablePartitionFinishTime, nereidsRewriteFinishTime)
+                + (int) nereidsCollectTablePartitionTime;
+    }
+
+    public int getNereidsOptimizeTimeMs() {
+        return getTimeMs(nereidsOptimizeFinishTime, nereidsCollectTablePartitionFinishTime);
+    }
+
+    public int getNereidsTranslateTimeMs() {
+        return getTimeMs(nereidsTranslateFinishTime, nereidsOptimizeFinishTime);
+    }
+
+    public int getNereidsGarbageCollectionTimeMs() {
+        return (int) (nereidsGarbageCollectionTime);
+    }
+
+    public int getNereidsBeFoldConstTimeMs() {
+        return (int) (nereidsBeFoldConstTime);
+    }
+
+    public int getNereidsDistributeTimeMs() {
+        return getTimeMs(distributeFinishTime, nereidsTranslateFinishTime);
+    }
+
+    public int getInitScanNodeTimeMs() {
+        return getTimeMs(initScanNodeFinishTime, initScanNodeStartTime);
+    }
+
+    public int getFinalizeScanNodeTimeMs() {
+        return getTimeMs(finalizeScanNodeFinishTime, finalizeScanNodeStartTime);
+    }
+
+    public int getCreateScanRangeTimeMs() {
+        return getTimeMs(createScanRangeFinishTime, getSplitsFinishTime);
+    }
+
+    public int getScheduleTimeMs() {
+        return getTimeMs(queryScheduleFinishTime, queryPlanFinishTime);
+    }
+
+    public int getFragmentAssignTimsMs() {
+        return getTimeMs(assignFragmentTime, queryPlanFinishTime);
+    }
+
+    public int getFragmentSerializeTimeMs() {
+        return getTimeMs(fragmentSerializeTime, assignFragmentTime);
+    }
+
+    public int getFragmentRPCPhase1TimeMs() {
+        return getTimeMs(fragmentSendPhase1Time, fragmentSerializeTime);
+    }
+
+    public int getFragmentRPCPhase2TimeMs() {
+        return getTimeMs(fragmentSendPhase2Time, fragmentSendPhase1Time);
+    }
+
+    public double getFragmentCompressedSizeByte() {
+        return fragmentCompressedSize;
+    }
+
+    public long getFragmentRPCCount() {
+        return fragmentRpcCount;
+    }
+
+    public int getTimeMs(long end, long start) {
+        if (end == -1 || start == -1) {
+            return -1;
+        } else {
+            return (int) (end - start);
+        }
+    }
+
     public String getPrettyParseSqlTime() {
         return getPrettyTime(parseSqlFinishTime, parseSqlStartTime, TUnit.TIME_MS);
     }
@@ -863,6 +956,26 @@ public class SummaryProfile {
 
     private String getPrettyGetTableVersionCount() {
         return RuntimeProfile.printCounter(getTableVersionCount, TUnit.UNIT);
+    }
+
+    public long getGetPartitionVersionTime() {
+        return getPartitionVersionTime;
+    }
+
+    public long getGetPartitionVersionCount() {
+        return getPartitionVersionCount;
+    }
+
+    public long getGetPartitionVersionByHasDataCount() {
+        return getPartitionVersionByHasDataCount;
+    }
+
+    public long getGetTableVersionTime() {
+        return getTableVersionTime;
+    }
+
+    public long getGetTableVersionCount() {
+        return getTableVersionCount;
     }
 
     private String getPrettyTime(long end, long start, TUnit unit) {

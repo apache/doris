@@ -89,6 +89,7 @@ public class MTMVPlanUtil {
         ctx.setQualifiedUser(Auth.ADMIN_USER);
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
+        ctx.getState().setInternal(true);
         ctx.setThreadLocalInfo();
         // Debug session variable should be disabled when refreshed
         ctx.getSessionVariable().skipDeletePredicate = false;

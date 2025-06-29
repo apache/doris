@@ -139,16 +139,29 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
         // should be same order as InternalSchema.AUDIT_SCHEMA
+
+        // uuid and time
         logBuffer.append(event.queryId).append("\t");
         logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append("\t");
+
+        // cs info
         logBuffer.append(event.clientIp).append("\t");
         logBuffer.append(event.user).append("\t");
+        logBuffer.append(event.feIp).append("\t");
+
+        // default ctl and db
         logBuffer.append(event.ctl).append("\t");
         logBuffer.append(event.db).append("\t");
+
+        // query state
         logBuffer.append(event.state).append("\t");
         logBuffer.append(event.errorCode).append("\t");
         logBuffer.append(event.errorMessage).append("\t");
+
+        // execution info
         logBuffer.append(event.queryTime).append("\t");
+        logBuffer.append(event.cpuTimeMs).append("\t");
+        logBuffer.append(event.peakMemoryBytes).append("\t");
         logBuffer.append(event.scanBytes).append("\t");
         logBuffer.append(event.scanRows).append("\t");
         logBuffer.append(event.returnRows).append("\t");
@@ -156,17 +169,37 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.shuffleSendBytes).append("\t");
         logBuffer.append(event.scanBytesFromLocalStorage).append("\t");
         logBuffer.append(event.scanBytesFromRemoteStorage).append("\t");
-        logBuffer.append(event.stmtId).append("\t");
+
+        // plan info
+        logBuffer.append(event.parseTimeMs).append("\t");
+        logBuffer.append(event.planTimesMs).append("\t");
+        logBuffer.append(event.getMetaTimesMs).append("\t");
+        logBuffer.append(event.scheduleTimesMs).append("\t");
+        logBuffer.append(event.hitSqlCache ? 1 : 0).append("\t");
+        logBuffer.append(event.isHandledInFe ? 1 : 0).append("\t");
+
+        // queried tables, views and m-views
+        logBuffer.append(event.queriedTablesAndViews).append("\t");
+        logBuffer.append(event.chosenMViews).append("\t");
+
+        // variable and configs
+        logBuffer.append(event.changedVariables).append("\t");
+        logBuffer.append(event.sqlMode).append("\t");
+
+
+        // type and digest
         logBuffer.append(event.stmtType).append("\t");
-        logBuffer.append(event.isQuery ? 1 : 0).append("\t");
-        logBuffer.append(event.isNereids ? 1 : 0).append("\t");
-        logBuffer.append(event.feIp).append("\t");
-        logBuffer.append(event.cpuTimeMs).append("\t");
+        logBuffer.append(event.stmtId).append("\t");
         logBuffer.append(event.sqlHash).append("\t");
         logBuffer.append(event.sqlDigest).append("\t");
-        logBuffer.append(event.peakMemoryBytes).append("\t");
+        logBuffer.append(event.isQuery ? 1 : 0).append("\t");
+        logBuffer.append(event.isNereids ? 1 : 0).append("\t");
+        logBuffer.append(event.isInternal ? 1 : 0).append("\t");
+
+        // resource
         logBuffer.append(event.workloadGroup).append("\t");
         logBuffer.append(event.cloudClusterName).append("\t");
+
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;
         if (LOG.isDebugEnabled()) {
