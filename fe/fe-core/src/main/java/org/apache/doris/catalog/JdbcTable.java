@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.thrift.TJdbcTable;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -103,6 +104,8 @@ public class JdbcTable extends Table {
     private int connectionPoolMaxLifeTime;
     private boolean connectionPoolKeepAlive;
 
+    private ExternalFunctionRules functionRules;
+
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
         tempMap.put("mysql", TOdbcTableType.MYSQL);
@@ -128,6 +131,8 @@ public class JdbcTable extends Table {
             throws DdlException {
         super(id, name, TableType.JDBC, schema);
         validate(properties);
+        // check and set external function rules
+        checkAndSetExternalFunctionRules(properties);
     }
 
     public JdbcTable(long id, String name, List<Column> schema, TableType type) {
@@ -412,6 +417,12 @@ public class JdbcTable extends Table {
         }
     }
 
+    private void checkAndSetExternalFunctionRules(Map<String, String> properties) throws DdlException {
+        ExternalFunctionRules.check(properties.getOrDefault(JdbcResource.FUNCTION_RULES, ""));
+        this.functionRules = ExternalFunctionRules.create(jdbcTypeName,
+                properties.getOrDefault(JdbcResource.FUNCTION_RULES, ""));
+    }
+
     /**
      * Formats the provided name (for example, a database, table, or schema name) according to the specified parameters.
      *
@@ -508,5 +519,14 @@ public class JdbcTable extends Table {
 
     public static String formatNameWithRemoteName(String remoteName, String wrapStart, String wrapEnd) {
         return wrapStart + remoteName + wrapEnd;
+    }
+
+    // This is used when converting JdbcExternalTable to JdbcTable.
+    public void setExternalFunctionRules(ExternalFunctionRules functionRules) {
+        this.functionRules = functionRules;
+    }
+
+    public ExternalFunctionRules getExternalFunctionRules() {
+        return functionRules;
     }
 }

@@ -23,6 +23,8 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.ExternalFunctionRules;
+import org.apache.doris.datasource.ExternalFunctionRules.FunctionRewriteRules;
 import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Preconditions;
@@ -34,11 +36,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
-import java.util.function.Predicate;
 
 public class JdbcFunctionPushDownRule {
     private static final Logger LOG = LogManager.getLogger(JdbcFunctionPushDownRule.class);
-    private static final TreeSet<String> MYSQL_UNSUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+    public static final TreeSet<String> MYSQL_UNSUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 
     static {
         MYSQL_UNSUPPORTED_FUNCTIONS.add("date_trunc");
@@ -47,14 +48,14 @@ public class JdbcFunctionPushDownRule {
         MYSQL_UNSUPPORTED_FUNCTIONS.addAll(Arrays.asList(Config.jdbc_mysql_unsupported_pushdown_functions));
     }
 
-    private static final TreeSet<String> CLICKHOUSE_SUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+    public static final TreeSet<String> CLICKHOUSE_SUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 
     static {
         CLICKHOUSE_SUPPORTED_FUNCTIONS.add("from_unixtime");
         CLICKHOUSE_SUPPORTED_FUNCTIONS.add("unix_timestamp");
     }
 
-    private static final TreeSet<String> ORACLE_SUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+    public static final TreeSet<String> ORACLE_SUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 
     static {
         ORACLE_SUPPORTED_FUNCTIONS.add("nvl");
@@ -73,21 +74,21 @@ public class JdbcFunctionPushDownRule {
         return !ORACLE_SUPPORTED_FUNCTIONS.contains(functionName.toLowerCase());
     }
 
-    private static final Map<String, String> REPLACE_MYSQL_FUNCTIONS = Maps.newHashMap();
+    public static final Map<String, String> REPLACE_MYSQL_FUNCTIONS = Maps.newHashMap();
 
     static {
         REPLACE_MYSQL_FUNCTIONS.put("nvl", "ifnull");
         REPLACE_MYSQL_FUNCTIONS.put("to_date", "date");
     }
 
-    private static final Map<String, String> REPLACE_CLICKHOUSE_FUNCTIONS = Maps.newHashMap();
+    public static final Map<String, String> REPLACE_CLICKHOUSE_FUNCTIONS = Maps.newHashMap();
 
     static {
         REPLACE_CLICKHOUSE_FUNCTIONS.put("from_unixtime", "FROM_UNIXTIME");
         REPLACE_CLICKHOUSE_FUNCTIONS.put("unix_timestamp", "toUnixTimestamp");
     }
 
-    private static final Map<String, String> REPLACE_ORACLE_FUNCTIONS = Maps.newHashMap();
+    public static final Map<String, String> REPLACE_ORACLE_FUNCTIONS = Maps.newHashMap();
 
     static {
         REPLACE_ORACLE_FUNCTIONS.put("ifnull", "nvl");
@@ -105,77 +106,54 @@ public class JdbcFunctionPushDownRule {
         return REPLACE_ORACLE_FUNCTIONS.containsKey(functionName.toLowerCase());
     }
 
-    public static Expr processFunctions(TOdbcTableType tableType, Expr expr, List<String> errors) {
-        if (tableType == null || expr == null) {
+    public static Expr processFunctions(TOdbcTableType tableType, Expr expr, List<String> errors,
+            ExternalFunctionRules functionRules) {
+        if (tableType == null || expr == null || functionRules == null) {
             return expr;
         }
 
-        Predicate<String> checkFunction;
-        Predicate<String> replaceFunction;
-
-        if (TOdbcTableType.MYSQL.equals(tableType)) {
-            replaceFunction = JdbcFunctionPushDownRule::isReplaceMysqlFunctions;
-            checkFunction = JdbcFunctionPushDownRule::isMySQLFunctionUnsupported;
-        } else if (TOdbcTableType.CLICKHOUSE.equals(tableType)) {
-            replaceFunction = JdbcFunctionPushDownRule::isReplaceClickHouseFunctions;
-            checkFunction = JdbcFunctionPushDownRule::isClickHouseFunctionUnsupported;
-        } else if (TOdbcTableType.ORACLE.equals(tableType)) {
-            replaceFunction = JdbcFunctionPushDownRule::isReplaceOracleFunctions;
-            checkFunction = JdbcFunctionPushDownRule::isOracleFunctionUnsupported;
-        } else {
-            return expr;
-        }
-
-        return processFunctionsRecursively(expr, checkFunction, replaceFunction, errors, tableType);
+        return processFunctionsRecursively(expr, functionRules, errors, tableType);
     }
 
-    private static Expr processFunctionsRecursively(Expr expr, Predicate<String> checkFunction,
-            Predicate<String> replaceFunction, List<String> errors, TOdbcTableType tableType) {
+    private static Expr processFunctionsRecursively(Expr expr, ExternalFunctionRules functionRules, List<String> errors,
+            TOdbcTableType tableType) {
         if (expr instanceof FunctionCallExpr) {
             FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
             String func = functionCallExpr.getFnName().getFunction();
 
             Preconditions.checkArgument(!func.isEmpty(), "function can not be empty");
 
-            if (checkFunction.test(func)) {
-                String errMsg = "Unsupported function: " + func + " in expr: " + expr.toExternalSql(
-                        TableType.JDBC_EXTERNAL_TABLE, null)
-                        + " in JDBC Table Type: " + tableType;
-                LOG.warn(errMsg);
-                errors.add(errMsg);
+            // 1. check can push down
+            if (!functionRules.getFunctionPushDownRule().canPushDown(func)) {
+                if (LOG.isDebugEnabled()) {
+                    String errMsg = "Unsupported function: " + func + " in expr: " + expr.toExternalSql(
+                            TableType.JDBC_EXTERNAL_TABLE, null)
+                            + " in JDBC Table Type: " + tableType;
+                    LOG.debug(errMsg);
+                }
+                errors.add("has error");
             }
 
-            replaceFunctionNameIfNecessary(func, replaceFunction, functionCallExpr, tableType);
-
+            // 2. replace function
+            replaceFunctionNameIfNecessary(func, functionRules.getFunctionRewriteRule(), functionCallExpr);
             expr = replaceGenericFunctionExpr(functionCallExpr, func);
         }
 
         List<Expr> children = expr.getChildren();
         for (int i = 0; i < children.size(); i++) {
             Expr child = children.get(i);
-            Expr newChild = processFunctionsRecursively(child, checkFunction, replaceFunction, errors, tableType);
+            Expr newChild = processFunctionsRecursively(child, functionRules, errors, tableType);
             expr.setChild(i, newChild);
         }
 
         return expr;
     }
 
-    private static void replaceFunctionNameIfNecessary(String func, Predicate<String> replaceFunction,
-            FunctionCallExpr functionCallExpr, TOdbcTableType tableType) {
-        if (replaceFunction.test(func)) {
-            String newFunc;
-            if (TOdbcTableType.MYSQL.equals(tableType)) {
-                newFunc = REPLACE_MYSQL_FUNCTIONS.get(func.toLowerCase());
-            } else if (TOdbcTableType.CLICKHOUSE.equals(tableType)) {
-                newFunc = REPLACE_CLICKHOUSE_FUNCTIONS.get(func);
-            } else if (TOdbcTableType.ORACLE.equals(tableType)) {
-                newFunc = REPLACE_ORACLE_FUNCTIONS.get(func);
-            } else {
-                newFunc = null;
-            }
-            if (newFunc != null) {
-                functionCallExpr.setFnName(FunctionName.createBuiltinName(newFunc));
-            }
+    private static void replaceFunctionNameIfNecessary(String func, FunctionRewriteRules rewriteRule,
+            FunctionCallExpr functionCallExpr) {
+        String newFuncName = rewriteRule.rewriteFunction(func);
+        if (!newFuncName.equals(func)) {
+            functionCallExpr.setFnName(FunctionName.createBuiltinName(newFuncName));
         }
     }
 

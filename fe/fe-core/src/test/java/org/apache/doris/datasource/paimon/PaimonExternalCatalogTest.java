@@ -31,7 +31,7 @@ public class PaimonExternalCatalogTest {
         HashMap<String, String> props = new HashMap<>();
         props.put("warehouse", "not_exist");
         PaimonExternalCatalog catalog = new PaimonFileExternalCatalog(1, "name", "resource", props, "comment");
-        catalog.setInitialized(true);
+        catalog.setInitializedForTest(true);
 
         try {
             catalog.getPaimonTable("dbName", "tblName");
