@@ -50,6 +50,10 @@ public:
     [[nodiscard]] MOCK_FUNCTION size_t get_reserve_mem_size(RuntimeState* state, bool eos);
 
 protected:
+    Status _finalize_build_block(RuntimeState* state, vectorized::Block& block,
+                                 vectorized::ColumnRawPtrs& raw_ptrs,
+                                 vectorized::ColumnUInt8::MutablePtr& null_map_val,
+                                 std::vector<uint16_t>& converted_columns);
     Status _hash_table_init(RuntimeState* state);
     void _set_build_side_has_external_nullmap(vectorized::Block& block,
                                               const std::vector<int>& res_col_ids);
