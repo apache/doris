@@ -188,7 +188,7 @@ TEST_F(JsonbDocumentTest, writer) {
     ASSERT_TRUE(it->value()->isDecimal256());
     ASSERT_TRUE(it->value()->isDecimal());
     const auto* jsonb_decimal256_value = it->value()->unpack<JsonbDecimal256>();
-    ASSERT_EQ(jsonb_decimal256_value->val().value, int256_value);
+    ASSERT_EQ(jsonb_decimal256_value->val(), int256_value);
     ASSERT_EQ(jsonb_decimal256_value->scale, 8);
     ASSERT_EQ(jsonb_decimal256_value->precision, 40);
 
