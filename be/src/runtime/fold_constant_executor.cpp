@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -81,6 +82,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
     SCOPED_ATTACH_TASK(_mem_tracker);
+    signal::SignalTaskIdKeeper keeper(_query_id);
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
