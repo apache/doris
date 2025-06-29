@@ -320,6 +320,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 "CumulativeCompaction.modify_rowsets.trigger_abort_job_failed for tablet_id {}",
                 cloud_tablet()->tablet_id());
     });
+    _state = CompactionState::COMMITTING;
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -327,11 +328,19 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         int64_t hold_delete_bitmap_lock_time_ms =
                 (MonotonicMicros() - get_delete_bitmap_lock_start_time) / 1000;
         g_cu_compaction_hold_delete_bitmap_lock_time_ms << hold_delete_bitmap_lock_time_ms;
+        if (hold_delete_bitmap_lock_time_ms > 800 && config::enable_mow_verbose_log) {
+            LOG_INFO("[verbose] cumu compaction hold delete bitmap lock too long")
+                    .tag("tablet_id", _tablet->tablet_id())
+                    .tag("job_id", _uuid)
+                    .tag("initiator", initiator)
+                    .tag("hold_lock_time_ms", hold_delete_bitmap_lock_time_ms);
+        }
     }
     if (resp.has_alter_version()) {
         (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
     }
     if (!st.ok()) {
+        _state = CompactionState::INITED;
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
         } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
@@ -613,7 +622,7 @@ void CloudCumulativeCompaction::update_cumulative_point() {
 
 void CloudCumulativeCompaction::do_lease() {
     TEST_INJECTION_POINT_RETURN_WITH_VOID("CloudCumulativeCompaction::do_lease");
-    if (_state == CompactionState::SUCCESS) {
+    if (_state == CompactionState::COMMITTING || _state == CompactionState::SUCCESS) {
         return;
     }
     cloud::TabletJobInfoPB job;
