@@ -429,6 +429,7 @@ DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
 DEFINE_mInt64(base_compaction_max_compaction_score, "20");
+DEFINE_mInt64(mow_base_compaction_max_compaction_score, "200");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
