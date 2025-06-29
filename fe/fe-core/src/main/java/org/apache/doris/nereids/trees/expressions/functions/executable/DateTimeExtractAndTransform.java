@@ -1267,4 +1267,15 @@ public class DateTimeExtractAndTransform {
         daysToAdd = daysToAdd == 0 ? 7 : daysToAdd;
         return date.plusDays(daysToAdd);
     }
+
+    @ExecFunction(name = "previous_day")
+    public static Expression previousDay(DateV2Literal date, StringLiteral day) {
+        int dayOfWeek = getDayOfWeek(day.getValue());
+        if(dayOfWeek == 0) {
+            throw new RuntimeException("Invalid day of week : " + day.getValue());
+        }
+        int daysToSubtract = (date.getDayOfWeek() - dayOfWeek + 7) % 7;
+        daysToSubtract = daysToSubtract == 0 ? 7 : daysToSubtract;
+        return date.minusDays(daysToSubtract);
+    }
 }
