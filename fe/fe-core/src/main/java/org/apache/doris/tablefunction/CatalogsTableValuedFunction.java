@@ -17,8 +17,6 @@
 
 package org.apache.doris.tablefunction;
 
-
-
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -28,6 +26,7 @@ import org.apache.doris.thrift.TMetadataType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -36,11 +35,11 @@ public class CatalogsTableValuedFunction extends MetadataTableValuedFunction {
     public static final String NAME = "catalogs";
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-        new Column("CatalogId", ScalarType.createType(PrimitiveType.BIGINT)),
-        new Column("CatalogName", ScalarType.createStringType()),
-        new Column("CatalogType", ScalarType.createStringType()),
-        new Column("Property", ScalarType.createStringType()),
-        new Column("Value", ScalarType.createStringType()));
+            new Column("CatalogId", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("CatalogName", ScalarType.createStringType()),
+            new Column("CatalogType", ScalarType.createStringType()),
+            new Column("Property", ScalarType.createStringType()),
+            new Column("Value", ScalarType.createStringType()));
 
     public CatalogsTableValuedFunction(Map<String, String> params)
             throws org.apache.doris.nereids.exceptions.AnalysisException {
@@ -80,9 +79,9 @@ public class CatalogsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.CATALOGS);
-        return metaScanRange;
+        return Lists.newArrayList(metaScanRange);
     }
 }

@@ -37,10 +37,10 @@ public class IcebergMeta extends TableValuedFunction {
         super("iceberg_meta", properties);
     }
 
-    public static IcebergMeta createSnapshots(List<String> nameParts) {
+    public static IcebergMeta createIcebergMeta(List<String> nameParts, String queryType) {
         Map<String, String> prop = Maps.newHashMap();
         prop.put(IcebergTableValuedFunction.TABLE, Joiner.on(".").join(nameParts));
-        prop.put(IcebergTableValuedFunction.QUERY_TYPE, "snapshots");
+        prop.put(IcebergTableValuedFunction.QUERY_TYPE, queryType);
         return new IcebergMeta(new Properties(prop));
     }
 
@@ -53,10 +53,10 @@ public class IcebergMeta extends TableValuedFunction {
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new IcebergTableValuedFunction(arguments);
+            return IcebergTableValuedFunction.create(arguments);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build IcebergTableValuedFunction by "
-                + this + ": " + t.getMessage(), t);
+                    + this + ": " + t.getMessage(), t);
         }
     }
 

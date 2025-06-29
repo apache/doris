@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include <stddef.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 
-#include <memory>
+#include <cstddef>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -36,26 +36,27 @@ class SlotDescriptor;
 namespace vectorized {
 class Block;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-class TrinoConnectorJniReader : public JniReader {
-    ENABLE_FACTORY_CREATOR(TrinoConnectorJniReader);
+class IcebergSysTableJniReader : public JniReader {
+    ENABLE_FACTORY_CREATOR(IcebergSysTableJniReader);
 
 public:
-    static const std::string TRINO_CONNECTOR_OPTION_PREFIX;
-    TrinoConnectorJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
-                            RuntimeState* state, RuntimeProfile* profile,
-                            const TFileRangeDesc& range);
+    IcebergSysTableJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                             RuntimeState* state, RuntimeProfile* profile,
+                             const TIcebergMetadataParams& range_params);
 
-    ~TrinoConnectorJniReader() override = default;
+    ~IcebergSysTableJniReader() override = default;
 
     Status init_reader(
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 private:
-    Status _set_spi_plugins_dir();
+    const TIcebergMetadataParams& _range_params;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
