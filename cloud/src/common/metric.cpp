@@ -229,21 +229,8 @@ static void export_fdb_status_details(const std::string& status_str) {
     }
 }
 
-static void export_meta_ranges_details(TxnKv* kv) {
-    auto* txn_kv = dynamic_cast<FdbTxnKv*>(kv);
-    if (!txn_kv) {
-        LOG(WARNING) << "this method only support fdb txn kv";
-        return;
-    }
-
-    std::vector<std::string> partition_boundaries;
-    TxnErrorCode code = txn_kv->get_partition_boundaries(&partition_boundaries);
-    if (code != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << fmt::format("failed to get boundaries, code={}", code);
-        return;
-    }
-
-    std::unordered_map<std::string, size_t> partition_count;
+void get_partition_boundaries_count(std::vector<std::string>& partition_boundaries,
+                                    std::unordered_map<std::string, size_t>& partition_count) {
     size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
     for (auto&& boundary : partition_boundaries) {
         if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
@@ -273,6 +260,24 @@ static void export_meta_ranges_details(TxnKv* kv) {
             partition_count[key]++;
         }
     }
+}
+
+static void export_meta_ranges_details(TxnKv* kv) {
+    auto* txn_kv = dynamic_cast<FdbTxnKv*>(kv);
+    if (!txn_kv) {
+        LOG(WARNING) << "this method only support fdb txn kv";
+        return;
+    }
+
+    std::vector<std::string> partition_boundaries;
+    TxnErrorCode code = txn_kv->get_partition_boundaries(&partition_boundaries);
+    if (code != TxnErrorCode::TXN_OK) {
+        auto msg = fmt::format("failed to get boundaries, code={}", code);
+        return;
+    }
+
+    std::unordered_map<std::string, size_t> partition_count;
+    get_partition_boundaries_count(partition_boundaries, partition_count);
 
     int64_t txn_count {}, meta_count {}, recycle_count {};
     for (auto&& [key, count] : partition_count) {
