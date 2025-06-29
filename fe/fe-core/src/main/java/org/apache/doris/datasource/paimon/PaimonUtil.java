@@ -42,10 +42,12 @@ import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
 
@@ -165,8 +167,10 @@ public class PaimonUtil {
             case TINYINT:
                 return Type.TINYINT;
             case VARCHAR:
-            case BINARY:
+                return ScalarType.createVarcharType(((VarCharType) dataType).getLength());
             case CHAR:
+                return ScalarType.createCharType(((CharType) dataType).getLength());
+            case BINARY:
             case VARBINARY:
                 return Type.STRING;
             case DECIMAL:
