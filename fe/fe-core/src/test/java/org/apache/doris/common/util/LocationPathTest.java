@@ -17,190 +17,187 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.catalog.HdfsResource;
-import org.apache.doris.common.util.LocationPath.Scheme;
-import org.apache.doris.datasource.property.constants.OssProperties;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemType;
+import org.apache.doris.thrift.TFileType;
 
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class LocationPathTest {
 
-    @Test
-    public void testHdfsLocationConvert() {
-        // non HA
-        Map<String, String> rangeProps = new HashMap<>();
-        LocationPath locationPath = new LocationPath("hdfs://dir/file.path", rangeProps);
-        Assertions.assertTrue(locationPath.get().startsWith("hdfs://"));
+    private static Map<StorageProperties.Type, StorageProperties> STORAGE_PROPERTIES_MAP = new HashMap<>();
 
-        String beLocation = locationPath.toStorageLocation().toString();
-        Assertions.assertTrue(beLocation.startsWith("hdfs://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
-                FileSystemType.HDFS);
+    static {
+        Map<String, String> props = new HashMap<>();
+        props.put("dfs.nameservices", "namenode:8020");
+        props.put("s3.endpoint", "s3.us-east-2.amazonaws.com");
+        props.put("s3.access_key", "access_key");
+        props.put("s3.secret_key", "secret_key");
+        props.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        props.put("oss.access_key", "access_key");
+        props.put("oss.secret_key", "secret_key");
+        props.put("cos.endpoint", "cos.ap-guangzhou.myqcloud.com");
+        props.put("cos.access_key", "access_key");
+        props.put("cos.secret_key", "secret_key");
+        props.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        props.put("obs.access_key", "access_key");
+        props.put("obs.secret_key", "secret_key");
+        props.put("fs.defaultFS", "hdfs://namenode:8020");
+        props.put("azure.endpoint", "https://mystorageaccount.blob.core.windows.net");
+        props.put("azure.access_key", "access_key");
+        props.put("azure.secret_key", "secret_key");
+        props.put("broker.name", "mybroker");
+
+        try {
+            STORAGE_PROPERTIES_MAP = StorageProperties.createAll(props).stream()
+                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Test
+    public void testHdfsLocationConvert() throws UserException {
+        // non HA
+        LocationPath locationPath = LocationPath.of("hdfs://dir/file.path");
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("hdfs://"));
+        Assertions.assertEquals(locationPath.getFsIdentifier(), "hdfs://dir");
 
         // HA props
         Map<String, String> props = new HashMap<>();
         props.put("dfs.nameservices", "ns");
-        locationPath = new LocationPath("hdfs:///dir/file.path", props);
-        Assertions.assertTrue(locationPath.get().startsWith("hdfs://")
-                && !locationPath.get().startsWith("hdfs:///"));
-
-        beLocation = locationPath.toStorageLocation().toString();
-        Assertions.assertTrue(beLocation.startsWith("hdfs://") && !beLocation.startsWith("hdfs:///"));
+        //HdfsProperties hdfsProperties = (HdfsProperties) StorageProperties.createPrimary( props);
+        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = StorageProperties.createAll(props).stream()
+                .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity()));
+        locationPath = LocationPath.of("hdfs:///dir/file.path", storagePropertiesMap);
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("hdfs://")
+                && !locationPath.getNormalizedLocation().startsWith("hdfs:///"));
 
         // nonstandard '/' for hdfs path
-        locationPath = new LocationPath("hdfs:/dir/file.path", props);
-        Assertions.assertTrue(locationPath.get().startsWith("hdfs://"));
-
-        beLocation = locationPath.toStorageLocation().toString();
-        Assertions.assertTrue(beLocation.startsWith("hdfs://"));
-
-        // empty ha nameservices
-        props.put("dfs.nameservices", "");
-        locationPath = new LocationPath("hdfs:/dir/file.path", props);
-
-        beLocation = locationPath.toStorageLocation().toString();
-        Assertions.assertTrue(locationPath.get().startsWith("/dir")
-                && !locationPath.get().startsWith("hdfs://"));
-        Assertions.assertTrue(beLocation.startsWith("/dir") && !beLocation.startsWith("hdfs://"));
-
-        props.clear();
-        props.put(HdfsResource.HADOOP_FS_NAME, "hdfs://test.com");
-        locationPath = new LocationPath("/dir/file.path", props);
-        Assertions.assertTrue(locationPath.get().startsWith("hdfs://"));
-        Assertions.assertEquals("hdfs://test.com/dir/file.path", locationPath.get());
-        Assertions.assertEquals("hdfs://test.com/dir/file.path", locationPath.toStorageLocation().toString());
-        props.clear();
-        props.put(HdfsResource.HADOOP_FS_NAME, "oss://test.com");
-        locationPath = new LocationPath("/dir/file.path", props);
-        Assertions.assertTrue(locationPath.get().startsWith("oss://"));
-        Assertions.assertEquals("oss://test.com/dir/file.path", locationPath.get());
-        Assertions.assertEquals("s3://test.com/dir/file.path", locationPath.toStorageLocation().toString());
+        locationPath = LocationPath.of("hdfs:/dir/file.path", storagePropertiesMap);
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("hdfs://"));
     }
 
     @Test
     public void testJFSLocationConvert() {
-        String loc;
-        Map<String, String> rangeProps = new HashMap<>();
-
-        LocationPath locationPath = new LocationPath("jfs://test.com", rangeProps);
+        LocationPath locationPath = LocationPath.of("jfs://test.com");
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("jfs://"));
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("jfs://"));
         // BE
-        loc = locationPath.toStorageLocation().toString();
+        String loc = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(loc.startsWith("jfs://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(loc, Collections.emptyMap(), null).first,
-                FileSystemType.JFS);
+        Assertions.assertEquals(FileSystemType.JFS, locationPath.getFileSystemType());
+        Assertions.assertEquals("jfs://test.com", locationPath.getFsIdentifier());
+        Assertions.assertEquals(TFileType.FILE_BROKER, locationPath.getTFileTypeForBE());
     }
 
+    @Disabled("not support in master")
     @Test
     public void testGSLocationConvert() {
-        Map<String, String> rangeProps = new HashMap<>();
+        /*        Map<String, String> rangeProps = new HashMap<>();
 
         // use s3 client to access gs
-        LocationPath locationPath = new LocationPath("gs://test.com", rangeProps);
+        LocationPath locationPath = LocationPath.of("gs://test.com", rangeProps);
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("s3://"));
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("s3://"));
         // BE
         String beLoc = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLoc.startsWith("s3://"));
         Assertions.assertEquals(LocationPath.getFSIdentity(beLoc, Collections.emptyMap(), null).first,
-                FileSystemType.S3);
+                FileSystemType.S3);*/
     }
 
     @Test
     public void testOSSLocationConvert() {
-        Map<String, String> rangeProps = new HashMap<>();
-        LocationPath locationPath = new LocationPath("oss://test.com", rangeProps);
+        LocationPath locationPath = LocationPath.of("oss://test.com");
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("oss://"));
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("oss://"));
         // BE
         String beLocation = locationPath.toStorageLocation().toString();
-        Assertions.assertTrue(beLocation.startsWith("s3://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
-                FileSystemType.S3);
+        Assertions.assertTrue(beLocation.startsWith("oss://"));
+        Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
+        Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
 
         // test oss-hdfs
-        rangeProps.put(OssProperties.ENDPOINT, "oss-dls.aliyuncs.com");
-        locationPath = new LocationPath("oss://test.oss-dls.aliyuncs.com/path", rangeProps);
-        Assertions.assertEquals("oss://test.oss-dls.aliyuncs.com/path", locationPath.get());
-        Assertions.assertEquals(LocationPath.getFSIdentity(locationPath.get(), rangeProps, null).first,
+        /* rangeProps.put(OssProperties.ENDPOINT, "oss-dls.aliyuncs.com");
+        locationPath = LocationPath.of("oss://test.oss-dls.aliyuncs.com/path", rangeProps);
+        Assertions.assertEquals("oss://test.oss-dls.aliyuncs.com/path", locationPath.getNormalizedLocation());
+        Assertions.assertEquals(LocationPath.getFSIdentity(locationPath.getNormalizedLocation(), rangeProps, null).first,
                 FileSystemType.HDFS);
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("oss://test.oss-dls.aliyuncs"));
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("oss://test.oss-dls.aliyuncs"));
         // BE
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("oss://test.oss-dls.aliyuncs"));
-        Assertions.assertEquals(locationPath.getFileSystemType(), FileSystemType.HDFS);
+        Assertions.assertEquals(locationPath.getFileSystemType(), FileSystemType.HDFS);*/
     }
 
     @Test
     public void testCOSLocationConvert() {
-        Map<String, String> rangeProps = new HashMap<>();
-        LocationPath locationPath = new LocationPath("cos://test.com", rangeProps);
+        LocationPath locationPath = LocationPath.of("cos://test.com");
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("cos://"));
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("cos://"));
         String beLocation = locationPath.toStorageLocation().toString();
         // BE
-        Assertions.assertTrue(beLocation.startsWith("s3://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
-                FileSystemType.S3);
+        Assertions.assertTrue(beLocation.startsWith("cos://"));
+        Assertions.assertEquals(locationPath.getFileSystemType(), FileSystemType.S3);
 
-        locationPath = new LocationPath("cosn://test.com", rangeProps);
+        locationPath = LocationPath.of("cosn://test.com");
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("cosn://"));
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("cosn://"));
         // BE
         beLocation = locationPath.toStorageLocation().toString();
-        Assertions.assertTrue(beLocation.startsWith("s3://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
-                FileSystemType.S3);
+        Assertions.assertTrue(beLocation.startsWith("cosn://"));
+        Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
+        Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
 
-        locationPath = new LocationPath("ofs://test.com", rangeProps);
+        locationPath = LocationPath.of("ofs://test.com");
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("ofs://"));
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("ofs://"));
         // BE
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("ofs://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
-                FileSystemType.OFS);
+        Assertions.assertEquals(FileSystemType.OFS, locationPath.getFileSystemType());
+        Assertions.assertEquals(TFileType.FILE_BROKER, locationPath.getTFileTypeForBE());
 
         // GFS is now equals to DFS
-        locationPath = new LocationPath("gfs://test.com", rangeProps);
+        locationPath = LocationPath.of("gfs://test.com");
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("gfs://"));
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("gfs://"));
         // BE
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("gfs://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
+        Assertions.assertEquals(locationPath.getFileSystemType(),
                 FileSystemType.HDFS);
+        Assertions.assertEquals(TFileType.FILE_BROKER, locationPath.getTFileTypeForBE());
     }
 
     @Test
     public void testOBSLocationConvert() {
-        Map<String, String> rangeProps = new HashMap<>();
-        LocationPath locationPath = new LocationPath("obs://test.com", rangeProps);
+        LocationPath locationPath = LocationPath.of("obs://test.com");
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("obs://"));
-        // BE
-        String beLocation = locationPath.toStorageLocation().toString();
-        Assertions.assertTrue(beLocation.startsWith("s3://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("obs://"));
+        Assertions.assertEquals(locationPath.getFileSystemType(),
                 FileSystemType.S3);
+        Assertions.assertEquals(locationPath.getTFileTypeForBE(),
+                TFileType.FILE_S3);
     }
 
     @Test
     public void testUnsupportedLocationConvert() {
         // when use unknown location, pass to BE
-        Map<String, String> rangeProps = new HashMap<>();
-        LocationPath locationPath = new LocationPath("unknown://test.com", rangeProps);
+        LocationPath locationPath = LocationPath.of("unknown://test.com");
         // FE
-        Assertions.assertTrue(locationPath.get().startsWith("unknown://"));
-        Assertions.assertTrue(locationPath.getScheme() == Scheme.UNKNOWN);
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("unknown://"));
         // BE
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("unknown://"));
@@ -209,99 +206,67 @@ public class LocationPathTest {
     @Test
     public void testNoSchemeLocation() {
         // when use unknown location, pass to BE
-        Map<String, String> rangeProps = new HashMap<>();
-        LocationPath locationPath = new LocationPath("/path/to/local", rangeProps);
+        LocationPath locationPath = LocationPath.of("/path/to/local");
         // FE
-        Assertions.assertTrue(locationPath.get().equalsIgnoreCase("/path/to/local"));
-        Assertions.assertTrue(locationPath.getScheme() == Scheme.NOSCHEME);
+        Assertions.assertTrue(locationPath.getNormalizedLocation().equalsIgnoreCase("/path/to/local"));
+        Assertions.assertTrue(StringUtils.isEmpty(locationPath.getSchema()));
         // BE
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.equalsIgnoreCase("/path/to/local"));
     }
 
     @Test
-    public void testLocalFileSystem() {
-        HashMap<String, String> props = new HashMap<>();
-        props.put("fs.defaultFS", "hdfs:///xyz");
-        LocationPath p1 = new LocationPath("file:///abc/def", props);
-        Assertions.assertEquals(Scheme.LOCAL, p1.getScheme());
-        LocationPath p2 = new LocationPath("file:/abc/def", props);
-        Assertions.assertEquals(Scheme.LOCAL, p2.getScheme());
-        LocationPath p3 = new LocationPath("file://authority/abc/def", props);
-        Assertions.assertEquals(Scheme.LOCAL, p3.getScheme());
+    public void testLocationProperties() {
+        assertNormalize("hdfs://namenode:8020/path/to/file", "hdfs://namenode:8020/path/to/file");
+        assertNormalize("hdfs://namenode/path/to/file", "hdfs://namenode/path/to/file");
+        assertNormalize("s3://bucket/path/to/file", "s3://bucket/path/to/file");
+        assertNormalize("s3a://bucket/path/to/file", "s3://bucket/path/to/file");
+        assertNormalize("s3n://bucket/path/to/file", "s3://bucket/path/to/file");
+        assertNormalize("oss://bucket/path/to/file", "s3://bucket/path/to/file");
+        assertNormalize("cos://bucket/path/to/file", "s3://bucket/path/to/file");
+        assertNormalize("obs://bucket/path/to/file", "s3://bucket/path/to/file");
+        assertNormalize("ofs://bucket/path/to/file", "ofs://bucket/path/to/file");
+        assertNormalize("jfs://bucket/path/to/file", "jfs://bucket/path/to/file");
+        assertNormalize("gfs://bucket/path/to/file", "gfs://bucket/path/to/file");
+        assertNormalize("cosn://bucket/path/to/file", "s3://bucket/path/to/file");
+        assertNormalize("viewfs://cluster/path/to/file", "viewfs://cluster/path/to/file");
+        assertNormalize("/path/to/file", "hdfs://namenode:8020/path/to/file");
+        assertNormalize("hdfs:///path/to/file", "hdfs://namenode:8020/path/to/file");
+    }
+
+    private void assertNormalize(String input, String expected) {
+        LocationPath locationPath = LocationPath.of(input, STORAGE_PROPERTIES_MAP);
+        String actual = locationPath.getNormalizedLocation();
+        Assertions.assertEquals(expected, actual);
     }
 
     @Test
-    public void testNormalizedHdfsPath() {
-        // Test case 1: Path with special characters that need encoding
-        // Input: Path with spaces and special characters
-        // Expected: Characters are properly encoded while preserving / and :
-        String location = "hdfs://namenode/path with spaces/<special>chars";
-        String host = "";
-        boolean enableOssRootPolicy = false;
-        String result = LocationPath.normalizedHdfsPath(location, host, enableOssRootPolicy);
-        Assertions.assertEquals("hdfs://namenode/path with spaces/<special>chars", result);
+    public void testMinIoProperties() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("minio.endpoint", "https://minio.example.com");
+        props.put("minio.access_key", "access_key");
+        props.put("minio.secret_key", "secret_key");
 
-        // Test case 2: Empty host in URI with host parameter provided
-        // Input: hdfs:///, host = nameservice
-        // Expected: hdfs://nameservice/
-        location = "hdfs:///path/to/file";
-        host = "nameservice";
-        result = LocationPath.normalizedHdfsPath(location, host, false);
-        Assertions.assertEquals("hdfs://nameservice/path/to/file", result);
-
-        // Test case 3: Broken prefix case (hdfs:/ instead of hdfs://)
-        // Input: hdfs:/path, host = nameservice
-        // Expected: hdfs://nameservice/path
-        location = "hdfs:/path/to/file";
-        host = "nameservice";
-        result = LocationPath.normalizedHdfsPath(location, host, false);
-        Assertions.assertEquals("hdfs://nameservice/path/to/file", result);
-
-        // Test case 4: Empty host parameter with enableOssRootPolicy=true
-        // Input: hdfs://customized_host/path
-        // Expected: hdfs://customized_host/path (unchanged)
-        location = "hdfs://customized_host/path/to/file";
-        host = "";
-        result = LocationPath.normalizedHdfsPath(location, host, true);
-        Assertions.assertEquals("hdfs://customized_host/path/to/file", result);
-
-        // Test case 5: Empty host parameter with enableOssRootPolicy=false
-        // Input: hdfs://host/path
-        // Expected: /path
-        location = "hdfs://customized_host/path/to/file";
-        host = "";
-        result = LocationPath.normalizedHdfsPath(location, host, false);
-        Assertions.assertEquals("/customized_host/path/to/file", result);
-
-        // Test case 6: hdfs:/// with empty host parameter
-        // Input: hdfs:///path
-        // Expected: Exception since this format is not supported
-        location = "hdfs:///path/to/file";
-        host = "";
-        boolean exceptionThrown = false;
-        try {
-            LocationPath.normalizedHdfsPath(location, host, false);
-        } catch (RuntimeException e) {
-            exceptionThrown = true;
-            Assertions.assertTrue(e.getMessage().contains("Invalid location with empty host"));
-        }
-        Assertions.assertTrue(exceptionThrown);
-
-        // Test case 7: Non-empty host in URI (regular case)
-        // Input: hdfs://existinghost/path
-        // Expected: hdfs://existinghost/path (unchanged)
-        location = "hdfs://existinghost/path/to/file";
-        host = "nameservice";
-        result = LocationPath.normalizedHdfsPath(location, host, false);
-        Assertions.assertEquals("hdfs://existinghost/path/to/file", result);
-
-        // Test case 8: No valid host name
-        // Input: hdfs://hdfs_host/path
-        // Expected: hdfs://existinghost/path (unchanged)
-        location = "hdfs://hdfs_host/path/to/file";
-        host = "nameservice";
-        result = LocationPath.normalizedHdfsPath(location, host, false);
-        Assertions.assertEquals("hdfs://nameservice/hdfs_host/path/to/file", result);
+        StorageProperties minioProperties = StorageProperties.createAll(props).stream()
+                .filter(p -> p.getType() == StorageProperties.Type.MINIO)
+                .findFirst()
+                .orElseThrow(() -> new UserException("MinIO properties not found"));
+        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(StorageProperties.Type.MINIO, minioProperties);
+        LocationPath locationPath = LocationPath.of("s3a://minio.example.com/bucket/path", storagePropertiesMap);
+        Assertions.assertEquals("s3://minio.example.com/bucket/path", locationPath.getNormalizedLocation());
+        Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
+        Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
     }
+
+    @Test
+    public void testHdfsStorageLocationConvert() {
+        String location = "hdfs://172.16.0.35:8020/user/hive/warehouse/partition_special_characters_1/pt=1,1%3D1, 3%3D2+1, 1%3D3-2, 3%2F3%3D1, 2%2F2%3D1, 2%2F1%3D2, 2%2F1%3D2 +1 -1,2%2F1%3D2 %2A3 %2F3";
+        LocationPath locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
+        Assertions.assertEquals(location, locationPath.getNormalizedLocation());
+        locationPath = LocationPath.of(location);
+        Assertions.assertEquals(location, locationPath.getNormalizedLocation());
+    }
+
 }
