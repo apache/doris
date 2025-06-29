@@ -340,6 +340,14 @@ DECLARE_Int32(be_service_threads);
 DECLARE_mInt32(pipeline_status_report_interval);
 // Time slice for pipeline task execution (ms)
 DECLARE_mInt32(pipeline_task_exec_time_slice);
+
+// task executor inital split concurrency
+DECLARE_mInt32(task_executor_initial_split_concurrency);
+// task executor min concurrency per task
+DECLARE_mInt32(task_executor_min_concurrency_per_task);
+// task executor max concurrency per task
+DECLARE_mInt32(task_executor_max_concurrency_per_task);
+
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);

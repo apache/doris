@@ -61,18 +61,26 @@ void ScannerScheduler::stop() {
 
     _is_closed = true;
 
-    _limited_scan_thread_pool->shutdown();
-    _limited_scan_thread_pool->wait();
+    if (_limited_scan_task_executor) {
+        _limited_scan_task_executor->stop();
+    }
 
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
-    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
-                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                            .build(&_limited_scan_thread_pool));
+    TimeSharingTaskExecutor::ThreadConfig thread_config;
+    thread_config.thread_name = "LimitedScanThreadPool";
+    thread_config.max_thread_num = config::doris_scanner_thread_pool_thread_num;
+    thread_config.min_thread_num = config::doris_scanner_thread_pool_thread_num;
+    thread_config.max_queue_size = config::doris_scanner_thread_pool_queue_size;
+    _limited_scan_task_executor = TimeSharingTaskExecutor::create_shared(
+            thread_config, thread_config.max_thread_num * 2,
+            config::task_executor_min_concurrency_per_task,
+            config::task_executor_max_concurrency_per_task, std::make_shared<SystemTicker>());
+    RETURN_IF_ERROR(_limited_scan_task_executor->init());
+    RETURN_IF_ERROR(_limited_scan_task_executor->start());
+
     _is_init = true;
     return Status::OK();
 }
@@ -96,21 +104,33 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         }
 
         scanner_delegate->_scanner->start_wait_worker_timer();
-        auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
-            auto status = [&] {
-                RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                return Status::OK();
-            }();
 
-            if (!status.ok()) {
-                scanner_ref->set_status(status);
-                ctx->push_back_scan_task(scanner_ref);
+        std::shared_ptr<SplitRunner> split_runner;
+        if (scan_task->is_first_schedule) {
+            split_runner = std::make_shared<ScannerSplitRunner>(
+                    "split_runner", [scanner_ref = scan_task, ctx]() {
+                        auto status = [&] {
+                            RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
+                            return Status::OK();
+                        }();
+                        if (!status.ok()) {
+                            scanner_ref->set_status(status);
+                            ctx->push_back_scan_task(scanner_ref);
+                            return true;
+                        }
+                        return scanner_ref->is_eos();
+                    });
+            RETURN_IF_ERROR(split_runner->init());
+            _limited_scan_task_executor->enqueue_splits(ctx->task_handle(), false, {split_runner});
+            scan_task->is_first_schedule = false;
+        } else {
+            split_runner = scan_task->split_runner.lock();
+            if (split_runner == nullptr) {
+                return Status::OK();
             }
-        });
-        if (!s.ok()) {
-            scan_task->set_status(s);
-            return s;
+            _limited_scan_task_executor->re_enqueue_split(ctx->task_handle(), false, split_runner);
         }
+        scan_task->split_runner = split_runner;
     } else {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
@@ -130,9 +150,11 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                 if (!status.ok()) {
                     scanner_ref->set_status(status);
                     ctx->push_back_scan_task(scanner_ref);
+                    return true;
                 }
+                return scanner_ref->is_eos();
             };
-            SimplifiedScanTask simple_scan_task = {work_func, ctx};
+            SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
             return scan_sched->submit_scan_task(simple_scan_task);
         };
 
@@ -152,7 +174,10 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
 std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
         ThreadPool::ExecutionMode mode, int max_concurrency) {
-    return _limited_scan_thread_pool->new_token(mode, max_concurrency);
+    auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
+            _limited_scan_task_executor);
+    auto thread_pool = task_executor->thread_pool();
+    return thread_pool->new_token(mode, max_concurrency);
 }
 
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
@@ -391,6 +416,31 @@ int ScannerScheduler::get_remote_scan_thread_num() {
 
 int ScannerScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
+}
+
+Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono::nanoseconds) {
+    _started = true;
+    bool is_completed = _scan_func();
+    if (is_completed) {
+        _completion_future.set_value(Void {});
+    }
+    return SharedListenableFuture<Void>::create_ready(Void {});
+}
+
+bool ScannerSplitRunner::is_finished() {
+    return _completion_future.is_done();
+}
+
+Status ScannerSplitRunner::finished_status() {
+    return _completion_future.get_status();
+}
+
+bool ScannerSplitRunner::is_started() const {
+    return _started.load();
+}
+
+bool ScannerSplitRunner::is_auto_reschedule() const {
+    return false;
 }
 
 } // namespace doris::vectorized
