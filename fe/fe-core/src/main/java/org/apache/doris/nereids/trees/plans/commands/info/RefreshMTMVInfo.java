@@ -95,7 +95,7 @@ public class RefreshMTMVInfo {
                         "The partition method of this asynchronous materialized view "
                                 + "does not support refreshing by partition");
             }
-            List<AllPartitionDesc> partitionDescs = MTMVPartitionUtil.getPartitionDescsByRelatedTable(
+            List<AllPartitionDesc> partitionDescs = MTMVPartitionUtil.getPartitionDescsByRelatedTable(mtmv,
                     mtmv.getTableProperty().getProperties(), mtmv.getMvPartitionInfo(), mtmv.getMvProperties());
             Set<String> shouldExistPartitionNames = Sets.newHashSetWithExpectedSize(partitionDescs.size());
             partitionDescs.stream().forEach(desc -> {
