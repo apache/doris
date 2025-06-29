@@ -186,8 +186,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         size_t argument_size = arguments.size();
-        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto const_null_map = NullMap(input_rows_count, false);
+        auto null_map = NullMap(input_rows_count, false);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<bool> is_const_args(argument_size);
@@ -743,7 +743,7 @@ struct NullOrEmptyImpl {
         auto column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
             column = nullable->get_nested_column_ptr();
-            VectorizedUtils::update_null_map(res_map->get_data(), nullable->get_null_map_data());
+            VectorizedUtils::update_null_map(res_map, nullable->get_null_map_data());
         }
         auto str_col = assert_cast<const ColumnString*>(column.get());
         const auto& offsets = str_col->get_offsets();
@@ -1014,7 +1014,7 @@ public:
             auto pos = is_null ? 0 : *(Int32*)data.data;
             is_null = pos <= 0 || pos > num_children;
 
-            auto null_map = ColumnUInt8::create(input_rows_count, is_null);
+            auto null_map = NullMap(input_rows_count, is_null);
             if (is_null) {
                 res->insert_many_defaults(input_rows_count);
             } else {
@@ -1023,7 +1023,7 @@ public:
                     auto target_data = target_const_column->get_data_at(0);
                     // return NULL, no target data
                     if (target_data.data == nullptr) {
-                        null_map = ColumnUInt8::create(input_rows_count, true);
+                        null_map = NullMap(input_rows_count, true);
                         res->insert_many_defaults(input_rows_count);
                     } else {
                         res->insert_data_repeatedly(target_data.data, target_data.size,
@@ -1032,8 +1032,7 @@ public:
                 } else if (auto target_nullable_column =
                                    check_and_get_column<ColumnNullable>(*target_column)) {
                     auto& target_null_map = target_nullable_column->get_null_map_data();
-                    VectorizedUtils::update_null_map(
-                            assert_cast<ColumnUInt8&>(*null_map).get_data(), target_null_map);
+                    VectorizedUtils::update_null_map(null_map, target_null_map);
 
                     auto& target_str_column = assert_cast<const ColumnString&>(
                             target_nullable_column->get_nested_column());
@@ -1126,18 +1125,17 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 2);
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         // we create a zero column to simply implement
-        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto const_null_map = NullMap(input_rows_count, false);
         auto res = ColumnString::create();
         bool is_null_type = block.get_by_position(arguments[0]).type.get()->is_nullable();
         size_t argument_size = arguments.size();
         std::vector<const Offsets*> offsets_list(argument_size);
         std::vector<const Chars*> chars_list(argument_size);
-        std::vector<const ColumnUInt8::Container*> null_list(argument_size);
+        std::vector<const NullMap*> null_list(argument_size);
 
         std::vector<ColumnPtr> argument_columns(argument_size);
-        std::vector<ColumnPtr> argument_null_columns(argument_size);
 
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
@@ -1148,10 +1146,9 @@ public:
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
                 // of column nullable mem of null map
                 null_list[i] = &nullable->get_null_map_data();
-                argument_null_columns[i] = nullable->get_null_map_column_ptr();
                 argument_columns[i] = nullable->get_nested_column_ptr();
             } else {
-                null_list[i] = &const_null_map->get_data();
+                null_list[i] = &const_null_map;
             }
 
             if (is_column<ColumnArray>(argument_columns[i].get())) {
@@ -1167,7 +1164,7 @@ public:
         auto& res_offset = res->get_offsets();
         res_offset.resize(input_rows_count);
 
-        VectorizedUtils::update_null_map(null_map->get_data(), *null_list[0]);
+        VectorizedUtils::update_null_map(null_map, *null_list[0]);
         fmt::memory_buffer buffer;
         std::vector<std::string_view> views;
 
@@ -1205,10 +1202,10 @@ private:
                         fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
                         const std::vector<const Offsets*>& offsets_list,
                         const std::vector<const Chars*>& chars_list,
-                        const std::vector<const ColumnUInt8::Container*>& null_list,
+                        const std::vector<const NullMap*>& null_list,
                         Chars& res_data, Offsets& res_offset) const {
         // Get array nested column
-        const UInt8* array_nested_null_map = nullptr;
+        const NullMap* array_nested_null_map = nullptr;
         ColumnPtr array_nested_column = nullptr;
 
         if (is_column_nullable(array_column.get_data())) {
@@ -1216,7 +1213,7 @@ private:
                     reinterpret_cast<const ColumnNullable&>(array_column.get_data());
             // String's null map in array
             array_nested_null_map =
-                    array_nested_null_column.get_null_map_column().get_data().data();
+                    &array_nested_null_column.get_null_map_data();
             array_nested_column = array_nested_null_column.get_nested_column_ptr();
         } else {
             array_nested_column = array_column.get_data_ptr();
@@ -1258,7 +1255,7 @@ private:
                         reinterpret_cast<const char*>(&string_src_chars[current_src_string_offset]);
 
                 if (array_nested_null_map == nullptr ||
-                    !array_nested_null_map[current_src_array_offset]) {
+                    !((*array_nested_null_map)[current_src_array_offset])) {
                     views.emplace_back(ptr, bytes_to_copy);
                 }
             }
@@ -1274,7 +1271,7 @@ private:
                          fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
                          const std::vector<const Offsets*>& offsets_list,
                          const std::vector<const Chars*>& chars_list,
-                         const std::vector<const ColumnUInt8::Container*>& null_list,
+                         const std::vector<const NullMap*>& null_list,
                          Chars& res_data, Offsets& res_offset) const {
         // Concat string
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -1432,9 +1429,9 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 3);
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         // we create a zero column to simply implement
-        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto const_null_map = NullMap(input_rows_count, false);
         auto res = ColumnString::create();
 
         ColumnPtr col[3];
@@ -1617,12 +1614,11 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         // Create a zero column to simply implement
-        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto const_null_map = NullMap(input_rows_count, false);
         auto res = ColumnString::create();
 
-        auto& null_map_data = null_map->get_data();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
@@ -1637,7 +1633,7 @@ public:
                 // Danger: Here must dispose the null map data first! Because
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
                 // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
+                VectorizedUtils::update_null_map(null_map,
                                                  nullable->get_null_map_data());
                 argument_columns[i] = nullable->get_nested_column_ptr();
             }
@@ -1652,7 +1648,7 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (part_num_col_data[i] == 0) {
-                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map);
                 continue;
             }
 
@@ -2580,7 +2576,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         auto& null_map_data = null_map->get_data();
         DCHECK_GE(3, arguments.size());
         auto res = ColumnString::create();
@@ -4241,7 +4237,7 @@ public:
             }
         }
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         auto res = ColumnString::create();
         auto& res_data = res->get_chars();
         auto& res_offset = res->get_offsets();

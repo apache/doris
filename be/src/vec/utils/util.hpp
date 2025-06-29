@@ -115,7 +115,7 @@ public:
     static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
         size_t size = dst.size();
         auto* __restrict l = dst.data();
-        auto* __restrict r = src.data();
+        const auto* __restrict r = src.data();
         if (is_single) {
             if (r[0]) {
                 for (size_t i = 0; i < size; ++i) {
