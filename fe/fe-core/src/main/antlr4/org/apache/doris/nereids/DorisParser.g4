@@ -1992,6 +1992,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NO_USE_MV
     | NON_NULLABLE
     | NULLS
     | OF
@@ -2107,6 +2108,7 @@ nonReserved
     | UNSET
     | UP
     | USER
+    | USE_MV
     | VALUE
     | VARCHAR
     | VARIABLE
