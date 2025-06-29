@@ -70,7 +70,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
         }
         _streaming_mode = true;
-
+        _support_incremental_calculate = (p._has_window_start && p._has_window_end);
         if (p._has_window_start) { //calculate start boundary
             TAnalyticWindowBoundary b = p._window.window_start;
             if (b.__isset.rows_offset_value) { //[offset     ,   ]
@@ -114,6 +114,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     _offsets_of_aggregate_states.resize(_agg_functions_size);
     _result_column_nullable_flags.resize(_agg_functions_size);
     _result_column_could_resize.resize(_agg_functions_size);
+    _use_null_result.resize(_agg_functions_size, 0);
+    _could_use_previous_result.resize(_agg_functions_size, 0);
 
     for (int i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i] = p._agg_functions[i]->clone(state, state->obj_pool());
@@ -132,6 +134,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
         if (PARTITION_FUNCTION_SET.contains(_agg_functions[i]->function()->get_name())) {
             _streaming_mode = false;
         }
+        _support_incremental_calculate &=
+                _agg_functions[i]->function()->supported_incremental_mode();
     }
 
     _partition_exprs_size = p._partition_by_eq_expr_ctxs.size();
@@ -185,8 +189,6 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return PipelineXSinkLocalState<AnalyticSharedState>::close(state, exec_status);
 }
 
-//TODO: eg sum/avg/count/min/max ROWS BETWEEN N PRECEDING AND M FOLLOWING
-//maybe could be optimized caculate at cumulative mode
 bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t current_block_rows,
                                                         int64_t current_block_base_pos) {
     const bool is_n_following_frame = _rows_end_offset > 0;
@@ -199,13 +201,18 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t current_block_ro
             _need_more_data = true;
             break;
         }
-        _reset_agg_status();
+        if (_support_incremental_calculate) {
+            _execute_for_function<true>(_partition_by_pose.start, _partition_by_pose.end,
+                                        current_row_start, current_row_end);
+        } else {
+            _reset_agg_status();
+            // Eg: rows between unbounded preceding and 10 preceding
+            // Make sure range_start <= range_end
+            current_row_start = std::min(current_row_start, current_row_end);
+            _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
+                                  current_row_start, current_row_end);
+        }
 
-        // Eg: rows between unbounded preceding and 10 preceding
-        // Make sure range_start <= range_end
-        current_row_start = std::min(current_row_start, current_row_end);
-        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_start,
-                              current_row_end);
         int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
         _current_row_position++;
@@ -366,21 +373,27 @@ Status AnalyticSinkLocalState::_execute_impl() {
     return Status::OK();
 }
 
+template <bool incremental>
 void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int64_t partition_end,
                                                    int64_t frame_start, int64_t frame_end) {
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
-        if (_result_column_nullable_flags[i] && _current_window_empty) {
-            continue;
-        }
         std::vector<const vectorized::IColumn*> agg_columns;
         for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
             agg_columns.push_back(_agg_input_columns[i][j].get());
         }
-        _agg_functions[i]->function()->add_range_single_place(
-                partition_start, partition_end, frame_start, frame_end,
-                _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
-                _agg_arena_pool.get());
+        if constexpr (incremental) {
+            _agg_functions[i]->function()->execute_function_with_incremental(
+                    partition_start, partition_end, frame_start, frame_end,
+                    _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
+                    _agg_arena_pool.get(), false, false, false, &_use_null_result[i],
+                    &_could_use_previous_result[i]);
+        } else {
+            _agg_functions[i]->function()->add_range_single_place(
+                    partition_start, partition_end, frame_start, frame_end,
+                    _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
+                    _agg_arena_pool.get(), &(_use_null_result[i]), &_could_use_previous_result[i]);
+        }
     }
 }
 
@@ -388,8 +401,7 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         if (_result_column_nullable_flags[i]) {
-            if (_current_window_empty) {
-                //TODO need check this logical???
+            if (_use_null_result[i]) {
                 _result_window_columns[i]->insert_many_defaults(end - start);
             } else {
                 auto* dst =
@@ -898,6 +910,8 @@ Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
 }
 
 void AnalyticSinkLocalState::_reset_agg_status() {
+    _use_null_result.assign(_agg_functions_size, 0);
+    _could_use_previous_result.assign(_agg_functions_size, 0);
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->reset(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }
