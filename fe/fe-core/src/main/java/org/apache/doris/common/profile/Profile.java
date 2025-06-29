@@ -483,8 +483,44 @@ public class Profile {
             }
         }
 
+        if (this.executionProfiles.size() == 1) {
+            builder.append("MergedProfile:\n");
+            if (mergedProfile != null) {
+                mergedProfile.prettyPrint(builder, "     ");
+            } else {
+                builder.append("build merged simple profile failed");
+            }
+        }
+
+        try {
+            // For load task, they will have multiple execution_profiles.
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                builder.append("\n");
+                executionProfile.prettyPrint(builder, "");
+            }
+        } catch (Throwable aggProfileException) {
+            LOG.warn("build profile failed", aggProfileException);
+            builder.append("build  profile failed");
+        }
+
+        builder.append("\nAppendix:\n");
+        if (mergedProfile != null) {
+            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems = null;
+            planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
+            planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
+            // TODO: failed sql supporting rely on profile's extension.
+            boolean isEnableHboInfoCollection = StatisticsUtil.isEnableHboInfoCollection();
+            if (isEnableHboInfoCollection && isHealthyForHbo() && isSlowQueryForHbo()) {
+                // publish to hbo manager, currently only support healthy sql.
+                // NOTE: all statements which no need to collect profile have been excluded.
+                String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
+                publishHboPlanStatistics(queryId, planNodeRuntimeStatsItems);
+            }
+            builder.append("\nHBOStatics \n");
+            builder.append(DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(planNodeRuntimeStatsItems));
+        }
         if (physicalPlan != null) {
-            builder.append("\nPhysical Plan \n");
+            builder.append("\nPhysicalPlan:\n");
             StringBuilder physcialPlanBuilder = new StringBuilder();
             physcialPlanBuilder.append(physicalPlan.treeString());
             physcialPlanBuilder.append("\n");
@@ -496,39 +532,6 @@ public class Profile {
             }
             builder.append(
                     physcialPlanBuilder.toString().replace("\n", "\n     "));
-        }
-
-        if (this.executionProfiles.size() == 1) {
-            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems = null;
-            builder.append("\nMergedProfile \n");
-            if (mergedProfile != null) {
-                mergedProfile.prettyPrint(builder, "     ");
-                planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
-                planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
-                // TODO: failed sql supporting rely on profile's extension.
-                boolean isEnableHboInfoCollection = StatisticsUtil.isEnableHboInfoCollection();
-                if (isEnableHboInfoCollection && isHealthyForHbo() && isSlowQueryForHbo()) {
-                    // publish to hbo manager, currently only support healthy sql.
-                    // NOTE: all statements which no need to collect profile have been excluded.
-                    String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
-                    publishHboPlanStatistics(queryId, planNodeRuntimeStatsItems);
-                }
-                builder.append("\nHBOStatics \n");
-                builder.append(DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(planNodeRuntimeStatsItems));
-            } else {
-                builder.append("build merged simple profile failed");
-            }
-        }
-
-        try {
-            // For load task, they will have multiple execution_profiles.
-            for (ExecutionProfile executionProfile : executionProfiles) {
-                builder.append("\n");
-                executionProfile.getRoot().prettyPrint(builder, "");
-            }
-        } catch (Throwable aggProfileException) {
-            LOG.warn("build profile failed", aggProfileException);
-            builder.append("build  profile failed");
         }
     }
 
@@ -765,7 +768,7 @@ public class Profile {
             return;
         }
 
-        builder.append("\nChanged Session Variables:\n");
+        builder.append("\nChangedSessionVariables:\n");
         builder.append(changedSessionVarCache);
         builder.append("\n");
     }

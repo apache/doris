@@ -35,18 +35,18 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
-    _compute_agg_data_timer = ADD_TIMER(profile(), "ComputeAggDataTime");
-    _compute_partition_by_timer = ADD_TIMER(profile(), "ComputePartitionByTime");
-    _compute_order_by_timer = ADD_TIMER(profile(), "ComputeOrderByTime");
-    _compute_range_between_function_timer = ADD_TIMER(profile(), "ComputeRangeBetweenTime");
-    _partition_search_timer = ADD_TIMER(profile(), "PartitionSearchTime");
-    _order_search_timer = ADD_TIMER(profile(), "OrderSearchTime");
-    _remove_rows_timer = ADD_TIMER(profile(), "RemoveRowsTime");
-    _remove_rows = ADD_COUNTER(profile(), "RemoveRows", TUnit::UNIT);
-    _remove_count = ADD_COUNTER(profile(), "RemoveCount", TUnit::UNIT);
+    _evaluation_timer = ADD_TIMER(custom_profile(), "EvaluationTime");
+    _compute_agg_data_timer = ADD_TIMER(custom_profile(), "ComputeAggDataTime");
+    _compute_partition_by_timer = ADD_TIMER(custom_profile(), "ComputePartitionByTime");
+    _compute_order_by_timer = ADD_TIMER(custom_profile(), "ComputeOrderByTime");
+    _compute_range_between_function_timer = ADD_TIMER(custom_profile(), "ComputeRangeBetweenTime");
+    _partition_search_timer = ADD_TIMER(custom_profile(), "PartitionSearchTime");
+    _order_search_timer = ADD_TIMER(custom_profile(), "OrderSearchTime");
+    _remove_rows_timer = ADD_TIMER(custom_profile(), "RemoveRowsTime");
+    _remove_rows = ADD_COUNTER(custom_profile(), "RemoveRows", TUnit::UNIT);
+    _remove_count = ADD_COUNTER(custom_profile(), "RemoveCount", TUnit::UNIT);
     _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+            common_profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     if (!p._has_window || (!p._has_window_start && !p._has_window_end)) {
@@ -97,7 +97,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             }
         }
     }
-    profile()->add_info_string("streaming mode: ", std::to_string(_streaming_mode));
+    custom_profile()->add_info_string("streaming mode: ", std::to_string(_streaming_mode));
     return Status::OK();
 }
 
