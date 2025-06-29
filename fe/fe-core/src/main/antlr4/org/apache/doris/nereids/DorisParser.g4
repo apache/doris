@@ -52,6 +52,7 @@ statementBase
     | materializedViewStatement         #materializedViewStatementAlias
     | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
+    | supportedDescribeStatement        #supportedDescribeStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
     | supportedKillStatement            #supportedKillStatementAlias
@@ -65,7 +66,6 @@ unsupportedStatement
     | unsupoortedUnsetStatement
     | unsupportedUseStatement
     | unsupportedDmlStatement
-    | unsupportedDescribeStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
@@ -873,7 +873,7 @@ stageAndPattern
         (LEFT_PAREN pattern=STRING_LITERAL RIGHT_PAREN)?
     ;
 
-unsupportedDescribeStatement
+supportedDescribeStatement
     : explainCommand FUNCTION tvfName=identifier LEFT_PAREN
         (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
     | explainCommand multipartIdentifier ALL                    #describeTableAll
