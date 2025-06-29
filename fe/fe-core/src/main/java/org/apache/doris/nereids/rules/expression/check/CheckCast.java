@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.rules.expression.check;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,8 +42,14 @@ import java.util.List;
 /**
  * check cast valid
  */
-public class CheckCast implements ExpressionPatternRuleFactory {
+public class CheckCast extends AbstractExpressionRewriteRule implements ExpressionPatternRuleFactory {
     public static CheckCast INSTANCE = new CheckCast();
+
+    @Override
+    public Expression visitCast(Cast cast, ExpressionRewriteContext ctx) {
+        Expression expr = check(cast);
+        return visit(expr, ctx);
+    }
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
