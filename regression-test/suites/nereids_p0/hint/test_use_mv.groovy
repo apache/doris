@@ -33,6 +33,7 @@ suite("test_use_mv") {
     sql "set ignore_shape_nodes='PhysicalProject'"
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
+    sql 'set pre_materialized_view_rewrite_strategy = NOT_IN_RBO'
 
     sql """drop table if exists t1;"""
     // create tables

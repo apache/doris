@@ -63,12 +63,12 @@ suite ("testJoinOnLeftProjectToJoin") {
 
     sql """set enable_stats=false;"""
 
-    mv_rewrite_all_success("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;",
+    mv_rewrite_all_success_without_check_chosen("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;",
             ["emps_mv", "depts_mv"])
-
-    qt_select_mv "select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno order by A.deptno;"
 
     sql """set enable_stats=true;"""
     mv_rewrite_all_success("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;",
             ["emps_mv", "depts_mv"])
+    qt_select_mv "select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno order by A.deptno;"
+
 }

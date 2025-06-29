@@ -54,7 +54,13 @@ suite ("test_base") {
     qt_select_mv "SELECT id,created_at FROM dwd order by 1, 2;"
 
     sql """set enable_stats=true;"""
-    mv_rewrite_success("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;", "dwd_mv")
+    mv_rewrite_success("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;",
+            "dwd_mv", enable_sync_mv_cost_based_rewrite(), true, [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;",
+            "dwd_mv", enable_sync_mv_cost_based_rewrite(), [FORCE_IN_RBO])
 
-    mv_rewrite_success("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;", "dwd_mv")
+    mv_rewrite_success("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;",
+            "dwd_mv", enable_sync_mv_cost_based_rewrite(), true, [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;",
+            "dwd_mv", enable_sync_mv_cost_based_rewrite(), [FORCE_IN_RBO])
 }
