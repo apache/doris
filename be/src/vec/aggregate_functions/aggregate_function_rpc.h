@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
@@ -43,6 +44,7 @@
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
 #include "common/compile_check_avoid_begin.h"
+#include "common/compile_check_begin.h"
 // The rpc function has now been deprecated to avoid compilation checks.
 
 #define error_default_str "#$@"
@@ -365,13 +367,14 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        static_cast<void>(
-                this->data(place).buffer_add(columns, row_num, row_num + 1, argument_types));
+        static_cast<void>(this->data(place).buffer_add(columns, cast_set<int>(row_num),
+                                                       cast_set<int>(row_num + 1), argument_types));
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena*) const override {
-        static_cast<void>(this->data(place).add(columns, 0, batch_size, argument_types));
+        static_cast<void>(
+                this->data(place).add(columns, 0, cast_set<int>(batch_size), argument_types));
     }
 
     void reset(AggregateDataPtr place) const override {}
@@ -400,4 +403,5 @@ private:
 };
 
 #include "common/compile_check_avoid_end.h"
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
