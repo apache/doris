@@ -36,6 +36,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.ExportJob;
@@ -59,7 +60,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * EXPORT statement, export data to dirs by broker.
@@ -301,7 +301,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
 
         // set label
         // if fileProperties contains LABEL, the label has been checked in check phases
-        String defaultLabel = "export_" + UUID.randomUUID();
+        String defaultLabel = "export_" + UUIDUtil.genUUID();
         exportJob.setLabel(fileProperties.getOrDefault(LABEL, defaultLabel));
 
         // set max_file_size

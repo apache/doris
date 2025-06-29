@@ -45,6 +45,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
@@ -98,7 +99,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
@@ -387,7 +387,7 @@ public class ConnectContext {
             sessionVariable.initFuzzyModeVariables();
         }
 
-        sessionId = UUID.randomUUID().toString();
+        sessionId = UUIDUtil.genUUID().toString();
         if (!FeConstants.runningUnitTest) {
             Env.getCurrentEnv().registerSessionInfo(sessionId);
         }

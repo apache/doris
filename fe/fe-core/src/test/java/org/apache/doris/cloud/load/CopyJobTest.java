@@ -31,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.OriginStatement;
@@ -52,7 +53,6 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 public class CopyJobTest {
     private static final Logger LOG = LogManager.getLogger(CopyJobTest.class);
@@ -117,8 +117,7 @@ public class CopyJobTest {
         long dbId = CatalogTestUtil.testDbId1;
         String label = "copy_test";
         String userName = "admin";
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId queryId = UUIDUtil.genTUniqueId();
         BrokerDesc brokerDesc = new BrokerDesc("test_broker", null);
         OriginStatement originStmt = new OriginStatement("test_sql", 0);
         UserIdentity userIdent = UserIdentity.ROOT;
