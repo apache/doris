@@ -4328,7 +4328,7 @@ private:
             return;
         }
         const char* bytes = (const char*)(num);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
         int k = 3;
         for (; k >= 0; --k) {
             if (bytes[k]) {
