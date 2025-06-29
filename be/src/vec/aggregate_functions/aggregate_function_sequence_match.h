@@ -650,7 +650,9 @@ private:
 
 template <PrimitiveType T>
 class AggregateFunctionSequenceMatch final
-        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionSequenceMatch(const DataTypes& arguments, const String& pattern_)
             : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>>(arguments,
@@ -694,7 +696,9 @@ public:
 
 template <PrimitiveType T>
 class AggregateFunctionSequenceCount final
-        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionSequenceCount(const DataTypes& arguments, const String& pattern_)
             : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>>(arguments,

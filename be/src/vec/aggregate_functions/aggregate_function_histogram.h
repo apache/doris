@@ -176,8 +176,10 @@ private:
 
 template <typename Data, PrimitiveType T, bool has_input_param>
 class AggregateFunctionHistogram final
-        : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionHistogram<Data, T, has_input_param>> {
+        : public IAggregateFunctionDataHelper<Data,
+                                              AggregateFunctionHistogram<Data, T, has_input_param>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
 
