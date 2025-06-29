@@ -212,7 +212,7 @@ uint32_t BaseTablet::get_real_compaction_score() const {
 
 Status BaseTablet::capture_rs_readers_unlocked(const Versions& version_path,
                                                std::vector<RowSetSplits>* rs_splits) const {
-    DCHECK(rs_splits != nullptr && rs_splits->empty());
+    DCHECK_EQ(rs_splits->size(), 0);
     for (auto version : version_path) {
         auto it = _rs_version_map.find(version);
         if (it == _rs_version_map.end()) {
