@@ -125,6 +125,11 @@ struct SubstringUtil {
 
     static void substring_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                   size_t input_rows_count) {
+        [[maybe_unused]] int x = 0;
+        [[maybe_unused]] int64_t y = INT64_MAX;
+        x = y;
+        LOG_WARNING("test").tag("val", (x = y));
+
         DCHECK_EQ(arguments.size(), 3);
         auto res = ColumnString::create();
 

@@ -154,6 +154,7 @@ function start_doris_be() {
     if [[ -z "${ASAN_SYMBOLIZER_PATH}" ]]; then ASAN_SYMBOLIZER_PATH='/var/local/ldb-toolchain/bin/llvm-symbolizer'; fi
     export ASAN_SYMBOLIZER_PATH
     export ASAN_OPTIONS="symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:use_sigaltstack=0:detect_leaks=0:fast_unwind_on_malloc=0:check_malloc_usable_size=0"
+    export UBSAN_OPTIONS="print_stacktrace=1:symbolize=1:abort_on_error=1:disable_coredump=0"
     export TCMALLOC_SAMPLE_PARAMETER=524288
     sysctl -w vm.max_map_count=2000000 &&
         ulimit -n 200000 &&
