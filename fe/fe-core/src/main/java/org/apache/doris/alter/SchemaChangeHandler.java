@@ -1258,12 +1258,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void createJob(String rawSql, long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-                           Map<String, String> propertyMap, List<Index> indexes,
-                           boolean isBuildIndex) throws UserException {
-        if (isBuildIndex) {
-            // remove the index which is not the base index, only base index can be built index
-            indexSchemaMap.entrySet().removeIf(entry -> !entry.getKey().equals(olapTable.getBaseIndexId()));
-        }
+                           Map<String, String> propertyMap, List<Index> indexes) throws UserException {
         checkReplicaCount(olapTable);
 
         // process properties first
@@ -1299,7 +1294,7 @@ public class SchemaChangeHandler extends AlterHandler {
         boolean hasIndexChange = false;
         Set<Index> newSet = new HashSet<>(indexes);
         Set<Index> oriSet = new HashSet<>(olapTable.getIndexes());
-        if (!newSet.equals(oriSet) || isBuildIndex) {
+        if (!newSet.equals(oriSet)) {
             hasIndexChange = true;
         }
 
@@ -2092,9 +2087,21 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     lightSchemaChange = false;
 
+                    // Check if the index supports light index change and session variable is enabled
+                    boolean enableAddIndexForNewData = true;
+                    try {
+                        ConnectContext context = ConnectContext.get();
+                        if (context != null && context.getSessionVariable() != null) {
+                            enableAddIndexForNewData = context.getSessionVariable().isEnableAddIndexForNewData();
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Failed to get session variable enable_add_index_for_new_data, "
+                                + "using default value: false", e);
+                    }
+
                     // ngram_bf index can do light_schema_change in both local and cloud mode
                     // inverted index can only do light_schema_change in local mode
-                    if (index.isLightIndexChangeSupported()) {
+                    if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
                         alterIndexes.add(index);
                         isDropIndex = false;
                         lightIndexChange = true;
@@ -2103,7 +2110,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (Config.isCloudMode() && index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                    if (Config.isCloudMode()) {
                         throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
                     }
 
@@ -2165,17 +2172,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (alterIndexes.isEmpty()) {
                     throw new DdlException("Altered index is empty. please check your alter stmt.");
                 }
-                IndexDef.IndexType indexType = alterIndexes.get(0).getIndexType();
                 if (Config.enable_light_index_change) {
-                    if (indexType == IndexDef.IndexType.INVERTED) {
-                        buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
-                                alterIndexes, indexOnPartitions, false);
-                    } else {
-                        createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, true);
-                    }
+                    buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                            alterIndexes, indexOnPartitions, false);
                 }
             } else {
-                createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, false);
+                createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
             }
         } finally {
             olapTable.writeUnlock();
