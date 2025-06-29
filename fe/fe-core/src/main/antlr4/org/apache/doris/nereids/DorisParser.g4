@@ -1691,7 +1691,8 @@ dataType
         LEFT_PAREN dataTypes+=dataTypeWithNullable
         (COMMA dataTypes+=dataTypeWithNullable)* RIGHT_PAREN GT     #aggStateDataType
     | primitiveColType (LEFT_PAREN (INTEGER_VALUE | ASTERISK)
-      (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                          #primitiveDataType
+      (COMMA INTEGER_VALUE)* RIGHT_PAREN)?
+      (ENCODING encoding=STRING_LITERAL)?                           #primitiveDataType
     ;
 
 primitiveColType
@@ -1891,6 +1892,7 @@ nonReserved
     | DYNAMIC
     | E
     | ENABLE
+    | ENCODING
     | ENCRYPTKEY
     | ENCRYPTKEYS
     | END
