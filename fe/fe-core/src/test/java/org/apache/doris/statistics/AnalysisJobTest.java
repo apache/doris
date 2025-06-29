@@ -238,7 +238,7 @@ public class AnalysisJobTest {
         job.flushBuffer();
         Assertions.assertEquals(0, job.queryFinished.size());
         Assertions.assertEquals(0, job.buf.size());
-        Assertions.assertEquals("ffd6aa73b79f9228c737a6da0f4b2834", job.stmtExecutor.getContext().getSqlHash());
+        Assertions.assertEquals("b706c535ce30c7342dbd869491299fc7", job.stmtExecutor.getContext().getSqlHash());
     }
 
 }

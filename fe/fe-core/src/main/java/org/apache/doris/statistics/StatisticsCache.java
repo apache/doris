@@ -241,7 +241,7 @@ public class StatisticsCache {
         long retryTimes = 0;
         while (!StatisticsUtil.statsTblAvailable()) {
             try {
-                Thread.sleep(100L);
+                Thread.sleep(1000L);
             } catch (InterruptedException e) {
                 // IGNORE
             }
