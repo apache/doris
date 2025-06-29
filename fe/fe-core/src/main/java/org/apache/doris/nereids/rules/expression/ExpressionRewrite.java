@@ -127,7 +127,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     rewrittenExprs.add(newProject);
                 }
                 return changed
-                        ? new LogicalOneRowRelation(oneRowRelation.getRelationId(), rewrittenExprs.build())
+                        ? new LogicalOneRowRelation(oneRowRelation.getRelationId(), rewrittenExprs.build(),
+                                oneRowRelation.getHintContext())
                         : oneRowRelation;
             }).toRule(RuleType.REWRITE_ONE_ROW_RELATION_EXPRESSION);
         }
@@ -168,7 +169,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (predicate.equals(originPredicate)) {
                     return filter;
                 }
-                return new LogicalFilter<>(newConjuncts, predicate, filter.child());
+                return new LogicalFilter<>(newConjuncts, predicate, filter.child(), filter.getHintContext());
             }).toRule(RuleType.REWRITE_FILTER_EXPRESSION);
         }
     }
@@ -211,7 +212,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     return agg;
                 }
                 return new LogicalAggregate<>(newGroupByExprs, result.result,
-                        agg.isNormalized(), agg.getSourceRepeat(), agg.child());
+                        agg.isNormalized(), agg.getSourceRepeat(), agg.child(), agg.getHintContext());
             }).toRule(RuleType.REWRITE_AGG_EXPRESSION);
         }
     }
@@ -243,7 +244,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 return new LogicalJoin<>(join.getJoinType(), newHashJoinConjuncts.second,
                         newOtherJoinConjuncts.second, newMarkJoinConjuncts.second,
                         join.getDistributeHint(), join.getMarkJoinSlotReference(), join.children(),
-                        join.getJoinReorderContext());
+                        join.getJoinReorderContext(), join.getHintContext());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
 

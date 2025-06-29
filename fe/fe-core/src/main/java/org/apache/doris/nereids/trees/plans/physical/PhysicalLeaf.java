@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -32,12 +33,14 @@ import javax.annotation.Nullable;
  */
 public abstract class PhysicalLeaf extends AbstractPhysicalPlan implements LeafPlan {
 
-    public PhysicalLeaf(PlanType type, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
-        super(type, groupExpression, logicalProperties);
+    public PhysicalLeaf(PlanType type, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, hintContext);
     }
 
     public PhysicalLeaf(PlanType type, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            @Nullable PhysicalProperties physicalProperties, @Nullable Statistics statistics) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statistics);
+            @Nullable PhysicalProperties physicalProperties, @Nullable Statistics statistics,
+            Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, hintContext);
     }
 }

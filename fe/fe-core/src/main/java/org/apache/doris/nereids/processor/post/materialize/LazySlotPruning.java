@@ -122,7 +122,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     public Plan visitPhysicalFileScan(PhysicalFileScan scan, Context context) {
         if (scan.getOutput().containsAll(context.lazySlots)) {
             PhysicalLazyMaterializeFileScan lazyScan = new PhysicalLazyMaterializeFileScan(scan,
-                    context.rowIdSlot, context.lazySlots);
+                    context.rowIdSlot, context.lazySlots, scan.getHintContext());
             return lazyScan;
         } else {
             // should not hit here

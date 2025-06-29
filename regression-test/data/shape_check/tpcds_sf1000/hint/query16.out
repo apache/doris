@@ -34,7 +34,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[call_center]
 
 Hint log:
-Used: leading(catalog_sales { cs1 customer_address date_dim call_center } )
+Used: leading(catalog_sales (cs1 customer_address date_dim call_center))
 UnUsed:
 SyntaxError:
 

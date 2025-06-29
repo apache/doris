@@ -1078,7 +1078,7 @@ public class ExpressionUtils {
         Scope scope = new Scope(new ArrayList<>());
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(),
-                new ArrayList<>());
+                new ArrayList<>(), Optional.empty());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
         ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);

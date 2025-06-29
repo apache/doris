@@ -54,7 +54,7 @@ limit 100"""
     qt_ds_shape_93 '''
     explain shape plan
     select 
-    /*+ leading(store_sales { store_returns reason}) */
+    /*+ leading(store_sales ( store_returns reason)) */
      ss_customer_sk
             ,sum(act_sales) sumsales
       from (select ss_item_sk

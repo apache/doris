@@ -78,16 +78,16 @@ public class MergeProjectPostProcessTest {
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> DataTrait.EMPTY_TRAIT);
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1, qualifier, 0L,
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(), ImmutableList.of(),
-                Optional.empty(), t1Properties, Optional.empty(), ImmutableList.of());
+                Optional.empty(), t1Properties, Optional.empty(), ImmutableList.of(), Optional.empty());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
-        PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);
+        PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan, Optional.empty());
         Alias y = new Alias(x.toSlot(), "y");
         Alias z = new Alias(b, "z");
         List<NamedExpression> projList2 = Lists.newArrayList(y, z, c);
-        PhysicalProject proj2 = new PhysicalProject(projList2, placeHolder, proj3);
+        PhysicalProject proj2 = new PhysicalProject(projList2, placeHolder, proj3, Optional.empty());
         List<NamedExpression> projList1 = Lists.newArrayList(y.toSlot(), z.toSlot());
-        PhysicalProject proj1 = new PhysicalProject(projList1, placeHolder, proj2);
+        PhysicalProject proj1 = new PhysicalProject(projList1, placeHolder, proj2, Optional.empty());
         MergeProjectPostProcessor processor = new MergeProjectPostProcessor();
         PhysicalPlan newPlan = (PhysicalPlan) proj1.accept(processor, ctx);
         Assertions.assertTrue(newPlan instanceof PhysicalProject);

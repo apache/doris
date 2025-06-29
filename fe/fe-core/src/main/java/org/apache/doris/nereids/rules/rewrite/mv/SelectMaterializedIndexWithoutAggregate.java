@@ -82,7 +82,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             return new LogicalProject<>(
                                     generateProjectsAlias(project.getOutput(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(
-                                        project.withChildren(filter.withChildren(mvPlan)), mvPlan));
+                                            project.withChildren(filter.withChildren(mvPlan)), mvPlan),
+                                    project.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_PROJECT_FILTER_SCAN),
 
                 // project with filter that cannot be pushdown.
@@ -104,7 +105,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             return new LogicalProject(
                                     generateProjectsAlias(project.getOutput(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(
-                                    filter.withChildren(project.withChildren(mvPlan)), mvPlan));
+                                            filter.withChildren(project.withChildren(mvPlan)), mvPlan),
+                                    filter.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_FILTER_PROJECT_SCAN),
 
                 // scan with filters could be pushdown.
@@ -125,9 +127,12 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
                             return new LogicalProject(
-                                generateProjectsAlias(scan.getOutput(), slotContext),
+                                    generateProjectsAlias(scan.getOutput(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(
-                                        new LogicalProject(mvPlan.getOutput(), filter.withChildren(mvPlan)), mvPlan));
+                                            new LogicalProject(mvPlan.getOutput(), filter.withChildren(mvPlan),
+                                                    filter.getHintContext()),
+                                            mvPlan),
+                                    filter.getHintContext());
                         })
                         .toRule(RuleType.MATERIALIZED_INDEX_FILTER_SCAN),
 
@@ -150,7 +155,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             return new LogicalProject(
                                     generateProjectsAlias(project.getOutput(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(
-                                    project.withChildren(mvPlan), mvPlan));
+                                    project.withChildren(mvPlan), mvPlan), project.getHintContext());
                         })
                         .toRule(RuleType.MATERIALIZED_INDEX_PROJECT_SCAN),
 
@@ -171,7 +176,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             return new LogicalProject(
                                     generateProjectsAlias(mvPlan.getOutput(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(
-                                        new LogicalProject(mvPlan.getOutput(), mvPlan), mvPlan));
+                                            new LogicalProject(mvPlan.getOutput(), mvPlan, scan.getHintContext()),
+                                            mvPlan),
+                                    scan.getHintContext());
                         })
                         .toRule(RuleType.MATERIALIZED_INDEX_SCAN)
         );

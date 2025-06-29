@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -35,18 +36,18 @@ import java.util.function.Supplier;
  * Abstract class for all concrete logical plan.
  */
 public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
-    protected AbstractLogicalPlan(PlanType type, List<Plan> children) {
-        this(type, Optional.empty(), Optional.empty(), children);
+    protected AbstractLogicalPlan(PlanType type, List<Plan> children, Optional<HintContext> hintContext) {
+        this(type, Optional.empty(), Optional.empty(), children, hintContext);
     }
 
     protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, groupExpression, logicalProperties, null, ImmutableList.copyOf(children));
+            Optional<LogicalProperties> logicalProperties, Optional<HintContext> hintContext, Plan... children) {
+        super(type, groupExpression, logicalProperties, null, ImmutableList.copyOf(children), hintContext);
     }
 
     protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        super(type, groupExpression, logicalProperties, null, children);
+            Optional<LogicalProperties> logicalProperties, List<Plan> children, Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, null, children, hintContext);
     }
 
     // Don't generate ObjectId for LogicalPlan

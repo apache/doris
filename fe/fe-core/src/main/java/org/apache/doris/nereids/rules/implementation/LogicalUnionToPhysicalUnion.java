@@ -33,7 +33,8 @@ public class LogicalUnionToPhysicalUnion extends OneImplementationRuleFactory {
                     union.getRegularChildrenOutputs(),
                     union.getConstantExprsList(),
                     union.getLogicalProperties(),
-                    union.children())
+                    union.children(),
+                    union.getHintContext())
         ).toRule(RuleType.LOGICAL_UNION_TO_PHYSICAL_UNION);
     }
 }

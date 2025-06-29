@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -55,26 +56,28 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
 
-    public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child) {
-        this(ImmutableList.of(tableAlias), Optional.empty(), Optional.empty(), Optional.empty(), child);
+    public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        this(ImmutableList.of(tableAlias), Optional.empty(), Optional.empty(), Optional.empty(), child, hintContext);
     }
 
-    public LogicalSubQueryAlias(List<String> qualifier, CHILD_TYPE child) {
-        this(qualifier, Optional.empty(), Optional.empty(), Optional.empty(), child);
+    public LogicalSubQueryAlias(List<String> qualifier, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        this(qualifier, Optional.empty(), Optional.empty(), Optional.empty(), child, hintContext);
     }
 
-    public LogicalSubQueryAlias(String tableAlias, Optional<List<String>> columnAliases, CHILD_TYPE child) {
-        this(ImmutableList.of(tableAlias), columnAliases, Optional.empty(), Optional.empty(), child);
+    public LogicalSubQueryAlias(String tableAlias, Optional<List<String>> columnAliases, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        this(ImmutableList.of(tableAlias), columnAliases, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
-    public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases, CHILD_TYPE child) {
-        this(qualifier, columnAliases, Optional.empty(), Optional.empty(), child);
+    public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        this(qualifier, columnAliases, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases,
             Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child, hintContext);
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier is null"));
         this.columnAliases = columnAliases;
     }
@@ -158,7 +161,18 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public LogicalSubQueryAlias<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, children.get(0));
+        return new LogicalSubQueryAlias<>(qualifier, columnAliases, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalSubQueryAlias<>(qualifier, columnAliases, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalSubQueryAlias<>(qualifier, columnAliases, children.get(0), hintContext);
     }
 
     @Override
@@ -174,7 +188,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public LogicalSubQueryAlias<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression,
-                Optional.of(getLogicalProperties()), child());
+                Optional.of(getLogicalProperties()), child(), hintContext);
     }
 
     @Override
@@ -182,7 +196,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
-                children.get(0));
+                children.get(0), hintContext);
     }
 
     @Override

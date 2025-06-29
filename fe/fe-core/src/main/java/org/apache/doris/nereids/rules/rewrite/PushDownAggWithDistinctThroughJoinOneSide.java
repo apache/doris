@@ -135,13 +135,13 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
             Builder<NamedExpression> leftAggOutputBuilder = ImmutableList.<NamedExpression>builder()
                     .addAll(leftPushDownGroupBy);
             leftJoin = new LogicalAggregate<>(ImmutableList.copyOf(leftPushDownGroupBy),
-                    leftAggOutputBuilder.build(), join.left());
+                    leftAggOutputBuilder.build(), join.left(), agg.getHintContext());
         } else {
             rightPushDownGroupBy.add((Slot) rightFuncs.get(0).child(0));
             Builder<NamedExpression> rightAggOutputBuilder = ImmutableList.<NamedExpression>builder()
                     .addAll(rightPushDownGroupBy);
             rightJoin = new LogicalAggregate<>(ImmutableList.copyOf(rightPushDownGroupBy),
-                    rightAggOutputBuilder.build(), join.right());
+                    rightAggOutputBuilder.build(), join.right(), agg.getHintContext());
         }
 
         Preconditions.checkState(leftJoin != join.left() || rightJoin != join.right(),

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -66,12 +67,12 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             PreAggStatus preAggStatus, List<Slot> baseOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            Optional<TableSample> tableSample, List<Slot> operativeSlots) {
+            Optional<TableSample> tableSample, List<Slot> operativeSlots, Optional<HintContext> hintContext) {
         this(id, olapTable, qualifier,
                 selectedIndexId, selectedTabletIds, selectedPartitionIds, distributionSpec,
                 preAggStatus, baseOutputs,
                 groupExpression, logicalProperties, null,
-                null, tableSample, operativeSlots);
+                null, tableSample, operativeSlots, hintContext);
     }
 
     /**
@@ -83,9 +84,9 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics,
             Optional<TableSample> tableSample,
-            Collection<Slot> operativeSlots) {
+            Collection<Slot> operativeSlots, Optional<HintContext> hintContext) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, olapTable, qualifier,
-                groupExpression, logicalProperties, physicalProperties, statistics, operativeSlots);
+                groupExpression, logicalProperties, physicalProperties, statistics, operativeSlots, hintContext);
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
@@ -220,7 +221,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapScan(relationId, getTable(), qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs,
-                groupExpression, getLogicalProperties(), tableSample, operativeSlots);
+                groupExpression, getLogicalProperties(), tableSample, operativeSlots, hintContext);
     }
 
     @Override
@@ -228,7 +229,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalOlapScan(relationId, getTable(), qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs, groupExpression,
-                logicalProperties.get(), tableSample, operativeSlots);
+                logicalProperties.get(), tableSample, operativeSlots, hintContext);
     }
 
     @Override
@@ -236,7 +237,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalOlapScan(relationId, getTable(), qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, tableSample, operativeSlots);
+                getLogicalProperties(), physicalProperties, statistics, tableSample, operativeSlots, hintContext);
     }
 
     @Override
@@ -262,7 +263,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return new PhysicalOlapScan(relationId, (OlapTable) table, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs,
                 groupExpression, getLogicalProperties(), getPhysicalProperties(), statistics,
-                tableSample, operativeSlots);
+                tableSample, operativeSlots, hintContext);
     }
 
     @Override

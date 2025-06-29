@@ -67,7 +67,7 @@ order by sum(cr_net_loss) desc"""
     qt_ds_shape_91 '''
     explain shape plan
     select  
-    /*+ leading(catalog_returns {customer_address {customer customer_demographics household_demographics}} date_dim call_center) */
+    /*+ leading(catalog_returns (customer_address (customer customer_demographics household_demographics)) date_dim call_center) */
         cc_call_center_id Call_Center,
         cc_name Call_Center_Name,
         cc_manager Manager,

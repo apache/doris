@@ -70,7 +70,7 @@ suite("query18") {
     qt_ds_shape_18 '''
     explain shape plan
     select  
-    /*+ leading(catalog_sales cd1 {cd2 {customer customer_address}}date_dim item) */
+    /*+ leading(catalog_sales cd1 (cd2 (customer customer_address))date_dim item) */
     i_item_id,
         ca_country,
         ca_state, 

@@ -64,14 +64,14 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
         } else {
             joinRightChild = new LogicalAssertNumRows<>(new AssertNumRowsElement(1,
                     apply.right().toString(), AssertNumRowsElement.Assertion.EQ),
-                    (LogicalPlan) apply.right());
+                    (LogicalPlan) apply.right(), apply.right().getHintContext());
         }
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
-                (LogicalPlan) apply.left(), joinRightChild, null);
+                (LogicalPlan) apply.left(), joinRightChild, null, apply.getHintContext());
     }
 
     private Plan correlatedToJoin(LogicalApply apply) {
@@ -94,6 +94,6 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                 ExpressionUtils.extractConjunction(correlationFilter.get()),
                 new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
-                apply.children(), null);
+                apply.children(), null, apply.getHintContext());
     }
 }

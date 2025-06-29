@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -60,16 +61,18 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
      * Logical CTE consumer.
      */
     public LogicalCTEConsumer(RelationId relationId, CTEId cteId, String name,
-            Map<Slot, Slot> consumerToProducerOutputMap, Multimap<Slot, Slot> producerToConsumerOutputMap) {
+            Map<Slot, Slot> consumerToProducerOutputMap, Multimap<Slot, Slot> producerToConsumerOutputMap,
+            Optional<HintContext> hintContext) {
         this(relationId, cteId, name, consumerToProducerOutputMap, producerToConsumerOutputMap,
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), hintContext);
     }
 
     /**
      * Logical CTE consumer.
      */
-    public LogicalCTEConsumer(RelationId relationId, CTEId cteId, String name, LogicalPlan producerPlan) {
-        super(relationId, PlanType.LOGICAL_CTE_CONSUMER, Optional.empty(), Optional.empty());
+    public LogicalCTEConsumer(RelationId relationId, CTEId cteId, String name, LogicalPlan producerPlan,
+                              Optional<HintContext> hintContext) {
+        super(relationId, PlanType.LOGICAL_CTE_CONSUMER, Optional.empty(), Optional.empty(), hintContext);
         this.cteId = Objects.requireNonNull(cteId, "cteId should not null");
         this.name = Objects.requireNonNull(name, "name should not null");
         ImmutableMap.Builder<Slot, Slot> cToPBuilder = ImmutableMap.builder();
@@ -89,8 +92,9 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
      */
     public LogicalCTEConsumer(RelationId relationId, CTEId cteId, String name,
             Map<Slot, Slot> consumerToProducerOutputMap, Multimap<Slot, Slot> producerToConsumerOutputMap,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(relationId, PlanType.LOGICAL_CTE_CONSUMER, groupExpression, logicalProperties);
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Optional<HintContext> hintContext) {
+        super(relationId, PlanType.LOGICAL_CTE_CONSUMER, groupExpression, logicalProperties, hintContext);
         this.cteId = Objects.requireNonNull(cteId, "cteId should not null");
         this.name = Objects.requireNonNull(name, "name should not null");
         this.consumerToProducerOutputMap = ImmutableMap.copyOf(Objects.requireNonNull(consumerToProducerOutputMap,
@@ -130,14 +134,20 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
     public Plan withTwoMaps(Map<Slot, Slot> consumerToProducerOutputMap,
             Multimap<Slot, Slot> producerToConsumerOutputMap) {
         return new LogicalCTEConsumer(relationId, cteId, name,
-                consumerToProducerOutputMap, producerToConsumerOutputMap);
+                consumerToProducerOutputMap, producerToConsumerOutputMap, hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalCTEConsumer(relationId, cteId, name,
+                consumerToProducerOutputMap, producerToConsumerOutputMap, hintContext);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalCTEConsumer(relationId, cteId, name,
                 consumerToProducerOutputMap, producerToConsumerOutputMap,
-                groupExpression, Optional.of(getLogicalProperties()));
+                groupExpression, Optional.of(getLogicalProperties()), hintContext);
     }
 
     @Override
@@ -145,7 +155,7 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalCTEConsumer(relationId, cteId, name,
                 consumerToProducerOutputMap, producerToConsumerOutputMap,
-                groupExpression, logicalProperties);
+                groupExpression, logicalProperties, hintContext);
     }
 
     @Override

@@ -163,7 +163,7 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
         intersectionSlots.retainAll(join.getOutputSet());
         intersectionSlots.addAll(conditionUsedExprs);
         return new LogicalProject(intersectionSlots.stream()
-                .collect(ImmutableList.toImmutableList()), plan);
+                .collect(ImmutableList.toImmutableList()), plan, plan.getHintContext());
     }
 
     private static void generateReplaceMapAndProjectExprs(Expression expr, Map<Expression, NamedExpression> replaceMap,

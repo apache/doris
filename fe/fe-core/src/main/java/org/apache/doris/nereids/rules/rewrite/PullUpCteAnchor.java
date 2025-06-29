@@ -47,7 +47,7 @@ public class PullUpCteAnchor extends DefaultPlanRewriter<List<LogicalCTEProducer
     public Plan rewriteRoot(Plan plan, List<LogicalCTEProducer<Plan>> producers) {
         Plan root = plan.accept(this, producers);
         for (LogicalCTEProducer<Plan> producer : producers) {
-            root = new LogicalCTEAnchor<>(producer.getCteId(), producer, root);
+            root = new LogicalCTEAnchor<>(producer.getCteId(), producer, root, producer.getHintContext());
         }
         return root;
     }

@@ -69,7 +69,7 @@ public abstract class AbstractMaterializedViewScanRule extends AbstractMateriali
                         .map(expression -> expression instanceof NamedExpression ? expression : new Alias(expression))
                         .map(NamedExpression.class::cast)
                         .collect(Collectors.toList()),
-                tempRewritedPlan);
+                tempRewritedPlan, tempRewritedPlan.getHintContext());
     }
 
     /**

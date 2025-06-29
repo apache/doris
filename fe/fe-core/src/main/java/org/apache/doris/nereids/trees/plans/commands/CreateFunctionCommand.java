@@ -106,6 +106,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -978,7 +979,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
      */
     private Expr translateToLegacyExpr(Expression expression, ConnectContext ctx) throws AnalysisException {
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
-                ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
+                ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>(), Optional.empty());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
         Map<String, DataType> argTypeMap = new CaseInsensitiveMap();

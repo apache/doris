@@ -121,7 +121,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         if (filterPredicates.isEmpty()) {
             return filter.child();
         }
-        return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
+        return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child(), filter.getHintContext());
     }
 
     @Override

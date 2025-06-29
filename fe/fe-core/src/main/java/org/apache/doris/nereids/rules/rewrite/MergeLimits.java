@@ -49,7 +49,7 @@ public class MergeLimits extends OneRewriteRuleFactory {
                     return new LogicalLimit<>(
                             mergeLimit(upperLimit.getLimit(), upperLimit.getOffset(), bottomLimit.getLimit()),
                             mergeOffset(upperLimit.getOffset(), bottomLimit.getOffset()),
-                            upperLimit.child().getPhase(), bottomLimit.child()
+                            upperLimit.child().getPhase(), bottomLimit.child(), upperLimit.getHintContext()
                     );
                 }).toRule(RuleType.MERGE_LIMITS);
     }

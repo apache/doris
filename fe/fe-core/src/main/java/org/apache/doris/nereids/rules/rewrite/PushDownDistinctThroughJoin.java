@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
@@ -29,12 +30,15 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
  * PushdownDistinctThroughJoin
  */
 public class PushDownDistinctThroughJoin extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
+    private Optional<HintContext> aggHintContext = Optional.empty();
+
     @Override
     public Plan rewriteRoot(Plan plan, JobContext context) {
         return plan.accept(this, context);
@@ -46,7 +50,7 @@ public class PushDownDistinctThroughJoin extends DefaultPlanRewriter<JobContext>
         if (agg.hasPushed() || !agg.isDistinct() || isLeaf(agg.child())) {
             return agg;
         }
-
+        aggHintContext = agg.getHintContext();
         // After we push down distinct, if this distinct is generated, we will eliminate this distinct
         if (agg.isGenerated()) {
             return skipProjectPushDistinct(agg.child());
@@ -85,7 +89,7 @@ public class PushDownDistinctThroughJoin extends DefaultPlanRewriter<JobContext>
         if (PlanUtils.skipProjectFilterLimit(plan) instanceof Relation) {
             return plan;
         }
-        return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), true, true, plan);
+        return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), true, true, plan, aggHintContext);
     }
 
     private boolean isLeaf(Plan plan) {

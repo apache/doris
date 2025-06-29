@@ -68,6 +68,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -131,7 +132,7 @@ public class NereidsLoadUtils {
         // context.scanSlots represent columns read from external file
         // use LogicalOneRowRelation to hold this info for later use
         LogicalPlan currentRootPlan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                Lists.newArrayList(context.scanSlots));
+                Lists.newArrayList(context.scanSlots), Optional.empty());
 
         // add prefilter if it exists
         if (context.fileGroup.getPrecedingFilterExpr() != null) {
@@ -179,7 +180,7 @@ public class NereidsLoadUtils {
         }
 
         // create a project to case all scan slots to correct data types
-        currentRootPlan = new LogicalProject(castScanProjects, currentRootPlan);
+        currentRootPlan = new LogicalProject(castScanProjects, currentRootPlan, Optional.empty());
 
         // create a load project to do calculate mapping exprs
         if (!projects.isEmpty()) {
@@ -289,7 +290,7 @@ public class NereidsLoadUtils {
                                 .format("can not find column %s in table %s", expression.getName(), tbl.getName()));
                     }
                 }
-                return new LogicalProject(newProjects, project.child());
+                return new LogicalProject(newProjects, project.child(), Optional.empty());
             }).toRule(RuleType.REWRITE_LOAD_PROJECT_FOR_STREAM_LOAD);
         }
     }
@@ -314,7 +315,8 @@ public class NereidsLoadUtils {
                     conjuncts.add(conjunct);
                     return logicalOlapTableSink.withChildren(
                             Lists.newArrayList(
-                                    new LogicalFilter(conjuncts, (Plan) logicalOlapTableSink.child(0))));
+                                    new LogicalFilter(conjuncts, (Plan) logicalOlapTableSink.child(0),
+                                            Optional.empty())));
                 } else {
                     return null;
                 }

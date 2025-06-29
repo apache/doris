@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -47,8 +48,8 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     private final long offset;
 
     public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
-            SortPhase phase, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(orderKeys, limit, offset, phase, Optional.empty(), logicalProperties, child);
+            SortPhase phase, LogicalProperties logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        this(orderKeys, limit, offset, phase, Optional.empty(), logicalProperties, child, hintContext);
     }
 
     /**
@@ -56,9 +57,10 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
      */
     public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
             SortPhase phase,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
         this(orderKeys, limit, offset, phase, groupExpression,
-                logicalProperties, null, null, child);
+                logicalProperties, null, null, child, hintContext);
     }
 
     /**
@@ -66,9 +68,10 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
      */
     public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
             SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
+            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_TOP_N, orderKeys, phase, groupExpression, logicalProperties, physicalProperties,
-                statistics, child);
+                statistics, child, hintContext);
         Objects.requireNonNull(orderKeys, "orderKeys should not be null in PhysicalTopN.");
         this.limit = limit;
         this.offset = offset;
@@ -114,13 +117,13 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalTopN's children size must be 1, but real is %s", children.size());
         return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), hintContext);
     }
 
     @Override
     public PhysicalTopN<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalTopN<>(orderKeys, limit, offset, phase,
-                groupExpression, getLogicalProperties(), child());
+                groupExpression, getLogicalProperties(), child(), hintContext);
     }
 
     @Override
@@ -129,14 +132,14 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalTopN's children size must be 1, but real is %s", children.size());
         return new PhysicalTopN<>(orderKeys, limit, offset, phase,
-                groupExpression, logicalProperties.get(), children.get(0));
+                groupExpression, logicalProperties.get(), children.get(0), hintContext);
     }
 
     @Override
     public PhysicalTopN<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalTopN<>(orderKeys, limit, offset, phase,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child(), hintContext);
     }
 
     @Override
@@ -163,7 +166,7 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     @Override
     public PhysicalTopN<Plan> resetLogicalProperties() {
         return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
-                null, physicalProperties, statistics, child());
+                null, physicalProperties, statistics, child(), hintContext);
     }
 
     @Override

@@ -500,7 +500,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             cols.add(column.getName());
         }
 
-        logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
+        logicalQuery = new LogicalProject<>(selectLists, logicalQuery, Optional.empty());
 
         boolean isPartialUpdate = isMow && !hasClusterKey && !hasSyncMaterializedView
                 && cols.size() < targetTable.getColumns().size();

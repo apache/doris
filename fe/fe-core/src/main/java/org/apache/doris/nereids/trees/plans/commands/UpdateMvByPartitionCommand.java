@@ -247,7 +247,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         ExpressionUtils.extractConjunctionToSet(
                                 ExpressionUtils.or(predicates.getPredicates().get(table))
                         ),
-                        unboundRelation
+                        unboundRelation, Optional.empty()
                 );
             }
             return unboundRelation;
@@ -267,7 +267,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 );
                 rewrittenSubQueryAlias.add(subQueryAlias.withChildren(subQueryAliasChildren));
             }
-            return super.visitLogicalCTE(new LogicalCTE<>(rewrittenSubQueryAlias, cte.child()), predicates);
+            return super.visitLogicalCTE(new LogicalCTE<>(rewrittenSubQueryAlias, cte.child(), Optional.empty()),
+                    predicates);
         }
 
         @Override
@@ -293,7 +294,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                             ExpressionUtils.extractConjunctionToSet(
                                     ExpressionUtils.or(predicates.getPredicates().get(table))
                             ),
-                            catalogRelation);
+                            catalogRelation, Optional.empty());
                 }
             }
             if (predicates.getPartition() != null && predicates.getPartitionName() != null) {
@@ -340,7 +341,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                                 ExpressionUtils.extractConjunctionToSet(
                                         ExpressionUtils.or(constructPredicates(partitionHasDataItems, partitionSlot))
                                 ),
-                                catalogRelation
+                                catalogRelation, Optional.empty()
                         );
                     }
                 }

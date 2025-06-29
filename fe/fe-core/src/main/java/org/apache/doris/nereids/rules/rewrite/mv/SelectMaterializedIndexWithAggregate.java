@@ -140,8 +140,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         agg, Optional.empty(), Optional.empty(), result.exprRewriteMap),
                                     agg.isNormalized(),
                                     agg.getSourceRepeat(),
-                                    mvPlan
-                                ), mvPlan));
+                                    mvPlan, agg.getHintContext()
+                                ), mvPlan), agg.getHintContext());
                 }).toRule(RuleType.MATERIALIZED_INDEX_AGG_SCAN),
 
                 // filter could push down scan.
@@ -189,8 +189,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                             // Note that no need to replace slots in the filter,
                                             // because the slots to
                                             // replace are value columns, which shouldn't appear in filters.
-                                            filter.withChildren(mvPlan)
-                                        ), mvPlan));
+                                            filter.withChildren(mvPlan), agg.getHintContext()
+                                        ), mvPlan), agg.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_AGG_FILTER_SCAN),
 
                 // column pruning or other projections such as alias, etc.
@@ -221,15 +221,17 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     result.exprRewriteMap.projectExprMap);
                             LogicalProject<LogicalOlapScan> newProject = new LogicalProject<>(
                                     generateNewOutputsWithMvOutputs(mvPlan, newProjectList),
-                                    scan.withMaterializedIndexSelected(result.indexId));
+                                    scan.withMaterializedIndexSelected(result.indexId), agg.getHintContext());
                             return new LogicalProject<>(generateProjectsAlias(agg.getOutputs(), slotContext),
                                     new ReplaceExpressions(slotContext)
                                             .replace(
                                                     new LogicalAggregate<>(agg.getGroupByExpressions(),
                                                             replaceAggOutput(agg, Optional.of(project),
                                                                     Optional.of(newProject), result.exprRewriteMap),
-                                                            agg.isNormalized(), agg.getSourceRepeat(), newProject),
-                                                    mvPlan));
+                                                            agg.isNormalized(), agg.getSourceRepeat(), newProject,
+                                                            agg.getHintContext()),
+                                                    mvPlan),
+                                    agg.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_AGG_PROJECT_SCAN),
 
                 // filter could push down and project.
@@ -278,14 +280,14 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         generateProjectsAlias(project.getOutput(), slotContextWithoutAgg),
                                         new ReplaceExpressions(slotContextWithoutAgg).replace(
                                                 project.withChildren(filter.withChildren(mvPlanWithoutAgg)),
-                                                mvPlanWithoutAgg)));
+                                                mvPlanWithoutAgg), agg.getHintContext()));
                             }
 
                             List<NamedExpression> newProjectList = replaceOutput(project.getProjects(),
                                     result.exprRewriteMap.projectExprMap);
                             LogicalProject<Plan> newProject = new LogicalProject<>(
                                     generateNewOutputsWithMvOutputs(mvPlan, newProjectList),
-                                    filter.withChildren(mvPlan));
+                                    filter.withChildren(mvPlan), agg.getHintContext());
 
                             return new LogicalProject<>(
                                 generateProjectsAlias(agg.getOutputs(), slotContext),
@@ -296,8 +298,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                     result.exprRewriteMap),
                                             agg.isNormalized(),
                                             agg.getSourceRepeat(),
-                                            newProject
-                                        ), mvPlan));
+                                            newProject, agg.getHintContext()
+                                        ), mvPlan), agg.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_AGG_PROJECT_FILTER_SCAN),
 
                 // filter can't push down
@@ -335,7 +337,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             List<NamedExpression> newProjectList = replaceOutput(project.getProjects(),
                                     result.exprRewriteMap.projectExprMap);
                             LogicalProject<Plan> newProject = new LogicalProject<>(
-                                    generateNewOutputsWithMvOutputs(mvPlan, newProjectList), mvPlan);
+                                    generateNewOutputsWithMvOutputs(mvPlan, newProjectList), mvPlan,
+                                    agg.getHintContext());
 
                             return new LogicalProject<>(
                                 generateProjectsAlias(agg.getOutputs(), slotContext),
@@ -346,8 +349,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                     result.exprRewriteMap),
                                             agg.isNormalized(),
                                             agg.getSourceRepeat(),
-                                            filter.withChildren(newProject)
-                                        ), mvPlan));
+                                            filter.withChildren(newProject), agg.getHintContext()
+                                        ), mvPlan), agg.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_AGG_FILTER_PROJECT_SCAN),
 
                 // only agg above scan
@@ -377,8 +380,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                             repeat.withAggOutputAndChild(
                                                                     replaceOutput(repeat.getOutputs(),
                                                                             result.exprRewriteMap.projectExprMap),
-                                                                    mvPlan)),
-                                                    mvPlan));
+                                                                    mvPlan), agg.getHintContext()),
+                                                    mvPlan), agg.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_SCAN),
 
                 // filter could push down scan.
@@ -427,8 +430,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                             repeat.withAggOutputAndChild(
                                                     replaceOutput(repeat.getOutputs(),
                                                             result.exprRewriteMap.projectExprMap),
-                                                    filter.withChildren(mvPlan))),
-                                            mvPlan));
+                                                    filter.withChildren(mvPlan)), agg.getHintContext()),
+                                            mvPlan), agg.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_FILTER_SCAN),
 
                 // column pruning or other projections such as alias, etc.
@@ -459,7 +462,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             List<NamedExpression> newProjectList = replaceOutput(project.getProjects(),
                                     result.exprRewriteMap.projectExprMap);
                             LogicalProject<LogicalOlapScan> newProject = new LogicalProject<>(
-                                    generateNewOutputsWithMvOutputs(mvPlan, newProjectList), mvPlan);
+                                    generateNewOutputsWithMvOutputs(mvPlan, newProjectList), mvPlan,
+                                    agg.getHintContext());
 
                             return new LogicalProject<>(generateProjectsAlias(agg.getOutputs(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(
@@ -468,8 +472,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                             result.exprRewriteMap),
                                                     agg.isNormalized(), agg.getSourceRepeat(),
                                                     repeat.withAggOutputAndChild(replaceOutput(repeat.getOutputs(),
-                                                            result.exprRewriteMap.projectExprMap), newProject)),
-                                            mvPlan));
+                                                            result.exprRewriteMap.projectExprMap), newProject),
+                                                    agg.getHintContext()),
+                                            mvPlan),
+                                    agg.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_PROJECT_SCAN),
 
                 // filter could push down and project.
@@ -512,7 +518,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     result.exprRewriteMap.projectExprMap);
                             LogicalProject<Plan> newProject = new LogicalProject<>(
                                     generateNewOutputsWithMvOutputs(mvPlan, newProjectList),
-                                    filter.withChildren(mvPlan));
+                                    filter.withChildren(mvPlan), agg.getHintContext());
 
                             return new LogicalProject<>(generateProjectsAlias(agg.getOutputs(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(
@@ -521,8 +527,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                             result.exprRewriteMap),
                                                     agg.isNormalized(), agg.getSourceRepeat(),
                                                     repeat.withAggOutputAndChild(replaceOutput(repeat.getOutputs(),
-                                                            result.exprRewriteMap.projectExprMap), newProject)),
-                                            mvPlan));
+                                                            result.exprRewriteMap.projectExprMap), newProject),
+                                                    agg.getHintContext()),
+                                            mvPlan),
+                                    agg.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_PROJECT_FILTER_SCAN),
 
                 // filter can't push down
@@ -563,7 +571,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     result.exprRewriteMap.projectExprMap);
                             LogicalProject<Plan> newProject = new LogicalProject<>(
                                     generateNewOutputsWithMvOutputs(mvPlan, newProjectList),
-                                    scan.withMaterializedIndexSelected(result.indexId));
+                                    scan.withMaterializedIndexSelected(result.indexId), agg.getHintContext());
 
                             return new LogicalProject<>(generateProjectsAlias(agg.getOutputs(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(new LogicalAggregate<>(
@@ -573,8 +581,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                             repeat.withAggOutputAndChild(
                                                     replaceOutput(repeat.getOutputs(),
                                                             result.exprRewriteMap.projectExprMap),
-                                                    filter.withChildren(newProject))),
-                                            mvPlan));
+                                                    filter.withChildren(newProject)), agg.getHintContext()),
+                                            mvPlan), agg.getHintContext());
                         }).toRule(RuleType.MATERIALIZED_INDEX_AGG_REPEAT_FILTER_PROJECT_SCAN)
         );
     }

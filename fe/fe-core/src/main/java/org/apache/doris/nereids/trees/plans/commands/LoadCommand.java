@@ -152,7 +152,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         }
         // 1. build source projects plan (select col1,col2... from tvf where prefilter)
         Map<String, String> tvfProperties = getTvfProperties(dataDesc, bulkStorageDesc);
-        LogicalPlan tvfLogicalPlan = new LogicalCheckPolicy<>(getUnboundTVFRelation(tvfProperties));
+        LogicalPlan tvfLogicalPlan = new LogicalCheckPolicy<>(getUnboundTVFRelation(tvfProperties), Optional.empty());
         tvfLogicalPlan = buildTvfQueryPlan(dataDesc, tvfProperties, tvfLogicalPlan);
 
         if (!(tvfLogicalPlan instanceof LogicalProject)) {
@@ -197,7 +197,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             throw new AnalysisException("Required property 'csv_schema' for csv file, "
                     + "when no column list specified and use WHERE");
         }
-        tvfLogicalPlan = new LogicalFilter<>(conjuncts, tvfLogicalPlan);
+        tvfLogicalPlan = new LogicalFilter<>(conjuncts, tvfLogicalPlan, Optional.empty());
 
         // 3. build sink project
         List<String> sinkCols = new ArrayList<>();
@@ -238,7 +238,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             selectLists.add(new UnboundSlot(columnFromPath));
         }
 
-        tvfLogicalPlan = new LogicalProject<>(selectLists, tvfLogicalPlan);
+        tvfLogicalPlan = new LogicalProject<>(selectLists, tvfLogicalPlan, Optional.empty());
         checkAndAddSequenceCol(olapTable, dataDesc, sinkCols, selectLists);
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
                 && sinkCols.size() < olapTable.getColumns().size();
@@ -309,7 +309,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             Set<Expression> preConjuncts =
                     ExpressionUtils.extractConjunctionToSet(dataDesc.getPrecedingFilterExpr().get());
             if (!preConjuncts.isEmpty()) {
-                tvfLogicalPlan = new LogicalFilter<>(preConjuncts, tvfLogicalPlan);
+                tvfLogicalPlan = new LogicalFilter<>(preConjuncts, tvfLogicalPlan, Optional.empty());
             }
         }
 
@@ -328,7 +328,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
                     for (String columnFromPath : dataDesc.getColumnsFromPath()) {
                         csvColumns.add(new UnboundSlot(columnFromPath));
                     }
-                    return new LogicalProject<>(csvColumns, tvfLogicalPlan);
+                    return new LogicalProject<>(csvColumns, tvfLogicalPlan, Optional.empty());
                 }
                 if (!dataDesc.getPrecedingFilterExpr().isPresent()) {
                     throw new AnalysisException("Required property 'csv_schema' for csv file, "
@@ -345,12 +345,13 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         if (dataDescColumns.isEmpty()) {
             return getStarProjectPlan(tvfLogicalPlan);
         } else {
-            return new LogicalProject<>(dataDescColumns, tvfLogicalPlan);
+            return new LogicalProject<>(dataDescColumns, tvfLogicalPlan, Optional.empty());
         }
     }
 
     private static LogicalProject<LogicalPlan> getStarProjectPlan(LogicalPlan logicalPlan) {
-        return new LogicalProject<>(ImmutableList.of(new UnboundStar(new ArrayList<>())), logicalPlan);
+        return new LogicalProject<>(ImmutableList.of(new UnboundStar(new ArrayList<>())), logicalPlan,
+                Optional.empty());
     }
 
     private static Optional<If> createDeleteOnIfCall(OlapTable olapTable, String olapColName,
@@ -433,10 +434,10 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         UnboundTVFRelation relation;
         if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.S3) {
             relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    S3TableValuedFunction.NAME, new Properties(properties));
+                    S3TableValuedFunction.NAME, new Properties(properties), Optional.empty());
         } else if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.HDFS) {
             relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    HdfsTableValuedFunction.NAME, new Properties(properties));
+                    HdfsTableValuedFunction.NAME, new Properties(properties), Optional.empty());
         } else {
             throw new UnsupportedOperationException("Unsupported load storage type: "
                     + bulkStorageDesc.getStorageType());

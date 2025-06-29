@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.math.BigInteger;
+import java.util.Optional;
 
 /**
  * Logical plan builder assistant for buildIn dialect and other dialect.
@@ -105,6 +106,6 @@ public class LogicalPlanBuilderAssistant {
      * Wrap plan withCheckPolicy.
      */
     public static LogicalPlan withCheckPolicy(LogicalPlan plan) {
-        return new LogicalCheckPolicy<>(plan);
+        return new LogicalCheckPolicy<>(plan, Optional.empty());
     }
 }

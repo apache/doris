@@ -204,7 +204,8 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 leftSlotToOutput.put((Slot) func.child(0), alias);
                 leftAggOutputBuilder.add(alias);
             });
-            left = new LogicalAggregate<>(ImmutableList.copyOf(leftGroupBy), leftAggOutputBuilder.build(), join.left());
+            left = new LogicalAggregate<>(ImmutableList.copyOf(leftGroupBy), leftAggOutputBuilder.build(), join.left(),
+                    agg.getHintContext());
         }
         if (!rightFuncs.isEmpty()) {
             Builder<NamedExpression> rightAggOutputBuilder = ImmutableList.<NamedExpression>builder()
@@ -215,7 +216,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 rightAggOutputBuilder.add(alias);
             });
             right = new LogicalAggregate<>(ImmutableList.copyOf(rightGroupBy), rightAggOutputBuilder.build(),
-                    join.right());
+                    join.right(), agg.getHintContext());
         }
 
         Preconditions.checkState(left != join.left() || right != join.right());

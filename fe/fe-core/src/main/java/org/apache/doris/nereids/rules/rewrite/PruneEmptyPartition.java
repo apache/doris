@@ -40,7 +40,7 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
             List<Long> ids = table.selectNonEmptyPartitionIds(partitionIdsToPrune);
             if (ids.isEmpty()) {
                 return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
-                        scan.getOutput());
+                        scan.getOutput(), scan.getHintContext());
             }
             if (partitionIdsToPrune.equals(ids)) {
                 // Not Prune actually, return directly

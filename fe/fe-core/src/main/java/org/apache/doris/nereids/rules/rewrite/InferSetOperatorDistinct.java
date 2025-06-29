@@ -51,7 +51,8 @@ public class InferSetOperatorDistinct extends OneRewriteRuleFactory {
 
                     List<Plan> newChildren = setOperation.children().stream()
                             .map(child -> isAgg(child) ? child
-                                    : new LogicalAggregate<>(ImmutableList.copyOf(child.getOutput()), true, child))
+                                    : new LogicalAggregate<>(ImmutableList.copyOf(child.getOutput()), true, child,
+                                            child.getHintContext()))
                             .collect(ImmutableList.toImmutableList());
                     if (newChildren.equals(setOperation.children())) {
                         return null;

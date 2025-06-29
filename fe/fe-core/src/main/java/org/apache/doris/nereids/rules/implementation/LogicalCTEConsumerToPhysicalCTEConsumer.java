@@ -32,7 +32,8 @@ public class LogicalCTEConsumerToPhysicalCTEConsumer extends OneImplementationRu
                         cte.getCteId(),
                         cte.getConsumerToProducerOutputMap(),
                         cte.getProducerToConsumerOutputMap(),
-                        cte.getLogicalProperties()
+                        cte.getLogicalProperties(),
+                        cte.getHintContext()
                 )
         ).toRule(RuleType.LOGICAL_CTE_CONSUMER_TO_PHYSICAL_CTE_CONSUMER_RULE);
     }

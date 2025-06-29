@@ -32,7 +32,8 @@ public class LogicalExceptToPhysicalExcept extends OneImplementationRuleFactory 
                         except.getOutputs(),
                         except.getRegularChildrenOutputs(),
                         except.getLogicalProperties(),
-                        except.children())
+                        except.children(),
+                        except.getHintContext())
         ).toRule(RuleType.LOGICAL_EXCEPT_TO_PHYSICAL_EXCEPT);
     }
 }

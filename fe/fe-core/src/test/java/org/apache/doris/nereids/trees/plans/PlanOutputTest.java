@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class PlanOutputTest {
     @Test
@@ -50,7 +51,7 @@ public class PlanOutputTest {
     @Test
     public void testLazyComputeOutput() {
         // not throw exception when create new UnboundRelation
-        UnboundRelation relationPlan = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("a"));
+        UnboundRelation relationPlan = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("a"), Optional.empty());
 
         try {
             // throw exception when getOutput
