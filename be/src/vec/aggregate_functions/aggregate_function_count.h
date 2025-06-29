@@ -186,7 +186,7 @@ public:
                 *use_null_result = true;
             }
         } else {
-            AggregateFunctionCount::data(place).count = frame_end - frame_start;
+            AggregateFunctionCount::data(place).count += frame_end - frame_start;
             *use_null_result = false;
             *could_use_previous_result = true;
         }
@@ -356,7 +356,7 @@ public:
             }
             *use_null_result = false;
             *could_use_previous_result = true;
-            AggregateFunctionCountNotNullUnary::data(place).count = count;
+            AggregateFunctionCountNotNullUnary::data(place).count += count;
         }
     }
 };

@@ -93,7 +93,7 @@ public:
 
     String get_name() const override {
         /// This is just a wrapper. The function for Nullable arguments is named the same as the nested function itself.
-        return "Nullable(" + nested_function->get_name() +")";
+        return "Nullable(" + nested_function->get_name() + ")";
     }
 
     DataTypePtr get_return_type() const override {
@@ -298,7 +298,6 @@ public:
                 return;
             }
         } else {
-            this->set_flag(place);
             *use_null_result = false;
             *could_use_previous_result = true;
         }
@@ -309,7 +308,8 @@ public:
                 this->add(place, columns, i, arena);
             }
         } else {
-            const IColumn* nested_column = &column->get_nested_column();
+            const IColumn* nested_column = &(column->get_nested_column());
+            this->set_flag(place);
             this->nested_function->add_range_single_place(
                     partition_start, partition_end, frame_start, frame_end,
                     this->nested_place(place), &nested_column, arena, use_null_result,
