@@ -81,11 +81,11 @@ Status CacheLRUDumper::dump_one_lru_entry(std::ofstream& out, std::string& filen
     // +-----------------------------------------------+
     // | LRUDumpEntryGroupPb_n                         |
     // +-----------------------------------------------+
-    // | LRUDumpMetaPb (queueName, Group<off,size>List)|
+    // | LRUDumpMetaPb (List<offset,size,crc>)         |
     // +-----------------------------------------------+
     // | FOOTER_OFFSET (8Bytes)                        |
     // +-----------------------------------------------+
-    // | CHECKSUM (4Bytes)｜VERSION (1Byte)｜ MAGIC     |
+    // | CHECKSUM (4Bytes)｜VERSION (1Byte)｜MAGIC (3B)|
     // +-----------------------------------------------+
     //
     // why we are not using protobuf as a whole?
@@ -119,11 +119,14 @@ Status CacheLRUDumper::flush_current_group(std::ofstream& out, std::string& file
 
     // Serialize and write the group
     std::string serialized;
-    LOG(INFO) << "Before serialization: " << _current_dump_group.DebugString();
+    VLOG_DEBUG << "Serialized size: " << serialized.size()
+               << " Before serialization: " << _current_dump_group.DebugString();
     if (!_current_dump_group.SerializeToString(&serialized)) {
-        return Status::InternalError<false>("Failed to serialize LRUDumpEntryGroupPb");
+        std::string warn_msg = fmt::format("Failed to serialize LRUDumpEntryGroupPb");
+        LOG(WARNING) << warn_msg;
+        return Status::InternalError<false>(warn_msg);
     }
-    LOG(INFO) << "Serialized size: " << serialized.size();
+
     out.write(serialized.data(), serialized.size());
     RETURN_IF_ERROR(check_ofstream_status(out, filename));
 
@@ -155,7 +158,7 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
         std::string warn_msg =
                 fmt::format("Failed to serialize LRUDumpMetaPb, file={}", tmp_filename);
         LOG(WARNING) << warn_msg;
-        return Status::InternalError<false>("warn_msg");
+        return Status::InternalError<false>(warn_msg);
     }
     out.write(meta_serialized.data(), meta_serialized.size());
     RETURN_IF_ERROR(check_ofstream_status(out, tmp_filename));
@@ -176,6 +179,8 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
     if (std::rename(tmp_filename.c_str(), final_filename.c_str()) != 0) {
         std::remove(tmp_filename.c_str());
         file_size = std::filesystem::file_size(final_filename);
+    } else {
+        LOG(WARNING) << "failed to rename " << tmp_filename << " to " << final_filename;
     }
     _dump_meta.Clear();
     _current_dump_group.Clear();
@@ -217,12 +222,13 @@ void CacheLRUDumper::dump_queue(LRUQueue& queue, const std::string& queue_name) 
             RETURN_IF_STATUS_ERROR(st, finalize_dump(out, elements.size(), tmp_filename,
                                                      final_filename, file_size));
         } else {
-            LOG(WARNING) << "open lru dump file failed";
+            LOG(WARNING) << "open lru dump file failed, reason: " << tmp_filename
+                         << " failed to create";
         }
     }
     *(_mgr->_lru_dump_latency_us) << (duration_ns / 1000);
-    LOG(INFO) << fmt::format("lru dump for {} size={} time={}us", queue_name, file_size,
-                             duration_ns / 1000);
+    LOG(INFO) << fmt::format("lru dump for {} size={} element={} time={}us", queue_name, file_size,
+                             elements.size(), duration_ns / 1000);
 };
 
 Status CacheLRUDumper::parse_dump_footer(std::ifstream& in, std::string& filename,
@@ -274,7 +280,7 @@ Status CacheLRUDumper::parse_dump_footer(std::ifstream& in, std::string& filenam
         LOG(WARNING) << warn_msg;
         return Status::InternalError<false>(warn_msg);
     }
-    LOG(INFO) << "parse meta: " << _parse_meta.DebugString();
+    VLOG_DEBUG << "parse meta: " << _parse_meta.DebugString();
 
     entry_num = _parse_meta.entry_num();
     return Status::OK();
@@ -294,7 +300,6 @@ Status CacheLRUDumper::parse_one_lru_entry(std::ifstream& in, std::string& filen
         in.read(&group_serialized[0], group_serialized.size());
         RETURN_IF_ERROR(check_ifstream_status(in, filename));
 
-        LOG(INFO) << "Deserializing group of size: " << group_serialized.size();
         if (!_current_parse_group.ParseFromString(group_serialized)) {
             std::string warn_msg =
                     fmt::format("restore lru failed to parse group, file={}", filename);
@@ -307,7 +312,7 @@ Status CacheLRUDumper::parse_one_lru_entry(std::ifstream& in, std::string& filen
     }
 
     // Get next entry from current group
-    LOG(INFO) << "After deserialization: " << _current_parse_group.DebugString();
+    VLOG_DEBUG << "After deserialization: " << _current_parse_group.DebugString();
     auto entry = _current_parse_group.entries(0);
     hash = UInt128Wrapper((static_cast<uint128_t>(entry.hash().high()) << 64) | entry.hash().low());
     offset = entry.offset();
@@ -330,6 +335,7 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
         SCOPED_RAW_TIMER(&duration_ns);
         size_t entry_num = 0;
         RETURN_IF_STATUS_ERROR(st, parse_dump_footer(in, filename, entry_num));
+        LOG(INFO) << "lru dump file for " << queue_name << " has " << entry_num << " entries.";
         in.seekg(0, std::ios::beg);
         UInt128Wrapper hash;
         size_t offset, size;
@@ -348,7 +354,7 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
             } else if (queue_name == "disposable") {
                 ctx.cache_type = FileCacheType::DISPOSABLE;
             } else {
-                LOG_WARNING("unknown queue type");
+                LOG_WARNING("unknown queue type for lru restore, skip");
                 DCHECK(false);
                 return;
             }
@@ -358,7 +364,7 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
     } else {
         LOG(INFO) << "no lru dump file is founded for " << queue_name;
     }
-    LOG(INFO) << "lru restore time costs: " << (duration_ns / 1000 / 1000) << "ms.";
+    LOG(INFO) << "lru restore time costs: " << (duration_ns / 1000) << "us.";
 };
 
 void CacheLRUDumper::remove_lru_dump_files() {

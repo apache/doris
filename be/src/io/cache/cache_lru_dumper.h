@@ -71,7 +71,6 @@ private:
     doris::io::cache::LRUDumpEntryGroupPb _current_parse_group;
     doris::io::cache::LRUDumpMetaPb _parse_meta;
 
-private:
     BlockFileCache* _mgr;
 };
 } // namespace doris::io

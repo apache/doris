@@ -589,7 +589,7 @@ private:
     CacheLRULogQueue _disposable_lru_log_queue;
     std::mutex _mutex_lru_log;
 
-    std::unordered_map<FileCacheType, size_t> _lru_queue_update_counters;
+    std::unordered_map<FileCacheType, size_t> _lru_queue_update_cnt_from_last_dump;
 
     std::unique_ptr<CacheLRUDumper> _lru_dumper;
 

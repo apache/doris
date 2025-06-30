@@ -606,7 +606,6 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 }
 
 std::string BlockFileCache::clear_file_cache_async() {
-    // TODO(zhengyu): rm lru dump file before and after clear file cache
     LOG(INFO) << "start clear_file_cache_async, path=" << _cache_base_path;
     _lru_dumper->remove_lru_dump_files();
     int64_t num_cells_all = 0;
