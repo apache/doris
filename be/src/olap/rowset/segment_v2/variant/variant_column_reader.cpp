@@ -232,8 +232,7 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
     }
     if (relative_path.empty()) {
         // root path, use VariantRootColumnIterator
-        *iterator = *iterator =
-                new VariantRootColumnIterator(new FileColumnIterator(node->data.reader.get()));
+        *iterator = new VariantRootColumnIterator(new FileColumnIterator(node->data.reader.get()));
         return Status::OK();
     }
     VLOG_DEBUG << "new iterator: " << target_col.path_info_ptr()->get_path();
