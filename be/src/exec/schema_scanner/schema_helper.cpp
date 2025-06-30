@@ -62,6 +62,7 @@ Status SchemaHelper::list_table_status(const std::string& ip, const int32_t port
                 client->listTableStatus(*result, request);
             });
 }
+
 Status SchemaHelper::list_table_metadata_name_ids(const std::string& ip, const int32_t port,
                                                   const doris::TGetTablesParams& request,
                                                   TListTableMetadataNameIdsResult* result) {
