@@ -1039,7 +1039,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         std::vector<const ColumnString*> data_columns;
         std::vector<bool> column_is_consts;
         for (int i = 0; i < arguments.size(); i++) {
@@ -1082,7 +1082,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
 
         const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
         if (auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
@@ -1203,7 +1203,7 @@ public:
         const IColumn& col_search = *(block.get_by_position(arguments[1]).column);
         const IColumn& col_path = *(block.get_by_position(arguments[2]).column);
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
 
         const ColumnString* col_json_string = check_and_get_column<ColumnString>(col_json);
         const ColumnString* col_search_string = check_and_get_column<ColumnString>(col_search);
@@ -1274,7 +1274,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
 
         const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
         if (auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {

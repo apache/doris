@@ -360,7 +360,7 @@ public:
             jsonb_path_columns.push_back(assert_cast<const ColumnString*>(path_column.get()));
         }
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         auto res = Impl::ColumnType::create();
 
         bool is_invalid_json_path = false;
@@ -456,7 +456,7 @@ public:
             jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column.get());
         }
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         NullMap& res_null_map = null_map->get_data();
 
         auto dst_arr = ColumnArray::create(
@@ -1356,7 +1356,7 @@ struct JsonbLengthUtil {
                                          path_value.size));
             }
         }
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
@@ -1481,7 +1481,7 @@ struct JsonbContainsUtil {
                                          path_value.size));
             }
         }
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
@@ -1692,7 +1692,7 @@ private:
                           const ColumnString* col_search_string, FunctionContext* context,
                           size_t result) const {
         auto result_col = ColumnString::create();
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
 
         std::shared_ptr<LikeState> state_ptr;
         LikeState* state = nullptr;
