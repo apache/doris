@@ -170,7 +170,7 @@ suite('test_temp_table', 'p0') {
 
     // truncate
     sql "truncate table t_test_temp_table2"
-    select_result3 = sql "select * from t_test_temp_table2"
+    def select_result3 = sql "select * from t_test_temp_table2"
     assertEquals(select_result3.size(), 0)
     sql "truncate table t_test_temp_table1"
     select_result3 = sql "select * from t_test_temp_table1"
