@@ -33,6 +33,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -428,6 +430,70 @@ public:
         }
         unchecked_set_time(year, month, day, hour, minute, second);
         return true;
+    }
+
+    template <TimeUnit unit>
+    [[nodiscard]] bool set_time_unit(uint32_t val) {
+        // is uint so need check upper bound only
+        if constexpr (unit == TimeUnit::YEAR) {
+            if (val > MAX_YEAR) [[unlikely]] {
+                return false;
+            }
+            _year = val;
+        } else if constexpr (unit == TimeUnit::MONTH) {
+            if (val > MAX_MONTH) [[unlikely]] {
+                return false;
+            }
+            _month = val;
+        } else if constexpr (unit == TimeUnit::DAY) {
+            DCHECK(_month <= MAX_MONTH);
+            DCHECK(_month != 0);
+            if (val > S_DAYS_IN_MONTH[_month] && (!is_leap(_year) || _month != 2 || val != 29)) {
+                return false;
+            }
+            _day = val;
+        } else if constexpr (unit == TimeUnit::HOUR) {
+            if (val > MAX_HOUR) [[unlikely]] {
+                return false;
+            }
+            _hour = val;
+        } else if constexpr (unit == TimeUnit::MINUTE) {
+            if (val > MAX_MINUTE) [[unlikely]] {
+                return false;
+            }
+            _minute = val;
+        } else if constexpr (unit == TimeUnit::SECOND) {
+            if (val > MAX_SECOND) [[unlikely]] {
+                return false;
+            }
+            _second = val;
+        } else {
+            static_assert(unit == TimeUnit::YEAR, "Unsupported TimeUnit in set_time_unit");
+            __builtin_unreachable();
+        }
+        return true;
+    }
+
+    template <TimeUnit unit>
+    void unchecked_set_time_unit(uint32_t val) {
+        // is uint so need check upper bound only
+        if constexpr (unit == TimeUnit::YEAR) {
+            _year = val;
+        } else if constexpr (unit == TimeUnit::MONTH) {
+            _month = val;
+        } else if constexpr (unit == TimeUnit::DAY) {
+            _day = val;
+        } else if constexpr (unit == TimeUnit::HOUR) {
+            _hour = val;
+        } else if constexpr (unit == TimeUnit::MINUTE) {
+            _minute = val;
+        } else if constexpr (unit == TimeUnit::SECOND) {
+            _second = val;
+        } else {
+            static_assert(unit == TimeUnit::YEAR,
+                          "Unsupported TimeUnit in unchecked_set_time_unit");
+            __builtin_unreachable();
+        }
     }
 
     void unchecked_set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
@@ -1229,6 +1295,60 @@ public:
     bool from_date_int64(int64_t value);
 
     bool get_date_from_daynr(uint64_t);
+
+    template <TimeUnit unit>
+    [[nodiscard]] bool test_time_unit(uint32_t val) {
+        // is uint so need check upper bound only
+        if constexpr (unit == TimeUnit::YEAR) {
+            if (val > MAX_YEAR) [[unlikely]] {
+                return false;
+            }
+        } else if constexpr (unit == TimeUnit::MONTH) {
+            if (val > MAX_MONTH) [[unlikely]] {
+                return false;
+            }
+        } else if constexpr (unit == TimeUnit::DAY) {
+            DCHECK(date_v2_value_.month_ <= MAX_MONTH);
+            DCHECK(date_v2_value_.month_ != 0);
+            if (val > S_DAYS_IN_MONTH[date_v2_value_.month_] &&
+                !(is_leap(date_v2_value_.year_) && date_v2_value_.month_ == 2 && val == 29)) {
+                return false;
+            }
+        } else if constexpr (unit == TimeUnit::HOUR) {
+            if constexpr (is_datetime) {
+                if (val > MAX_HOUR) [[unlikely]] {
+                    return false;
+                }
+            } else {
+                DCHECK(false) << "shouldn't set for date";
+            }
+        } else if constexpr (unit == TimeUnit::MINUTE) {
+            if constexpr (is_datetime) {
+                if (val > MAX_MINUTE) [[unlikely]] {
+                    return false;
+                }
+            } else {
+                DCHECK(false) << "shouldn't set for date";
+            }
+        } else if constexpr (unit == TimeUnit::SECOND) {
+            if constexpr (is_datetime) {
+                if (val > MAX_SECOND) [[unlikely]] {
+                    return false;
+                }
+            } else {
+                DCHECK(false) << "shouldn't set for date";
+            }
+        } else if constexpr (unit == TimeUnit::MICROSECOND) {
+            if constexpr (is_datetime) {
+                if (val > MAX_MICROSECOND) [[unlikely]] {
+                    return false;
+                }
+            } else {
+                DCHECK(false) << "shouldn't set for date";
+            }
+        }
+        return true;
+    }
 
     template <TimeUnit unit>
     [[nodiscard]] bool set_time_unit(uint32_t val) {

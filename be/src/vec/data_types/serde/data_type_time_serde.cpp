@@ -18,6 +18,9 @@
 #include "data_type_time_serde.h"
 
 #include "runtime/primitive_type.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/runtime/time_value.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -59,6 +62,8 @@ Status DataTypeTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
+// NOLINTBEGIN(readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 Status DataTypeTimeV2SerDe::from_string_batch(const ColumnString& col_str, ColumnNullable& col_res,
                                               const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(col_res.get_nested_column());
@@ -118,7 +123,7 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode_batch(const ColumnString& co
 
 <digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 */
-Status DataTypeTimeV2SerDe::_from_string(const std::string& str, TimeValue::TimeType& res) const {
+Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) const {
     const char* ptr = str.data();
     const char* end = ptr + str.size();
 
@@ -191,9 +196,13 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, TimeValue::Time
                 auto length = ptr - ms_start;
 
                 if (length > 0) {
-                    auto ms = StringParser::string_to_int_internal<uint32_t, true>(ms_start, 6,
-                                                                                   &success);
-                    DCHECK(success == StringParser::PARSE_SUCCESS);
+                    auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                            ms_start, std::min<int>((int)length, 6), &success);
+                    if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
+                        return Status::InvalidArgument(
+                                "invalid fractional part in datetime string '{}'",
+                                std::string {start, ptr});
+                    }
 
                     if (length > 6) {
                         // Round off to at most 6 digits
@@ -301,10 +310,9 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, TimeValue::Time
                               std::string {ptr, end});
 
     // Convert to TimeValue's internal storage format (microseconds since 00:00:00)
-    res = (double)TimeValue::limit_with_bound(
-            (negative ? -1 : 1) * double(hour * 3600 + minute * 60 + second) +
-            (double)microsecond / TimeValue::ONE_SECOND_MICROSECONDS);
-
+    res = (negative ? -1 : 1) * TimeValue::make_time(hour, minute, second, microsecond);
+    RETURN_INVALID_ARG_IF_NOT(TimeValue::valid(res), "invalid time value: {}:{}:{}.{}", hour,
+                              minute, second, microsecond);
     return Status::OK();
 }
 
@@ -322,8 +330,7 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, TimeValue::Time
 
 <digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 */
-Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str,
-                                                     TimeValue::TimeType& res) const {
+Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, double& res) const {
     const char* ptr = str.data();
     const char* end = ptr + str.size();
 
@@ -395,9 +402,13 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str,
                 auto length = ptr - ms_start;
 
                 if (length > 0) {
-                    auto ms = StringParser::string_to_int_internal<uint32_t, true>(
+                    auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
                             ms_start, std::min<int>((int)length, 6), &success);
-                    DCHECK(success == StringParser::PARSE_SUCCESS);
+                    if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
+                        return Status::InvalidArgument(
+                                "invalid fractional part in datetime string '{}'",
+                                std::string {start, ptr});
+                    }
 
                     if (length > 6) {
                         // Round off to at most 6 digits
@@ -467,9 +478,13 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str,
             auto length = ptr - ms_start;
 
             if (length > 0) {
-                auto ms = StringParser::string_to_int_internal<uint32_t, true>(
+                auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
                         ms_start, std::min<int>((int)length, 6), &success);
-                DCHECK(success == StringParser::PARSE_SUCCESS);
+                if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
+                    return Status::InvalidArgument(
+                            "invalid fractional part in datetime string '{}'",
+                            std::string {start, ptr});
+                }
 
                 if (length > 6) {
                     // Round off to at most 6 digits
@@ -504,10 +519,252 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str,
                               std::string {ptr, end});
 
     // Convert to TimeValue's internal storage format (microseconds since 00:00:00)
-    res = (double)TimeValue::limit_with_bound(
-            (negative ? -1 : 1) * double(hour * 3600 + minute * 60 + second) +
-            (double)microsecond / TimeValue::ONE_SECOND_MICROSECONDS);
-
+    res = (negative ? -1 : 1) * TimeValue::make_time(hour, minute, second, microsecond);
+    RETURN_INVALID_ARG_IF_NOT(TimeValue::valid(res), "invalid time value: {}:{}:{}.{}", hour,
+                              minute, second, microsecond);
     return Status::OK();
 }
+
+static Status from_int(int64_t int_val, int length, double& val) {
+    if (length >= 1 && length <= 7) {
+        bool negative = int_val < 0;
+        uint64_t uint_val = negative ? -int_val : int_val;
+
+        int hour = int(uint_val / 10000);
+        int minute = (uint_val / 100) % 100;
+        int second = uint_val % 100;
+        val = (negative ? -1 : 1) * TimeValue::make_time(hour, minute, second);
+        RETURN_INVALID_ARG_IF_NOT(TimeValue::valid(val), "invalid time value: {}:{}:{}", hour,
+                                  minute, second);
+    } else [[unlikely]] {
+        return Status::InvalidArgument("invalid digits for time: {}", int_val);
+    }
+    return Status::OK();
+}
+
+static void init_microsecond(int64_t frac_part, uint32_t float_scale, double& val) {
+    // normalize the fractional part to microseconds(6 digits)
+    if (float_scale > 0) {
+        if (float_scale > 6) {
+            int ms = int(frac_part / common::exp10_i64(float_scale - 6));
+            // if scale > 6, we need to round the fractional part
+            int digit7 = frac_part % common::exp10_i32(6) / common::exp10_i32(float_scale - 6);
+            if (digit7 >= 5) {
+                ms++;
+                DCHECK(ms <= 1000000);
+                if (ms == 1000000) {
+                    // overflow, round up to next second
+                    val += TimeValue::ONE_SECOND_MICROSECONDS;
+                    ms = 0;
+                }
+            }
+            val = TimeValue::init_unsigned_microsecond(val, ms);
+        } else { // scale <= 6
+            val = TimeValue::init_unsigned_microsecond(
+                    val, (uint32_t)frac_part * common::exp10_i32(6 - (int)float_scale));
+        }
+    }
+}
+
+template <typename IntDataType>
+Status DataTypeTimeV2SerDe::from_int_batch(const IntDataType::ColumnType& int_col,
+                                           ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    col_data.resize(int_col.size());
+    col_nullmap.resize(int_col.size());
+
+    for (size_t i = 0; i < int_col.size(); ++i) {
+        auto int_val = (int64_t)int_col.get_element(i);
+        int length = common::count_digits_fast(int_val);
+
+        double val;
+        if (auto st = from_int(int_val, length, val); st.ok()) [[likely]] {
+            col_data.get_data()[i] = val;
+            col_nullmap.get_data()[i] = false;
+        } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
+            col_nullmap.get_data()[i] = true;
+        } else {
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
+template <typename IntDataType>
+Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
+                                                       IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
+    col_data.resize(int_col.size());
+
+    for (size_t i = 0; i < int_col.size(); ++i) {
+        auto int_val = (int64_t)int_col.get_element(i);
+        int length = common::count_digits_fast(int_val);
+
+        double val;
+        RETURN_IF_ERROR(from_int(int_val, length, val));
+        col_data.get_data()[i] = val;
+    }
+    return Status::OK();
+}
+
+template <typename FloatDataType>
+Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& float_col,
+                                             ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    col_data.resize(float_col.size());
+    col_nullmap.resize(float_col.size());
+
+    for (size_t i = 0; i < float_col.size(); ++i) {
+        double float_value = float_col.get_data()[i];
+        if (std::isnan(float_value) || std::isinf(float_value) ||
+            float_value >= (double)std::numeric_limits<int64_t>::max()) {
+            col_nullmap.get_data()[i] = true;
+            continue;
+        }
+        auto int_part = static_cast<int64_t>(float_value);
+        int length = common::count_digits_fast(int_part);
+
+        double val;
+        if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
+            int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+            init_microsecond(ms_part_7, 7, val);
+
+            col_data.get_data()[i] = val;
+            col_nullmap.get_data()[i] = false;
+        } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
+            col_nullmap.get_data()[i] = true;
+        } else {
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
+template <typename FloatDataType>
+Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
+                                                         IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
+    col_data.resize(float_col.size());
+
+    for (size_t i = 0; i < float_col.size(); ++i) {
+        double float_value = float_col.get_data()[i];
+        if (std::isnan(float_value) || std::isinf(float_value) ||
+            float_value >= (double)std::numeric_limits<int64_t>::max()) {
+            return Status::InvalidArgument("invalid float value for time: {}", float_value);
+        }
+        auto int_part = static_cast<int64_t>(float_value);
+        int length = common::count_digits_fast(int_part);
+
+        double val;
+        RETURN_IF_ERROR(from_int(int_part, length, val));
+
+        int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+        init_microsecond(ms_part_7, 7, val);
+
+        col_data.get_data()[i] = val;
+    }
+    return Status::OK();
+}
+
+template <typename DecimalDataType>
+Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
+                                               ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    col_data.resize(decimal_col.size());
+    col_nullmap.resize(decimal_col.size());
+
+    for (size_t i = 0; i < decimal_col.size(); ++i) {
+        auto int_part = (int64_t)decimal_col.get_intergral_part(i);
+        int length = common::count_digits_fast(int_part);
+
+        double val;
+        if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
+            init_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(),
+                             val);
+
+            col_data.get_data()[i] = val;
+            col_nullmap.get_data()[i] = false;
+        } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
+            col_nullmap.get_data()[i] = true;
+        } else {
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
+template <typename DecimalDataType>
+Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
+        const DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
+    col_data.resize(decimal_col.size());
+
+    for (size_t i = 0; i < decimal_col.size(); ++i) {
+        auto int_part = (int64_t)decimal_col.get_intergral_part(i);
+        int length = common::count_digits_fast(int_part);
+
+        double val;
+        RETURN_IF_ERROR(from_int(int_part, length, val));
+        init_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(), val);
+
+        col_data.get_data()[i] = val;
+    }
+    return Status::OK();
+}
+// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-size)
+
+// instantiation of template functions
+template Status DataTypeTimeV2SerDe::from_int_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_int_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_int_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_int_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_int_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_float_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_float_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_float_strict_mode_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_float_strict_mode_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+
 } // namespace doris::vectorized

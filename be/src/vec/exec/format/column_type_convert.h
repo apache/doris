@@ -22,7 +22,6 @@
 #include <cstdint>
 #include <utility>
 
-#include "common/cast_set.h"
 #include "gutil/strings/numbers.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/arithmetic_overflow.h"

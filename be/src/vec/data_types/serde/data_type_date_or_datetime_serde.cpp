@@ -18,9 +18,13 @@
 #include "data_type_date_or_datetime_serde.h"
 
 #include <arrow/builder.h>
+#include <cctz/time_zone.h>
 
 #include "vec/columns/column_const.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -128,14 +132,14 @@ Status DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column,
 
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                     arrow::ArrayBuilder* array_builder,
-                                                     int64_t start, int64_t end,
-                                                     const cctz::time_zone& ctz) const {
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<const ColumnVector<T>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
+        const auto* time_val = (const VecDateTimeValue*)(&col_data[i]);
         size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
@@ -171,9 +175,9 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 template <PrimitiveType T>
 template <bool is_date>
 Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
-                                                       const arrow::Array* arrow_array,
-                                                       int64_t start, int64_t end,
-                                                       const cctz::time_zone& ctz) const {
+                                                     const arrow::Array* arrow_array, int64_t start,
+                                                     int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
@@ -231,9 +235,8 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
 
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                      const arrow::Array* arrow_array,
-                                                      int64_t start, int64_t end,
-                                                      const cctz::time_zone& ctz) const {
+                                                    const arrow::Array* arrow_array, int64_t start,
+                                                    int64_t end, const cctz::time_zone& ctz) const {
     return _read_column_from_arrow<true>(column, arrow_array, start, end, ctz);
 }
 
@@ -279,11 +282,11 @@ Status DataTypeDateSerDe<T>::write_column_to_mysql(
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone,
-                                                   const IColumn& column, const NullMap* null_map,
-                                                   orc::ColumnVectorBatch* orc_col_batch,
-                                                   int64_t start, int64_t end,
-                                                   std::vector<StringRef>& buffer_list) const {
+Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                                 const NullMap* null_map,
+                                                 orc::ColumnVectorBatch* orc_col_batch,
+                                                 int64_t start, int64_t end,
+                                                 std::vector<StringRef>& buffer_list) const {
     const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
@@ -310,7 +313,834 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
+// NOLINTBEGIN(readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+template <PrimitiveType T>
+Status DataTypeDateSerDe<T>::from_string_batch(
+        const ColumnString& col_str, ColumnNullable& col_res,
+        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnType&>(col_res.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    size_t row = col_str.size();
+    col_res.resize(row);
+
+    for (size_t i = 0; i < row; ++i) {
+        auto str = col_str.get_element(i);
+        CppType res;
+        Status st = _from_string_strict_mode(str, res, options.timezone);
+        if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
+            st = _from_string(str, res, options.timezone);
+        }
+        if (st.ok()) {
+            col_nullmap.get_data()[i] = false;
+            col_data.get_data()[i] = binary_cast<CppType, NativeType>(res);
+        } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
+            // if still invalid, set null
+            col_nullmap.get_data()[i] = true;
+            if constexpr (IsDatetime) {
+                col_data.get_data()[i] = MIN_DATETIME_V2;
+            } else {
+                col_data.get_data()[i] = MIN_DATE_V2;
+            }
+        } else {
+            // some internal error
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
+        const ColumnString& col_str, IColumn& col_res,
+        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+    size_t row = col_str.size();
+    col_res.resize(row);
+    auto& col_data = assert_cast<ColumnType&>(col_res);
+
+    for (size_t i = 0; i < row; ++i) {
+        auto str = col_str.get_element(i);
+        CppType res;
+        RETURN_IF_ERROR(_from_string_strict_mode(str, res, options.timezone));
+        col_data.get_data()[i] = binary_cast<CppType, NativeType>(res);
+    }
+    return Status::OK();
+}
+
+// same with datetimev2
+template <PrimitiveType T>
+Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
+                                          const cctz::time_zone* local_time_zone) const {
+    const char* ptr = str.data();
+    const char* end = ptr + str.size();
+
+    // skip leading whitespace
+    static_cast<void>(skip_any_whitespace(ptr, end));
+    if (ptr == end) {
+        return Status::InvalidArgument("empty datetime string");
+    }
+
+    // date part
+    uint32_t year, month, day;
+
+    // read year
+    RETURN_IF_ERROR((consume_digit<UInt32, 2, 4>(ptr, end, year)));
+    if (year < 100) {
+        // Convert 2-digit year based on 1970 boundary
+        year += (year >= 70) ? 1900 : 2000;
+    }
+
+    // check for separator
+    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+    if (is_numeric_ascii(*ptr) || is_alpha_ascii(*ptr)) {
+        return Status::InvalidArgument("invalid date separator");
+    }
+    ++ptr;
+
+    // read month
+    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, month)));
+
+    // check for separator
+    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+    if (is_numeric_ascii(*ptr) || is_alpha_ascii(*ptr)) {
+        return Status::InvalidArgument("invalid date separator");
+    }
+    ++ptr;
+
+    // read day
+    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, day)));
+
+    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(year), "invalid year {}",
+                              year);
+    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(month),
+                              "invalid month {}", month);
+    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(day), "invalid day {}",
+                              day);
+
+    if (ptr == end) {
+        // no time part, just return.
+        _cast_to_type(res);
+        return Status::OK();
+    }
+
+    // Check if the delimiter is space or 'T'
+    if (*ptr != ' ' && *ptr != 'T') {
+        return Status::InvalidArgument("invalid time delimiter: expected space or 'T'");
+    }
+    ++ptr;
+
+    // time part
+    uint32_t hour, minute, second;
+
+    // hour
+    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, hour)));
+    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::HOUR>(hour), "invalid hour {}",
+                              hour);
+
+    // check for separator
+    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+    if (is_numeric_ascii(*ptr) || is_alpha_ascii(*ptr)) {
+        return Status::InvalidArgument("invalid time separator");
+    }
+    ++ptr;
+
+    // minute
+    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, minute)));
+    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MINUTE>(minute),
+                              "invalid minute {}", minute);
+
+    // check for separator
+    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+    if (is_numeric_ascii(*ptr) || is_alpha_ascii(*ptr)) {
+        return Status::InvalidArgument("invalid time separator");
+    }
+    ++ptr;
+
+    // second
+    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, second)));
+    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::SECOND>(second),
+                              "invalid second {}", second);
+
+    // fractional part
+    if (assert_within_bound(ptr, end, 0).ok() && *ptr == '.') {
+        ++ptr;
+
+        const auto* start = ptr;
+        static_cast<void>(skip_any_digit(ptr, end));
+        [[maybe_unused]] auto length = ptr - start;
+
+        if constexpr (IsDatetime) {
+            if (length > 0) {
+                StringParser::ParseResult success;
+                auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                        start, std::min<int>((int)length, 6), &success);
+                if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
+                    return Status::InvalidArgument(
+                            "invalid fractional part in datetime string '{}'",
+                            std::string {start, ptr});
+                }
+
+                if (length > 6) {
+                    // round off to at most 6 digits
+                    if (auto remainder = *(start + 6) - '0'; remainder >= 5) {
+                        ms++;
+                        DCHECK(ms <= 1000000);
+                        if (ms == 1000000) {
+                            // overflow, round up to next second
+                            res.template date_add_interval<TimeUnit::SECOND>(
+                                    TimeInterval {TimeUnit::SECOND, 1, false});
+                            ms = 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // skip any whitespace after time
+    static_cast<void>(skip_any_whitespace(ptr, end));
+
+    // timezone part (if any)
+    if (ptr != end) {
+        cctz::time_zone parsed_tz {};
+        if (*ptr == '+' || *ptr == '-') {
+            // offset
+            const auto* start = ptr;
+            ++ptr;
+            uint32_t hour_offset, minute_offset = 0;
+            // hour
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, hour_offset)));
+            RETURN_INVALID_ARG_IF_NOT(hour_offset <= 14, "invalid hour offset {}", hour_offset);
+            if (assert_within_bound(ptr, end, 0).ok() && *ptr == ':') {
+                ++ptr;
+                // minute
+                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, minute_offset)));
+                RETURN_INVALID_ARG_IF_NOT(
+                        (minute_offset == 0 || minute_offset == 30 || minute_offset == 45),
+                        "invalid minute offset {}", minute_offset);
+            }
+
+            RETURN_INVALID_ARG_IF_NOT(
+                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
+                    "invalid timezone offset '{}'", std::string {start, ptr});
+        } else {
+            // timezone name
+            const auto* start = ptr;
+            // area of area/location, or just a short tz name.
+            RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
+            if (ptr != end && !is_whitespace_ascii(*ptr)) {
+                // /location of area/location
+                RETURN_IF_ERROR(skip_one_slash(ptr, end));
+                RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
+            }
+
+            RETURN_INVALID_ARG_IF_NOT(
+                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
+                    "invalid timezone name '{}'", std::string {start, ptr});
+        }
+        if constexpr (IsDatetime) {
+            // convert tz
+            cctz::civil_second cs {res.year(), res.month(),  res.day(),
+                                   res.hour(), res.minute(), res.second()};
+
+            auto given = cctz::convert(cs, parsed_tz);
+            auto local = cctz::convert(given, *local_time_zone);
+            res.template unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
+            res.template unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
+            res.template unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
+            res.template unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
+            res.template unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
+            res.template unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
+        }
+    }
+
+    // skip trailing whitespace
+    static_cast<void>(skip_any_whitespace(ptr, end));
+    RETURN_INVALID_ARG_IF_NOT(ptr == end,
+                              "invalid datetime string '{}', extra characters after parsing",
+                              std::string {ptr, end});
+
+    _cast_to_type(res);
+    return Status::OK();
+}
+
+// same with datetimev2
+template <PrimitiveType T>
+Status DataTypeDateSerDe<T>::_from_string_strict_mode(
+        const std::string& str, CppType& res, const cctz::time_zone* local_time_zone) const {
+    const char* ptr = str.data();
+    const char* end = ptr + str.size();
+
+    // date part
+    RETURN_IF_ERROR(assert_within_bound(ptr, end, 5));
+    if (is_digit_range(ptr, ptr + 5)) {
+        // no delimiter here.
+        uint32_t part[4];
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        if (is_numeric_ascii(*ptr)) {
+            // 4 digits year
+            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[3])));
+            RETURN_INVALID_ARG_IF_NOT(
+                    res.template set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
+                    "invalid year {}", part[0] * 100 + part[1]);
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[2]),
+                                      "invalid month {}", part[2]);
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[3]),
+                                      "invalid day {}", part[3]);
+        } else {
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(1900 + part[0]),
+                                      "invalid year {}", part[0]);
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
+                                      "invalid month {}", part[1]);
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),
+                                      "invalid day {}", part[2]);
+        }
+    } else {
+        // has delimiter here.
+        uint32_t part[4];
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+        if (*ptr == '-') {
+            // 2 digits year
+            ++ptr;
+            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
+            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(part[0]),
+                                      "invalid year {}", part[0]);
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
+                                      "invalid month {}", part[1]);
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),
+                                      "invalid day {}", part[2]);
+        } else {
+            // 4 digits year
+            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[3])));
+
+            RETURN_INVALID_ARG_IF_NOT(
+                    res.template set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
+                    "invalid year {}", part[0] * 100 + part[1]);
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[2]),
+                                      "invalid month {}", part[2]);
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[3]),
+                                      "invalid day {}", part[3]);
+        }
+    }
+
+    if (ptr == end) {
+        // no time part, just return.
+        _cast_to_type(res);
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(consume_one_delimiter(ptr, end));
+
+    // time part.
+    uint32_t part[3];
+    bool has_second = false;
+    // hour
+    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
+    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::HOUR>(part[0]),
+                              "invalid hour {}", part[0]);
+    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
+    if (*ptr == ':') {
+        // with hour:minute:second
+        if (consume_one_colon(ptr, end)) { // minute
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MINUTE>(part[1]),
+                                      "invalid minute {}", part[1]);
+            if (consume_one_colon(ptr, end)) { // second
+                has_second = true;
+                RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::SECOND>(part[2]),
+                                          "invalid second {}", part[2]);
+            } else {
+                res.template unchecked_set_time_unit<TimeUnit::SECOND>(0);
+            }
+        } else {
+            res.template unchecked_set_time_unit<TimeUnit::MINUTE>(0);
+            res.template unchecked_set_time_unit<TimeUnit::SECOND>(0);
+        }
+    } else {
+        // no ':'
+        if (consume_digit<UInt32, 2>(ptr, end, part[1])) {
+            // has minute
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MINUTE>(part[1]),
+                                      "invalid minute {}", part[1]);
+            if (consume_digit<UInt32, 2>(ptr, end, part[2])) {
+                // has second
+                has_second = true;
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::SECOND>(part[2]),
+                                          "invalid second {}", part[2]);
+            }
+        }
+    }
+
+    // fractional part
+    if (has_second && assert_within_bound(ptr, end, 0).ok() && *ptr == '.') {
+        ++ptr;
+
+        const auto* start = ptr;
+        static_cast<void>(skip_any_digit(ptr, end));
+        [[maybe_unused]] auto length = ptr - start;
+
+        if constexpr (IsDatetime) {
+            if (length > 0) {
+                StringParser::ParseResult success;
+                auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                        start, std::min<int>((int)length, 6), &success);
+                if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
+                    return Status::InvalidArgument(
+                            "invalid fractional part in datetime string '{}'",
+                            std::string {start, ptr});
+                }
+
+                if (length > 6) {
+                    // round off to at most 6 digits
+                    if (auto remainder = *(start + 6) - '0'; remainder >= 5) {
+                        ms++;
+                        DCHECK(ms <= 1000000);
+                        if (ms == 1000000) {
+                            // overflow, round up to next second
+                            res.template date_add_interval<TimeUnit::SECOND>(
+                                    TimeInterval {TimeUnit::SECOND, 1, false});
+                            ms = 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    static_cast<void>(skip_any_digit(ptr, end));
+
+    static_cast<void>(skip_any_whitespace(ptr, end));
+
+    // timezone part
+    if (ptr != end) {
+        cctz::time_zone parsed_tz {};
+        if (*ptr == '+' || *ptr == '-') {
+            // offset
+            const auto* start = ptr;
+            ++ptr;
+            // hour
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
+            RETURN_INVALID_ARG_IF_NOT(part[0] <= 14, "invalid hour offset {}", part[0]);
+            if (assert_within_bound(ptr, end, 0).ok() && *ptr == ':') {
+                ++ptr;
+                // minute
+                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+                RETURN_INVALID_ARG_IF_NOT((part[1] == 0 || part[1] == 30 || part[1] == 45),
+                                          "invalid minute offset {}", part[1]);
+            }
+
+            RETURN_INVALID_ARG_IF_NOT(
+                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
+                    "invalid timezone offset '{}'", std::string {start, ptr});
+        } else {
+            // timezone name
+            const auto* start = ptr;
+            // area of area/location, or just a short tz name.
+            RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
+            if (ptr != end && !is_whitespace_ascii(*ptr)) {
+                // /location of area/location
+                RETURN_IF_ERROR(skip_one_slash(ptr, end));
+                RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
+            }
+
+            RETURN_INVALID_ARG_IF_NOT(
+                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
+                    "invalid timezone name '{}'", std::string {start, ptr});
+        }
+        if constexpr (IsDatetime) {
+            // convert tz
+            cctz::civil_second cs {res.year(), res.month(),  res.day(),
+                                   res.hour(), res.minute(), res.second()};
+
+            auto given = cctz::convert(cs, parsed_tz);
+            auto local = cctz::convert(given, *local_time_zone);
+            res.template unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
+            res.template unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
+            res.template unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
+            res.template unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
+            res.template unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
+            res.template unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
+        }
+
+        static_cast<void>(skip_any_whitespace(ptr, end));
+        RETURN_INVALID_ARG_IF_NOT(ptr == end,
+                                  "invalid datetime string '{}', extra characters after timezone",
+                                  std::string {ptr, end});
+    }
+    _cast_to_type(res);
+    return Status::OK();
+}
+
+static Status from_int(uint64_t uint_val, int length, VecDateTimeValue& val) {
+    if (length == 3 || length == 4) {
+        val.unchecked_set_time_unit<TimeUnit::YEAR>(2000);
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::MONTH>((uint32_t)uint_val / 100),
+                                  "invalid month {}", uint_val / 100);
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::DAY>(uint_val % 100),
+                                  "invalid day {}", uint_val % 100);
+    } else if (length == 5) {
+        RETURN_INVALID_ARG_IF_NOT(
+                val.set_time_unit<TimeUnit::YEAR>(2000 + (uint32_t)uint_val / 10000),
+                "invalid year {}", 2000 + uint_val / 10000);
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::MONTH>(uint_val % 10000 / 100),
+                                  "invalid month {}", uint_val % 10000 / 100);
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::DAY>(uint_val % 100),
+                                  "invalid day {}", uint_val % 100);
+    } else if (length == 6) {
+        uint32_t year = (uint32_t)uint_val / 10000;
+        if (year < 70) {
+            year += 2000;
+        } else {
+            year += 1900;
+        }
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::YEAR>(year), "invalid year {}", year);
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::MONTH>(uint_val % 10000 / 100),
+                                  "invalid month {}", uint_val % 10000 / 100);
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::DAY>(uint_val % 100),
+                                  "invalid day {}", uint_val % 100);
+    } else if (length == 8) {
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::YEAR>((uint32_t)uint_val / 10000),
+                                  "invalid year {}", uint_val / 10000);
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::MONTH>(uint_val % 10000 / 100),
+                                  "invalid month {}", uint_val % 10000 / 100);
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::DAY>(uint_val % 100),
+                                  "invalid day {}", uint_val % 100);
+    } else if (length == 14) {
+        RETURN_INVALID_ARG_IF_NOT(
+                val.set_time_unit<TimeUnit::YEAR>(uint_val / common::exp10_i64(10)),
+                "invalid year {}", uint_val / common::exp10_i64(10));
+        RETURN_INVALID_ARG_IF_NOT(
+                val.set_time_unit<TimeUnit::MONTH>((uint_val / common::exp10_i32(8)) % 100),
+                "invalid month {}", (uint_val / common::exp10_i32(8)) % 100);
+        RETURN_INVALID_ARG_IF_NOT(
+                val.set_time_unit<TimeUnit::DAY>((uint_val / common::exp10_i32(6)) % 100),
+                "invalid day {}", (uint_val / common::exp10_i32(6)) % 100);
+        RETURN_INVALID_ARG_IF_NOT(
+                val.set_time_unit<TimeUnit::HOUR>((uint_val / common::exp10_i32(4)) % 100),
+                "invalid hour {}", (uint_val / common::exp10_i32(4)) % 100);
+        RETURN_INVALID_ARG_IF_NOT(
+                val.set_time_unit<TimeUnit::MINUTE>((uint_val / common::exp10_i32(2)) % 100),
+                "invalid minute {}", (uint_val / common::exp10_i32(2)) % 100);
+        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::SECOND>(uint_val % 100),
+                                  "invalid second {}", uint_val % 100);
+    } else [[unlikely]] {
+        return Status::InvalidArgument("invalid digits for datetimev2: {}", uint_val);
+    }
+
+    return Status::OK();
+}
+
+static void microsecond_carry_on(int64_t frac_part, uint32_t float_scale, VecDateTimeValue& val) {
+    // normalize the fractional part to microseconds(6 digits)
+    if (float_scale > 0) {
+        if (float_scale > 6) {
+            int ms = int(frac_part / common::exp10_i64(float_scale - 6));
+            // if scale > 6, we need to round the fractional part
+            int digit7 = frac_part % common::exp10_i32(6) / common::exp10_i32(float_scale - 6);
+            if (digit7 >= 5) {
+                ms++;
+                DCHECK(ms <= 1000000);
+                if (ms == 1000000) {
+                    // overflow, round up to next second
+                    val.date_add_interval<TimeUnit::SECOND>(
+                            TimeInterval {TimeUnit::SECOND, 1, false});
+                    ms = 0;
+                }
+            }
+        }
+    }
+}
+
+template <PrimitiveType T>
+template <typename IntDataType>
+Status DataTypeDateSerDe<T>::from_int_batch(const IntDataType::ColumnType& int_col,
+                                            ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    col_data.resize(int_col.size());
+    col_nullmap.resize(int_col.size());
+
+    for (size_t i = 0; i < int_col.size(); ++i) {
+        auto int_val = (int64_t)int_col.get_element(i);
+        if (int_val <= 0) {
+            col_nullmap.get_data()[i] = true;
+            continue;
+        }
+        int length = common::count_digits_fast(int_val);
+
+        CppType val;
+        if (auto st = from_int(int_val, length, val); st.ok()) [[likely]] {
+            _cast_to_type(val);
+            col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+            col_nullmap.get_data()[i] = false;
+        } else if (st.template is<ErrorCode::INVALID_ARGUMENT>()) {
+            col_nullmap.get_data()[i] = true;
+        } else {
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+template <typename IntDataType>
+Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
+                                                        IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnType&>(target_col);
+    col_data.resize(int_col.size());
+
+    for (size_t i = 0; i < int_col.size(); ++i) {
+        auto int_val = (int64_t)int_col.get_element(i);
+        if (int_val <= 0) {
+            return Status::InvalidArgument("invalid int value for datetimev2: {}", int_val);
+        }
+        int length = common::count_digits_fast(int_val);
+
+        CppType val;
+        RETURN_IF_ERROR(from_int(int_val, length, val));
+        _cast_to_type(val);
+        col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+template <typename FloatDataType>
+Status DataTypeDateSerDe<T>::from_float_batch(const FloatDataType::ColumnType& float_col,
+                                              ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    col_data.resize(float_col.size());
+    col_nullmap.resize(float_col.size());
+
+    for (size_t i = 0; i < float_col.size(); ++i) {
+        double float_value = float_col.get_data()[i];
+        if (float_value <= 0 || std::isnan(float_value) || std::isinf(float_value) ||
+            float_value >= (double)std::numeric_limits<int64_t>::max()) {
+            col_nullmap.get_data()[i] = true;
+            continue;
+        }
+        auto int_part = static_cast<int64_t>(float_value);
+        int length = common::count_digits_fast(int_part);
+
+        CppType val;
+        if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
+            _cast_to_type(val);
+            int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+            microsecond_carry_on(ms_part_7, 7, val);
+
+            col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+            col_nullmap.get_data()[i] = false;
+        } else if (st.template is<ErrorCode::INVALID_ARGUMENT>()) {
+            col_nullmap.get_data()[i] = true;
+        } else {
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+template <typename FloatDataType>
+Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
+        const FloatDataType::ColumnType& float_col, IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnType&>(target_col);
+    col_data.resize(float_col.size());
+
+    for (size_t i = 0; i < float_col.size(); ++i) {
+        double float_value = float_col.get_data()[i];
+        if (float_value <= 0 || std::isnan(float_value) || std::isinf(float_value) ||
+            float_value >= (double)std::numeric_limits<int64_t>::max()) {
+            return Status::InvalidArgument("invalid float value for datetimev2: {}", float_value);
+        }
+        auto int_part = static_cast<int64_t>(float_value);
+        int length = common::count_digits_fast(int_part);
+
+        CppType val;
+        RETURN_IF_ERROR(from_int(int_part, length, val));
+        _cast_to_type(val);
+
+        int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+        microsecond_carry_on(ms_part_7, 7, val);
+
+        col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+template <typename DecimalDataType>
+Status DataTypeDateSerDe<T>::from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
+                                                ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    col_data.resize(decimal_col.size());
+    col_nullmap.resize(decimal_col.size());
+
+    for (size_t i = 0; i < decimal_col.size(); ++i) {
+        auto int_part = (int64_t)decimal_col.get_intergral_part(i);
+        if (int_part <= 0) {
+            col_nullmap.get_data()[i] = true;
+            continue;
+        }
+        int length = common::count_digits_fast(int_part);
+
+        CppType val;
+        if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
+            _cast_to_type(val);
+            microsecond_carry_on((int64_t)decimal_col.get_fractional_part(i),
+                                 decimal_col.get_scale(), val);
+
+            col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+            col_nullmap.get_data()[i] = false;
+        } else if (st.template is<ErrorCode::INVALID_ARGUMENT>()) {
+            col_nullmap.get_data()[i] = true;
+        } else {
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+template <typename DecimalDataType>
+Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
+        const DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnType&>(target_col);
+    col_data.resize(decimal_col.size());
+
+    for (size_t i = 0; i < decimal_col.size(); ++i) {
+        auto int_part = (int64_t)decimal_col.get_intergral_part(i);
+        if (int_part <= 0) {
+            return Status::InvalidArgument("invalid decimal integral part for datetimev2: {}",
+                                           int_part);
+        }
+        int length = common::count_digits_fast(int_part);
+
+        CppType val;
+        RETURN_IF_ERROR(from_int(int_part, length, val));
+        _cast_to_type(val);
+
+        microsecond_carry_on((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(),
+                             val);
+        col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+    }
+    return Status::OK();
+}
+// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-size)
+
+// instantiation of template functions
 template class DataTypeDateSerDe<TYPE_DATE>;
 template class DataTypeDateSerDe<TYPE_DATETIME>;
 
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_float_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_float_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_float_strict_mode_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_float_strict_mode_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_float_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_float_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_float_strict_mode_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_float_strict_mode_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
+template Status
+DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
+template Status
+DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
 } // namespace doris::vectorized

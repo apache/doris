@@ -63,7 +63,7 @@ void static_cast_set(ToFieldType& to, const FromFieldType& from) {
 
 template <typename T>
 constexpr static bool IsPureDigitType =
-        (IsDataTypeNumber<T> || IsDataTypeDecimal<T>)&&!IsDataTypeBool<T>;
+        IsDataTypeInt<T> || IsDataTypeFloat<T> || IsDataTypeDecimal<T>;
 
 // IsDataTypeNumber include integer, float and boolean.
 template <typename T>

@@ -60,8 +60,8 @@ using DataTypeInt64 = DataTypeNumber<TYPE_BIGINT>;
 using DataTypeInt128 = DataTypeNumber<TYPE_LARGEINT>;
 using DataTypeFloat32 = DataTypeNumber<TYPE_FLOAT>;
 using DataTypeFloat64 = DataTypeNumber<TYPE_DOUBLE>;
-using DataTypeBool = DataTypeNumber<TYPE_BOOLEAN>;
 using DataTypeUInt8 = DataTypeNumber<TYPE_BOOLEAN>;
+using DataTypeBool = DataTypeUInt8;
 
 class DataTypeNothing;
 class DataTypeTimeV2;
