@@ -74,7 +74,6 @@ statementBase
 
 unsupportedStatement
     : unsupportedStatsStatement
-    | unsupportedAlterStatement
     | unsupportedAdminStatement
     | unsupportedLoadStatement
     | unsupportedOtherStatement
@@ -283,6 +282,8 @@ supportedAlterStatement
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
+    | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
+            (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
@@ -345,6 +346,7 @@ supportedShowStatement
     | SHOW GLOBAL FULL? FUNCTIONS (LIKE STRING_LITERAL)?                            #showGlobalFunctions
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
+    | SHOW CREATE USER userIdentify                                                 #showCreateUser
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
@@ -645,13 +647,6 @@ privilegeList
     : privilege (COMMA privilege)*
     ;
 
-unsupportedAlterStatement
-    : ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
-            (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
-    | ALTER STORAGE POLICY name=identifierOrText
-        properties=propertyClause                                                   #alterStoragePlicy
-    ;
-
 alterSystemClause
     : ADD BACKEND hostPorts+=STRING_LITERAL (COMMA hostPorts+=STRING_LITERAL)*
         properties=propertyClause?                                                  #addBackendClause
@@ -724,6 +719,8 @@ alterTableClause
         INTERVAL INTEGER_VALUE unit=identifier? properties=propertyClause?          #alterMultiPartitionClause
     | createOrReplaceTagClause                                                      #createOrReplaceTagClauses
     | createOrReplaceBranchClause                                                   #createOrReplaceBranchClauses
+    | dropBranchClause                                                              #dropBranchClauses
+    | dropTagClause                                                                 #dropTagClauses
     ;
 
 createOrReplaceTagClause
@@ -760,6 +757,14 @@ minSnapshotsToKeep
 
 timeValueWithUnit
     : timeValue=INTEGER_VALUE  timeUnit=(DAYS | HOURS | MINUTES)
+    ;
+
+dropBranchClause
+    : DROP BRANCH (IF EXISTS)? name=identifier
+    ;
+
+dropTagClause
+    : DROP TAG (IF EXISTS)? name=identifier
     ;
 
 columnPosition

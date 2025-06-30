@@ -17,9 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.AlterCatalogCommentStmt;
-import org.apache.doris.analysis.AlterCatalogNameStmt;
-import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
@@ -58,18 +55,9 @@ public class CatalogFactory {
         CatalogLog log = new CatalogLog();
         if (stmt instanceof DropCatalogStmt) {
             log.setCatalogId(catalogId);
-        } else if (stmt instanceof AlterCatalogPropertyStmt) {
-            log.setCatalogId(catalogId);
-            log.setNewProps(((AlterCatalogPropertyStmt) stmt).getNewProperties());
-        } else if (stmt instanceof AlterCatalogNameStmt) {
-            log.setCatalogId(catalogId);
-            log.setNewCatalogName(((AlterCatalogNameStmt) stmt).getNewCatalogName());
         } else if (stmt instanceof RefreshCatalogStmt) {
             log.setCatalogId(catalogId);
             log.setInvalidCache(((RefreshCatalogStmt) stmt).isInvalidCache());
-        } else if (stmt instanceof AlterCatalogCommentStmt) {
-            log.setCatalogId(catalogId);
-            log.setComment(((AlterCatalogCommentStmt) stmt).getComment());
         } else {
             throw new RuntimeException("Unknown stmt for catalog manager " + stmt.getClass().getSimpleName());
         }

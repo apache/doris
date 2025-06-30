@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
@@ -87,12 +86,6 @@ public class S3StorageVault extends StorageVault {
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
-
-    public S3StorageVault(String name, boolean ifNotExists,
-            boolean setAsDefault, CreateResourceStmt stmt) throws DdlException {
-        super(name, StorageVault.StorageVaultType.S3, ifNotExists, setAsDefault);
-        resource = Resource.fromStmt(stmt);
-    }
 
     public S3StorageVault(String name, boolean ifNotExists,
             boolean setAsDefault, CreateResourceCommand command) throws DdlException {

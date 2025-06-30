@@ -20,7 +20,6 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
-import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.PasswordOptions;
@@ -480,13 +479,6 @@ public class Auth implements Writable {
     // Check if LDAP authentication is enabled.
     private boolean isLdapAuthEnabled() {
         return AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP;
-    }
-
-    // create user
-    public void createUser(CreateUserStmt stmt) throws DdlException {
-        createUserInternal(stmt.getUserIdent(), stmt.getQualifiedRole(),
-                stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(),
-                stmt.getComment(), stmt.getUserId(), false);
     }
 
     public void createUser(CreateUserInfo info) throws DdlException {
