@@ -33,6 +33,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.operations.TableMetadataOps;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -64,7 +65,7 @@ import java.util.Set;
  * External table represent tables that are not self-managed by Doris.
  * Such as tables from hive, iceberg, es, etc.
  */
-public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
+public class ExternalTable implements TableIf, TableMetadataOps, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalTable.class);
 
     @SerializedName(value = "id")

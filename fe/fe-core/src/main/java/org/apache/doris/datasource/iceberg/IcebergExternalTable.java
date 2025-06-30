@@ -53,6 +53,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.UpdateProperties;
+import org.apache.iceberg.UpdateSchema;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewVersion;
@@ -98,6 +101,131 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         boolean isView = isView();
         return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
+    }
+
+    @Override
+    public void setTableProperty(String key, String value) throws DdlException {
+        UpdateProperties updateProperties = table.updateProperties().set(key, value);
+        try {
+            catalog.getPreExecutionAuthenticator().execute(() -> {
+                updateProperties.commit();
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to set property: " + key + " to table: " + getName()
+                    + ", error message is: " + e.getMessage(), e);
+        }
+    }
+
+    private void addOneColumn(UpdateSchema updateSchema, Column column) {
+        org.apache.iceberg.types.Type dorisType = IcebergUtils.dorisTypeToIcebergType(column.getType());
+        Literal<?> defaultValue = IcebergUtils.parseIcebergLiteral(column.getDefaultValue(), dorisType);
+        if (column.isAllowNull()) {
+            updateSchema.addColumn(column.getName(), dorisType, column.getComment(), defaultValue);
+        } else {
+            updateSchema.addRequiredColumn(column.getName(), dorisType, column.getComment(), defaultValue);
+        }
+    }
+
+    @Override
+    public void addColumn(Column column) throws DdlException {
+        UpdateSchema updateSchema = table.updateSchema();
+        addOneColumn(updateSchema, column);
+        try {
+            catalog.getPreExecutionAuthenticator().execute(() -> {
+                updateSchema.commit();
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to add column: " + column.getName() + " to table: " + getName()
+                    + ", error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void addColumns(List<Column> columns) throws DdlException {
+        UpdateSchema updateSchema = table.updateSchema();
+        for (Column column : columns) {
+            addOneColumn(updateSchema, column);
+        }
+        try {
+            catalog.getPreExecutionAuthenticator().execute(() -> {
+                updateSchema.commit();
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to add columns to table: " + getName()
+                    + ", error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void deleteColumn(String name) throws DdlException {
+        UpdateSchema updateSchema = table.updateSchema().deleteColumn(name);
+        try {
+            catalog.getPreExecutionAuthenticator().execute(() -> {
+                updateSchema.commit();
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to drop column: " + name + " from table: " + getName()
+                    + ", error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void renameColumn(String oldName, String newName) throws DdlException {
+        UpdateSchema updateSchema = table.updateSchema().renameColumn(oldName, newName);
+        try {
+            catalog.getPreExecutionAuthenticator().execute(() -> {
+                updateSchema.commit();
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to rename column: " + oldName + " to: " + newName
+                    + " in table: " + getName() + ", error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void updateColumn(Column column) throws DdlException {
+        org.apache.iceberg.types.Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
+        if (!icebergType.isPrimitiveType()) {
+            throw new DdlException("Update column type to non-primitive type is not supported: " + column.getType());
+        }
+        UpdateSchema updateSchema = table.updateSchema().updateColumn(column.getName(), icebergType.asPrimitiveType(),
+                column.getComment());
+        try {
+            catalog.getPreExecutionAuthenticator().execute(() -> {
+                updateSchema.commit();
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to update column: " + column.getName() + " to type: " + icebergType
+                    + " in table: " + getName() + ", error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void reorderColumn(List<String> newOrder) throws DdlException {
+        if (newOrder == null || newOrder.isEmpty()) {
+            throw new DdlException("New order for columns cannot be null or empty.");
+        }
+        // TODO: improve this to support reordering columns
+        UpdateSchema updateSchema = table.updateSchema();
+        updateSchema.moveFirst(newOrder.get(0));
+        for (int i = 1; i < newOrder.size(); i++) {
+            updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
+        }
+        try {
+            catalog.getPreExecutionAuthenticator().execute(() -> {
+                updateSchema.commit();
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to reorder columns in table: " + getName()
+                    + ", error message is: " + e.getMessage(), e);
+        }
     }
 
     @Override
