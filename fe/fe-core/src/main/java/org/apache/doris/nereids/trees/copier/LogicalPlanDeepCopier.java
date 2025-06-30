@@ -139,8 +139,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     public Plan visitLogicalApply(LogicalApply<? extends Plan, ? extends Plan> apply, DeepCopierContext context) {
         Plan left = apply.left().accept(this, context);
         Plan right = apply.right().accept(this, context);
-        List<Expression> correlationSlot = apply.getCorrelationSlot().stream()
-                .map(s -> ExpressionDeepCopier.INSTANCE.deepCopy(s, context))
+        List<Slot> correlationSlot = apply.getCorrelationSlot().stream()
+                .map(s -> (Slot) ExpressionDeepCopier.INSTANCE.deepCopy(s, context))
                 .collect(ImmutableList.toImmutableList());
         Optional<Expression> compareExpr = apply.getCompareExpr()
                 .map(f -> ExpressionDeepCopier.INSTANCE.deepCopy(f, context));
