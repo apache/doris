@@ -2330,15 +2330,14 @@ size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
     // Simple random access iterator over values in ColumnString in specified range.
     class Iterator {
     public:
-        #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wunused-type"
-        #pragma GCC diagnostic ignored "-Wunused-variable"
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wunused-local-typedefs"
         using difference_type = std::ptrdiff_t;
         using value_type = StringRef;
         using iterator_category = std::random_access_iterator_tag;
         using pointer = StringRef*;
         using reference = StringRef&;
-        #pragma GCC diagnostic pop
+    #pragma GCC diagnostic pop
 
         Iterator() = delete;
         Iterator(const ColumnString* data_, size_t index_) : data(data_), index(index_) {}
