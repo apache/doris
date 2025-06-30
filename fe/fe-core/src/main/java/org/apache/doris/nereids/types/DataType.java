@@ -635,7 +635,7 @@ public abstract class DataType {
         return isObjectType() || isComplexType() || isJsonType() || isVariantType();
     }
 
-    public boolean isArrayTypeNestedFixedLengthType() {
+    public boolean isArrayTypeNestedBaseType() {
         return isArrayType() && !((ArrayType) this).getItemType().isOnlyMetricType();
     }
 
