@@ -2331,6 +2331,10 @@ size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
     class Iterator {
     public:
         using difference_type = size_t;
+        using value_type = StringRef;
+        using iterator_category = std::random_access_iterator_tag;
+        using pointer = StringRef*;
+        using reference = StringRef&;
 
         Iterator() = delete;
         Iterator(const ColumnString* data_, size_t index_) : data(data_), index(index_) {}
