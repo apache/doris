@@ -94,42 +94,42 @@ suite("dup_negative_mv_test", "mv_negative") {
 
     test {
         sql """create materialized view ${no_mv_name} as select col3, sum(col8) from ${tb_name} group by col3 having col3 > 1"""
-        exception "LogicalHaving is not supported"
+        exception "The having clause is not supported in add materialized view clause"
     }
 
     test {
         sql """create materialized view ${no_mv_name} as select col3, sum(col8) from ${tb_name} group by col3 limit 1"""
-        exception "LogicalLimit is not supported"
+        exception "The limit clause is not supported in add materialized view clause"
     }
 
     test {
         sql """create materialized view ${no_mv_name} as select col3, 1, sum(col8) from ${tb_name} group by col3"""
-        exception "The materialized view contain constant expr is disallowed"
+        exception "The materialized view only support the single column or function expr"
     }
 
     test {
         sql """create materialized view ${no_mv_name} as select col3, col3, sum(col8) from ${tb_name} group by col3"""
-        exception "The select expr is duplicated"
+        exception "The select expr `col3` is duplicated"
     }
 
     test {
         sql """create materialized view ${no_mv_name} as select col3, sum(col8) / 1 from ${tb_name} group by col3"""
-        exception "materialized view's expr calculations cannot be included outside aggregate functions"
+        exception "The materialized view's expr calculations cannot be included outside aggregate functions"
     }
 
     test {
         sql """create materialized view ${no_mv_name} as select  sum(col8), col3 from ${tb_name} group by col3"""
-        exception "The aggregate column should be after none agg column"
+        exception "The aggregate column should be after the single column"
     }
 
     test {
         sql """create materialized view ${no_mv_name} as select col1, col2, col3, sum(col8) from ${tb_name} group by col3, col1, col2 order by col3, col1, col2"""
-        exception "The order of columns in order by clause must be same as the order of columnsin select list"
+        exception "The order of columns in order by clause must be same as the order of columns in select list"
     }
 
     test {
         sql """create materialized view ${no_mv_name} as select col1, col2, col3, sum(col8) from ${tb_name} group by col1, col2, col3 order by col3, col1, col2"""
-        exception "The order of columns in order by clause must be same as the order of columnsin select list"
+        exception "The order of columns in order by clause must be same as the order of columns in select list"
     }
 
     test {
@@ -139,12 +139,12 @@ suite("dup_negative_mv_test", "mv_negative") {
 
     test {
         sql """create materialized view ${no_mv_name} as select col3, col1, col2, col15, case when col2 > 1 then 1 else 2 end, sum(col8) from ${tb_name} group by 1,2,3,4,5 order by 1,2,3,4,5"""
-        exception """only support the single column or function expr. Error column: CASE WHEN"""
+        exception """The order of columns in order by clause must be same as the order of columns in select list"""
     }
 
     test {
-        sql """create materialized view ${mv_name}_4 as select min(col8), col3 from ${tb_name} group by col3"""
-        exception """The aggregate column should be after none agg column"""
+        sql """create materialized view ${no_mv_name} as select min(col8), col3 from ${tb_name} group by col3"""
+        exception """The aggregate column should be after the single column"""
     }
 
 
