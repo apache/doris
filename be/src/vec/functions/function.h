@@ -191,11 +191,14 @@ public:
         return Status::OK();
     }
 
-    /// TODO: make const
-    virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           uint32_t result, size_t input_rows_count, bool dry_run = false) const {
-        return prepare(context, block, arguments, result)
-                ->execute(context, block, arguments, result, input_rows_count, dry_run);
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count, bool dry_run = false) const {
+        try {
+            return prepare(context, block, arguments, result)
+                    ->execute(context, block, arguments, result, input_rows_count, dry_run);
+        } catch (const Exception& e) {
+            return e.to_status();
+        }
     }
 
     virtual Status evaluate_inverted_index(
