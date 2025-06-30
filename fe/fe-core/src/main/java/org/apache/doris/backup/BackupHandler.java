@@ -638,17 +638,18 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
             restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
                     db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                    stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(), stmt.reserveColocate(),
+                    stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(),
                     stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
                     stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(), stmt.isForceReplace(),
                     env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
-                db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveColocate(),
-                stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(), stmt.isCleanTables(),
-                stmt.isCleanPartitions(), stmt.isAtomicRestore(), stmt.isForceReplace(),
-                env, repository.getId());
+                    db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
+                    stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(),
+                    stmt.reserveDynamicPartitionEnable(),
+                    stmt.isBeingSynced(), stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
+                    stmt.isForceReplace(),
+                    env, repository.getId());
         }
 
         env.getEditLog().logRestoreJob(restoreJob);
@@ -805,25 +806,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
         // only retain restore partitions
         tblInfo.retainPartitions(partitionNames == null ? null : partitionNames.getPartitionNames());
-    }
-
-    public void cancel(CancelBackupCommand command) throws DdlException {
-        String dbName = command.getDbName();
-        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
-        AbstractJob job = getCurrentJob(db.getId());
-        if (job == null || (job instanceof BackupJob && command.isRestore())
-                || (job instanceof RestoreJob && !command.isRestore())) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "No "
-                    + (command.isRestore() ? "restore" : "backup" + " job")
-                    + " is currently running");
-        }
-
-        Status status = job.cancel();
-        if (!status.ok()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Failed to cancel job: " + status.getErrMsg());
-        }
-
-        LOG.info("finished to cancel {} job: {}", (command.isRestore() ? "restore" : "backup"), job);
     }
 
     public void cancel(CancelBackupStmt stmt) throws DdlException {
