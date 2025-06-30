@@ -257,5 +257,14 @@ int64_t MultilevelSplitQueue::_get_level0_target_time(std::unique_lock<std::mute
     return level0_target_time;
 }
 
+void MultilevelSplitQueue::clear() {
+    std::lock_guard<std::mutex> lock(_mutex);
+    for (auto& queue : _level_waiting_splits) {
+        while (!queue.empty()) {
+            queue.pop();
+        }
+    }
+}
+
 } // namespace vectorized
 } // namespace doris

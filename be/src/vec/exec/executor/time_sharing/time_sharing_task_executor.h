@@ -18,6 +18,9 @@
 #pragma once
 
 #include <atomic>
+#include <boost/intrusive/detail/algo_type.hpp>
+#include <boost/intrusive/list.hpp>
+#include <boost/intrusive/list_hook.hpp>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
@@ -40,6 +43,9 @@
 namespace doris {
 namespace vectorized {
 
+class TimeSharingTaskExecutor;
+class SplitThreadPoolToken;
+
 /**
  * ThreadSafe
  */
@@ -52,7 +58,7 @@ public:
         std::string workload_group;
         int max_thread_num;
         int min_thread_num;
-        int max_queue_size = 0;
+        int max_queue_size = std::numeric_limits<int>::max();
         std::weak_ptr<CgroupCpuCtl> cgroup_cpu_ctl;
     };
 
@@ -87,7 +93,8 @@ public:
     void re_enqueue_split(std::shared_ptr<TaskHandle> task_handle, bool intermediate,
                           const std::shared_ptr<SplitRunner>& split) override;
 
-    size_t waiting_splits_size() const { return _waiting_splits->size(); }
+    //size_t waiting_splits_size() const { return _waiting_splits->size(); }
+    size_t waiting_splits_size() const;
 
     size_t intermediate_splits_size() const {
         std::lock_guard<std::mutex> guard(_mutex);
@@ -138,34 +145,121 @@ public:
 
     int64_t running_tasks_level4() const { return _get_running_tasks_for_level(4); }
 
-    ThreadPool* thread_pool() const { return _thread_pool.get(); };
+    //ThreadPool* thread_pool() const { return _thread_pool.get(); };
+
+    // Allocates a new token for use in token-based task submission. All tokens
+    // must be destroyed before their ThreadPool is destroyed.
+    //
+    // There is no limit on the number of tokens that may be allocated.
+    enum class ExecutionMode {
+        // Tasks submitted via this token will be executed serially.
+        SERIAL,
+
+        // Tasks submitted via this token may be executed concurrently.
+        CONCURRENT
+    };
+    std::unique_ptr<SplitThreadPoolToken> new_token(ExecutionMode mode,
+                                                    std::shared_ptr<SplitQueue> split_queue,
+                                                    int max_concurrency = INT_MAX);
+
+    // Return the number of threads currently running (or in the process of starting up)
+    // for this thread pool.
+    int num_threads() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return _num_threads + _num_threads_pending_start;
+    }
+
+    int max_threads() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return _max_threads;
+    }
+
+    int min_threads() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return _min_threads;
+    }
+
+    int num_threads_pending_start() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return _num_threads_pending_start;
+    }
+
+    int num_active_threads() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return _active_threads;
+    }
+
+    int get_queue_size() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return _total_queued_tasks;
+    }
+
+    int get_max_queue_size() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return _max_queue_size;
+    }
+
+    std::vector<int> debug_info() const {
+        std::lock_guard<std::mutex> l(_lock);
+        std::vector<int> arr = {_num_threads, static_cast<int>(_threads.size()), _min_threads,
+                                _max_threads};
+        return arr;
+    }
+
+    std::string get_info() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return fmt::format(
+                "SplitThreadPool(name={}, threads(active/pending)=({}/{}), queued_task={})",
+                _thread_name, _active_threads, _num_threads_pending_start, _total_queued_tasks);
+    }
+
+    Status set_min_threads(int min_threads);
+    Status set_max_threads(int max_threads);
 
 private:
+    // Client-provided task to be executed by this pool.
+    /*struct Task {
+        std::shared_ptr<PrioritizedSplitRunner> split;
+
+        // Time at which the entry was submitted to the pool.
+        MonotonicStopWatch submit_time_wather;
+    };*/
+
     Status _add_runner_thread();
     //void _worker_thread_function();
     void _schedule_task_if_necessary(std::shared_ptr<TimeSharingTaskHandle> task_handle,
-                                     std::lock_guard<std::mutex>& guard);
-    void _add_new_entrants(std::lock_guard<std::mutex>& guard);
+                                     std::unique_lock<std::mutex>& lock);
+    void _add_new_entrants(std::unique_lock<std::mutex>& lock);
     void _start_intermediate_split(std::shared_ptr<PrioritizedSplitRunner> split,
-                                   std::lock_guard<std::mutex>& guard);
+                                   std::unique_lock<std::mutex>& lock);
     void _start_split(std::shared_ptr<PrioritizedSplitRunner> split,
-                      std::lock_guard<std::mutex>& guard);
+                      std::unique_lock<std::mutex>& lock);
     std::shared_ptr<PrioritizedSplitRunner> _poll_next_split_worker(
-            std::lock_guard<std::mutex>& guard);
-    void _record_leaf_splits_size(std::lock_guard<std::mutex>& guard);
+            std::unique_lock<std::mutex>& lock);
+    void _record_leaf_splits_size(std::unique_lock<std::mutex>& lock);
     void _split_finished(std::shared_ptr<PrioritizedSplitRunner> split, const Status& status);
     void _interrupt();
+    // Waits until all the tasks are completed.
+    void wait();
 
     int64_t _get_running_tasks_for_level(int level) const;
 
     std::unique_ptr<ThreadPool> _thread_pool;
-    ThreadConfig _thread_config;
+    // ThreadConfig _thread_config;
+    const std::string _thread_name;
+    const std::string _workload_group;
+    int _min_threads;
+    int _max_threads;
+    const int _max_queue_size;
+    std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
+    const std::chrono::milliseconds _idle_timeout {std::chrono::milliseconds(500)};
+
     const int _min_concurrency;
     const int _guaranteed_concurrency_per_task;
     const int _max_concurrency_per_task;
     std::shared_ptr<Ticker> _ticker;
     const std::chrono::milliseconds _stuck_split_warning_threshold;
-    std::shared_ptr<SplitQueue> _waiting_splits;
+    //std::shared_ptr<SplitQueue> _waiting_splits;
 
     mutable std::mutex _mutex;
     std::condition_variable _condition;
@@ -184,6 +278,268 @@ private:
     std::array<std::atomic<int64_t>, 5> _completed_splits_per_level = {0, 0, 0, 0, 0};
 
     bvar::LatencyRecorder _split_queued_time;
+
+    // friend class SplitThreadPoolBuilder;
+    friend class SplitThreadPoolToken;
+
+    // // Client-provided task to be executed by this pool.
+    // struct Task {
+    //     std::shared_ptr<Runnable> runnable;
+
+    //     // Time at which the entry was submitted to the pool.
+    //     MonotonicStopWatch submit_time_wather;
+    // };
+
+    // Creates a new thread pool using a builder.
+    // explicit SplitThreadPool(const SplitThreadPoolBuilder& builder);
+
+    // Initializes the thread pool by starting the minimum number of threads.
+    // Status init();
+
+    // Dispatcher responsible for dequeueing and executing the tasks
+    void _dispatch_thread();
+
+    // Create new thread.
+    //
+    // REQUIRES: caller has incremented '_num_threads_pending_start' ahead of this call.
+    // NOTE: For performance reasons, _lock should not be held.
+    Status _create_thread();
+
+    // Aborts if the current thread is a member of this thread pool.
+    void check_not_pool_thread_unlocked();
+
+    // // Submits a task to be run via token.
+    Status _do_submit(std::shared_ptr<PrioritizedSplitRunner> split, SplitThreadPoolToken* token);
+
+    // // Releases token 't' and invalidates it.
+    void release_token(SplitThreadPoolToken* t);
+
+    //NOTE: not thread safe, caller should keep it thread-safe by using lock
+    Status _try_create_thread(int thread_num, std::lock_guard<std::mutex>&);
+
+    // Overall status of the pool. Set to an error when the pool is shut down.
+    //
+    // Protected by '_lock'.
+    Status _pool_status {Status::Uninitialized("The pool was not initialized.")};
+
+    // Synchronizes many of the members of the pool and all of its
+    // condition variables.
+    mutable std::mutex _lock;
+
+    // Condition variable for "pool is idling". Waiters wake up when
+    // _active_threads reaches zero.
+    std::condition_variable _idle_cond;
+
+    // Condition variable for "pool has no threads". Waiters wake up when
+    // _num_threads and num_pending_threads_ are both 0.
+    std::condition_variable _no_threads_cond;
+
+    // Number of threads currently running.
+    //
+    // Protected by _lock.
+    int _num_threads {0};
+
+    // Number of threads which are in the process of starting.
+    // When these threads start, they will decrement this counter and
+    // accordingly increment '_num_threads'.
+    //
+    // Protected by _lock.
+    int _num_threads_pending_start {0};
+
+    // Number of threads currently running and executing client tasks.
+    //
+    // Protected by _lock.
+    int _active_threads {0};
+
+    // Total number of client tasks queued, either directly (_queue) or
+    // indirectly (_tokens).
+    //
+    // Protected by _lock.
+    int _total_queued_tasks {0};
+
+    // All allocated tokens.
+    //
+    // Protected by _lock.
+    std::unordered_set<SplitThreadPoolToken*> _tokens;
+
+    // FIFO of tokens from which tasks should be executed. Does not own the
+    // tokens; they are owned by clients and are removed from the FIFO on shutdown.
+    //
+    // Protected by _lock.
+    //std::deque<SplitThreadPoolToken*> _queue;
+
+    // Pointers to all running threads. Raw pointers are safe because a Thread
+    // may only go out of scope after being removed from _threads.
+    //
+    // Protected by _lock.
+    std::unordered_set<Thread*> _threads;
+
+    // List of all threads currently waiting for work.
+    //
+    // A thread is added to the front of the list when it goes idle and is
+    // removed from the front and signaled when new work arrives. This produces a
+    // LIFO usage pattern that is more efficient than idling on a single
+    //
+    // Protected by _lock.
+    struct IdleThread : public boost::intrusive::list_base_hook<> {
+        explicit IdleThread() = default;
+
+        // Condition variable for "queue is not empty". Waiters wake up when a new
+        // task is queued.
+        std::condition_variable not_empty;
+        IdleThread(const IdleThread&) = delete;
+        void operator=(const IdleThread&) = delete;
+    };
+    boost::intrusive::list<IdleThread> _idle_threads; // NOLINT(build/include_what_you_use)
+
+    // ExecutionMode::CONCURRENT token used by the pool for tokenless submission.
+    std::unique_ptr<SplitThreadPoolToken> _tokenless;
+
+    const UniqueId _id {UniqueId::gen_uid()};
+
+    std::shared_ptr<MetricEntity> _metric_entity;
+    IntGauge* split_thread_pool_active_threads = nullptr;
+    IntGauge* split_thread_pool_queue_size = nullptr;
+    IntGauge* split_thread_pool_max_queue_size = nullptr;
+    IntGauge* split_thread_pool_max_threads = nullptr;
+    IntCounter* split_thread_pool_task_execution_time_ns_total = nullptr;
+    IntCounter* split_thread_pool_task_execution_count_total = nullptr;
+    IntCounter* split_thread_pool_task_wait_worker_time_ns_total = nullptr;
+    IntCounter* split_thread_pool_task_wait_worker_count_total = nullptr;
+
+    IntCounter* split_thread_pool_submit_failed = nullptr;
+};
+
+// Entry point for token-based task submission and blocking for a particular
+// thread pool. Tokens can only be created via ThreadPool::new_token().
+//
+// All functions are thread-safe. Mutable members are protected via the
+// ThreadPool's lock.
+class SplitThreadPoolToken {
+public:
+    // Destroys the token.
+    //
+    // May be called on a token with outstanding tasks, as Shutdown() will be
+    // called first to take care of them.
+    ~SplitThreadPoolToken();
+
+    // Submits a Runnable class.
+    Status submit(std::shared_ptr<Runnable> r);
+
+    // Submits a function bound using std::bind(&FuncName, args...).
+    Status submit_func(std::function<void()> f);
+
+    // Marks the token as unusable for future submissions. Any queued tasks not
+    // yet running are destroyed. If tasks are in flight, Shutdown() will wait
+    // on their completion before returning.
+    void shutdown();
+
+    // Waits until all the tasks submitted via this token are completed.
+    void wait();
+
+    // Waits for all submissions using this token are complete, or until 'delta'
+    // time elapses.
+    //
+    // Returns true if all submissions are complete, false otherwise.
+    template <class Rep, class Period>
+    bool wait_for(const std::chrono::duration<Rep, Period>& delta) {
+        std::unique_lock<std::mutex> l(_pool->_lock);
+        _pool->check_not_pool_thread_unlocked();
+        return _not_running_cond.wait_for(l, delta, [&]() { return !is_active(); });
+    }
+
+    bool need_dispatch();
+
+    size_t num_tasks() {
+        std::lock_guard<std::mutex> l(_pool->_lock);
+        return _entries->size();
+    }
+
+    SplitThreadPoolToken(const SplitThreadPoolToken&) = delete;
+    void operator=(const SplitThreadPoolToken&) = delete;
+
+private:
+    // All possible token states. Legal state transitions:
+    //   IDLE      -> RUNNING: task is submitted via token
+    //   IDLE      -> QUIESCED: token or pool is shut down
+    //   RUNNING   -> IDLE: worker thread finishes executing a task and
+    //                      there are no more tasks queued to the token
+    //   RUNNING   -> QUIESCING: token or pool is shut down while worker thread
+    //                           is executing a task
+    //   RUNNING   -> QUIESCED: token or pool is shut down
+    //   QUIESCING -> QUIESCED:  worker thread finishes executing a task
+    //                           belonging to a shut down token or pool
+    enum class State {
+        // Token has no queued tasks.
+        IDLE,
+
+        // A worker thread is running one of the token's previously queued tasks.
+        RUNNING,
+
+        // No new tasks may be submitted to the token. A worker thread is still
+        // running a previously queued task.
+        QUIESCING,
+
+        // No new tasks may be submitted to the token. There are no active tasks
+        // either. At this state, the token may only be destroyed.
+        QUIESCED,
+    };
+
+    // Writes a textual representation of the token state in 's' to 'o'.
+    friend std::ostream& operator<<(std::ostream& o, SplitThreadPoolToken::State s);
+
+    friend class TimeSharingTaskExecutor;
+
+    // Returns a textual representation of 's' suitable for debugging.
+    static const char* state_to_string(State s);
+
+    // Constructs a new token.
+    //
+    // The token may not outlive its thread pool ('pool').
+    SplitThreadPoolToken(TimeSharingTaskExecutor* pool, TimeSharingTaskExecutor::ExecutionMode mode,
+                         std::shared_ptr<SplitQueue> split_queue, int max_concurrency = INT_MAX);
+
+    // Changes this token's state to 'new_state' taking actions as needed.
+    void transition(State new_state);
+
+    // Returns true if this token has a task queued and ready to run, or if a
+    // task belonging to this token is already running.
+    bool is_active() const { return _state == State::RUNNING || _state == State::QUIESCING; }
+
+    // Returns true if new tasks may be submitted to this token.
+    bool may_submit_new_tasks() const {
+        return _state != State::QUIESCING && _state != State::QUIESCED;
+    }
+
+    State state() const { return _state; }
+    TimeSharingTaskExecutor::ExecutionMode mode() const { return _mode; }
+
+    // Token's configured execution mode.
+    TimeSharingTaskExecutor::ExecutionMode _mode;
+
+    // Pointer to the token's thread pool.
+    TimeSharingTaskExecutor* _pool = nullptr;
+
+    // Token state machine.
+    State _state;
+
+    // Queued client tasks.
+    std::shared_ptr<SplitQueue> _entries;
+
+    // Condition variable for "token is idle". Waiters wake up when the token
+    // transitions to IDLE or QUIESCED.
+    std::condition_variable _not_running_cond;
+
+    // Number of worker threads currently executing tasks belonging to this
+    // token.
+    int _active_threads;
+    // The max number of tasks that can be ran concurrenlty. This is to limit
+    // the concurrency of a thread pool token, and default is INT_MAX(no limited)
+    int _max_concurrency;
+    // Number of tasks which has been submitted to the thread pool's queue.
+    int _num_submitted_tasks;
+    // Number of tasks which has not been submitted to the thread pool's queue.
+    int _num_unsubmitted_tasks;
 };
 
 } // namespace vectorized
