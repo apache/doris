@@ -610,7 +610,8 @@ void CloudTablet::remove_unused_rowsets() {
         }
 
         if (removed_rowsets.size() > 0) {
-            auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+            auto& manager =
+                    ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
             manager.recycle_cache(tablet_id(), rowset_ids, num_segments, index_file_names);
         }
     }
