@@ -17,36 +17,27 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
 class BucketSpec {
-    private final int numBuckets;
-    private final List<String> bucketColumnNames;
-    private final List<String> sortColumnNames;
 
-    public BucketSpec(int numBuckets, List<String> bucketColumnNames, List<String> sortColumnNames) {
+    private final int numBuckets;
+    private final int fieldId;
+    private final String bucketColumnName;
+
+    public BucketSpec(int numBuckets, int fieldId, String bucketColumnName) {
         this.numBuckets = numBuckets;
-        this.bucketColumnNames = Collections.unmodifiableList(new ArrayList<>(bucketColumnNames));
-        this.sortColumnNames = Collections.unmodifiableList(new ArrayList<>(sortColumnNames));
+        this.fieldId = fieldId;
+        this.bucketColumnName = bucketColumnName;
     }
 
-    public int numBuckets() {
+    public int getNumBuckets() {
         return numBuckets;
     }
 
-    public List<String> bucketColumnNames() {
-        return bucketColumnNames;
+    public int getFieldId() {
+        return fieldId;
     }
 
-    public List<String> sortColumnNames() {
-        return sortColumnNames;
-    }
-
-    @Override
-    public String toString() {
-        return String.format("BucketSpec{numBuckets=%d, bucketColumnNames=%s, sortColumnNames=%s}",
-            numBuckets, bucketColumnNames, sortColumnNames);
+    public String getBucketColumnName() {
+        return bucketColumnName;
     }
 }

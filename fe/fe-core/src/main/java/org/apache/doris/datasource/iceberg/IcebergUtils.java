@@ -75,23 +75,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.iceberg.BaseTable;
-import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.ManifestFile;
-import org.apache.iceberg.MetadataTableType;
-import org.apache.iceberg.MetadataTableUtils;
-import org.apache.iceberg.PartitionField;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.PartitionsTable;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.SnapshotRef;
-import org.apache.iceberg.StructLike;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.TableOperations;
-import org.apache.iceberg.TableProperties;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.iceberg.*;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -102,16 +87,15 @@ import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
-import org.apache.iceberg.transforms.PartitionSpecVisitor;
 import org.apache.iceberg.transforms.SortOrderVisitor;
 import org.apache.iceberg.types.Type.TypeID;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.LocationUtil;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.spark.sql.connector.expressions.BucketTransform;
 
 import java.io.IOException;
 import java.time.DateTimeException;
@@ -120,16 +104,8 @@ import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -1268,45 +1244,33 @@ public class IcebergUtils {
 
         StringBuilder builder = new StringBuilder();
         List<String> nonBucketParts = new ArrayList<>();
-        List<BucketSpec> bucketSpecList = new ArrayList<>();
-        BucketSpec bucketSpec;
-
-        org.apache.spark.sql.connector.expressions.Transform[] transforms = toSparkTransforms(spec);
-        for (org.apache.spark.sql.connector.expressions.Transform transform : transforms) {
-            if (transform instanceof BucketTransform) {
-                BucketTransform bt = (BucketTransform) transform;
-                List<String> bucketCols = Arrays.stream(bt.references())
-                        .map(ref -> String.join(".", ref.fieldNames()))
-                        .collect(Collectors.toList());
-                List<String> sortCols = Arrays.stream(bt.references())
-                        .map(ref -> String.join(".", ref.fieldNames()))
-                        .collect(Collectors.toList());
-                int numBuckets = Integer.parseInt(bt.numBuckets().toString());
-                bucketSpec = new BucketSpec(numBuckets, bucketCols, sortCols);
-                bucketSpecList.add(bucketSpec);
-            } else {
-                nonBucketParts.add(transform.describe());
-            }
-        }
-
-        if (!nonBucketParts.isEmpty()) {
+        Map<Integer, String> indexNameById = TypeUtil.indexNameById(spec.schema().asStruct());
+        List<BucketSpec> bucketSpecList = toIcebergBuckets(spec, indexNameById);
+        List<String> bucketNames = bucketSpecList.stream()
+                .map(BucketSpec::getBucketColumnName).collect(Collectors.toList());
+        List<SortField> sortFields = Partitioning.sortOrderFor(spec).fields();
+        Map<Integer, SortField> map = sortFields.stream()
+                .collect(Collectors.toMap(SortField::sourceId, Function.identity()));
+        List<Types.NestedField> unbucketedColumnNames = spec.schema().columns().stream()
+                .filter(c -> !bucketNames.contains(c.name())).collect(Collectors.toList());
+        if (!unbucketedColumnNames.isEmpty()) {
             builder.append("PARTITIONED BY (")
-                    .append(String.join(", ", nonBucketParts))
-                    .append(")\n");
+                        .append(String.join(", ", nonBucketParts))
+                        .append(")\n");
         }
 
         for (BucketSpec bs : bucketSpecList) {
-            if (!bs.bucketColumnNames().isEmpty()) {
-                builder.append("CLUSTERED BY (")
-                        .append(String.join(", ", bs.bucketColumnNames()))
+            builder.append("CLUSTERED BY (")
+                        .append(bs.getBucketColumnName())
                         .append(")\n")
-                        .append("INTO ").append(bs.numBuckets()).append(" BUCKETS\n");
-
-                if (!bs.sortColumnNames().isEmpty()) {
-                    builder.append("SORTED BY (")
-                            .append(String.join(", ", bs.sortColumnNames()))
-                            .append(")\n");
-                }
+                        .append("INTO ").append(bs.getNumBuckets()).append(" BUCKETS\n");
+            if (map.containsKey(bs.getFieldId())) {
+                SortField sortField = map.get(bs.getFieldId());
+                builder.append("SORTED BY (")
+                        .append(bs.getBucketColumnName())
+                        .append(" ")
+                        .append(sortField.transform().dedupName())
+                        .append(")\n");
             }
         }
 
@@ -1349,12 +1313,17 @@ public class IcebergUtils {
         return Joiner.on(", ").join(SortOrderVisitor.visit(order, DescribeSortOrderVisitor.INSTANCE));
     }
 
-    private static org.apache.spark.sql.connector.expressions.Transform[] toSparkTransforms(PartitionSpec spec) {
-        SpecTransformToSparkTransform visitor = new SpecTransformToSparkTransform(spec.schema());
-        List<org.apache.spark.sql.connector.expressions.Transform> transforms =
-                PartitionSpecVisitor.visit(spec, visitor);
-        return transforms.stream().filter(Objects::nonNull)
-            .toArray(org.apache.spark.sql.connector.expressions.Transform[]::new);
+    private static List<BucketSpec> toIcebergBuckets(PartitionSpec spec, Map<Integer, String> indexNameById) {
+        List<Tuple2<Integer, Integer>> bucketFields = BucketPartitionerUtil.getBucketFields(spec);
+        List<BucketSpec> bucketSpecList = new ArrayList<>();
+        for (Tuple2<Integer, Integer> bucketField : bucketFields) {
+            int bucketFieldId = bucketField.f0;
+            int maxNumBuckets = bucketField.f1;
+            String name = indexNameById.get(bucketFieldId);
+            BucketSpec bucketSpec = new BucketSpec(maxNumBuckets, bucketFieldId, name);
+            bucketSpecList.add(bucketSpec);
+        }
+        return bucketSpecList;
     }
 
 }

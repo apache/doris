@@ -85,6 +85,11 @@ under the License.
     </profiles>
     <dependencies>
         <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-core</artifactId>
+            <version>1.18.0</version>
+        </dependency>
+        <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
