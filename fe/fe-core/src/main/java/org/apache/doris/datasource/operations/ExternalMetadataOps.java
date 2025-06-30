@@ -114,6 +114,26 @@ public interface ExternalMetadataOps {
     }
 
     /**
+     * rename table in external metastore
+     * @param dbName
+     * @param oldName
+     * @param newName
+     * @throws DdlException
+     */
+    default void renameTable(String dbName, String oldName, String newName) throws DdlException {
+        renameTableImpl(dbName, oldName, newName);
+        afterRenameTable(dbName);
+    }
+
+    default void renameTableImpl(String dbName, String oldName, String newName) throws DdlException {
+        throw new UnsupportedOperationException("Rename table operation is not supported for this table type.");
+    }
+
+    default void afterRenameTable(String dbName) {
+        throw new UnsupportedOperationException("After rename table operation is not supported for this table type.");
+    }
+
+    /**
      * truncate table in external metastore
      *
      * @param dorisTable

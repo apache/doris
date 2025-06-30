@@ -17,6 +17,8 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.AddColumnClause;
+import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
@@ -31,6 +33,7 @@ import org.apache.doris.analysis.DropBranchClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTagClause;
+import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyEngineClause;
@@ -38,6 +41,7 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTableCommentClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
+import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -168,7 +172,7 @@ public class Alter {
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
-                                          Database db) throws UserException {
+            Database db) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
             throw new UserException("z-order table can not support schema change!");
@@ -193,7 +197,7 @@ public class Alter {
     }
 
     private boolean processAlterOlapTableInternal(List<AlterClause> alterClauses, OlapTable olapTable,
-                                          Database db, String sql) throws UserException {
+            Database db, String sql) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
             throw new UserException("z-order table can not support schema change!");
@@ -258,8 +262,8 @@ public class Alter {
             // must check here whether you can set the policy, otherwise there will be inconsistent metadata
             if (enableUniqueKeyMergeOnWrite && !Strings.isNullOrEmpty(currentStoragePolicy)) {
                 throw new UserException(
-                    "Can not set UNIQUE KEY table that enables Merge-On-write"
-                        + " with storage policy(" + currentStoragePolicy + ")");
+                        "Can not set UNIQUE KEY table that enables Merge-On-write"
+                                + " with storage policy(" + currentStoragePolicy + ")");
             }
             olapTable.setStoragePolicy(currentStoragePolicy);
             needProcessOutsideTableLock = true;
@@ -406,10 +410,35 @@ public class Alter {
                 table.getCatalog().dropTag(
                         table,
                         ((DropTagClause) alterClause).getDropTagInfo());
+            } else if (alterClause instanceof TableRenameClause) {
+                TableRenameClause tableRename = (TableRenameClause) alterClause;
+                table.getCatalog().renameTable(
+                        table.getDbName(), table.getName(), tableRename.getNewTableName());
+            } else if (alterClause instanceof AddColumnClause) {
+                AddColumnClause addColumn = (AddColumnClause) alterClause;
+                table.addColumn(addColumn.getColumn());
+            } else if (alterClause instanceof AddColumnsClause) {
+                AddColumnsClause addColumns = (AddColumnsClause) alterClause;
+                table.addColumns(addColumns.getColumns());
+            } else if (alterClause instanceof DropColumnClause) {
+                DropColumnClause dropColumn = (DropColumnClause) alterClause;
+                table.deleteColumn(dropColumn.getColName());
+            } else if (alterClause instanceof ColumnRenameClause) {
+                ColumnRenameClause columnRename = (ColumnRenameClause) alterClause;
+                table.renameColumn(columnRename.getColName(), columnRename.getNewColName());
+            } else if (alterClause instanceof ModifyColumnClause) {
+                ModifyColumnClause modifyColumn = (ModifyColumnClause) alterClause;
+                table.updateColumn(modifyColumn.getColumn());
+            } else if (alterClause instanceof ReorderColumnsClause) {
+                ReorderColumnsClause reorderColumns = (ReorderColumnsClause) alterClause;
+                table.reorderColumn(reorderColumns.getColumnsByPos());
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
             }
         }
+        // refresh table after altered
+        Env.getCurrentEnv().getRefreshManager().refreshTable(table.getCatalog().getName(),
+                table.getDbName(), table.getName(), false);
     }
 
     private boolean needChangeMTMVState(List<AlterClause> alterClauses) {
@@ -553,7 +582,7 @@ public class Alter {
     }
 
     private void processModifyEngineInternal(Database db, Table externalTable,
-                                             Map<String, String> prop, boolean isReplay) {
+            Map<String, String> prop, boolean isReplay) {
         MysqlTable mysqlTable = (MysqlTable) externalTable;
         Map<String, String> newProp = Maps.newHashMap(prop);
         newProp.put(OdbcTable.ODBC_HOST, mysqlTable.getHost());
@@ -665,7 +694,7 @@ public class Alter {
             } else if (alterClause instanceof AlterMultiPartitionClause) {
                 if (!((AlterMultiPartitionClause) alterClause).isTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
-                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
                 Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
             } else {
@@ -680,7 +709,7 @@ public class Alter {
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
         DatabaseIf dbIf = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
+                .getCatalogOrDdlException(ctlName)
                 .getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tableName);
         List<AlterClause> alterClauses = Lists.newArrayList();
@@ -750,7 +779,7 @@ public class Alter {
             } else if (alterClause instanceof AlterMultiPartitionClause) {
                 if (!((AlterMultiPartitionClause) alterClause).isTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
-                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
                 Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
             } else {
@@ -774,7 +803,7 @@ public class Alter {
     }
 
     public void processReplaceTable(Database db, OlapTable origTable, String newTblName,
-                                    boolean swapTable, boolean isForce)
+            boolean swapTable, boolean isForce)
             throws UserException {
         db.writeLockOrDdlException();
         try {
@@ -845,7 +874,7 @@ public class Alter {
      * 1.2 rename B to A, drop old A, and add new A to database.
      */
     private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable,
-                                      boolean isReplay, boolean isForce)
+            boolean isReplay, boolean isForce)
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
@@ -900,7 +929,7 @@ public class Alter {
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
-                               List<Column> newFullSchema, String comment) throws DdlException {
+            List<Column> newFullSchema, String comment) throws DdlException {
         db.writeLockOrDdlException();
         try {
             view.writeLockOrDdlException();
@@ -1005,10 +1034,10 @@ public class Alter {
      * caller should hold the table lock
      */
     public void modifyPartitionsProperty(Database db,
-                                         OlapTable olapTable,
-                                         List<String> partitionNames,
-                                         Map<String, String> properties,
-                                         boolean isTempPartition)
+            OlapTable olapTable,
+            List<String> partitionNames,
+            Map<String, String> properties,
+            boolean isTempPartition)
             throws DdlException, AnalysisException {
         checkNoForceProperty(properties);
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
@@ -1072,7 +1101,7 @@ public class Alter {
                 // if current partition is already in remote storage
                 if (partition.getRemoteDataSize() > 0) {
                     throw new AnalysisException(
-                        "Cannot cancel storage policy for partition which is already on cold storage.");
+                            "Cannot cancel storage policy for partition which is already on cold storage.");
                 }
 
                 // if current partition will be cooldown in 20s later
@@ -1084,12 +1113,12 @@ public class Alter {
                             : Long.MAX_VALUE;
                     if (policy.getCooldownTtl() > 0) {
                         latestTime = Math.min(latestTime,
-                            partition.getVisibleVersionTime() + policy.getCooldownTtl() * 1000);
+                                partition.getVisibleVersionTime() + policy.getCooldownTtl() * 1000);
                     }
                     if (latestTime < System.currentTimeMillis() + 20 * 1000) {
                         throw new AnalysisException(
-                            "Cannot cancel storage policy for partition which already be cooldown"
-                                + " or will be cooldown soon later");
+                                "Cannot cancel storage policy for partition which already be cooldown"
+                                        + " or will be cooldown soon later");
                     }
                 }
 
@@ -1132,9 +1161,9 @@ public class Alter {
     }
 
     public void setReplicasToDrop(Partition partition,
-                                 ReplicaAllocation oldReplicaAlloc,
-                                 ReplicaAllocation newReplicaAlloc,
-                                 Map<Long, Long> tableBeToReplicaNumMap) {
+            ReplicaAllocation oldReplicaAlloc,
+            ReplicaAllocation newReplicaAlloc,
+            Map<Long, Long> tableBeToReplicaNumMap) {
         if (newReplicaAlloc.getAllocMap().entrySet().stream().noneMatch(
                 entry -> entry.getValue() < oldReplicaAlloc.getReplicaNumByTag(entry.getKey()))) {
             return;
@@ -1148,9 +1177,9 @@ public class Alter {
     }
 
     private void processReplicasInPartition(Partition partition,
-                                            Map<Long, Long> tableBeToReplicaNumMap, SystemInfoService systemInfoService,
-                                            ReplicaAllocation oldReplicaAlloc, ReplicaAllocation newReplicaAlloc,
-                                            List<Long> aliveBes) {
+            Map<Long, Long> tableBeToReplicaNumMap, SystemInfoService systemInfoService,
+            ReplicaAllocation oldReplicaAlloc, ReplicaAllocation newReplicaAlloc,
+            List<Long> aliveBes) {
         List<Tag> changeTags = newReplicaAlloc.getAllocMap().entrySet().stream()
                 .filter(entry -> entry.getValue() < oldReplicaAlloc.getReplicaNumByTag(entry.getKey()))
                 .map(Map.Entry::getKey).collect(Collectors.toList());
@@ -1177,22 +1206,21 @@ public class Alter {
     }
 
     private boolean isTabletHealthy(Tablet tablet, SystemInfoService systemInfoService,
-                                    Partition partition, ReplicaAllocation oldReplicaAlloc,
-                                    List<Long> aliveBes) {
+            Partition partition, ReplicaAllocation oldReplicaAlloc,
+            List<Long> aliveBes) {
         return tablet.getHealth(systemInfoService, partition.getVisibleVersion(), oldReplicaAlloc, aliveBes)
                      .status == Tablet.TabletStatus.HEALTHY;
     }
 
-
     private Map<Tag, List<Replica>> getReplicasWithTag(Tablet tablet) {
         return tablet.getReplicas().stream()
                 .collect(Collectors.groupingBy(replica -> Env.getCurrentSystemInfo()
-                .getBackend(replica.getBackendIdWithoutException()).getLocationTag()));
+                        .getBackend(replica.getBackendIdWithoutException()).getLocationTag()));
     }
 
     private void sortReplicasByBackendCount(List<Replica> replicas,
-                                            Map<Long, Long> tableBeToReplicaNumMap,
-                                            Map<Long, Long> partitionBeToReplicaNumMap) {
+            Map<Long, Long> tableBeToReplicaNumMap,
+            Map<Long, Long> partitionBeToReplicaNumMap) {
         replicas.sort((Replica r1, Replica r2) -> {
             long countPartition1 = partitionBeToReplicaNumMap.getOrDefault(r1.getBackendIdWithoutException(), 0L);
             long countPartition2 = partitionBeToReplicaNumMap.getOrDefault(r2.getBackendIdWithoutException(), 0L);
@@ -1206,8 +1234,8 @@ public class Alter {
     }
 
     private void markReplicasForDropping(List<Replica> replicas, int replicasToDrop,
-                                  Map<Long, Long> tableBeToReplicaNumMap,
-                                  Map<Long, Long> partitionBeToReplicaNumMap) {
+            Map<Long, Long> tableBeToReplicaNumMap,
+            Map<Long, Long> partitionBeToReplicaNumMap) {
         for (int i = 0; i < replicas.size(); i++) {
             Replica r = replicas.get(i);
             long beId = r.getBackendIdWithoutException();
@@ -1232,7 +1260,7 @@ public class Alter {
         for (RewriteProperty property : PropertyAnalyzer.getInstance().getForceProperties()) {
             if (properties.containsKey(property.key())) {
                 throw new DdlException("Cann't modify property '" + property.key() + "'"
-                    + (Config.isCloudMode() ? " in cloud mode" : "") + ".");
+                        + (Config.isCloudMode() ? " in cloud mode" : "") + ".");
             }
         }
     }

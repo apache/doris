@@ -356,6 +356,27 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         catalog.dropTable(getTableIdentifier(remoteDbName, remoteTblName), true);
     }
 
+    public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
+        try {
+            preExecutionAuthenticator.execute(() -> {
+                catalog.renameTable(getTableIdentifier(dbName, tblName), getTableIdentifier(dbName, newTblName));
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException(
+                    "Failed to rename table: " + tblName + " to " + newTblName + ", error message is:" + e.getMessage(),
+                    e);
+        }
+    }
+
+    @Override
+    public void afterRenameTable(String dbName) {
+        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
+        if (db != null) {
+            db.setUnInitialized(true);
+        }
+    }
+
     @Override
     public void truncateTableImpl(ExternalTable dorisTable, List<String> partitions) {
         throw new UnsupportedOperationException("Truncate Iceberg table is not supported.");

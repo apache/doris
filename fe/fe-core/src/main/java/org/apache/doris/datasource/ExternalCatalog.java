@@ -1133,6 +1133,20 @@ public abstract class ExternalCatalog
     }
 
     @Override
+    public void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("Rename table is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.renameTable(dbName, oldTableName, newTableName);
+        } catch (Exception e) {
+            LOG.warn("Failed to rename table {} in database {}.", oldTableName, dbName, e);
+            throw e;
+        }
+    }
+
+    @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
                           boolean force) throws DdlException {
         makeSureInitialized();
