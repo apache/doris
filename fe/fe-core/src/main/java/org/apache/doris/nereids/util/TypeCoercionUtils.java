@@ -929,7 +929,7 @@ public class TypeCoercionUtils {
         }
 
         // add, subtract and multiply do not need to cast children for fixed point type
-        return binaryArithmetic.withChildren(castIfNotSameType(left, t1), castIfNotSameType(right, t2));
+        return castChildren(binaryArithmetic, left, right, commonType.promotion());
     }
 
     /**

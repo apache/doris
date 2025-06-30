@@ -56,7 +56,7 @@ public class Subtract extends BinaryArithmetic implements PropagateNullable {
 
     @Override
     public DataType getDataTypeForOthers(DataType t1, DataType t2) {
-        return super.getDataTypeForOthers(t1, t2).promotion();
+        return super.getDataTypeForOthers(t1, t2);
     }
 
     @Override

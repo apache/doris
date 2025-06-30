@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRound
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
@@ -72,7 +73,7 @@ public enum ExpressionEvaluator {
             fnName = function.getName();
         }
 
-        return invoke(expression, fnName);
+        return TypeCoercionUtils.castIfNotSameType(invoke(expression, fnName), expression.getDataType());
     }
 
     private Expression invoke(Expression expression, String fnName) {
