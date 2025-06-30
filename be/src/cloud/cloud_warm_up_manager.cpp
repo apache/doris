@@ -184,7 +184,8 @@ void CloudWarmUpManager::handle_jobs() {
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,
-                                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                                .is_dryrun = config::
+                                                        enable_reader_dryrun_when_download_file_cache,
                                         },
                                 .download_done =
                                         [wait](Status st) {
