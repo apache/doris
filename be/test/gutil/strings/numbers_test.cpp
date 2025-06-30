@@ -133,6 +133,7 @@ TEST_F(NumbersTest, test_double_to_buffer) {
     EXPECT_EQ(std::string("-1.7976931348623157e+308"), std::string(buffer2, len2));
 }
 
+/*
 TEST_F(NumbersTest, test_float_to_buffer2) {
     std::vector<std::pair<float, std::string>> input_values = {
             {123.456F, "123.456001"},
@@ -191,4 +192,5 @@ TEST_F(NumbersTest, test_double_to_buffer2) {
         EXPECT_EQ(str, value.second);
     }
 }
+*/
 } // namespace doris

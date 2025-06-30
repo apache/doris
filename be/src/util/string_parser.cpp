@@ -217,6 +217,7 @@ typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_dec
     }
 
     T value = int_part_number * type_scale_multiplier + frac_part_number;
+    *result = StringParser::PARSE_SUCCESS;
     return is_negative ? T(-value) : T(value);
 }
 template vectorized::Int32 StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMAL32>(
