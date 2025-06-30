@@ -432,6 +432,100 @@ suite("test_window_fn") {
         select col_datetime_3__undef_signed_not_null,pk, max(col_datetime_3__undef_signed_not_null) over (order by pk rows between 4 preceding and 2 preceding) as res from test2 order by pk;
     """
 
+
+    sql "DROP TABLE IF EXISTS test_baseall_null"
+    sql """
+         CREATE TABLE IF NOT EXISTS `test_baseall_null` (
+             `k0` boolean null comment "",
+             `k1` tinyint(4) null comment "",
+             `k2` smallint(6) null comment "",
+             `k3` int(11) null comment "",
+             `k4` bigint(20) null comment "",
+             `k5` decimal(10, 6) null comment "",
+             `k6` char(5) null comment "",
+             `k10` date null comment "",
+             `k11` datetime null comment "",
+             `k7` varchar(20) null comment "",
+             `k8` double max null comment "",
+             `k9` float sum null comment "",
+             `k12` string replace null comment "",
+             `k13` largeint(40) replace null comment ""
+         ) engine=olap
+         DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+         """
+
+    streamLoad {
+         table "test_baseall_null"
+         db 'regression_test_query_p0_sql_functions_window_functions'
+         set 'column_separator', ','
+         file "../../baseall.txt"
+    }
+    sql "sync"
+
+    sql "DROP TABLE IF EXISTS test_baseall_not"
+    sql """
+         CREATE TABLE IF NOT EXISTS `test_baseall_not` (
+             `k0` boolean not null comment "",
+             `k1` tinyint(4) not null comment "",
+             `k2` smallint(6) not null comment "",
+             `k3` int(11) not null comment "",
+             `k4` bigint(20) not null comment "",
+             `k5` decimal(10, 6) not null comment "",
+             `k6` char(5) not null comment "",
+             `k10` date not null comment "",
+             `k11` datetime not null comment "",
+             `k7` varchar(20) not null comment "",
+             `k8` double max not null comment "",
+             `k9` float sum not null comment "",
+             `k12` string replace not null comment "",
+             `k13` largeint(40) replace not null comment ""
+         ) engine=olap
+         DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+    """
+
+    qt_sql_table_count """
+        select count(1) from test_baseall_null;
+    """
+
+    sql """
+        insert into test_baseall_not select * from test_baseall_null where k1 is not null; 
+    """
+
+    qt_sql_table_count2 """
+        select count(1) from test_baseall_not;
+    """
+
+    qt_sql_test_1 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between unbounded preceding and 2 following) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_test_2 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range between unbounded preceding and unbounded following) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_test_3 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between 2 following and 3 following) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_test_4 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between 4 preceding and 2 preceding) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_test_5 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between unbounded preceding and 2 following) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_6 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range between unbounded preceding and unbounded following) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_7 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between 2 following and 3 following) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_8 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows between 4 preceding and 2 preceding) from test_baseall_null order by k6,k1;
+    """
 }
 
 
