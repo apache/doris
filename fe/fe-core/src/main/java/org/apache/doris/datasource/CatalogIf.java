@@ -33,6 +33,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -221,7 +223,15 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new UserException("Not support create or replace tag operation");
     }
 
-    default void replayCreateOrReplaceBranchOrTag(String dbName, String tblName) {
+    default void replayOperateOnBranchOrTag(String dbName, String tblName) {
 
+    }
+
+    default void dropBranch(String db, String tbl, DropBranchInfo branchInfo) throws UserException {
+        throw new UserException("Not support drop branch operation");
+    }
+
+    default void dropTag(String db, String tbl, DropTagInfo tagInfo) throws UserException {
+        throw new UserException("Not support drop tag operation");
     }
 }

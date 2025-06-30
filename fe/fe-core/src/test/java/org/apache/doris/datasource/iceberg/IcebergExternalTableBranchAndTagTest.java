@@ -22,6 +22,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.persist.EditLog;
 
@@ -71,7 +73,6 @@ public class IcebergExternalTableBranchAndTagTest {
         tempDirectory = Files.createTempDirectory("");
         map.put("warehouse", "file://" + tempDirectory.toString());
         map.put("type", "hadoop");
-        System.out.println(tempDirectory);
         icebergCatalog =
                 (HadoopCatalog) CatalogUtil.buildIcebergCatalog("iceberg_catalog", map, new Configuration());
 
@@ -353,5 +354,105 @@ public class IcebergExternalTableBranchAndTagTest {
         Assertions.assertEquals(maxSnapshotAgeMs, ref.maxSnapshotAgeMs());
         Assertions.assertEquals(minSnapshotsToKeep, ref.minSnapshotsToKeep());
         Assertions.assertEquals(maxRefAgeMs, ref.maxRefAgeMs());
+    }
+
+    @Test
+    public void testDropBranchAndTag() throws IOException, UserException {
+        String tag1 = "tag1";
+        String tag2 = "tag2";
+        String branch1 = "branch1";
+        String branch2 = "branch2";
+        String tagNotExists = "tagNotExists";
+        String branchNotExists = "branchNotExists";
+
+        // create a new tag: tag1
+        addSomeDataIntoIcebergTable();
+        CreateOrReplaceTagInfo tagInfo =
+                new CreateOrReplaceTagInfo(tag1, true, false, false, TagOptions.EMPTY);
+        catalog.createOrReplaceTag(dbName, tblName, tagInfo);
+
+        // create a new branch: branch1
+        CreateOrReplaceBranchInfo branchInfo =
+                new CreateOrReplaceBranchInfo(branch1, true, false, false, BranchOptions.EMPTY);
+        catalog.createOrReplaceBranch(dbName, tblName, branchInfo);
+
+        // create a new tag: tag2
+        addSomeDataIntoIcebergTable();
+        CreateOrReplaceTagInfo tagInfo2 =
+                new CreateOrReplaceTagInfo(tag2, true, false, false, TagOptions.EMPTY);
+        catalog.createOrReplaceTag(dbName, tblName, tagInfo2);
+
+        // create a new branch: branch2
+        CreateOrReplaceBranchInfo branchInfo2 =
+                new CreateOrReplaceBranchInfo(branch2, true, false, false, BranchOptions.EMPTY);
+        catalog.createOrReplaceBranch(dbName, tblName, branchInfo2);
+
+        Assertions.assertEquals(5, icebergTable.refs().size());
+
+        Assertions.assertTrue(icebergTable.refs().containsKey(tag1));
+        Assertions.assertTrue(icebergTable.refs().get(tag1).isTag());
+
+        Assertions.assertTrue(icebergTable.refs().containsKey(tag2));
+        Assertions.assertTrue(icebergTable.refs().get(tag2).isTag());
+
+        Assertions.assertTrue(icebergTable.refs().containsKey(branch1));
+        Assertions.assertTrue(icebergTable.refs().get(branch1).isBranch());
+
+        Assertions.assertTrue(icebergTable.refs().containsKey(branch2));
+        Assertions.assertTrue(icebergTable.refs().get(branch2).isBranch());
+
+        // drop tag with branch interface, will fail
+        DropBranchInfo dropBranchInfoWithTag1 = new DropBranchInfo(tag1, false);
+        DropBranchInfo dropBranchInfoIfExistsWithTag1 = new DropBranchInfo(tag1, true);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.dropBranch(dbName, tblName, dropBranchInfoWithTag1));
+        Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.dropBranch(dbName, tblName, dropBranchInfoIfExistsWithTag1));
+
+        // drop branch with tag interface, will fail
+        DropTagInfo dropTagInfoWithBranch1 = new DropTagInfo(branch1, false);
+        DropTagInfo dropTagInfoWithBranchIfExists1 = new DropTagInfo(branch1, true);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.dropTag(dbName, tblName, dropTagInfoWithBranch1));
+        Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.dropTag(dbName, tblName, dropTagInfoWithBranchIfExists1));
+
+        // drop not exists tag
+        DropTagInfo dropTagInfoWithNotExistsTag1 = new DropTagInfo(tagNotExists, true);
+        DropTagInfo dropTagInfoWithNotExistsTag2 = new DropTagInfo(tagNotExists, false);
+        DropTagInfo dropTagInfoWithNotExistsBranch1 = new DropTagInfo(branchNotExists, true);
+        DropTagInfo dropTagInfoWithNotExistsBranch2 = new DropTagInfo(branchNotExists, false);
+        catalog.dropTag(dbName, tblName, dropTagInfoWithNotExistsTag1);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.dropTag(dbName, tblName, dropTagInfoWithNotExistsTag2));
+        catalog.dropTag(dbName, tblName, dropTagInfoWithNotExistsBranch1);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.dropTag(dbName, tblName, dropTagInfoWithNotExistsBranch2));
+
+        // drop not exists branch
+        DropBranchInfo dropBranchInfoWithNotExistsTag1 = new DropBranchInfo(tagNotExists, true);
+        DropBranchInfo dropBranchInfoWithNotExistsTag2 = new DropBranchInfo(tagNotExists, false);
+        DropBranchInfo dropBranchInfoIfExistsWithBranch1 = new DropBranchInfo(branchNotExists, true);
+        DropBranchInfo dropBranchInfoIfExistsWithBranch2 = new DropBranchInfo(branchNotExists, false);
+        catalog.dropBranch(dbName, tblName, dropBranchInfoWithNotExistsTag1);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.dropBranch(dbName, tblName, dropBranchInfoWithNotExistsTag2));
+        catalog.dropBranch(dbName, tblName, dropBranchInfoIfExistsWithBranch1);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.dropBranch(dbName, tblName, dropBranchInfoIfExistsWithBranch2));
+
+        // drop branch1 and branch2
+        DropBranchInfo dropBranchInfoWithBranch1 = new DropBranchInfo(branch1, false);
+        DropBranchInfo dropBranchInfoWithBranch2 = new DropBranchInfo(branch2, true);
+        catalog.dropBranch(dbName, tblName, dropBranchInfoWithBranch1);
+        catalog.dropBranch(dbName, tblName, dropBranchInfoWithBranch2);
+
+        // drop tag1 and tag2
+        DropTagInfo dropTagInfoWithTag1 = new DropTagInfo(tag1, false);
+        DropTagInfo dropTagInfoWithTag2 = new DropTagInfo(tag2, true);
+        catalog.dropTag(dbName, tblName, dropTagInfoWithTag1);
+        catalog.dropTag(dbName, tblName, dropTagInfoWithTag2);
+
+        Assertions.assertEquals(1, icebergTable.refs().size());
     }
 }

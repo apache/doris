@@ -42,6 +42,8 @@ import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -377,6 +379,16 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public void createOrReplaceTagImpl(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
             throws UserException {
         throw new UserException("Not support create or replace tag in hive catalog.");
+    }
+
+    @Override
+    public void dropTagImpl(String dbName, String tblName, DropTagInfo tagInfo) throws UserException {
+        throw new UserException("Not support drop tag in hive catalog.");
+    }
+
+    @Override
+    public void dropBranchImpl(String dbName, String tblName, DropBranchInfo branchInfo) throws UserException {
+        throw new UserException("Not support drop branch in hive catalog.");
     }
 
     @Override

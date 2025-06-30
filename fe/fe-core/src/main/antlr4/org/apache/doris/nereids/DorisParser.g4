@@ -642,6 +642,8 @@ alterTableClause
         INTERVAL INTEGER_VALUE unit=identifier? properties=propertyClause?          #alterMultiPartitionClause
     | createOrReplaceTagClause                                                      #createOrReplaceTagClauses
     | createOrReplaceBranchClause                                                   #createOrReplaceBranchClauses
+    | dropBranchClause                                                              #dropBranchClauses
+    | dropTagClause                                                                 #dropTagClauses
     ;
 
 createOrReplaceTagClause
@@ -678,6 +680,14 @@ minSnapshotsToKeep
 
 timeValueWithUnit
     : timeValue=INTEGER_VALUE  timeUnit=(DAYS | HOURS | MINUTES)
+    ;
+
+dropBranchClause
+    : DROP BRANCH (IF EXISTS)? name=identifier
+    ;
+
+dropTagClause
+    : DROP TAG (IF EXISTS)? name=identifier
     ;
 
 columnPosition
