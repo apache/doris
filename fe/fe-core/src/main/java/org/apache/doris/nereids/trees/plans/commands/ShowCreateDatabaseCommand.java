@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
@@ -85,9 +86,10 @@ public class ShowCreateDatabaseCommand extends ShowCommand {
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctlgName);
         if (catalog instanceof HMSExternalCatalog) {
             String simpleDBName = ClusterNamespace.getNameFromFullName(databaseName);
+            ExternalDatabase dorisDb = ((HMSExternalCatalog) catalog).getDbOrAnalysisException(simpleDBName);
             org.apache.hadoop.hive.metastore.api.Database db = ((HMSExternalCatalog) catalog).getClient()
-                    .getDatabase(simpleDBName);
-            sb.append("CREATE DATABASE `").append(simpleDBName).append("`")
+                    .getDatabase(dorisDb.getRemoteName());
+            sb.append("CREATE DATABASE `").append(dorisDb.getRemoteName()).append("`")
                     .append(" LOCATION '")
                     .append(db.getLocationUri())
                     .append("'");

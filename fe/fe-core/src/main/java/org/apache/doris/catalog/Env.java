@@ -63,6 +63,7 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
@@ -204,6 +205,7 @@ import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
@@ -3342,7 +3344,7 @@ public class Env {
         } else {
             catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
         }
-        catalogIf.createDb(stmt);
+        catalogIf.createDb(stmt.getFullDbName(), stmt.isSetIfNotExists(), stmt.getProperties());
     }
 
     // The interface which DdlExecutor needs.
@@ -3353,7 +3355,7 @@ public class Env {
         } else {
             catalogIf = catalogMgr.getCatalog(command.getCtlName());
         }
-        catalogIf.createDb(command);
+        catalogIf.createDb(command.getDbName(), command.isIfNotExists(), command.getProperties());
     }
 
     // For replay edit log, need't lock metadata
@@ -6080,7 +6082,11 @@ public class Env {
     public void truncateTable(TruncateTableCommand command) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(command.getTableNameInfo().getCtl(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.truncateTable(command);
+        TableNameInfo nameInfo = command.getTableNameInfo();
+        PartitionNamesInfo partitionNamesInfo = command.getPartitionNamesInfo().orElse(null);
+        catalogIf.truncateTable(nameInfo.getDb(), nameInfo.getTbl(),
+                partitionNamesInfo == null ? null : partitionNamesInfo.translateToLegacyPartitionNames(),
+                command.isForceDrop(), command.toSqlWithoutTable());
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
