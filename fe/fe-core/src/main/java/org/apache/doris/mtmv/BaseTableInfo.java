@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -33,6 +34,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 
 public class BaseTableInfo {
     private static final Logger LOG = LogManager.getLogger(BaseTableInfo.class);
@@ -120,6 +122,20 @@ public class BaseTableInfo {
         } else {
             return InternalCatalog.INTERNAL_CATALOG_ID == ctlId;
         }
+    }
+
+    public String getType() {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        if (catalog != null) {
+            Optional<DatabaseIf> db = catalog.getDb(dbName);
+            if (db.isPresent()) {
+                Optional<TableIf> table = db.get().getTable(tableName);
+                if (table.isPresent()) {
+                    return table.get().getType().name();
+                }
+            }
+        }
+        return "UNKNOWN";
     }
 
     public boolean isValid() {
