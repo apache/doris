@@ -526,6 +526,151 @@ suite("test_window_fn") {
     qt_sql_test_8 """
         select k6,k1,sum(k1) over(partition by k6 order by k1 rows between 4 preceding and 2 preceding) from test_baseall_null order by k6,k1;
     """
+
+    qt_sql_1 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows 2 preceding) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_2 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows current row) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_3 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_4 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows unbounded preceding) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_5 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range unbounded preceding) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_6 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_7 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_8 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_9 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_10 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 PRECEDING AND 3 FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_11 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 3 PRECEDING AND 2 PRECEDING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_12 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 FOLLOWING AND 3 FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_13 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND 3 FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_14 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND 2 PRECEDING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_15 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_16 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 FOLLOWING AND UNBOUNDED FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_17 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 1 PRECEDING AND CURRENT ROW) from test_baseall_not order by k6,k1;
+    """
+
+    qt_sql_18 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN CURRENT ROW AND 1 FOLLOWING) from test_baseall_not order by k6,k1;
+    """
+
+
+    qt_sql_test_1 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows 2 preceding) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_2 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows current row) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_3 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_4 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows unbounded preceding) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_5 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range unbounded preceding) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_6 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_7 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_8 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_9 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 range BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_10 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 PRECEDING AND 3 FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_11 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 3 PRECEDING AND 2 PRECEDING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_12 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 FOLLOWING AND 3 FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_13 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND 3 FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_14 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN UNBOUNDED PRECEDING AND 2 PRECEDING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_15 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_16 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 2 FOLLOWING AND UNBOUNDED FOLLOWING) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_17 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN 1 PRECEDING AND CURRENT ROW) from test_baseall_null order by k6,k1;
+    """
+
+    qt_sql_test_18 """
+        select k6,k1,sum(k1) over(partition by k6 order by k1 rows BETWEEN CURRENT ROW AND 1 FOLLOWING) from test_baseall_null order by k6,k1;
+    """
 }
 
 
