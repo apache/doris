@@ -115,12 +115,7 @@ Status ScannerContext::init() {
     } else {
         _scanner_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
     }
-    std::shared_ptr<TaskExecutor> task_executor = nullptr;
-    if (thread_token) {
-        task_executor = _state->exec_env()->scanner_scheduler()->limited_scan_task_executor();
-    } else {
-        task_executor = _scanner_scheduler->task_executor();
-    }
+    std::shared_ptr<TaskExecutor> task_executor = _scanner_scheduler->task_executor();
     vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
     _task_handle = DORIS_TRY(task_executor->create_task(
             task_id, []() { return 0.0; }, config::task_executor_initial_split_concurrency,
@@ -208,19 +203,11 @@ Status ScannerContext::init() {
     std::unique_lock<std::mutex> l(_transfer_lock);
     RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
 
-    /*std::unique_lock<std::mutex> l(_transfer_lock);
-    for (const std::weak_ptr<ScannerDelegate>& scanner : _all_scanners) {
-        RETURN_IF_ERROR(submit_scan_task(scanner, l));
-    }*/
-
     return Status::OK();
 }
 
 ScannerContext::~ScannerContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
-    /*for (auto& task : _tasks_queue) {
-        task->split_runner = nullptr;
-    }*/
     _tasks_queue.clear();
     vectorized::BlockUPtr block;
     while (_free_blocks.try_dequeue(block)) {
@@ -271,7 +258,6 @@ Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
     // and _num_finished_scanners will be reduced.
     // if submit succeed, it will be also added back by ScannerContext::push_back_scan_task
     // see ScannerScheduler::_scanner_scan.
-    //
     _num_scheduled_scanners++;
     return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
 }
@@ -421,9 +407,6 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
             sc->_scanner->try_stop();
         }
     }
-    /*for (auto& task : _tasks_queue) {
-        task->split_runner = nullptr;
-    }*/
     _tasks_queue.clear();
     if (_task_handle) {
         static_cast<void>(_scanner_scheduler->task_executor()->remove_task(_task_handle));
@@ -540,10 +523,10 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 
     std::list<std::shared_ptr<ScanTask>> tasks_to_submit;
 
-    //int32_t margin = _get_margin(transfer_lock, scheduler_lock);
+    int32_t margin = _get_margin(transfer_lock, scheduler_lock);
 
     // margin is less than zero. Means this scan operator could not submit any scan task for now.
-    /*if (margin <= 0) {
+    if (margin <= 0) {
         // Be careful with current scan task.
         // We need to add it back to task queue to make sure it could be resubmitted.
         if (current_scan_task) {
@@ -565,12 +548,11 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 #endif
 
         return Status::OK();
-    }*/
+    }
 
     bool first_pull = true;
 
-    //while (margin-- > 0) {
-    while (true) {
+    while (margin-- > 0) {
         std::shared_ptr<ScanTask> task_to_run;
         const int32_t current_concurrency =
                 _tasks_queue.size() + _num_scheduled_scanners + tasks_to_submit.size();
@@ -630,13 +612,13 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 
 std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
-    /*if (current_concurrency >= _max_scan_concurrency) {
+    if (current_concurrency >= _max_scan_concurrency) {
         VLOG_DEBUG << fmt::format(
                 "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip "
                 "pull",
                 ctx_id, current_concurrency, _max_scan_concurrency);
         return nullptr;
-    }*/
+    }
 
     if (current_scan_task != nullptr) {
         if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {

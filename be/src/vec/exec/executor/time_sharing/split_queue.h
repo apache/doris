@@ -36,6 +36,7 @@ public:
     virtual size_t size() const = 0;
     virtual void remove(std::shared_ptr<PrioritizedSplitRunner> split) = 0;
     virtual void remove_all(const std::vector<std::shared_ptr<PrioritizedSplitRunner>>& splits) = 0;
+    virtual void clear() = 0;
     virtual void interrupt() = 0;
 
     virtual Priority update_priority(const Priority& old_priority, int64_t quanta_nanos,
