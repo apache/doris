@@ -42,6 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
+import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class LogicalWindowToPhysicalWindowTest implements MemoPatternMatchSupported {
@@ -51,7 +52,7 @@ public class LogicalWindowToPhysicalWindowTest implements MemoPatternMatchSuppor
     @BeforeAll
     public final void beforeAll() {
         rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-            ImmutableList.of(""));
+            ImmutableList.of(""), Optional.empty());
     }
 
     /**
@@ -76,7 +77,7 @@ public class LogicalWindowToPhysicalWindowTest implements MemoPatternMatchSuppor
         Alias windowAlias2 = new Alias(window2, window2.toSql());
 
         List<NamedExpression> expressions = Lists.newArrayList(windowAlias1, windowAlias2);
-        Plan root = new LogicalWindow<>(expressions, rStudent).withChecked(expressions, rStudent);
+        Plan root = new LogicalWindow<>(expressions, rStudent, Optional.empty()).withChecked(expressions, rStudent);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyImplementation(new LogicalWindowToPhysicalWindow().build())

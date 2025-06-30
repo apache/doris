@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 
 /**
@@ -33,7 +32,8 @@ public class LogicalLimitToPhysicalLimit extends OneImplementationRuleFactory {
                 limit.getOffset(),
                 limit.getPhase(),
                 limit.getLogicalProperties(),
-                (Plan) limit.child())
+                limit.child(),
+                limit.getHintContext())
         ).toRule(RuleType.LOGICAL_LIMIT_TO_PHYSICAL_LIMIT_RULE);
     }
 }

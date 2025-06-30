@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Tests for {@link EliminateEmptyRelation}.
@@ -52,7 +53,7 @@ class EliminateEmptyRelationTest implements MemoPatternMatchSupported {
         List<SlotReference> emptyOutput = new ArrayList<>();
         emptyOutput.add(new SlotReference("k", IntegerType.INSTANCE));
         emptyOutput.add(new SlotReference("v", StringType.INSTANCE));
-        LogicalEmptyRelation emptyRelation = new LogicalEmptyRelation(new RelationId(1000), emptyOutput);
+        LogicalEmptyRelation emptyRelation = new LogicalEmptyRelation(new RelationId(1000), emptyOutput, Optional.empty());
 
         List<Plan> children = new ArrayList<>();
         children.add(scan1);
@@ -70,7 +71,7 @@ class EliminateEmptyRelationTest implements MemoPatternMatchSupported {
 
         List<List<NamedExpression>> constantExprsList = new ArrayList<>();
         LogicalPlan union = new LogicalUnion(Qualifier.ALL, unionOutput, regularOutput, constantExprsList,
-                false, children);
+                false, children, Optional.empty());
 
         PlanChecker checker = PlanChecker.from(MemoTestUtils.createConnectContext(), union)
                 .applyTopDown(new EliminateEmptyRelation());

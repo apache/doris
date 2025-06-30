@@ -40,6 +40,8 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 public class CheckAnalysisTest {
     @Mocked
     private CascadesContext cascadesContext;
@@ -47,7 +49,7 @@ public class CheckAnalysisTest {
     private GroupExpression ge = new GroupExpression(
             new LogicalOneRowRelation(
                     new RelationId(1),
-                    ImmutableList.of(new Alias(Literal.of(1)))
+                    ImmutableList.of(new Alias(Literal.of(1))), Optional.empty()
             ),
             ImmutableList.of()
     );
@@ -60,7 +62,7 @@ public class CheckAnalysisTest {
 
     @Test
     public void testCheckExpressionInputTypes() {
-        Plan plan = new LogicalFilter<>(ImmutableSet.of(new IntegerLiteral(1), BooleanLiteral.TRUE), groupPlan);
+        Plan plan = new LogicalFilter<>(ImmutableSet.of(new IntegerLiteral(1), BooleanLiteral.TRUE), groupPlan, Optional.empty());
         CheckAnalysis checkAnalysis = new CheckAnalysis();
         Assertions.assertThrows(RuntimeException.class, () ->
                 checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));
@@ -69,7 +71,7 @@ public class CheckAnalysisTest {
     @Test
     public void testCheckNotWithChildrenWithErrorType() {
         Plan plan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                ImmutableList.of(new Alias(new Not(new IntegerLiteral(2)), "not_2")));
+                ImmutableList.of(new Alias(new Not(new IntegerLiteral(2)), "not_2")), Optional.empty());
         CheckAnalysis checkAnalysis = new CheckAnalysis();
         Assertions.assertThrows(AnalysisException.class, () ->
                 checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));

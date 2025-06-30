@@ -82,7 +82,8 @@ public class PushDownLimitDistinctThroughUnion implements RewriteRuleFactory {
                                         .map(expr -> ExpressionUtils.replaceNameExpression(expr, replaceMap))
                                         .collect(Collectors.toList());
 
-                                LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(newGroupBy, newOutputs, child);
+                                LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(newGroupBy, newOutputs, child,
+                                        agg.getHintContext());
                                 LogicalLimit<Plan> newLimit = limit.withLimitChild(limit.getLimit() + limit.getOffset(),
                                         0, newAgg);
 

@@ -32,7 +32,8 @@ public class LogicalIntersectToPhysicalIntersect extends OneImplementationRuleFa
                         intersect.getOutputs(),
                         intersect.getRegularChildrenOutputs(),
                         intersect.getLogicalProperties(),
-                        intersect.children())
+                        intersect.children(),
+                        intersect.getHintContext())
         ).toRule(RuleType.LOGICAL_INTERSECT_TO_PHYSICAL_INTERSECT);
     }
 }

@@ -288,7 +288,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
             return null;
         }
         LogicalDeferMaterializeOlapScan deferOlapScan = new LogicalDeferMaterializeOlapScan(
-                logicalOlapScan, deferredMaterializedExprIds, columnId);
+                logicalOlapScan, deferredMaterializedExprIds, columnId, logicalOlapScan.getHintContext());
         Plan root = logicalFilter.map(f -> f.withChildren(deferOlapScan)).orElse(deferOlapScan);
         Set<Slot> inputSlots = Sets.newHashSet();
         logicalFilter.ifPresent(filter -> inputSlots.addAll(filter.getInputSlots()));
@@ -301,10 +301,10 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                 }
             }
             requiredSlots.add(columnId);
-            root = new LogicalProject<>(requiredSlots.build(), root);
+            root = new LogicalProject<>(requiredSlots.build(), root, root.getHintContext());
         }
         root = new LogicalDeferMaterializeTopN<>((LogicalTopN<? extends Plan>) logicalTopN.withChildren(root),
-                deferredMaterializedExprIds, columnId);
+                deferredMaterializedExprIds, columnId, logicalTopN.getHintContext());
         if (logicalProject.isPresent()) {
             // generate projections with the order exactly same as result output's
             Map<Slot, NamedExpression> projectsMap = Maps.newHashMap();

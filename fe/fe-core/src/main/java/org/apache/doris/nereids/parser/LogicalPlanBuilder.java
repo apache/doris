@@ -117,7 +117,6 @@ import org.apache.doris.nereids.DorisParser.ArraySliceContext;
 import org.apache.doris.nereids.DorisParser.BaseTableRefContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
-import org.apache.doris.nereids.DorisParser.BracketDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.BuildIndexContext;
 import org.apache.doris.nereids.DorisParser.BuildModeContext;
@@ -130,7 +129,6 @@ import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
-import org.apache.doris.nereids.DorisParser.CommentDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.ComplexColTypeContext;
@@ -465,10 +463,13 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.JoinSkewInfo;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintOrdered;
+import org.apache.doris.nereids.properties.SelectHintQbName;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
@@ -558,6 +559,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.DummyPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -966,6 +968,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHintJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHintTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -1020,6 +1024,7 @@ import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
+import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -1054,9 +1059,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     });
 
     private final Map<Integer, ParserRuleContext> selectHintMap;
+    private final Map<ParserRuleContext, Integer> hintPosMap;
+    private final Map<Integer, String> errorHintMap;
 
-    public LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap) {
+    /**
+     * LogicalPlanBuilder
+     */
+    public LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap, Map<Integer, String> errorHintMap) {
         this.selectHintMap = selectHintMap;
+        this.errorHintMap = errorHintMap;
+        if (selectHintMap != null) {
+            hintPosMap = new HashMap<>();
+            for (Map.Entry<Integer, ParserRuleContext> entry : selectHintMap.entrySet()) {
+                hintPosMap.put(entry.getValue(), entry.getKey());
+            }
+        } else {
+            hintPosMap = null;
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -1195,22 +1214,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             SelectHintContext selectHintContext = (SelectHintContext) selectHintContexts.get(0);
             Map<String, String> parameterNames = Maps.newLinkedHashMap();
             for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
-                String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
-                if (!hintName.equalsIgnoreCase("set_var")) {
-                    throw new AnalysisException("only set_var hint is allowed in: " + ctx.getText());
-                }
-                for (HintAssignmentContext kv : hintStatement.parameters) {
-                    if (kv.key != null) {
-                        String parameterName = visitIdentifierOrText(kv.key);
-                        Optional<String> value = Optional.empty();
-                        if (kv.constantValue != null) {
-                            Literal literal = (Literal) visit(kv.constantValue);
-                            value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
-                        } else if (kv.identifierValue != null) {
-                            // maybe we should throw exception when the identifierValue is quoted identifier
-                            value = Optional.ofNullable(kv.identifierValue.getText());
+                if (hintStatement instanceof DorisParser.SetVarHintContext) {
+                    DorisParser.SetVarHintContext hintContext = (DorisParser.SetVarHintContext) hintStatement;
+                    for (HintAssignmentContext kv : hintContext.parameters) {
+                        if (kv.key != null) {
+                            String parameterName = visitIdentifierOrText(kv.key);
+                            Optional<String> value = Optional.empty();
+                            if (kv.constantValue != null) {
+                                Literal literal = (Literal) visit(kv.constantValue);
+                                value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                            } else if (kv.identifierValue != null) {
+                                // maybe we should throw exception when the identifierValue is quoted identifier
+                                value = Optional.ofNullable(kv.identifierValue.getText());
+                            }
+                            parameterNames.put(parameterName, value.get());
                         }
-                        parameterNames.put(parameterName, value.get());
                     }
                 }
             }
@@ -1664,7 +1682,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAddConstraint(AddConstraintContext ctx) {
         List<String> parts = visitMultipartIdentifier(ctx.table);
-        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts);
+        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts,
+                Optional.empty());
         ImmutableList<Slot> slots = ctx.constraint().slots.identifierSeq().ident.stream()
                 .map(ident -> new UnboundSlot(ident.getText()))
                 .collect(ImmutableList.toImmutableList());
@@ -1680,7 +1699,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<String> nameParts = visitMultipartIdentifier(ctx.constraint().referenceTable);
             LogicalPlan referenceTable = new UnboundRelation(
                     StatementScopeIdGenerator.newRelationId(),
-                    nameParts
+                    nameParts, Optional.empty()
             );
             constraint = Constraint.newForeignKeyConstraint(curTable, slots, referenceTable, referencedSlots);
         } else {
@@ -1692,7 +1711,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDropConstraint(DropConstraintContext ctx) {
         List<String> parts = visitMultipartIdentifier(ctx.table);
-        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts);
+        UnboundRelation curTable = new UnboundRelation(
+                StatementScopeIdGenerator.newRelationId(), parts, Optional.empty());
         return new DropConstraintCommand(ctx.constraintName.getText().toLowerCase(), curTable);
     }
 
@@ -1701,7 +1721,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan query = LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(
                         StatementScopeIdGenerator.newRelationId(),
-                        visitMultipartIdentifier(ctx.tableName)
+                        visitMultipartIdentifier(ctx.tableName),
+                        Optional.empty()
                 )
         );
         query = withTableAlias(query, ctx.tableAlias());
@@ -1732,7 +1753,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan query = withTableAlias(LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(
                         StatementScopeIdGenerator.newRelationId(), tableName,
-                        partitionSpec.second, partitionSpec.first)), ctx.tableAlias()
+                        partitionSpec.second, partitionSpec.first, Optional.empty())), ctx.tableAlias()
         );
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
@@ -1987,7 +2008,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Function unboundFunction = new UnboundFunction(functionName, arguments);
         return new LogicalGenerate<>(ImmutableList.of(unboundFunction),
                 ImmutableList.of(new UnboundSlot(generateName, columnName)),
-                ImmutableList.of(expandColumnNames), plan);
+                ImmutableList.of(expandColumnNames), plan, Optional.empty());
     }
 
     /**
@@ -1997,7 +2018,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx == null) {
             return plan;
         }
-        return new LogicalCTE<>((List) visit(ctx.aliasQuery(), LogicalSubQueryAlias.class), plan);
+        return new LogicalCTE<>((List) visit(ctx.aliasQuery(), LogicalSubQueryAlias.class), plan, Optional.empty());
     }
 
     /**
@@ -2012,7 +2033,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             .map(RuleContext::getText)
                             .collect(ImmutableList.toImmutableList())
             );
-            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan);
+            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan, Optional.empty());
         });
     }
 
@@ -2217,11 +2238,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 List<Plan> newChildren = ImmutableList.of(leftQuery, rightQuery);
                 LogicalPlan plan;
                 if (ctx.UNION() != null) {
-                    plan = new LogicalUnion(qualifier, newChildren);
+                    plan = new LogicalUnion(qualifier, newChildren, Optional.empty());
                 } else if (ctx.EXCEPT() != null || ctx.MINUS() != null) {
-                    plan = new LogicalExcept(qualifier, newChildren);
+                    plan = new LogicalExcept(qualifier, newChildren, Optional.empty());
                 } else if (ctx.INTERSECT() != null) {
-                    plan = new LogicalIntersect(qualifier, newChildren);
+                    plan = new LogicalIntersect(qualifier, newChildren, Optional.empty());
                 } else {
                     throw new ParseException("not support", ctx);
                 }
@@ -2239,7 +2260,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private static LogicalPlan logicalPlanCombiner(LogicalPlan left, LogicalPlan right, Qualifier qualifier) {
-        return new LogicalUnion(qualifier, ImmutableList.of(left, right));
+        return new LogicalUnion(qualifier, ImmutableList.of(left, right), Optional.empty());
     }
 
     /**
@@ -2275,7 +2296,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan relation;
             if (ctx.fromClause() == null) {
                 relation = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                        ImmutableList.of(new Alias(Literal.of(0))));
+                        ImmutableList.of(new Alias(Literal.of(0))), Optional.empty());
             } else {
                 relation = visitFromClause(ctx.fromClause());
             }
@@ -2290,16 +2311,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     Optional.ofNullable(ctx.havingClause()),
                     Optional.ofNullable(ctx.qualifyClause()));
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
-            if ((selectHintMap == null) || selectHintMap.isEmpty()) {
-                return selectPlan;
-            }
             List<ParserRuleContext> selectHintContexts = Lists.newArrayList();
             List<ParserRuleContext> preAggOnHintContexts = Lists.newArrayList();
-            for (Integer key : selectHintMap.keySet()) {
-                if (key > selectCtx.getStart().getStopIndex() && key < selectCtx.getStop().getStartIndex()) {
-                    selectHintContexts.add(selectHintMap.get(key));
-                } else {
-                    preAggOnHintContexts.add(selectHintMap.get(key));
+            if (selectHintMap != null) {
+                for (Integer key : selectHintMap.keySet()) {
+                    if (key > selectCtx.getStart().getStopIndex() && key < selectCtx.getStop().getStartIndex()) {
+                        selectHintContexts.add(selectHintMap.get(key));
+                    } else {
+                        preAggOnHintContexts.add(selectHintMap.get(key));
+                    }
                 }
             }
             return withHints(selectPlan, selectHintContexts, preAggOnHintContexts);
@@ -2330,7 +2350,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException("Do not implemented", ctx);
                 // TODO: multi-colName
             }
-            return new LogicalSubQueryAlias<>(alias, plan);
+            return new LogicalSubQueryAlias<>(alias, plan, Optional.empty());
         });
     }
 
@@ -2392,7 +2412,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         UnboundRelation relation = new UnboundRelation(
                 StatementScopeIdGenerator.newRelationId(),
                 nameParts, partitionNames, isTempPart, tabletIdLists, relationHints,
-                Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
+                Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot),
+                Optional.empty());
 
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
@@ -2444,7 +2465,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
             Map<String, String> map = visitPropertyItemList(ctx.properties);
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    functionName, new Properties(map));
+                    functionName, new Properties(map), Optional.empty());
             return withTableAlias(relation, ctx.tableAlias());
         });
     }
@@ -2962,6 +2983,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
 
             List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
+            // boolean isSkew = hasSkewHint(ctx.LEFT_PAREN().getSymbol().getStopIndex(),
+            //         ctx.RIGHT_PAREN().getSymbol().getStartIndex());
             if (!unboundStars.isEmpty()) {
                 if (ctx.functionIdentifier().dbName == null && functionName.equalsIgnoreCase("count")) {
                     if (unboundStars.size() > 1) {
@@ -3002,7 +3025,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     private WindowExpression withWindowSpec(WindowSpecContext ctx, Expression function) {
         List<Expression> partitionKeyList = Lists.newArrayList();
+        // boolean isSkew = false;
         if (ctx.partitionClause() != null) {
+            // isSkew = hasSkewHint(ctx.partitionClause().BY().getSymbol().getStopIndex(),
+            //        ctx.partitionClause().expression().get(0).getStart().getStartIndex());
             partitionKeyList = visit(ctx.partitionClause().expression(), Expression.class);
         }
 
@@ -3833,7 +3859,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withSort(LogicalPlan input, Optional<SortClauseContext> sortCtx) {
         return input.optionalMap(sortCtx, () -> {
             List<OrderKey> orderKeys = visit(sortCtx.get().sortItem(), OrderKey.class);
-            return new LogicalSort<>(orderKeys, input);
+            return new LogicalSort<>(orderKeys, input, Optional.empty());
         });
     }
 
@@ -3848,7 +3874,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (offsetToken != null) {
                 offset = Long.parseLong(offsetToken.getText());
             }
-            return new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, input);
+            return new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, input, Optional.empty());
         });
     }
 
@@ -3878,9 +3904,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // create a project node for pattern match of ProjectToGlobalAggregate rule
                 // then ProjectToGlobalAggregate rule can insert agg node as LogicalHaving node's child
                 List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
-                LogicalPlan project = new LogicalProject<>(projects, isDistinct, aggregate);
+                LogicalPlan project = new LogicalProject<>(projects, isDistinct, aggregate, Optional.empty());
                 selectPlan = new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
-                        getExpression((havingClause.get().booleanExpression()))), project);
+                        getExpression((havingClause.get().booleanExpression()))), project, Optional.empty());
             } else {
                 LogicalPlan having = withHaving(aggregate, havingClause);
                 selectPlan = withProjection(having, selectColumnCtx, aggClause, isDistinct);
@@ -3888,7 +3914,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // support qualify clause
             if (qualifyClause.isPresent()) {
                 Expression qualifyExpr = getExpression(qualifyClause.get().booleanExpression());
-                selectPlan = new LogicalQualify<>(ExpressionUtils.extractConjunctionToSet(qualifyExpr), selectPlan);
+                selectPlan = new LogicalQualify<>(ExpressionUtils.extractConjunctionToSet(qualifyExpr), selectPlan,
+                        Optional.empty());
             }
             return selectPlan;
         });
@@ -3928,17 +3955,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 joinType = JoinType.CROSS_JOIN;
             }
-            DistributeType distributeType = Optional.ofNullable(join.distributeType()).map(hintCtx -> {
-                String hint = typedVisit(join.distributeType());
-                if (DistributeType.JoinDistributeType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
-                    return DistributeType.SHUFFLE_RIGHT;
-                } else if (DistributeType.JoinDistributeType.BROADCAST.toString().equalsIgnoreCase(hint)) {
-                    return DistributeType.BROADCAST_RIGHT;
-                } else {
-                    throw new ParseException("Invalid join hint: " + hint, hintCtx);
-                }
-            }).orElse(DistributeType.NONE);
-            DistributeHint distributeHint = new DistributeHint(distributeType);
+            DistributeHint distributeHint = new DistributeHint(DistributeType.NONE);
+            if (join.distributeType() != null) {
+                distributeHint = visitDistributeType(join.distributeType());
+            }
             // TODO: natural join, lateral join, union join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
             Optional<Expression> condition = Optional.empty();
@@ -3967,12 +3987,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         distributeHint,
                         Optional.empty(),
                         last,
-                        plan(join.relationPrimary()), null);
+                        plan(join.relationPrimary()), null, Optional.empty());
             } else {
-                last = new LogicalUsingJoin<>(joinType, last, plan(join.relationPrimary()), ids, distributeHint);
+                last = new LogicalUsingJoin<>(joinType, last, plan(join.relationPrimary()), ids, distributeHint,
+                        Optional.empty());
 
             }
             if (distributeHint.distributeType != DistributeType.NONE
+                    && ConnectContext.get() != null
                     && ConnectContext.get().getStatementContext() != null
                     && !ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
                 ConnectContext.get().getStatementContext().addHint(distributeHint);
@@ -3991,95 +4013,53 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withHints(LogicalPlan logicalPlan, List<ParserRuleContext> selectHintContexts,
             List<ParserRuleContext> preAggOnHintContexts) {
-        if (selectHintContexts.isEmpty() && preAggOnHintContexts.isEmpty()) {
-            return logicalPlan;
-        }
         LogicalPlan newPlan = logicalPlan;
-        if (!selectHintContexts.isEmpty()) {
-            ImmutableList.Builder<SelectHint> hints = ImmutableList.builder();
-            for (ParserRuleContext hintContext : selectHintContexts) {
-                SelectHintContext selectHintContext = (SelectHintContext) hintContext;
-                for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
-                    if (hintStatement.USE_MV() != null) {
-                        hints.add(new SelectHintUseMv("USE_MV", getTableList(hintStatement.tableList), true));
-                        continue;
-                    } else if (hintStatement.NO_USE_MV() != null) {
-                        hints.add(new SelectHintUseMv("NO_USE_MV", getTableList(hintStatement.tableList), false));
-                        continue;
-                    }
-                    String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
-                    switch (hintName) {
-                        case "set_var":
-                            Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                if (kv.key != null) {
-                                    String parameterName = visitIdentifierOrText(kv.key);
-                                    Optional<String> value = Optional.empty();
-                                    if (kv.constantValue != null) {
-                                        Literal literal = (Literal) visit(kv.constantValue);
-                                        value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
-                                    } else if (kv.identifierValue != null) {
-                                        // maybe we should throw exception when the identifierValue is quoted identifier
-                                        value = Optional.ofNullable(kv.identifierValue.getText());
-                                    }
-                                    parameters.put(parameterName, value);
-                                }
-                            }
-                            SelectHintSetVar setVar = new SelectHintSetVar(hintName, parameters);
-                            setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
-                            hints.add(setVar);
-                            break;
-                        case "leading":
-                            List<String> leadingParameters = new ArrayList<>();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                if (kv.key != null) {
-                                    String parameterName = visitIdentifierOrText(kv.key);
-                                    leadingParameters.add(parameterName);
-                                }
-                            }
-                            hints.add(new SelectHintLeading(hintName, leadingParameters));
-                            break;
-                        case "ordered":
-                            hints.add(new SelectHintOrdered(hintName));
-                            break;
-                        case "use_cbo_rule":
-                            List<String> useRuleParameters = new ArrayList<>();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                if (kv.key != null) {
-                                    String parameterName = visitIdentifierOrText(kv.key);
-                                    useRuleParameters.add(parameterName);
-                                }
-                            }
-                            hints.add(new SelectHintUseCboRule(hintName, useRuleParameters, false));
-                            break;
-                        case "no_use_cbo_rule":
-                            List<String> noUseRuleParameters = new ArrayList<>();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                String parameterName = visitIdentifierOrText(kv.key);
-                                if (kv.key != null) {
-                                    noUseRuleParameters.add(parameterName);
-                                }
-                            }
-                            hints.add(new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
-                            break;
-                        default:
-                            break;
-                    }
+        ImmutableList.Builder<SelectHint> hints = ImmutableList.builder();
+        if (!hasQbNameHint(selectHintContexts)) {
+            // generate default query block name
+            String qbId = ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
+                    ? ConnectContext.get().getStatementContext().getNextQueryBlockId().toString()
+                    : "ROOT";
+            hints.add(new SelectHintQbName(String.format("%s%s", SelectHintQbName.DEFAULT_QB_NAME_PREFIX, qbId), null));
+        }
+
+        for (ParserRuleContext hintContext : selectHintContexts) {
+            SelectHintContext selectHintContext = (SelectHintContext) hintContext;
+            int pos = hintPosMap.getOrDefault(hintContext, -1);
+            for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
+                SelectHint selectHint = null;
+                String errHintMsg = null;
+                if (pos != -1) {
+                    errHintMsg = findErrorHintMsg(pos + hintStatement.start.getStartIndex(),
+                            pos + hintStatement.stop.getStopIndex());
+                }
+                if (hintStatement instanceof DorisParser.SetVarHintContext) {
+                    selectHint = createSetVarHint((DorisParser.SetVarHintContext) hintStatement, errHintMsg);
+                } else if (hintStatement instanceof DorisParser.LeadingHintContext) {
+                    selectHint = createLeadingHint((DorisParser.LeadingHintContext) hintStatement, errHintMsg);
+                } else if (hintStatement instanceof DorisParser.OrderedHintContext) {
+                    selectHint = createOrderedHint(errHintMsg);
+                } else if (hintStatement instanceof DorisParser.CboRuleHintContext) {
+                    selectHint = createCboRuleHint((DorisParser.CboRuleHintContext) hintStatement, errHintMsg);
+                } else if (hintStatement instanceof DorisParser.MvHintContext) {
+                    selectHint = createUseMvHint((DorisParser.MvHintContext) hintStatement, errHintMsg);
+                } else if (hintStatement instanceof DorisParser.QbNameHintContext) {
+                    selectHint = createQbNameHint((DorisParser.QbNameHintContext) hintStatement, errHintMsg);
+                }
+
+                if (selectHint != null) {
+                    hints.add(selectHint);
                 }
             }
-            newPlan = new LogicalSelectHint<>(hints.build(), newPlan);
         }
+
+        newPlan = new LogicalSelectHint<>(hints.build(), newPlan);
         if (!preAggOnHintContexts.isEmpty()) {
             for (ParserRuleContext hintContext : preAggOnHintContexts) {
                 if (hintContext instanceof SelectHintContext) {
                     SelectHintContext preAggOnHintContext = (SelectHintContext) hintContext;
-                    if (preAggOnHintContext.hintStatement != null
-                            && preAggOnHintContext.hintStatement.hintName != null) {
-                        String text = preAggOnHintContext.hintStatement.hintName.getText();
-                        if (text.equalsIgnoreCase("PREAGGOPEN")) {
-                            newPlan = new LogicalPreAggOnHint<>(newPlan);
-                            break;
-                        }
+                    if (preAggOnHintContext.hintStatement instanceof DorisParser.PreAggHintContext) {
+                        newPlan = new LogicalPreAggOnHint<>(newPlan);
                     }
                 }
             }
@@ -4087,14 +4067,198 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return newPlan;
     }
 
-    @Override
-    public String visitBracketDistributeType(BracketDistributeTypeContext ctx) {
-        return ctx.identifier().getText();
+    private String findErrorHintMsg(int start, int end) {
+        for (Map.Entry<Integer, String> entry : errorHintMap.entrySet()) {
+            if (entry.getKey() >= start && entry.getKey() <= end) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private SelectHintUseMv createUseMvHint(DorisParser.MvHintContext mvHintContext, String err) {
+        boolean useMv = mvHintContext.USE_MV() != null;
+        List<List<String>> tableList = getTableList(mvHintContext.tableList);
+        if (useMv) {
+            return new SelectHintUseMv("USE_MV", tableList, true, err);
+        } else {
+            return new SelectHintUseMv("NO_USE_MV", tableList, false, err);
+        }
+    }
+
+    private SelectHintSetVar createSetVarHint(DorisParser.SetVarHintContext setVarHintContext, String err) {
+        Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
+        for (HintAssignmentContext kv : setVarHintContext.parameters) {
+            if (kv.key != null) {
+                String parameterName = visitIdentifierOrText(kv.key);
+                Optional<String> value = Optional.empty();
+                if (kv.constantValue != null) {
+                    Literal literal = (Literal) visit(kv.constantValue);
+                    value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                } else if (kv.identifierValue != null) {
+                    // maybe we should throw exception when the identifierValue is quoted identifier
+                    value = Optional.ofNullable(kv.identifierValue.getText());
+                }
+                parameters.put(parameterName, value);
+            }
+        }
+        SelectHintSetVar setVar = new SelectHintSetVar("SET_VAR", parameters, err);
+        if (ConnectContext.get() != null) {
+            setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
+        }
+        return setVar;
+    }
+
+    private SelectHintLeading createLeadingHint(DorisParser.LeadingHintContext leadingHintContext, String err) {
+        String originalText = getOriginSql(leadingHintContext);
+        List<String> parameters = new ArrayList<>();
+        Map<String, DistributeHint> strToHint = new HashMap<>();
+        List<String> errs = new ArrayList<>();
+        if (leadingHintContext.tableSpecs() != null) {
+            DummyPlan dummyPlan = visitTableSpecs(leadingHintContext.tableSpecs());
+            if (dummyPlan != null) {
+                dummyPlan.collectParamsForLeadingHint(parameters, strToHint, errs);
+            }
+        }
+        if (err == null && !errs.isEmpty()) {
+            err = StringUtils.join(errs, ",");
+        }
+        return new SelectHintLeading("LEADING", parameters, strToHint, originalText, err);
+    }
+
+    private SelectHintOrdered createOrderedHint(String err) {
+        return new SelectHintOrdered("ORDERED", err);
+    }
+
+    private SelectHintUseCboRule createCboRuleHint(DorisParser.CboRuleHintContext cboRuleHintContext, String err) {
+        boolean useRule = cboRuleHintContext.USE_CBO_RULE() != null;
+        List<String> rules = visitIdentifierList(cboRuleHintContext.identifierList());
+        if (useRule) {
+            return new SelectHintUseCboRule("USE_CBO_RULE", rules, false, err);
+        } else {
+            return new SelectHintUseCboRule("NO_USE_CBO_RULE", rules, true, err);
+        }
+    }
+
+    private SelectHintQbName createQbNameHint(DorisParser.QbNameHintContext qbNameHintContext, String err) {
+        String hintContext = null;
+        if (qbNameHintContext.identifier() != null) {
+            hintContext = qbNameHintContext.identifier().getText();
+        }
+        if (hintContext == null) {
+            String qbId = ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
+                    ? ConnectContext.get().getStatementContext().getNextQueryBlockId().toString()
+                    : "ROOT";
+            hintContext = String.format("%s%s", SelectHintQbName.DEFAULT_QB_NAME_PREFIX, qbId);
+        }
+        return new SelectHintQbName(hintContext, err);
+    }
+
+    private boolean hasQbNameHint(List<ParserRuleContext> selectHintContexts) {
+        for (ParserRuleContext hintContext : selectHintContexts) {
+            SelectHintContext selectHintContext = (SelectHintContext) hintContext;
+            for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
+                if (hintStatement instanceof DorisParser.QbNameHintContext) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private List<ParserRuleContext> getHintContexts(int startIndex, int endIndex) {
+        // TODO optimize the search method later
+        List<ParserRuleContext> hintContexts = new ArrayList<>();
+        if (selectHintMap != null) {
+            for (Map.Entry<Integer, ParserRuleContext> entry : selectHintMap.entrySet()) {
+                if (entry.getKey() > startIndex && entry.getKey() < endIndex) {
+                    hintContexts.add(entry.getValue());
+                }
+            }
+        }
+        return hintContexts;
+    }
+
+    private boolean hasSkewHint(int startIndex, int endIndex) {
+        if (selectHintMap != null) {
+            for (Map.Entry<Integer, ParserRuleContext> entry : selectHintMap.entrySet()) {
+                if (entry.getKey() > startIndex && entry.getKey() < endIndex) {
+                    SelectHintContext ctx = (SelectHintContext) entry.getValue();
+                    if (ctx.hintStatement instanceof DorisParser.SkewHintContext) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * visitTableSpecs
+     */
+    public DummyPlan visitTableSpecs(DorisParser.TableSpecsContext ctx) {
+        DummyPlan leftPlan = visitTableSpecPrimary(ctx.tableSpecPrimary());
+        for (DorisParser.JoinTableSpecContext joinTableSpecContext : ctx.joinTableSpec()) {
+            if (leftPlan == null) {
+                break;
+            }
+            DummyPlan rightPlan = visitTableSpecPrimary(joinTableSpecContext.tableSpecPrimary());
+            if (rightPlan == null) {
+                break;
+            }
+            DistributeHint distributeHint = joinTableSpecContext.distributeType() != null
+                    ? visitDistributeType(joinTableSpecContext.distributeType())
+                    : new DistributeHint(DistributeType.NONE);
+            leftPlan = new LogicalHintJoin(leftPlan, rightPlan, distributeHint);
+        }
+        return leftPlan;
+    }
+
+    /**
+     * visitTableSpecPrimary
+     */
+    public DummyPlan visitTableSpecPrimary(DorisParser.TableSpecPrimaryContext ctx) {
+        if (ctx.multipartIdentifier() != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+            return new LogicalHintTable(nameParts);
+        } else {
+            if (ctx.tableSpecs() != null) {
+                return (DummyPlan) ctx.tableSpecs().accept(this);
+            } else {
+                return null;
+            }
+        }
     }
 
     @Override
-    public String visitCommentDistributeType(CommentDistributeTypeContext ctx) {
-        return ctx.identifier().getText();
+    public DistributeHint visitDistributeType(DorisParser.DistributeTypeContext ctx) {
+        DistributeType distributeType = DistributeType.NONE;
+        if (ctx.identifier() != null) {
+            String hint = ctx.identifier().getText();
+            if (DistributeType.JoinDistributeType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
+                distributeType = DistributeType.SHUFFLE_RIGHT;
+                if (ctx.skewSpec() != null) {
+                    List<String> identifiers = ctx.skewSpec().qualifiedName().identifier()
+                            .stream().map(RuleContext::getText)
+                            .collect(ImmutableList.toImmutableList());
+                    Expression skewExpr = new UnboundSlot(identifiers);
+                    List<Expression> skewValues = new ArrayList<>();
+                    for (ConstantContext constantContext : ctx.skewSpec().constantList().values) {
+                        skewValues.add(typedVisit(constantContext));
+                    }
+                    return new DistributeHint(distributeType, new JoinSkewInfo(skewExpr, skewValues, false));
+                }
+            } else if (DistributeType.JoinDistributeType.BROADCAST.toString().equalsIgnoreCase(hint)) {
+                distributeType = DistributeType.BROADCAST_RIGHT;
+            } else {
+                // unrecognized type
+                DistributeHint distributeHint = new DistributeHint(distributeType);
+                distributeHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                distributeHint.setErrorMessage(String.format("unrecognized distribute type : [%s]", hint));
+                return distributeHint;
+            }
+        }
+        return new DistributeHint(distributeType);
     }
 
     @Override
@@ -4117,7 +4281,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (aggCtx.isPresent()) {
                 if (isDistinct) {
                     return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                            isDistinct, input);
+                            isDistinct, input, Optional.empty());
                 } else {
                     return input;
                 }
@@ -4129,9 +4293,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                 }
                 if (input instanceof LogicalOneRowRelation) {
-                    return new UnboundOneRowRelation(((LogicalOneRowRelation) input).getRelationId(), projects);
+                    return new UnboundOneRowRelation(((LogicalOneRowRelation) input).getRelationId(), projects,
+                            Optional.empty());
                 }
-                return new LogicalProject<>(projects, isDistinct, input);
+                return new LogicalProject<>(projects, isDistinct, input, Optional.empty());
             }
         });
     }
@@ -4152,7 +4317,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             new DistributeHint(DistributeType.NONE),
                             Optional.empty(),
                             left,
-                            right, null);
+                            right, null, Optional.empty());
             // TODO: pivot and lateral view
         }
         return left;
@@ -4160,8 +4325,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
         return input.optionalMap(whereCtx, () ->
-                new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(
-                        getExpression(whereCtx.get().booleanExpression())), input));
+            new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(
+                    getExpression(whereCtx.get().booleanExpression())), input, Optional.empty()));
     }
 
     private LogicalPlan withAggregate(LogicalPlan input, SelectColumnClauseContext selectCtx,
@@ -4174,18 +4339,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 for (GroupingSetContext groupingSetContext : groupingElementContext.groupingSet()) {
                     groupingSets.add(visit(groupingSetContext.expression(), Expression.class));
                 }
-                return new LogicalRepeat<>(groupingSets.build(), namedExpressions, input);
+                return new LogicalRepeat<>(groupingSets.build(), namedExpressions, input, Optional.empty());
             } else if (groupingElementContext.CUBE() != null) {
                 List<Expression> cubeExpressions = visit(groupingElementContext.expression(), Expression.class);
                 List<List<Expression>> groupingSets = ExpressionUtils.cubeToGroupingSets(cubeExpressions);
-                return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+                return new LogicalRepeat<>(groupingSets, namedExpressions, input, Optional.empty());
             } else if (groupingElementContext.ROLLUP() != null) {
                 List<Expression> rollupExpressions = visit(groupingElementContext.expression(), Expression.class);
                 List<List<Expression>> groupingSets = ExpressionUtils.rollupToGroupingSets(rollupExpressions);
-                return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+                return new LogicalRepeat<>(groupingSets, namedExpressions, input, Optional.empty());
             } else {
                 List<Expression> groupByExpressions = visit(groupingElementContext.expression(), Expression.class);
-                return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+                return new LogicalAggregate<>(groupByExpressions, namedExpressions, input, Optional.empty());
             }
         });
     }
@@ -4196,7 +4361,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
             }
             return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
-                    getExpression((havingCtx.get().booleanExpression()))), input);
+                    getExpression((havingCtx.get().booleanExpression()))), input, Optional.empty());
         });
     }
 

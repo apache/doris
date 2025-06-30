@@ -140,13 +140,13 @@ public class StatsCalculatorTest {
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
-        LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan);
+        LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
         Assertions.assertEquals(49.90005, ownerGroup.getStatistics().getRowCount(), 0.001);
 
-        LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
+        LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan, Optional.empty());
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         StatsCalculator.estimate(groupExpressionOr, null);
@@ -188,14 +188,14 @@ public class StatsCalculatorTest {
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
-        LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan);
+        LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression, null);
         Assertions.assertEquals(0, ownerGroup.getStatistics().getRowCount(), 0.001);
 
-        LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
+        LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan, Optional.empty());
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
@@ -251,7 +251,7 @@ public class StatsCalculatorTest {
 
         LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(
                 StatementScopeIdGenerator.newRelationId(), table1,
-                Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
+                Collections.emptyList(), Optional.empty()).withGroupExprLogicalPropChildren(Optional.empty(),
                 Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> DataTrait.EMPTY_TRAIT)), ImmutableList.of());
 
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of());
@@ -280,7 +280,7 @@ public class StatsCalculatorTest {
         childGroup.setStatistics(childStats);
 
         LogicalLimit<? extends Plan> logicalLimit = new LogicalLimit<>(1, 2,
-                LimitPhase.GLOBAL, new LogicalLimit<>(1, 2, LimitPhase.LOCAL, groupPlan));
+                LimitPhase.GLOBAL, new LogicalLimit<>(1, 2, LimitPhase.LOCAL, groupPlan, Optional.empty()), Optional.empty());
         GroupExpression groupExpression = new GroupExpression(logicalLimit, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
@@ -306,7 +306,7 @@ public class StatsCalculatorTest {
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
-        LogicalTopN<GroupPlan> logicalTopN = new LogicalTopN<>(Collections.emptyList(), 1, 2, groupPlan);
+        LogicalTopN<GroupPlan> logicalTopN = new LogicalTopN<>(Collections.emptyList(), 1, 2, groupPlan, Optional.empty());
         GroupExpression groupExpression = new GroupExpression(logicalTopN, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);

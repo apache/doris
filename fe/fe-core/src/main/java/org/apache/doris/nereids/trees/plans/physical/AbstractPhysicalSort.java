@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -47,8 +48,8 @@ public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends Phys
      */
     public AbstractPhysicalSort(PlanType type, List<OrderKey> orderKeys,
             SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, child);
+            CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, child, hintContext);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.phase = phase;
     }
@@ -58,8 +59,9 @@ public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends Phys
      */
     public AbstractPhysicalSort(PlanType type, List<OrderKey> orderKeys,
             SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statistics, child);
+            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, child, hintContext);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.phase = phase;
     }

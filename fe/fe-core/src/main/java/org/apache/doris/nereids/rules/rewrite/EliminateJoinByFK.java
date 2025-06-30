@@ -117,6 +117,6 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
         if (predicates.isEmpty()) {
             return child;
         }
-        return new LogicalFilter<>(predicates, child);
+        return new LogicalFilter<>(predicates, child, child.getHintContext());
     }
 }

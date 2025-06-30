@@ -30,7 +30,8 @@ public class LogicalCTEProducerToPhysicalCTEProducer extends OneImplementationRu
         return logicalCTEProducer().then(cte -> new PhysicalCTEProducer<>(
             cte.getCteId(),
             cte.getLogicalProperties(),
-            cte.child())
+            cte.child(),
+            cte.getHintContext())
         ).toRule(RuleType.LOGICAL_CTE_PRODUCER_TO_PHYSICAL_CTE_PRODUCER_RULE);
     }
 }

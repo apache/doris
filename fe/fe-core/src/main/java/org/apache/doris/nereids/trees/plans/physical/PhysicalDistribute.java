@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -46,21 +47,21 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     protected DistributionSpec distributionSpec;
 
     // the upstream's physical property saves in base class
-    public PhysicalDistribute(DistributionSpec spec, CHILD_TYPE child) {
-        this(spec, Optional.empty(), child.getLogicalProperties(), child);
+    public PhysicalDistribute(DistributionSpec spec, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        this(spec, Optional.empty(), child.getLogicalProperties(), child, hintContext);
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, child);
+            LogicalProperties logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, child, hintContext);
         this.distributionSpec = spec;
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics, CHILD_TYPE child) {
+            Statistics statistics, CHILD_TYPE child, Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, physicalProperties, statistics,
-                child);
+                child, hintContext);
         this.distributionSpec = spec;
     }
 
@@ -99,13 +100,14 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     public PhysicalDistribute<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), hintContext);
 
     }
 
     @Override
     public PhysicalDistribute<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalDistribute<>(distributionSpec, groupExpression, getLogicalProperties(), child());
+        return new PhysicalDistribute<>(distributionSpec, groupExpression, getLogicalProperties(), child(),
+                hintContext);
     }
 
     @Override
@@ -113,14 +115,14 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalDistribute<>(distributionSpec, groupExpression,
-                logicalProperties.get(), children.get(0));
+                logicalProperties.get(), children.get(0), hintContext);
     }
 
     @Override
     public PhysicalDistribute<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalDistribute<>(distributionSpec, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+                getLogicalProperties(), physicalProperties, statistics, child(), hintContext);
     }
 
     @Override
@@ -131,7 +133,7 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     @Override
     public PhysicalDistribute<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalDistribute<>(distributionSpec, groupExpression,
-                null, physicalProperties, statistics, child());
+                null, physicalProperties, statistics, child(), hintContext);
     }
 
     @Override

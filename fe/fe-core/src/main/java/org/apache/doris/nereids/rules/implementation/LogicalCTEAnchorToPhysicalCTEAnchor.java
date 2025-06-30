@@ -31,7 +31,8 @@ public class LogicalCTEAnchorToPhysicalCTEAnchor extends OneImplementationRuleFa
             cte.getCteId(),
             cte.getLogicalProperties(),
             cte.child(0),
-            cte.child(1))
+            cte.child(1),
+            cte.getHintContext())
         ).toRule(RuleType.LOGICAL_CTE_ANCHOR_TO_PHYSICAL_CTE_ANCHOR_RULE);
     }
 }

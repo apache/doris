@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
@@ -47,15 +48,16 @@ public class UnboundOneRowRelation extends LogicalRelation implements Unbound, O
 
     private final List<NamedExpression> projects;
 
-    public UnboundOneRowRelation(RelationId relationId, List<NamedExpression> projects) {
-        this(relationId, projects, Optional.empty(), Optional.empty());
+    public UnboundOneRowRelation(RelationId relationId, List<NamedExpression> projects,
+            Optional<HintContext> hintContext) {
+        this(relationId, projects, Optional.empty(), Optional.empty(), hintContext);
     }
 
     private UnboundOneRowRelation(RelationId id,
-                                  List<NamedExpression> projects,
-                                  Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_UNBOUND_ONE_ROW_RELATION, groupExpression, logicalProperties);
+            List<NamedExpression> projects,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_UNBOUND_ONE_ROW_RELATION, groupExpression, logicalProperties, hintContext);
         this.projects = ImmutableList.copyOf(projects);
     }
 
@@ -77,18 +79,24 @@ public class UnboundOneRowRelation extends LogicalRelation implements Unbound, O
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundOneRowRelation(relationId, projects,
-                groupExpression, Optional.of(logicalPropertiesSupplier.get()));
+                groupExpression, Optional.of(logicalPropertiesSupplier.get()), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundOneRowRelation(relationId, projects, groupExpression, logicalProperties);
+        return new UnboundOneRowRelation(relationId, projects, groupExpression, logicalProperties, hintContext);
     }
 
     @Override
     public UnboundOneRowRelation withRelationId(RelationId relationId) {
         throw new UnboundException("should not call UnboundOneRowRelation's withRelationId method");
+    }
+
+    @Override
+    public UnboundOneRowRelation withHintContext(Optional<HintContext> hintContext) {
+        return new UnboundOneRowRelation(relationId, projects, groupExpression,
+                Optional.of(logicalPropertiesSupplier.get()), hintContext);
     }
 
     @Override

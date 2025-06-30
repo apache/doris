@@ -46,7 +46,7 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
         if (ctx != null) {
             long defaultLimit = ctx.getSessionVariable().getSqlSelectLimit();
             if (defaultLimit >= 0) {
-                return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, plan);
+                return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, plan, plan.getHintContext());
             }
         }
         return plan;
@@ -86,7 +86,7 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
                 }
                 defaultLimit = Math.min(sqlLimit, defaultLimit);
                 if (defaultLimit < Long.MAX_VALUE) {
-                    return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, sort);
+                    return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, sort, sort.getHintContext());
                 }
             }
         }

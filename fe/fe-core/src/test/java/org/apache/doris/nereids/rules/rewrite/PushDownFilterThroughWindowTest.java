@@ -41,11 +41,12 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 class PushDownFilterThroughWindowTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
             PlanConstructor.student,
-            ImmutableList.of(""));
+            ImmutableList.of(""), Optional.empty());
 
     @Test
     void pushDownFilterThroughWindowTest() {
@@ -59,7 +60,7 @@ class PushDownFilterThroughWindowTest implements MemoPatternMatchSupported {
                 Lists.newArrayList(), windowFrame);
         Alias windowAlias1 = new Alias(window1, window1.toSql());
         List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
-        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan, Optional.empty());
         Expression filterPredicate = new EqualTo(age, Literal.of(100));
 
         LogicalPlan plan = new LogicalPlanBuilder(window)

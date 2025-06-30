@@ -187,7 +187,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             }
         }
 
-        logicalQuery = new LogicalProject<>(isPartialUpdate ? partialUpdateSelectItems : selectItems, logicalQuery);
+        logicalQuery = new LogicalProject<>(isPartialUpdate ? partialUpdateSelectItems : selectItems, logicalQuery,
+                Optional.empty());
         if (cte.isPresent()) {
             logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }

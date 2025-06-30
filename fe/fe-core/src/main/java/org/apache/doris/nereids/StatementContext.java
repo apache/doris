@@ -37,8 +37,10 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.QbNameTreeNode;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.properties.SelectHintQbName;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -49,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.QueryBlockId;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -145,6 +148,8 @@ public class StatementContext implements Closeable {
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
     private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
 
+    private final IdGenerator<QueryBlockId> queryBlockIdGenerator = QueryBlockId.createGenerator();
+
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
@@ -213,6 +218,13 @@ public class StatementContext implements Closeable {
     // form this map
     private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
 
+    private final Map<Pair<Optional<String>, String>, List<QbNameTreeNode>> subQueryAliasToQbName = new TreeMap<>(
+            new Pair.NewPairComparator<>());
+
+    private final Map<Optional<String>, Optional<String>> newQbNameToOldQbName = Maps.newHashMap();
+
+    private final Map<Pair<Optional<String>, String>, RelationId> subQueryAliasToRelationId = new HashMap<>();
+
     // Indicates the query is short-circuited in both plan and execution phase, typically
     // for high speed/concurrency point queries
     private boolean isShortCircuitQuery;
@@ -248,6 +260,8 @@ public class StatementContext implements Closeable {
 
     private boolean prepareStage = false;
 
+    private QbNameTreeNode rootQbNameNode;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -278,6 +292,20 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+        rootQbNameNode = QbNameTreeNode.createQbNameNode(Optional.of("SEL#ROOT"));
+    }
+
+    public QbNameTreeNode findQbNameNode(Optional<String> qbName) {
+        return QbNameTreeNode.findQbNameNode(rootQbNameNode, qbName);
+    }
+
+    public QbNameTreeNode findOrGetRootQbNameNode(Optional<String> qbName) {
+        QbNameTreeNode node = QbNameTreeNode.findQbNameNode(rootQbNameNode, qbName);
+        return node != null ? node : rootQbNameNode;
+    }
+
+    public String dumpQbNameTree() {
+        return rootQbNameNode.treeString();
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -464,6 +492,10 @@ public class StatementContext implements Closeable {
         return objectIdGenerator.getNextId();
     }
 
+    public QueryBlockId getNextQueryBlockId() {
+        return queryBlockIdGenerator.getNextId();
+    }
+
     public RelationId getNextRelationId() {
         return relationIdGenerator.getNextId();
     }
@@ -627,6 +659,37 @@ public class StatementContext implements Closeable {
     @VisibleForTesting
     public Map<RelationId, Statistics> getRelationIdToStatisticsMap() {
         return relationIdToStatisticsMap;
+    }
+
+    public void addSubqueryAliasToQbName(Pair<Optional<String>, String> subqueryAlias,
+            List<QbNameTreeNode> qbNameNode) {
+        this.subQueryAliasToQbName.put(subqueryAlias, qbNameNode);
+    }
+
+    public void addSubqueryAliasToRelationId(Pair<Optional<String>, String> subqueryAlias, RelationId relationId) {
+        this.subQueryAliasToRelationId.put(subqueryAlias, relationId);
+    }
+
+    public void addQbNameMapping(Optional<String> oldName, Optional<String> newName) {
+        newQbNameToOldQbName.put(newName, oldName);
+    }
+
+    /**
+     * find Original QbName
+     */
+    public Optional<String> findOriginalQbName(Optional<String> qbName) {
+        Optional<String> originalName = qbName;
+        Optional<String> currentName = null;
+        currentName = newQbNameToOldQbName.get(qbName);
+        while (currentName != null) {
+            originalName = currentName;
+            currentName = newQbNameToOldQbName.get(currentName);
+        }
+        return originalName;
+    }
+
+    public String getNextQbName() {
+        return String.format("%s%s", SelectHintQbName.DEFAULT_QB_NAME_PREFIX, getNextQueryBlockId());
     }
 
     /**

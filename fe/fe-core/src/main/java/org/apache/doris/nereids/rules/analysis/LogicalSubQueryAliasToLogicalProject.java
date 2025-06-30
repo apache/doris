@@ -35,7 +35,8 @@ public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory 
         return RuleType.LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT.build(
                 logicalSubQueryAlias().then(subQueryAlias ->
                         new LogicalProject<>(
-                                Utils.fastToImmutableList(subQueryAlias.getOutput()), subQueryAlias.child()
+                                Utils.fastToImmutableList(subQueryAlias.getOutput()), subQueryAlias.child(),
+                                subQueryAlias.child().getHintContext()
                         )
                 )
         );

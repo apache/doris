@@ -45,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
+import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class NormalizeAggregateTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -53,7 +54,7 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
     @Override
     protected void runBeforeAll() throws Exception {
         rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-                ImmutableList.of());
+                ImmutableList.of(), Optional.empty());
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
         createTables(
@@ -84,7 +85,7 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
         NamedExpression aggregateFunction = new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum");
         List<Expression> groupExpressionList = Lists.newArrayList(key);
         List<NamedExpression> outputExpressionList = Lists.newArrayList(key, aggregateFunction);
-        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new NormalizeAggregate())

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -44,15 +45,15 @@ public class LogicalInlineTable extends LogicalLeaf implements InlineTable, Bloc
 
     private final List<List<NamedExpression>> constantExprsList;
 
-    public LogicalInlineTable(List<List<NamedExpression>> constantExprsList) {
-        this(constantExprsList, Optional.empty(), Optional.empty());
+    public LogicalInlineTable(List<List<NamedExpression>> constantExprsList, Optional<HintContext> hintContext) {
+        this(constantExprsList, Optional.empty(), Optional.empty(), hintContext);
     }
 
     /** LogicalInlineTable */
     public LogicalInlineTable(List<List<NamedExpression>> constantExprsList,
             Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_INLINE_TABLE, groupExpression, logicalProperties);
+            Optional<LogicalProperties> logicalProperties, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_INLINE_TABLE, groupExpression, logicalProperties, hintContext);
 
         if (constantExprsList.isEmpty()) {
             throw new AnalysisException("constantExprsList should now be empty");
@@ -85,7 +86,14 @@ public class LogicalInlineTable extends LogicalLeaf implements InlineTable, Bloc
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalInlineTable(
-                constantExprsList, groupExpression, Optional.of(getLogicalProperties())
+                constantExprsList, groupExpression, Optional.of(getLogicalProperties()), hintContext
+        );
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalInlineTable(
+                constantExprsList, groupExpression, Optional.of(getLogicalProperties()), hintContext
         );
     }
 
@@ -95,7 +103,7 @@ public class LogicalInlineTable extends LogicalLeaf implements InlineTable, Bloc
         if (!children.isEmpty()) {
             throw new AnalysisException("children should not be empty");
         }
-        return new LogicalInlineTable(constantExprsList, groupExpression, logicalProperties);
+        return new LogicalInlineTable(constantExprsList, groupExpression, logicalProperties, hintContext);
     }
 
     @Override

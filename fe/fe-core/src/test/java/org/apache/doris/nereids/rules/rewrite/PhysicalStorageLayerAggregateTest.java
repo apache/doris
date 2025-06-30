@@ -54,7 +54,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Min(olapScan.getOutput().get(0)), "min")),
-                true, Optional.empty(), olapScan);
+                true, Optional.empty(), olapScan, Optional.empty());
         context = MemoTestUtils.createCascadesContext(aggregate);
 
         PlanChecker.from(context)
@@ -68,7 +68,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Count(olapScan.getOutput().get(0)), "count")),
-                true, Optional.empty(), olapScan);
+                true, Optional.empty(), olapScan, Optional.empty());
         context = MemoTestUtils.createCascadesContext(aggregate);
 
         PlanChecker.from(context)
@@ -84,7 +84,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Count(olapScan.getOutput().get(0)), "count"),
                         new Alias(new Max(olapScan.getOutput().get(0)), "max")),
-                true, Optional.empty(), olapScan);
+                true, Optional.empty(), olapScan, Optional.empty());
         context = MemoTestUtils.createCascadesContext(aggregate);
 
         PlanChecker.from(context)
@@ -105,7 +105,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
     public void testWithProject() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(1, "tbl", 0);
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
-                ImmutableList.of(olapScan.getOutput().get(0)), olapScan);
+                ImmutableList.of(olapScan.getOutput().get(0)), olapScan, Optional.empty());
         LogicalAggregate<LogicalProject<LogicalOlapScan>> aggregate;
         CascadesContext context;
 
@@ -113,7 +113,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Min(project.getOutput().get(0)), "min")),
-                true, Optional.empty(), project);
+                true, Optional.empty(), project, Optional.empty());
         context = MemoTestUtils.createCascadesContext(aggregate);
 
         PlanChecker.from(context)
@@ -130,7 +130,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Count(project.getOutput().get(0)), "count")),
-                true, Optional.empty(), project);
+                true, Optional.empty(), project, Optional.empty());
         context = MemoTestUtils.createCascadesContext(aggregate);
 
         PlanChecker.from(context)
@@ -149,7 +149,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                 ImmutableList.of(new Alias(new Count(project.getOutput().get(0)), "count"),
                         new Alias(new Max(olapScan.getOutput().get(0)), "max")),
                 true, Optional.empty(),
-                project);
+                project, Optional.empty());
         context = MemoTestUtils.createCascadesContext(aggregate);
 
         PlanChecker.from(context)
@@ -167,7 +167,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
     void testProjectionCheck() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(1, "tbl", 0);
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
-                ImmutableList.of(new Alias(new Ln(olapScan.getOutput().get(0)), "alias")), olapScan);
+                ImmutableList.of(new Alias(new Ln(olapScan.getOutput().get(0)), "alias")), olapScan, Optional.empty());
         LogicalAggregate<LogicalProject<LogicalOlapScan>> aggregate;
         CascadesContext context;
 
@@ -175,7 +175,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         aggregate = new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Min(project.getOutput().get(0)), "min")),
-                project);
+                project, Optional.empty());
         context = MemoTestUtils.createCascadesContext(aggregate);
 
         PlanChecker.from(context)

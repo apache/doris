@@ -43,7 +43,7 @@ sql 'set be_number_for_test=3'
     from
         (
             select
-		/*+ leading(orders shuffle {lineitem shuffle part} shuffle {supplier broadcast nation} shuffle partsupp) */
+		/*+ leading(orders [shuffle] (lineitem [shuffle] part) [shuffle] (supplier [broadcast] nation) [shuffle] partsupp) */
                 n_name as nation,
                 extract(year from o_orderdate) as o_year,
                 l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount

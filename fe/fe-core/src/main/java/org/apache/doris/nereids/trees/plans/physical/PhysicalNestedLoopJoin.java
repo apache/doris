@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -67,9 +68,10 @@ public class PhysicalNestedLoopJoin<
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference,
-                Optional.empty(), logicalProperties, leftChild, rightChild);
+                Optional.empty(), logicalProperties, leftChild, rightChild, hintContext);
     }
 
     /**
@@ -85,9 +87,9 @@ public class PhysicalNestedLoopJoin<
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, Optional<HintContext> hintContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, markJoinSlotReference,
-                groupExpression, logicalProperties, null, null, leftChild, rightChild);
+                groupExpression, logicalProperties, null, null, leftChild, rightChild, hintContext);
     }
 
     /**
@@ -106,9 +108,10 @@ public class PhysicalNestedLoopJoin<
             PhysicalProperties physicalProperties,
             Statistics statistics,
             LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, markJoinSlotReference,
-                groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
+                groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild, hintContext);
     }
 
     public PhysicalNestedLoopJoin(
@@ -119,9 +122,11 @@ public class PhysicalNestedLoopJoin<
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference,
-                Optional.empty(), logicalProperties, null, null, leftChild, rightChild);
+                Optional.empty(), logicalProperties, null, null, leftChild, rightChild,
+                hintContext);
     }
 
     private PhysicalNestedLoopJoin(
@@ -135,11 +140,12 @@ public class PhysicalNestedLoopJoin<
             PhysicalProperties physicalProperties,
             Statistics statistics,
             LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
+            RIGHT_CHILD_TYPE rightChild,
+            Optional<HintContext> hintContext) {
         super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 // nested loop join ignores join hints.
                 new DistributeHint(DistributeType.NONE), markJoinSlotReference,
-                groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
+                groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild, hintContext);
     }
 
     @Override
@@ -164,7 +170,7 @@ public class PhysicalNestedLoopJoin<
         Preconditions.checkArgument(children.size() == 2);
         PhysicalNestedLoopJoin newJoin = new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1), hintContext);
         if (groupExpression.isPresent()) {
             newJoin.setMutableState(MutableState.KEY_GROUP, groupExpression.get().getOwnerGroup().getGroupId().asInt());
         }
@@ -176,7 +182,7 @@ public class PhysicalNestedLoopJoin<
             Optional<GroupExpression> groupExpression) {
         return new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference,
-                groupExpression, getLogicalProperties(), null, null, left(), right());
+                groupExpression, getLogicalProperties(), null, null, left(), right(), hintContext);
     }
 
     @Override
@@ -185,7 +191,7 @@ public class PhysicalNestedLoopJoin<
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
-                logicalProperties.get(), null, null, children.get(0), children.get(1));
+                logicalProperties.get(), null, null, children.get(0), children.get(1), hintContext);
     }
 
     @Override
@@ -193,7 +199,7 @@ public class PhysicalNestedLoopJoin<
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, left(), right());
+                getLogicalProperties(), physicalProperties, statistics, left(), right(), hintContext);
     }
 
     public void addBitmapRuntimeFilterCondition(Expression expr) {
@@ -238,6 +244,6 @@ public class PhysicalNestedLoopJoin<
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
-                null, physicalProperties, statistics, left(), right());
+                null, physicalProperties, statistics, left(), right(), hintContext);
     }
 }

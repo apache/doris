@@ -47,6 +47,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
+import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class ExtractAndNormalizeWindowExpressionTest implements MemoPatternMatchSupported {
@@ -55,7 +56,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements MemoPatternMatch
 
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, ImmutableList.of());
+        rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, ImmutableList.of(), Optional.empty());
     }
 
     @Test
@@ -71,7 +72,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements MemoPatternMatch
         Alias windowAlias = new Alias(window, window.toSql());
 
         List<NamedExpression> outputExpressions = Lists.newArrayList(id, windowAlias);
-        Plan root = new LogicalProject<>(outputExpressions, rStudent);
+        Plan root = new LogicalProject<>(outputExpressions, rStudent, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractAndNormalizeWindowExpression())
@@ -118,7 +119,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements MemoPatternMatch
         Alias windowAlias = new Alias(window, window.toSql());
 
         List<NamedExpression> outputExpressions = Lists.newArrayList(id, windowAlias);
-        Plan root = new LogicalProject<>(outputExpressions, rStudent);
+        Plan root = new LogicalProject<>(outputExpressions, rStudent, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractAndNormalizeWindowExpression())
@@ -185,7 +186,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements MemoPatternMatch
 
         List<Expression> groupKeys = Lists.newArrayList(gender, id);
         List<NamedExpression> outputExpressions = Lists.newArrayList(gender, sumAlias, windowAlias);
-        Plan root = new LogicalAggregate<>(groupKeys, outputExpressions, rStudent);
+        Plan root = new LogicalAggregate<>(groupKeys, outputExpressions, rStudent, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new NormalizeAggregate())

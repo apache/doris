@@ -31,6 +31,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 class BindRelationTest extends TestWithFeService implements GeneratedPlanPatterns {
     private static final String DB1 = "db1";
     private static final String DB2 = "db2";
@@ -56,7 +58,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     @Test
     void bindInCurrentDb() {
         connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
-        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("t")),
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("t"), Optional.empty()),
                 connectContext, new BindRelation());
 
         Assertions.assertInstanceOf(LogicalOlapScan.class, plan);
@@ -68,7 +70,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     @Test
     void bindByDbQualifier() {
         connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB2);
-        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("db1", "t")),
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("db1", "t"), Optional.empty()),
                 connectContext, new BindRelation());
 
         Assertions.assertInstanceOf(LogicalOlapScan.class, plan);
@@ -81,7 +83,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     void bindRandomAggTable() {
         connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
         connectContext.getState().setIsQuery(true);
-        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("tagg")),
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("tagg"), Optional.empty()),
                 connectContext, new BindRelation());
 
         Assertions.assertInstanceOf(LogicalAggregate.class, plan);

@@ -14,7 +14,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t1 cte )
+Used: leading(t2 t1) leading(t1 cte)
 UnUsed: 
 SyntaxError:
 
@@ -33,7 +33,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t1 t2 ) leading(t1 cte )
+Used: leading(t1 t2) leading(t1 cte)
 UnUsed: 
 SyntaxError:
 
@@ -52,7 +52,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t1 t2 ) leading(t1 cte )
+Used: leading(t1 t2) leading(t1 cte)
 UnUsed: 
 SyntaxError:
 
@@ -80,7 +80,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t3 alias1 )
+Used: leading(t3 alias1)
 UnUsed: 
 SyntaxError:
 
@@ -96,7 +96,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 t1 )
+Used: leading(t2 t1)
 UnUsed: 
 SyntaxError:
 
@@ -112,7 +112,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t3 alias1 )
+Used: leading(t2 t1) leading(t3 alias1)
 UnUsed: 
 SyntaxError:
 
@@ -144,7 +144,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t3 alias1 cte )
+Used: leading(t2 t1) leading(t3 alias1 cte)
 UnUsed: 
 SyntaxError:
 
@@ -164,7 +164,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t2 t1 )
+Used: leading(t2 t1)
 UnUsed: 
 SyntaxError:
 
@@ -184,7 +184,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t2 t1 ) leading(t3 alias1 cte )
+Used: leading(t2 t1) leading(t2 t1) leading(t3 alias1 cte)
 UnUsed: 
 SyntaxError:
 
@@ -214,7 +214,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: leading(t3 alias1 )
+Used: leading(t3 alias1)
 UnUsed: 
 SyntaxError:
 
@@ -232,7 +232,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(alias2 t1 )
+Used: leading(alias2 t1)
 UnUsed: 
 SyntaxError:
 
@@ -250,7 +250,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t4 t2 )
+Used: leading(t4 t2)
 UnUsed: 
 SyntaxError:
 
@@ -268,7 +268,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(alias2 t1 ) leading(t3 alias1 )
+Used: leading(alias2 t1) leading(t3 alias1)
 UnUsed: 
 SyntaxError:
 
@@ -302,7 +302,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalOlapScan[t1]
 --PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
-------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > (cast(0.05 as DOUBLE) * avg(c11)))
+------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > 0.05 * avg(t1.c11))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
@@ -316,7 +316,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(cte t1 )
+Used: leading(cte t1)
 UnUsed: 
 SyntaxError:
 

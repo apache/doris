@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.hint.DistributeHint;
+
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -27,21 +30,39 @@ import java.util.stream.Collectors;
 public class SelectHintLeading extends SelectHint {
     // e.g. query_timeout='1800', exec_mem_limit='2147483648'
     private final List<String> parameters;
+    private final String originalLeadingText;
+
+    private final Map<String, DistributeHint> strToHint;
+
+    public SelectHintLeading(String hintName, List<String> parameters, Map<String, DistributeHint> strToHint,
+            String originalLeadingText, String err) {
+        super(hintName, err);
+        this.parameters = parameters;
+        this.strToHint = strToHint;
+        this.originalLeadingText = originalLeadingText;
+    }
 
     public SelectHintLeading(String hintName, List<String> parameters) {
-        super(hintName);
-        this.parameters = parameters;
+        this(hintName, parameters, null, null, null);
     }
 
     public List<String> getParameters() {
         return parameters;
     }
 
+    public Map<String, DistributeHint> getStrToHint() {
+        return strToHint;
+    }
+
     @Override
     public String toString() {
-        String leadingString = parameters
-                .stream()
-                .collect(Collectors.joining(" "));
-        return super.getHintName() + "(" + leadingString + ")";
+        if (originalLeadingText != null) {
+            return originalLeadingText;
+        } else {
+            String leadingString = parameters
+                    .stream()
+                    .collect(Collectors.joining(" "));
+            return super.getHintName() + "(" + leadingString + ")";
+        }
     }
 }

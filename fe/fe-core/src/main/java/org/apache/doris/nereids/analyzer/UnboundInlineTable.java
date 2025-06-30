@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -42,10 +43,18 @@ public class UnboundInlineTable extends LogicalLeaf implements InlineTable, Bloc
     private final List<List<NamedExpression>> constantExprsList;
 
     public UnboundInlineTable(List<List<NamedExpression>> constantExprsList) {
-        super(PlanType.LOGICAL_UNBOUND_INLINE_TABLE, Optional.empty(), Optional.empty());
+        this(constantExprsList, Optional.empty());
+    }
+
+    private UnboundInlineTable(List<List<NamedExpression>> constantExprsList, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_UNBOUND_INLINE_TABLE, Optional.empty(), Optional.empty(), hintContext);
         this.constantExprsList = Utils.fastToImmutableList(
-                Objects.requireNonNull(constantExprsList, "constantExprsList can not be null")
-        );
+                Objects.requireNonNull(constantExprsList, "constantExprsList can not be null"));
+    }
+
+    @Override
+    public UnboundInlineTable withHintContext(Optional<HintContext> hintContext) {
+        return new UnboundInlineTable(constantExprsList, hintContext);
     }
 
     public List<List<NamedExpression>> getConstantExprsList() {

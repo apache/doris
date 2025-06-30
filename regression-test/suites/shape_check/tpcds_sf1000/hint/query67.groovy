@@ -90,7 +90,7 @@ from (select i_category
             ,sumsales
             ,rank() over (partition by i_category order by sumsales desc) rk
       from (select 
-      /*+ leading(store_sales broadcast date_dim broadcast store broadcast item) */
+      /*+ leading(store_sales [broadcast] date_dim [broadcast] store [broadcast] item) */
       i_category
                   ,i_class
                   ,i_brand

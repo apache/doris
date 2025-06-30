@@ -53,6 +53,6 @@ public class LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN extends O
             LogicalDeferMaterializeTopN<? extends Plan> logicalWrapped, Plan child) {
         return new PhysicalDeferMaterializeTopN<>(physicalTopN,
                 logicalWrapped.getDeferMaterializeSlotIds(), logicalWrapped.getColumnIdSlot(),
-                Optional.empty(), logicalWrapped.getLogicalProperties(), child);
+                Optional.empty(), logicalWrapped.getLogicalProperties(), child, logicalWrapped.getHintContext());
     }
 }

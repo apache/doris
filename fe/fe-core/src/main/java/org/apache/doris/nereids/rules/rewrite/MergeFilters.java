@@ -46,7 +46,7 @@ public class MergeFilters extends OneRewriteRuleFactory {
             LogicalFilter<? extends Plan> childFilter = filter.child();
             return new LogicalFilter<>(ImmutableSet.<Expression>builder()
                     .addAll(filter.getConjuncts())
-                    .addAll(childFilter.getConjuncts()).build(), childFilter.child());
+                    .addAll(childFilter.getConjuncts()).build(), childFilter.child(), filter.getHintContext());
         }).toRule(RuleType.MERGE_FILTERS);
     }
 
