@@ -43,6 +43,7 @@
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
+#include "olap/collection_similarity.h"
 #include "olap/column_predicate.h"
 #include "olap/field.h"
 #include "olap/id_manager.h"
@@ -55,6 +56,8 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
+#include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
@@ -315,9 +318,8 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
 
     _virtual_column_exprs = _opts.virtual_column_exprs;
     _ann_topn_runtime = _opts.ann_topn_runtime;
+    _score_runtime = _opts.score_runtime;
     _vir_cid_to_idx_in_block = _opts.vir_cid_to_idx_in_block;
-
-    RETURN_IF_ERROR(init_iterators());
 
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
@@ -371,6 +373,8 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             "_vir_cid_to_idx_in_block size: {}, common_expr_pushdown size: {}",
             _opts.virtual_column_exprs.size(), _opts.ann_topn_runtime != nullptr,
             _opts.vir_cid_to_idx_in_block.size(), _common_expr_ctxs_push_down.size());
+    RETURN_IF_ERROR(init_iterators());
+
     _initialize_predicate_results();
     return Status::OK();
 }
@@ -416,6 +420,20 @@ Status SegmentIterator::_lazy_init() {
 
     if (!_opts.row_ranges.is_empty()) {
         _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
+    }
+
+    {
+        if (_index_query_context->collection_similarity) {
+            vectorized::IColumn::MutablePtr result_column;
+            auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
+            _index_query_context->collection_similarity->get_bm25_scores(_row_bitmap, result_column,
+                                                                         result_row_ids);
+            const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
+            auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
+            auto* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
+            virtual_column_iter->prepare_materialization(std::move(result_column),
+                                                         std::move(result_row_ids));
+        }
     }
 
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
@@ -915,8 +933,9 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
     if (PredicateTypeTraits::is_range(pred->type()) &&
         _index_iterators[pred_column_id] != nullptr) {
-        if (_index_iterators[pred_column_id]->type() == IndexType::INVERTED) {
-            if (_index_iterators[pred_column_id]->get_reader()->is_string_index()) {
+        auto reader = _index_iterators[pred_column_id]->get_reader();
+        if (reader->index_type() == IndexType::INVERTED) {
+            if (IndexReaderHelper::is_string_index(reader)) {
                 return false;
             }
         }
@@ -942,7 +961,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
 
 Status SegmentIterator::_apply_index_expr() {
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+        if (Status st = expr_ctx->evaluate_inverted_index(num_rows(), false); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1013,14 +1032,16 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
 }
 
 bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
-    if (_index_iterators[cid]->type() != IndexType::INVERTED) {
+    if (_index_iterators[cid] == nullptr) {
         return false;
     }
 
-    bool has_fulltext_index = _index_iterators[cid] != nullptr &&
-                              _index_iterators[cid]->get_reader()->is_fulltext_index();
+    auto reader = _index_iterators[cid]->get_reader();
+    if (reader->index_type() != IndexType::INVERTED) {
+        return false;
+    }
 
-    return has_fulltext_index;
+    return IndexReaderHelper::is_fulltext_index(reader);
 }
 
 inline bool SegmentIterator::_inverted_index_not_support_pred_type(const PredicateType& type) {
@@ -1271,20 +1292,52 @@ Status SegmentIterator::_init_index_iterators() {
         return Status::OK();
     }
 
-    // Inverted index iterators
-    for (auto cid : _schema->column_ids()) {
-        // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
-        if (_index_iterators[cid] == nullptr) {
-            // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
-            // This is because the sub-column is created in create_materialized_variant_column.
-            // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
-            const auto& column = _opts.tablet_schema->column(cid);
-            int32_t col_unique_id =
-                    column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
-            RETURN_IF_ERROR(_segment->new_index_iterator(
-                    column,
-                    _segment->_tablet_schema->inverted_index(col_unique_id, column.suffix_path()),
-                    _opts, &_index_iterators[cid]));
+    _index_query_context = std::make_shared<IndexQueryContext>();
+    _index_query_context->io_ctx = &_opts.io_ctx;
+    _index_query_context->stats = _opts.stats;
+    _index_query_context->runtime_state = _opts.runtime_state;
+
+    if (_score_runtime) {
+        _index_query_context->collection_statistics = _opts.collection_statistics;
+
+        SegmentStats segment_stats;
+        segment_stats.row_cnt = _segment->num_rows();
+        _index_query_context->collection_statistics->collect(segment_stats);
+
+        auto full_segment_id =
+                std::make_shared<FullSegmentId>(_segment->rowset_id(), _segment->id());
+        _index_query_context->full_segment_id = full_segment_id;
+
+        auto collection_similarity = std::make_shared<CollectionSimilarity>();
+        _index_query_context->collection_similarity = collection_similarity;
+    }
+
+    {
+        // Inverted index iterators
+        for (auto cid : _schema->column_ids()) {
+            // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
+            if (_index_iterators[cid] == nullptr) {
+                // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
+                // This is because the sub-column is created in create_materialized_variant_column.
+                // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
+                const auto& column = _opts.tablet_schema->column(cid);
+                int32_t col_unique_id = column.is_extracted_column() ? column.parent_unique_id()
+                                                                     : column.unique_id();
+                RETURN_IF_ERROR(
+                        _segment->new_index_iterator(column,
+                                                     _segment->_tablet_schema->inverted_index(
+                                                             col_unique_id, column.suffix_path()),
+                                                     _opts, &_index_iterators[cid]));
+                if (_index_iterators[cid] != nullptr) {
+                    _index_iterators[cid]->set_context(_index_query_context);
+                }
+            }
+        }
+
+        if (_index_query_context->collection_similarity) {
+            for (auto expr_ctx : _common_expr_ctxs_push_down) {
+                RETURN_IF_ERROR(expr_ctx->evaluate_inverted_index(num_rows(), true));
+            }
         }
     }
 
@@ -1298,8 +1351,12 @@ Status SegmentIterator::_init_index_iterators() {
                     column,
                     _segment->_tablet_schema->ann_index(col_unique_id, column.suffix_path()), _opts,
                     &_index_iterators[cid]));
+            if (_index_iterators[cid] != nullptr) {
+                _index_iterators[cid]->set_context(_index_query_context);
+            }
         }
     }
+
     return Status::OK();
 }
 

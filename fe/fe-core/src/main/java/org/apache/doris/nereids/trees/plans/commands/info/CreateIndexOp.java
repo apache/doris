@@ -87,7 +87,7 @@ public class CreateIndexOp extends AlterTableOp {
             tableName.analyze(ctx);
         }
         DatabaseIf<Table> db = Env.getCurrentEnv().getCatalogMgr().getInternalCatalog()
-            .getDb(tableName.getDb()).orElse(null);
+                .getDb(tableName.getDb()).orElse(null);
         if (db == null) {
             throw new AnalysisException("Database[" + tableName.getDb() + "] is not exist");
         }
@@ -100,7 +100,7 @@ public class CreateIndexOp extends AlterTableOp {
             throw new AnalysisException("Only olap table support create index");
         }
         if (indexDef.getIndexType() == IndexDef.IndexType.ANN
-            && ((OlapTable) table).getKeysType() != KeysType.DUP_KEYS) {
+                && ((OlapTable) table).getKeysType() != KeysType.DUP_KEYS) {
             throw new AnalysisException("ANN index can only be built on DUP KEYS tables");
         }
 

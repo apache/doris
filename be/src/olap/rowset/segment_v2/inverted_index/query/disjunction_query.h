@@ -26,19 +26,23 @@ namespace doris::segment_v2 {
 
 class DisjunctionQuery : public Query {
 public:
-    DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                     const TQueryOptions& query_options, const io::IOContext* io_ctx);
+    DisjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context);
+    DisjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context, bool is_similarity);
     ~DisjunctionQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
+    void pre_search(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
-    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
-    const io::IOContext* _io_ctx = nullptr;
+    SearcherPtr _searcher;
+    IndexQueryContextPtr _context;
 
     std::wstring _field_name;
-    std::vector<TermInfo> _term_infos;
+    std::vector<std::vector<TermIterPtr>> _iterators;
+
+    bool _is_similarity = true;
+    std::vector<SimilarityPtr> _similarities;
 };
 
 } // namespace doris::segment_v2

@@ -28,6 +28,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
@@ -73,7 +74,7 @@ namespace segment_v2 {
 class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class IndexFileReader;
-struct InvertedIndexQueryInfo;
+class InvertedIndexQueryInfo;
 class IndexIterator;
 
 class InvertedIndexResultBitmap {
@@ -181,16 +182,18 @@ public:
             : _index_file_reader(std::move(index_file_reader)), _index_meta(*index_meta) {}
     virtual ~InvertedIndexReader() = default;
 
-    virtual Status query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
-                         RuntimeState* runtime_state, const std::string& column_name,
+    IndexType index_type() override { return IndexType::INVERTED; }
+
+    virtual Status pre_query(const IndexQueryContextPtr& context, const std::string& column_name,
+                             const void* query_value, InvertedIndexQueryType query_type) = 0;
+    virtual Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                          const void* query_value, InvertedIndexQueryType query_type,
                          std::shared_ptr<roaring::Roaring>& bit_map) = 0;
-    virtual Status try_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
-                             RuntimeState* runtime_state, const std::string& column_name,
+    virtual Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
                              uint32_t* count) = 0;
 
-    Status read_null_bitmap(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
+    Status read_null_bitmap(const IndexQueryContextPtr& context,
                             InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr);
 
@@ -205,29 +208,26 @@ public:
     [[nodiscard]] bool has_null() const { return _has_null; }
     void set_has_null(bool has_null) { _has_null = has_null; }
 
-    virtual Status handle_query_cache(RuntimeState* runtime_state, InvertedIndexQueryCache* cache,
-                                      const InvertedIndexQueryCache::CacheKey& cache_key,
-                                      InvertedIndexQueryCacheHandle* cache_handler,
-                                      OlapReaderStatistics* stats,
-                                      std::shared_ptr<roaring::Roaring>& bit_map);
+    bool handle_query_cache(const IndexQueryContextPtr& context, InvertedIndexQueryCache* cache,
+                            const InvertedIndexQueryCache::CacheKey& cache_key,
+                            InvertedIndexQueryCacheHandle* cache_handler,
+                            std::shared_ptr<roaring::Roaring>& bit_map);
 
-    virtual Status handle_searcher_cache(RuntimeState* runtime_state,
-                                         InvertedIndexCacheHandle* inverted_index_cache_handle,
-                                         const io::IOContext* io_ctx, OlapReaderStatistics* stats);
+    virtual Status handle_searcher_cache(const IndexQueryContextPtr& context,
+                                         InvertedIndexCacheHandle* inverted_index_cache_handle);
     std::string get_index_file_path();
     static Status create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
                                         lucene::store::Directory* dir, IndexSearcherPtr* searcher,
                                         size_t& reader_size);
 
-    bool is_fulltext_index() override { return type() == InvertedIndexReaderType::FULLTEXT; }
-    bool is_string_index() override { return type() == InvertedIndexReaderType::STRING_TYPE; }
-    bool is_bkd_index() override { return type() == InvertedIndexReaderType::BKD; }
-
-    bool is_support_phrase() override;
-
 protected:
-    Status match_index_search(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
-                              RuntimeState* runtime_state, InvertedIndexQueryType query_type,
+    Status pre_match_index_search(const IndexQueryContextPtr& context,
+                                  InvertedIndexQueryType query_type,
+                                  const InvertedIndexQueryInfo& query_info,
+                                  const FulltextIndexSearcherPtr& index_searcher);
+
+    Status match_index_search(const IndexQueryContextPtr& context,
+                              InvertedIndexQueryType query_type,
                               const InvertedIndexQueryInfo& query_info,
                               const FulltextIndexSearcherPtr& index_searcher,
                               const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
@@ -244,19 +244,17 @@ class FullTextIndexReader : public InvertedIndexReader {
 
 public:
     explicit FullTextIndexReader(const TabletIndex* index_meta,
-                                 std::shared_ptr<IndexFileReader>& index_file_reader)
+                                 const std::shared_ptr<IndexFileReader>& index_file_reader)
             : InvertedIndexReader(index_meta, index_file_reader) {}
     ~FullTextIndexReader() override = default;
 
-    Status new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                        RuntimeState* runtime_state,
-                        std::unique_ptr<IndexIterator>* iterator) override;
-    Status query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
-                 RuntimeState* runtime_state, const std::string& column_name,
+    Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
+    Status pre_query(const IndexQueryContextPtr& context, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type) override;
+    Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map) override;
-    Status try_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
-                     RuntimeState* runtime_state, const std::string& column_name,
+    Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
@@ -270,20 +268,19 @@ class StringTypeInvertedIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(StringTypeInvertedIndexReader);
 
 public:
-    explicit StringTypeInvertedIndexReader(const TabletIndex* index_meta,
-                                           std::shared_ptr<IndexFileReader>& index_file_reader)
+    explicit StringTypeInvertedIndexReader(
+            const TabletIndex* index_meta,
+            const std::shared_ptr<IndexFileReader>& index_file_reader)
             : InvertedIndexReader(index_meta, index_file_reader) {}
     ~StringTypeInvertedIndexReader() override = default;
 
-    Status new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                        RuntimeState* runtime_state,
-                        std::unique_ptr<IndexIterator>* iterator) override;
-    Status query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
-                 RuntimeState* runtime_state, const std::string& column_name,
+    Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
+    Status pre_query(const IndexQueryContextPtr& context, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type) override;
+    Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map) override;
-    Status try_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
-                     RuntimeState* runtime_state, const std::string& column_name,
+    Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
@@ -334,26 +331,23 @@ class BkdIndexReader : public InvertedIndexReader {
 
 public:
     explicit BkdIndexReader(const TabletIndex* index_meta,
-                            std::shared_ptr<IndexFileReader>& index_file_reader)
+                            const std::shared_ptr<IndexFileReader>& index_file_reader)
             : InvertedIndexReader(index_meta, index_file_reader) {}
     ~BkdIndexReader() override = default;
 
-    Status new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                        RuntimeState* runtime_state,
-                        std::unique_ptr<IndexIterator>* iterator) override;
-
-    Status query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
-                 RuntimeState* runtime_state, const std::string& column_name,
+    Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
+    Status pre_query(const IndexQueryContextPtr& context, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type) override;
+    Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map) override;
-    Status try_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
-                     RuntimeState* runtime_state, const std::string& column_name,
+    Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override;
-    Status invoke_bkd_try_query(const io::IOContext* io_ctx, const void* query_value,
+    Status invoke_bkd_try_query(const IndexQueryContextPtr& context, const void* query_value,
                                 InvertedIndexQueryType query_type,
                                 std::shared_ptr<lucene::util::bkd::bkd_reader> r, uint32_t* count);
-    Status invoke_bkd_query(const io::IOContext* io_ctx, const void* query_value,
+    Status invoke_bkd_query(const IndexQueryContextPtr& context, const void* query_value,
                             InvertedIndexQueryType query_type,
                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                             std::shared_ptr<roaring::Roaring>& bit_map);
@@ -363,8 +357,7 @@ public:
                                      InvertedIndexVisitor<QT>* visitor);
 
     InvertedIndexReaderType type() override;
-    Status get_bkd_reader(BKDIndexSearcherPtr& reader, const io::IOContext* io_ctx,
-                          OlapReaderStatistics* stats, RuntimeState* runtime_state);
+    Status get_bkd_reader(const IndexQueryContextPtr& context, BKDIndexSearcherPtr& reader);
 
 private:
     const TypeInfo* _type_info {};

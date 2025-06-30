@@ -55,14 +55,16 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows,
+                                   bool is_pre_evaluate) override {
         segment_v2::InvertedIndexResultBitmap res;
         bool all_pass = true;
 
         switch (_op) {
         case TExprOpcode::COMPOUND_OR: {
             for (const auto& child : _children) {
-                if (Status st = child->evaluate_inverted_index(context, segment_num_rows);
+                if (Status st = child->evaluate_inverted_index(context, segment_num_rows,
+                                                               is_pre_evaluate);
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
@@ -90,7 +92,8 @@ public:
         }
         case TExprOpcode::COMPOUND_AND: {
             for (const auto& child : _children) {
-                if (Status st = child->evaluate_inverted_index(context, segment_num_rows);
+                if (Status st = child->evaluate_inverted_index(context, segment_num_rows,
+                                                               is_pre_evaluate);
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
@@ -119,7 +122,7 @@ public:
         }
         case TExprOpcode::COMPOUND_NOT: {
             const auto& child = _children[0];
-            Status st = child->evaluate_inverted_index(context, segment_num_rows);
+            Status st = child->evaluate_inverted_index(context, segment_num_rows, is_pre_evaluate);
             if (!st.ok()) {
                 LOG(ERROR) << "expr:" << child->expr_name()
                            << " evaluate_inverted_index error:" << st.to_string();

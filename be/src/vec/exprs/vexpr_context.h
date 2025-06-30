@@ -194,8 +194,7 @@ public:
     // execute expr with inverted index which column a, b has inverted indexes
     //  but some situation although column b has indexes, but apply index is not useful, we should
     //  skip this expr, just do not apply index anymore.
-
-    [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
+    [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows, bool is_pre_evaluate);
 
     bool all_expr_inverted_index_evaluated();
 

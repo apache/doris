@@ -58,7 +58,8 @@ public:
     const FunctionBasePtr function() { return _function; }
 
     bool is_not_in() const { return _is_not_in; };
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows,
+                                   bool is_pre_evaluate) override;
 
 private:
     FunctionBasePtr _function;

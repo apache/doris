@@ -22,7 +22,8 @@
 
 namespace doris::segment_v2 {
 
-struct TermInfo {
+class TermInfo {
+public:
     using Term = std::variant<std::string, std::vector<std::string>>;
 
     Term term;
@@ -37,7 +38,8 @@ struct TermInfo {
     }
 };
 
-struct InvertedIndexQueryInfo {
+class InvertedIndexQueryInfo {
+public:
     std::wstring field_name;
     std::vector<TermInfo> term_infos;
     int32_t slop = 0;

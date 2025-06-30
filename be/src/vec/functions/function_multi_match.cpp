@@ -57,7 +57,11 @@ Status FunctionMultiMatch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-        segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        segment_v2::InvertedIndexResultBitmap& bitmap_result, bool is_pre_evaluate) const {
+    if (is_pre_evaluate) {
+        return Status::OK();
+    }
+
     DCHECK(arguments.size() == 2);
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();

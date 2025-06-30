@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -65,24 +66,40 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
     private Plan pushDown(LogicalFilter<LogicalOlapScan> filter, LogicalOlapScan logicalOlapScan,
             Optional<LogicalProject<?>> optionalProject) {
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        ImmutableList.Builder<NamedExpression> virtualColumnsBuilder = ImmutableList.builder();
         // 1. extract filter l2_distance
         // 2. generate virtual column from l2_distance and add them to scan
         // 3. replace filter
         // 4. replace project
-        Map<Expression, Expression> replaceMap = Maps.newHashMap();
-        ImmutableList.Builder<NamedExpression> virtualColumnsBuilder = ImmutableList.builder();
         for (Expression conjunct : filter.getConjuncts()) {
-            Set<Expression> distanceFunctions = conjunct.collect(
-                    e -> e instanceof L2DistanceApproximate || e instanceof InnerProductApproximate);
-            for (Expression distanceFunction : distanceFunctions) {
-                if (replaceMap.containsKey(distanceFunction)) {
+            Set<Expression> needPushDownFunctions = conjunct.collect(e -> e instanceof L2DistanceApproximate
+                            || e instanceof InnerProductApproximate);
+            for (Expression needPushDownFunction : needPushDownFunctions) {
+                if (replaceMap.containsKey(needPushDownFunction)) {
                     continue;
                 }
-                Alias alias = new Alias(distanceFunction);
-                replaceMap.put(distanceFunction, alias.toSlot());
+                Alias alias = new Alias(needPushDownFunction);
+                replaceMap.put(needPushDownFunction, alias.toSlot());
                 virtualColumnsBuilder.add(alias);
             }
         }
+
+        if (optionalProject.isPresent()) {
+            LogicalProject<?> project = optionalProject.get();
+            for (NamedExpression namedExpr : project.getProjects()) {
+                Set<Expression> scoreFunctions = namedExpr.collect(e -> e instanceof Score);
+                for (Expression scoreFunc : scoreFunctions) {
+                    if (replaceMap.containsKey(scoreFunc)) {
+                        continue;
+                    }
+                    Alias alias = new Alias(scoreFunc);
+                    replaceMap.put(scoreFunc, alias.toSlot());
+                    virtualColumnsBuilder.add(alias);
+                }
+            }
+        }
+
         if (replaceMap.isEmpty()) {
             return null;
         }

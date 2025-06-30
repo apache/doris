@@ -24,6 +24,7 @@
 #include "olap/rowid_conversion.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/ann_topn_runtime.h"
+#include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -89,6 +90,8 @@ struct RowsetReaderContext {
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
 
     std::shared_ptr<vectorized::AnnTopNRuntime> ann_topn_runtime;
+    std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
+    CollectionStatisticsPtr collection_statistics;
 };
 
 } // namespace doris

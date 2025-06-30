@@ -39,6 +39,7 @@
 #include "util/to_string.h"
 #include "vec/exec/scan/olap_scanner.h"
 #include "vec/exprs/ann_topn_runtime.h"
+#include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -641,6 +642,19 @@ Status OlapScanLocalState::open(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
+
+    if (!projections().empty()) {
+        for (auto& projection : projections()) {
+            auto vir_slot_ref =
+                    std::dynamic_pointer_cast<vectorized::VirtualSlotRef>(projection->root());
+            if (vir_slot_ref == nullptr || !vir_slot_ref->is_score_expr()) {
+                continue;
+            }
+            _score_runtime = vectorized::ScoreRuntime::create_shared(projection);
+            RETURN_IF_ERROR(_score_runtime->prepare(state));
+            break;
+        }
+    }
 
     return Status::OK();
 }

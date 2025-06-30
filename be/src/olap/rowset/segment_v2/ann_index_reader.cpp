@@ -59,10 +59,8 @@ AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
     _metric_type = string_to_metric(it->second);
 }
 
-Status AnnIndexReader::new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                                    RuntimeState* runtime_state,
-                                    std::unique_ptr<IndexIterator>* iterator) {
-    *iterator = AnnIndexIterator::create_unique(io_ctx, stats, runtime_state, shared_from_this());
+Status AnnIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
+    *iterator = AnnIndexIterator::create_unique(shared_from_this());
     return Status::OK();
 }
 
