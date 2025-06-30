@@ -843,28 +843,69 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public void restore(Repository repository, Database db, RestoreCommand command) throws DdlException {
-        List<BackupJobInfo> infos = Lists.newArrayList();
-        Status status = repository.getSnapshotInfoFile(command.getLabel(), command.getBackupTimestamp(), infos);
-        if (!status.ok()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "Failed to get info of snapshot '" + command.getLabel() + "' because: "
-                    + status.getErrMsg() + ". Maybe specified wrong backup timestamp");
-        }
+        BackupJobInfo jobInfo;
+        if (command.isLocal()) {
+            String jobInfoString = new String(command.getJobInfo());
+            jobInfo = BackupJobInfo.genFromJson(jobInfoString);
 
-        // Check if all restore objects are exist in this snapshot.
-        // Also remove all unrelated objs
-        Preconditions.checkState(infos.size() == 1);
-        BackupJobInfo jobInfo = infos.get(0);
+            if (jobInfo.extraInfo == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Invalid job extra info empty");
+            }
+            if (jobInfo.extraInfo.beNetworkMap == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Invalid job extra info be network map");
+            }
+            if (Strings.isNullOrEmpty(jobInfo.extraInfo.token)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Invalid job extra info token");
+            }
+        } else {
+            // Check if snapshot exist in repository
+            List<BackupJobInfo> infos = Lists.newArrayList();
+            Status status = repository.getSnapshotInfoFile(command.getLabel(), command.getBackupTimestamp(), infos);
+            if (!status.ok()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Failed to get info of snapshot '" + command.getLabel() + "' because: "
+                        + status.getErrMsg() + ". Maybe specified wrong backup timestamp");
+            }
+
+            // Check if all restore objects are exist in this snapshot.
+            // Also remove all unrelated objs
+            Preconditions.checkState(infos.size() == 1);
+            jobInfo = infos.get(0);
+        }
 
         checkAndFilterRestoreObjsExistInSnapshot(jobInfo, command);
 
         // Create a restore job
-        RestoreJob restoreJob = new RestoreJob(command.getLabel(), command.getBackupTimestamp(),
+        RestoreJob restoreJob;
+        if (command.isLocal()) {
+            int metaVersion = command.getMetaVersion();
+            if (metaVersion == -1) {
+                metaVersion = jobInfo.metaVersion;
+            }
+
+            BackupMeta backupMeta;
+            try {
+                backupMeta = BackupMeta.fromBytes(command.getMeta(), metaVersion);
+            } catch (IOException e) {
+                LOG.warn("read backup meta failed, current meta version {}", Env.getCurrentEnvJournalVersion(), e);
+                throw new DdlException("read backup meta failed", e);
+            }
+            String backupTimestamp = TimeUtils.longToTimeString(
+                    jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
+            restoreJob = new RestoreJob(command.getLabel(), backupTimestamp,
+                db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
+                command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(), command.reserveColocate(),
+                command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
+                command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
+        } else {
+            restoreJob = new RestoreJob(command.getLabel(), command.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
                 command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(), command.reserveColocate(),
                 command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
                 command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
                 env, repository.getId());
+        }
 
         env.getEditLog().logRestoreJob(restoreJob);
 

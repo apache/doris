@@ -88,8 +88,9 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     private final List<TableRefInfo> tableRefInfos;
     private final Map<String, String> properties;
     private final boolean isExclude;
-
     private long timeoutMs;
+    private byte[] meta = null;
+    private byte[] jobInfo = null;
 
     /**
      * BackupCommand
@@ -122,8 +123,11 @@ public class RestoreCommand extends Command implements ForwardWithSync {
      */
     public void validate(ConnectContext ctx) throws AnalysisException, DdlException {
         if (repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "restore from the local repo via SQL call is not supported");
+            isLocal = true;
+            if (jobInfo == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "restore from the local repo via SQL call is not supported");
+            }
         }
 
         labelNameInfo.validate(ctx);
@@ -371,6 +375,30 @@ public class RestoreCommand extends Command implements ForwardWithSync {
 
     public boolean isForceReplace() {
         return isForceReplace;
+    }
+
+    public boolean isLocal() {
+        return isLocal;
+    }
+
+    public byte[] getMeta() {
+        return meta;
+    }
+
+    public void setMeta(byte[] meta) {
+        this.meta = meta;
+    }
+
+    public byte[] getJobInfo() {
+        return jobInfo;
+    }
+
+    public void setJobInfo(byte[] jobInfo) {
+        this.jobInfo = jobInfo;
+    }
+
+    public void setIsBeingSynced() {
+        properties.put(PROP_IS_BEING_SYNCED, "true");
     }
 
     @Override
