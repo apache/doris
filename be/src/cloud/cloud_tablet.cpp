@@ -590,27 +590,29 @@ void CloudTablet::remove_unused_rowsets() {
         }
     }
 
-    std::vector<RowsetId> rowset_ids;
-    std::vector<int64_t> num_segments;
-    std::vector<std::vector<std::string>> index_file_names;
+    {
+        std::vector<RowsetId> rowset_ids;
+        std::vector<int64_t> num_segments;
+        std::vector<std::vector<std::string>> index_file_names;
 
-    for (auto& rs : removed_rowsets) {
-        rowset_ids.push_back(rs->rowset_id());
-        num_segments.push_back(rs->num_segments());
-        auto index_names = rs->get_index_file_names();
-        index_file_names.push_back(index_names);
-        int64_t segment_size_sum = 0;
-        for (int32_t i = 0; i < rs->num_segments(); i++) {
-            segment_size_sum += rs->rowset_meta()->segment_file_size(i);
+        for (auto& rs : removed_rowsets) {
+            rowset_ids.push_back(rs->rowset_id());
+            num_segments.push_back(rs->num_segments());
+            auto index_names = rs->get_index_file_names();
+            index_file_names.push_back(index_names);
+            int64_t segment_size_sum = 0;
+            for (int32_t i = 0; i < rs->num_segments(); i++) {
+                segment_size_sum += rs->rowset_meta()->segment_file_size(i);
+            }
+            g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
+            g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
+            g_file_cache_recycle_cached_data_index_num << index_names.size();
         }
-        g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
-        g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
-        g_file_cache_recycle_cached_data_index_num << index_names.size();
-    }
 
-    if (removed_rowsets.size() > 0) {
-        auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-        manager.recycle_cache(tablet_id(), rowset_ids, num_segments, index_file_names);
+        if (removed_rowsets.size() > 0) {
+            auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+            manager.recycle_cache(tablet_id(), rowset_ids, num_segments, index_file_names);
+        }
     }
 
     // 2. remove delete bitmap of pre rowsets
