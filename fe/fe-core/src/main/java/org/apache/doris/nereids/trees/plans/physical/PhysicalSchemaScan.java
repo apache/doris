@@ -55,6 +55,9 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
         BACKEND_TABLE_ONLY_ROOT_READABLE.add("backend_configuration");
     }
 
+    /**
+     * C'tor PhysicalSchemaScan.
+     */
     public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable) {
