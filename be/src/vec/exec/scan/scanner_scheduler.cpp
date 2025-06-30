@@ -80,15 +80,16 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                   << " maybe finished";
         return Status::OK();
     }
+    std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
+    if (scanner_delegate == nullptr) {
+        return Status::OK();
+    }
 
-    if (ctx->thread_token != nullptr) {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return Status::OK();
-        }
-
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
+    scanner_delegate->_scanner->start_wait_worker_timer();
+    TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
+    auto sumbit_task = [&]() {
+        SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
+        auto work_func = [scanner_ref = scan_task, ctx]() {
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                 return Status::OK();
@@ -98,45 +99,19 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                 scanner_ref->set_status(status);
                 ctx->push_back_scan_task(scanner_ref);
             }
-        });
-        if (!s.ok()) {
-            scan_task->set_status(s);
-            return s;
-        }
-    } else {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return Status::OK();
-        }
-
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
-        auto sumbit_task = [&]() {
-            SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
-            auto work_func = [scanner_ref = scan_task, ctx]() {
-                auto status = [&] {
-                    RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                    return Status::OK();
-                }();
-
-                if (!status.ok()) {
-                    scanner_ref->set_status(status);
-                    ctx->push_back_scan_task(scanner_ref);
-                }
-            };
-            SimplifiedScanTask simple_scan_task = {work_func, ctx};
-            return scan_sched->submit_scan_task(simple_scan_task);
         };
+        SimplifiedScanTask simple_scan_task = {work_func, ctx};
+        return scan_sched->submit_scan_task(simple_scan_task);
+    };
 
-        Status submit_status = sumbit_task();
-        if (!submit_status.ok()) {
-            // User will see TooManyTasks error. It looks like a more reasonable error.
-            Status scan_task_status = Status::TooManyTasks(
-                    "Failed to submit scanner to scanner pool reason:" +
-                    std::string(submit_status.msg()) + "|type:" + std::to_string(type));
-            scan_task->set_status(scan_task_status);
-            return scan_task_status;
-        }
+    Status submit_status = sumbit_task();
+    if (!submit_status.ok()) {
+        // User will see TooManyTasks error. It looks like a more reasonable error.
+        Status scan_task_status = Status::TooManyTasks(
+                "Failed to submit scanner to scanner pool reason:" +
+                std::string(submit_status.msg()) + "|type:" + std::to_string(type));
+        scan_task->set_status(scan_task_status);
+        return scan_task_status;
     }
 
     return Status::OK();
