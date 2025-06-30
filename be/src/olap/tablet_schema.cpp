@@ -1075,7 +1075,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
             auto pair = TabletColumnObjectPool::instance()->insert_index(
                     deterministic_string_serialize(index_pb));
             index = pair.second;
-            _index_cache_handlers.push_back(pair.first);
+            TabletColumnObjectPool::instance()->release(pair.first);
         } else {
             index = std::make_shared<TabletIndex>();
             index->init_from_pb(index_pb);
