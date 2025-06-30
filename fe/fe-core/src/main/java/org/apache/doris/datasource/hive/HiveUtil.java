@@ -363,8 +363,8 @@ public final class HiveUtil {
 
     public static Partition toMetastoreApiPartition(HivePartition hivePartition) {
         Partition result = new Partition();
-        result.setDbName(hivePartition.getTableInfo().getDbName());
-        result.setTableName(hivePartition.getTableInfo().getTbName());
+        result.setDbName(hivePartition.getNameMapping().getRemoteDbName());
+        result.setTableName(hivePartition.getNameMapping().getRemoteTblName());
         result.setValues(hivePartition.getPartitionValues());
         result.setSd(makeStorageDescriptorFromHivePartition(hivePartition));
         result.setParameters(hivePartition.getParameters());
@@ -373,7 +373,7 @@ public final class HiveUtil {
 
     public static StorageDescriptor makeStorageDescriptorFromHivePartition(HivePartition partition) {
         SerDeInfo serdeInfo = new SerDeInfo();
-        serdeInfo.setName(partition.getTableInfo().getTbName());
+        serdeInfo.setName(partition.getNameMapping().getRemoteTblName());
         serdeInfo.setSerializationLib(partition.getSerde());
 
         StorageDescriptor sd = new StorageDescriptor();
