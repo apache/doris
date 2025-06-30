@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import jdk.internal.org.objectweb.asm.tree.analysis.AnalyzerException;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -26,22 +29,31 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * PhysicalSchemaScan.
  */
 public class PhysicalSchemaScan extends PhysicalCatalogRelation {
+    // if the schema table only root user readable, we need insert into this set
+    public static final Set<String> BACKEND_TABLE_ONLY_ROOT_READABLE = new HashSet<>();
 
     private final Optional<String> schemaCatalog;
     private final Optional<String> schemaDatabase;
     private final Optional<String> schemaTable;
+
+    static {
+        BACKEND_TABLE_ONLY_ROOT_READABLE.add("backend_configuration");
+    }
 
     public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
@@ -51,6 +63,10 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
+        if (!checkUserAccessPermission(table.getName())) {
+            throw new AnalyzerException(
+                    "Access denied; you need (at least one of) the ADMIN privilege(s) for this operation");
+        }
     }
 
     public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
@@ -139,6 +155,14 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
     @Override
     public boolean canPushDownRuntimeFilter() {
         // currently be doesn't support schema scan rf
+        return false;
+    }
+
+    private boolean checkUserAccessPermission(String tableName) {
+        if (BACKEND_TABLE_ONLY_ROOT_READABLE.contains(tableName.toLowerCase()) && Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN)) {
+            return true;
+        }
         return false;
     }
 }
