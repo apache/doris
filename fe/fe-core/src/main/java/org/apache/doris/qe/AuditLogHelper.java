@@ -363,7 +363,7 @@ public class AuditLogHelper {
                     return;
                 }
                 String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getPhysicalCluster(cloudCluster);
+                        .getPhysicalCluster(cloudCluster);
                 if (cloudCluster.equals(physicalClusterName)) {
                     // not vcg
                     MetricRepo.increaseClusterQueryAll(cloudCluster);
