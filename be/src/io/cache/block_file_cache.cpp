@@ -240,10 +240,10 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _ttl_queue = LRUQueue(cache_settings.ttl_queue_size, cache_settings.ttl_queue_elements,
                           std::numeric_limits<int>::max());
 
-    _lru_queue_update_counters[FileCacheType::DISPOSABLE] = 0;
-    _lru_queue_update_counters[FileCacheType::NORMAL] = 0;
-    _lru_queue_update_counters[FileCacheType::INDEX] = 0;
-    _lru_queue_update_counters[FileCacheType::TTL] = 0;
+    _lru_queue_update_cnt_from_last_dump[FileCacheType::DISPOSABLE] = 0;
+    _lru_queue_update_cnt_from_last_dump[FileCacheType::NORMAL] = 0;
+    _lru_queue_update_cnt_from_last_dump[FileCacheType::INDEX] = 0;
+    _lru_queue_update_cnt_from_last_dump[FileCacheType::TTL] = 0;
 
     _lru_dumper = std::make_unique<CacheLRUDumper>(this);
     if (cache_settings.storage == "memory") {
@@ -2219,7 +2219,7 @@ void BlockFileCache::update_ttl_atime(const UInt128Wrapper& hash) {
 }
 
 BlockFileCache::CacheLRULogQueue& BlockFileCache::get_lru_log_queue(FileCacheType type) {
-    ++_lru_queue_update_counters[type];
+    ++_lru_queue_update_cnt_from_last_dump[type];
     switch (type) {
     case FileCacheType::INDEX:
         return _index_lru_log_queue;
@@ -2313,25 +2313,25 @@ void BlockFileCache::run_background_lru_dump() {
         }
 
         if (config::file_cache_background_lru_dump_tail_record_num > 0) {
-            if (_lru_queue_update_counters[FileCacheType::DISPOSABLE] >
+            if (_lru_queue_update_cnt_from_last_dump[FileCacheType::DISPOSABLE] >
                 config::file_cache_background_lru_dump_update_cnt_threshold) {
                 _lru_dumper->dump_queue(_shadow_disposable_queue, "disposable");
-                _lru_queue_update_counters[FileCacheType::DISPOSABLE] = 0;
+                _lru_queue_update_cnt_from_last_dump[FileCacheType::DISPOSABLE] = 0;
             }
-            if (_lru_queue_update_counters[FileCacheType::NORMAL] >
+            if (_lru_queue_update_cnt_from_last_dump[FileCacheType::NORMAL] >
                 config::file_cache_background_lru_dump_update_cnt_threshold) {
                 _lru_dumper->dump_queue(_shadow_normal_queue, "normal");
-                _lru_queue_update_counters[FileCacheType::NORMAL] = 0;
+                _lru_queue_update_cnt_from_last_dump[FileCacheType::NORMAL] = 0;
             }
-            if (_lru_queue_update_counters[FileCacheType::INDEX] >
+            if (_lru_queue_update_cnt_from_last_dump[FileCacheType::INDEX] >
                 config::file_cache_background_lru_dump_update_cnt_threshold) {
                 _lru_dumper->dump_queue(_shadow_index_queue, "index");
-                _lru_queue_update_counters[FileCacheType::INDEX] = 0;
+                _lru_queue_update_cnt_from_last_dump[FileCacheType::INDEX] = 0;
             }
-            if (_lru_queue_update_counters[FileCacheType::TTL] >
+            if (_lru_queue_update_cnt_from_last_dump[FileCacheType::TTL] >
                 config::file_cache_background_lru_dump_update_cnt_threshold) {
                 _lru_dumper->dump_queue(_shadow_ttl_queue, "ttl");
-                _lru_queue_update_counters[FileCacheType::TTL] = 0;
+                _lru_queue_update_cnt_from_last_dump[FileCacheType::TTL] = 0;
             }
         }
     }
