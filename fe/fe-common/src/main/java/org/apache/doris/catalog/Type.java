@@ -582,7 +582,7 @@ public abstract class Type {
         return isObjectStored() || isComplexType() || isJsonbType() || isVariantType();
     }
 
-    public boolean isArrayTypeNestedFixedLengthType() {
+    public boolean isArrayTypeNestedBaseType() {
         return isArrayType() && !((ArrayType) this).getItemType().isOnlyMetricType();
     }
 

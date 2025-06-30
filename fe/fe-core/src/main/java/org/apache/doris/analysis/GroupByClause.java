@@ -204,7 +204,7 @@ public class GroupByClause implements ParseNode {
                                 + groupingExpr.toSql());
             }
 
-            if (groupingExpr.type.isOnlyMetricType() && !groupingExpr.type.isArrayTypeNestedFixedLengthType()) {
+            if (groupingExpr.type.isOnlyMetricType() && !groupingExpr.type.isArrayTypeNestedBaseType()) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }

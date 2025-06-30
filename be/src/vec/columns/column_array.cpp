@@ -276,6 +276,35 @@ void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                              ->get_nested_column_ptr()
                              .get();
     }
+    auto serialize_impl = [&](size_t i, char* __restrict dest) {
+        size_t array_size = size_at(i);
+        size_t offset = offset_at(i);
+
+        memcpy(dest, &array_size, sizeof(array_size));
+        dest += sizeof(array_size);
+        keys[i].size += sizeof(array_size);
+        for (size_t j = 0; j < array_size; ++j) {
+            if (data->is_nullable()) {
+                auto flag = assert_cast<const ColumnNullable*>(data->get_ptr().get())
+                                    ->get_null_map_data()[offset + j];
+                memcpy(dest, &flag, sizeof(flag));
+                dest += sizeof(flag);
+                keys[i].size += sizeof(flag);
+                if (flag) {
+                    continue;
+                }
+            }
+            const auto& it = nested_col->get_data_at(offset + j);
+            if (nested_col->is_variable_length()) {
+                memcpy(dest, &it.size, sizeof(it.size));
+                dest += sizeof(it.size);
+                keys[i].size += sizeof(it.size);
+            }
+            memcpy(dest, it.data, it.size);
+            dest += it.size;
+            keys[i].size += it.size;
+        }
+    };
     if (has_null) {
         for (size_t i = 0; i < num_rows; ++i) {
             char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
@@ -284,33 +313,7 @@ void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
             dest += sizeof(uint8_t);
             keys[i].size += sizeof(uint8_t);
             if (null_map[i] == 0) {
-                size_t array_size = size_at(i);
-                size_t offset = offset_at(i);
-
-                memcpy(dest, &array_size, sizeof(array_size));
-                dest += sizeof(array_size);
-                keys[i].size += sizeof(array_size);
-                for (size_t j = 0; j < array_size; ++j) {
-                    if (data->is_nullable()) {
-                        auto flag = assert_cast<const ColumnNullable*>(data->get_ptr().get())
-                                            ->get_null_map_data()[offset + j];
-                        memcpy(dest, &flag, sizeof(flag));
-                        dest += sizeof(flag);
-                        keys[i].size += sizeof(flag);
-                        if (flag) {
-                            continue;
-                        }
-                    }
-                    const auto& it = nested_col->get_data_at(offset + j);
-                    if (nested_col->is_variable_length()) {
-                        memcpy(dest, &it.size, sizeof(it.size));
-                        dest += sizeof(it.size);
-                        keys[i].size += sizeof(it.size);
-                    }
-                    memcpy(dest, it.data, it.size);
-                    dest += it.size;
-                    keys[i].size += it.size;
-                }
+                serialize_impl(i, dest);
             }
         }
     } else {
@@ -321,34 +324,7 @@ void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
             memcpy(dest, null_map + i, sizeof(uint8_t));
             dest += sizeof(uint8_t);
             keys[i].size += sizeof(uint8_t);
-
-            size_t array_size = size_at(i);
-            size_t offset = offset_at(i);
-
-            memcpy(dest, &array_size, sizeof(array_size));
-            dest += sizeof(array_size);
-            keys[i].size += sizeof(array_size);
-            for (size_t j = 0; j < array_size; ++j) {
-                if (data->is_nullable()) {
-                    auto flag = assert_cast<const ColumnNullable*>(data->get_ptr().get())
-                                        ->get_null_map_data()[offset + j];
-                    memcpy(dest, &flag, sizeof(flag));
-                    dest += sizeof(flag);
-                    keys[i].size += sizeof(flag);
-                    if (flag) {
-                        continue;
-                    }
-                }
-                const auto& it = nested_col->get_data_at(offset + j);
-                if (nested_col->is_variable_length()) {
-                    memcpy(dest, &it.size, sizeof(it.size));
-                    dest += sizeof(it.size);
-                    keys[i].size += sizeof(it.size);
-                }
-                memcpy(dest, it.data, it.size);
-                dest += it.size;
-                keys[i].size += it.size;
-            }
+            serialize_impl(i, dest);
         }
     }
 }
