@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
@@ -137,7 +138,12 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+            segment_v2::InvertedIndexResultBitmap& bitmap_result,
+            bool is_pre_evaluate) const override {
+        if (is_pre_evaluate) {
+            return Status::OK();
+        }
+
         DCHECK(data_type_with_names.size() == 1);
         DCHECK(iterators.size() == 1);
         auto* iter = iterators[0];
@@ -148,7 +154,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_reader()->is_fulltext_index()) {
+        if (segment_v2::IndexReaderHelper::is_fulltext_index(iter->get_reader())) {
             //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
@@ -180,7 +186,6 @@ public:
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
-            ;
             RETURN_IF_ERROR(iter->read_from_index(&param));
             *roaring |= *param.roaring;
         }

@@ -29,12 +29,11 @@
 
 namespace doris::segment_v2 {
 
-PhraseEdgeQuery::PhraseEdgeQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                                 const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher),
-          _io_ctx(io_ctx),
-          _query(std::make_unique<CL_NS(search)::MultiPhraseQuery>()),
-          _max_expansions(query_options.inverted_index_max_expansions) {}
+PhraseEdgeQuery::PhraseEdgeQuery(SearcherPtr searcher, IndexQueryContextPtr context)
+        : _searcher(std::move(searcher)), _context(std::move(context)) {
+    _query = std::make_unique<CL_NS(search)::MultiPhraseQuery>();
+    _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
+}
 
 void PhraseEdgeQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
@@ -144,7 +143,7 @@ void PhraseEdgeQuery::find_words(const std::function<void(Term*)>& cb) {
     Term* term = nullptr;
     TermEnum* enumerator = nullptr;
     try {
-        enumerator = _searcher->getReader()->terms(nullptr, _io_ctx);
+        enumerator = _searcher->getReader()->terms(nullptr, _context->io_ctx);
         while (enumerator->next()) {
             term = enumerator->term();
             cb(term);

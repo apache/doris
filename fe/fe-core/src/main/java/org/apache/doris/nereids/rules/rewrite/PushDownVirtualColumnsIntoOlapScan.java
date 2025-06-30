@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -147,14 +148,14 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             Map<Expression, Expression> replaceMap,
             ImmutableList.Builder<NamedExpression> virtualColumnsBuilder) {
         for (Expression conjunct : filter.getConjuncts()) {
-            Set<Expression> distanceFunctions = conjunct.collect(
-                    e -> e instanceof L2DistanceApproximate || e instanceof InnerProductApproximate);
-            for (Expression distanceFunction : distanceFunctions) {
-                if (replaceMap.containsKey(distanceFunction)) {
+            Set<Expression> needPushDownFunctions = conjunct.collect(e -> e instanceof L2DistanceApproximate
+                            || e instanceof InnerProductApproximate);
+            for (Expression needPushDownFunction : needPushDownFunctions) {
+                if (replaceMap.containsKey(needPushDownFunction)) {
                     continue;
                 }
-                Alias alias = new Alias(distanceFunction);
-                replaceMap.put(distanceFunction, alias.toSlot());
+                Alias alias = new Alias(needPushDownFunction);
+                replaceMap.put(needPushDownFunction, alias.toSlot());
                 virtualColumnsBuilder.add(alias);
             }
         }
