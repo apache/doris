@@ -20,8 +20,10 @@
 #include <CLucene.h> // IWYU pragma: keep
 
 #include <memory>
+#include <string>
 
 #include "CLucene/index/Terms.h"
+#include "common/be_mock_util.h"
 
 CL_NS_USE(index)
 
@@ -47,15 +49,20 @@ public:
     using TermDocsPtr = std::unique_ptr<TermDocs, CLuceneDeleter>;
 
     TermIterator() = default;
-    TermIterator(TermDocsPtr term_docs) : term_docs_(std::move(term_docs)) {}
+    TermIterator(std::wstring term, TermDocsPtr term_docs)
+            : term_(std::move(term)), term_docs_(std::move(term_docs)) {}
     virtual ~TermIterator() = default;
+
+    const std::wstring& term() const { return term_; }
 
     int32_t doc_id() const {
         int32_t docId = term_docs_->doc();
         return docId >= INT_MAX ? INT_MAX : docId;
     }
 
-    int32_t freq() const { return term_docs_->freq(); }
+    MOCK_FUNCTION int32_t freq() const { return term_docs_->freq(); }
+
+    MOCK_FUNCTION int32_t norm() const { return term_docs_->norm(); }
 
     int32_t next_doc() const {
         if (term_docs_->next()) {
@@ -83,12 +90,13 @@ public:
     static TermIterPtr create(const io::IOContext* io_ctx, lucene::index::IndexReader* reader,
                               const std::wstring& field_name, const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termDocs(t, false, io_ctx);
+        auto* term_pos = reader->termDocs(t, true, io_ctx);
         _CLDECDELETE(t);
-        return std::make_shared<TermIterator>(TermDocsPtr(term_pos, CLuceneDeleter {}));
+        return std::make_shared<TermIterator>(ws_term, TermDocsPtr(term_pos, CLuceneDeleter {}));
     }
 
 protected:
+    std::wstring term_;
     TermDocsPtr term_docs_;
 };
 

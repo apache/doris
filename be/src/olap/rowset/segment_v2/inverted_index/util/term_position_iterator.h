@@ -35,8 +35,8 @@ public:
     using TermPositionsPtr = std::unique_ptr<TermPositions, CLuceneDeleter>;
 
     TermPositionsIterator() = default;
-    TermPositionsIterator(TermPositionsPtr term_positions)
-            : TermIterator(std::move(term_positions)) {
+    TermPositionsIterator(std::wstring term, TermPositionsPtr term_positions)
+            : TermIterator(std::move(term), std::move(term_positions)) {
         term_poss_ = dynamic_cast<TermPositions*>(term_docs_.get());
     }
     ~TermPositionsIterator() override = default;
@@ -54,10 +54,10 @@ public:
                                        const std::wstring& field_name,
                                        const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termPositions(t, false, io_ctx);
+        auto* term_pos = reader->termPositions(t, true, io_ctx);
         _CLDECDELETE(t);
         return std::make_shared<TermPositionsIterator>(
-                TermPositionsPtr(term_pos, CLuceneDeleter {}));
+                ws_term, TermPositionsPtr(term_pos, CLuceneDeleter {}));
     }
 
 private:

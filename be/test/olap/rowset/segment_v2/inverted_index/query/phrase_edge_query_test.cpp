@@ -30,6 +30,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
@@ -217,11 +218,19 @@ TEST_F(PhraseEdgeQueryTest, test_single_term_edge_query) {
     ASSERT_NE(searcher, nullptr);
 
     // Test PhraseEdgeQuery with single term
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";                 // c2 column unique_id in V2 format
@@ -271,11 +280,19 @@ TEST_F(PhraseEdgeQueryTest, test_multi_term_edge_query) {
     ASSERT_NE(searcher, nullptr);
 
     // Test PhraseEdgeQuery with multiple terms
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
@@ -320,11 +337,18 @@ TEST_F(PhraseEdgeQueryTest, test_empty_terms_exception) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     // Test with empty terms - should throw exception
     InvertedIndexQueryInfo query_info;
@@ -366,11 +390,19 @@ TEST_F(PhraseEdgeQueryTest, test_max_expansions_limit) {
     ASSERT_NE(searcher, nullptr);
 
     // Test with limited max_expansions
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 2; // Limit to 2 expansions
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";                  // c2 column unique_id in V2 format
@@ -410,11 +442,19 @@ TEST_F(PhraseEdgeQueryTest, test_no_matches) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";                 // c2 column unique_id in V2 format

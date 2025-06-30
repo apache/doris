@@ -59,7 +59,7 @@ public:
     // If the rowset is a local rowset, return the global local file system.
     // Otherwise, return the remote file system corresponding to rowset's resource id.
     // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
-    io::FileSystemSPtr fs();
+    MOCK_FUNCTION io::FileSystemSPtr fs();
 
     Result<const StorageResource*> remote_storage_resource();
 

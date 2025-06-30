@@ -53,7 +53,6 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "FulltextIndexSearcherBuilder build index_searcher error.");
     }
-    // NOTE: IndexSearcher takes ownership of the reader, and directory cleanup is handled by caller
     output_searcher = index_searcher;
     return Status::OK();
 }
