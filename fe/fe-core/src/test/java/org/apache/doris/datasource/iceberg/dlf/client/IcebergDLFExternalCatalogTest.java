@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg.dlf.client;
 
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -56,7 +55,6 @@ public class IcebergDLFExternalCatalogTest {
         Assert.assertThrows(NotSupportedException.class, () -> catalog.createTable(null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable(null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable("", "", true, true, true, true));
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.truncateTable((TruncateTableStmt) null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.truncateTable((TruncateTableCommand) null));
     }
 }

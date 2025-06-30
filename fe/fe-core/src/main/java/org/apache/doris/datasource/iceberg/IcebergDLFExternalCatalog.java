@@ -20,7 +20,6 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
@@ -84,11 +83,6 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
                    boolean force) throws DdlException {
         throw new NotSupportedException("iceberg catalog with dlf type not supports 'drop table'");
-    }
-
-    @Override
-    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
-        throw new NotSupportedException("iceberg catalog with dlf type not supports 'truncate table'");
     }
 
     @Override
