@@ -546,7 +546,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
         return 0;
     }
 
-    FullRangeGetIteratorOptions opts(txn_kv_);
+    FullRangeGetOptions opts(txn_kv_);
     opts.prefetch = true;
     auto it = txn_kv_->full_range_get(storage_vault_key({instance_id_, ""}),
                                       storage_vault_key({instance_id_, "\xff"}), std::move(opts));
