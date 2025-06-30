@@ -208,9 +208,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), distributionSpec, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds,
-                preAggStatus, baseOutputs);
+        return relationId.asInt();
     }
 
     @Override

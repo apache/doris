@@ -18,14 +18,17 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.types.BigIntType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -33,15 +36,17 @@ import java.util.List;
 
 public class PhysicalTopNTest {
     @Test
-    public void testEquals(@Mocked Plan child) {
+    public void testEquals() {
+        LogicalOneRowRelation oneRowRelation
+                = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(new Alias(Literal.of(1))));
         SlotReference a = new SlotReference(new ExprId(0), "a",
                 BigIntType.INSTANCE, true, Lists.newArrayList());
         List<OrderKey> orderKeysA = Lists.newArrayList();
         orderKeysA.add(new OrderKey(a, true, true));
         PhysicalTopN topn1 = new PhysicalTopN(orderKeysA, 1, 1, SortPhase.LOCAL_SORT,
-                null, child);
+                null, oneRowRelation);
         PhysicalTopN topn2 = new PhysicalTopN(orderKeysA, 1, 1, SortPhase.GATHER_SORT,
-                null, child);
+                null, oneRowRelation);
         Assertions.assertNotEquals(topn1, topn2);
 
         SlotReference b = new SlotReference(new ExprId(0), "b",
@@ -49,7 +54,7 @@ public class PhysicalTopNTest {
         List<OrderKey> orderKeysB = Lists.newArrayList();
         orderKeysB.add(new OrderKey(b, true, true));
         PhysicalTopN topn3 = new PhysicalTopN(orderKeysB, 1, 1, SortPhase.LOCAL_SORT,
-                null, child);
+                null, oneRowRelation);
         Assertions.assertNotEquals(topn2, topn3);
     }
 }

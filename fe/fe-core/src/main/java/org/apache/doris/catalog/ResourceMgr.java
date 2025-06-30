@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterResourceStmt;
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -71,17 +69,6 @@ public class ResourceMgr implements Writable {
     private final ResourceProcNode procNode = new ResourceProcNode();
 
     public ResourceMgr() {
-    }
-
-    public void createResource(CreateResourceStmt stmt) throws DdlException {
-        if (stmt.getResourceType() == ResourceType.UNKNOWN) {
-            throw new DdlException("Only support SPARK, ODBC_CATALOG ,JDBC, S3_COOLDOWN, S3, HDFS and HMS resource.");
-        }
-        Resource resource = Resource.fromStmt(stmt);
-        if (createResource(resource, stmt.isIfNotExists())) {
-            Env.getCurrentEnv().getEditLog().logCreateResource(resource);
-            LOG.info("Create resource success. Resource: {}", resource.getName());
-        }
     }
 
     public void createResource(CreateResourceCommand command) throws DdlException {
@@ -163,13 +150,6 @@ public class ResourceMgr implements Writable {
         // log alter
         Env.getCurrentEnv().getEditLog().logAlterResource(resource);
         LOG.info("Alter resource success. Resource: {}", resource);
-    }
-
-    public void alterResource(AlterResourceStmt stmt) throws DdlException {
-        String resourceName = stmt.getResourceName();
-        Map<String, String> properties = stmt.getProperties();
-
-        alterResource(resourceName, properties);
     }
 
     public void replayAlterResource(Resource resource) {
