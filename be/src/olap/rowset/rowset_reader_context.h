@@ -89,6 +89,7 @@ struct RowsetReaderContext {
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
 
     std::shared_ptr<vectorized::AnnTopNRuntime> ann_topn_runtime;
+    CollectionStatisticsPtr collection_statistics;
 };
 
 } // namespace doris

@@ -17,30 +17,20 @@
 
 #pragma once
 
-#include "olap/rowset//segment_v2/inverted_index/query/prefix_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
-
-CL_NS_USE(search)
+#include "olap/collection_similarity.h"
+#include "olap/collection_statistics.h"
 
 namespace doris::segment_v2 {
 
-class PhrasePrefixQuery : public Query {
-public:
-    PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context);
-    ~PhrasePrefixQuery() override = default;
+struct IndexQueryContext {
+    io::IOContext* io_ctx = nullptr;
+    OlapReaderStatistics* stats = nullptr;
+    RuntimeState* runtime_state = nullptr;
 
-    void add(const InvertedIndexQueryInfo& query_info) override;
-    void pre_search(const InvertedIndexQueryInfo& query_info) override;
-    void search(roaring::Roaring& roaring) override;
-
-private:
-    SearcherPtr _searcher;
-    IndexQueryContextPtr _context;
-
-    int32_t _term_size = 0;
-    int32_t _max_expansions = 50;
-    PhraseQuery _phrase_query;
-    PrefixQuery _prefix_query;
+    FullSegmentIdPtr full_segment_id;
+    CollectionStatisticsPtr collection_statistics;
+    CollectionSimilarityPtr collection_similarity;
 };
+using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 
 } // namespace doris::segment_v2

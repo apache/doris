@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "CLucene/search/Similarity.h"
 #include "common/exception.h"
 #include "io/fs/local_file_system.h"
 
@@ -205,19 +206,21 @@ public:
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
         index_writer->setEnableCorrectTermWrite(config::enable_inverted_index_correct_term_write);
+        index_writer->setSimilarity(_similarity.get());
 
         return index_writer;
     }
 
     Status create_field(lucene::document::Field** field) {
-        int field_config = int(lucene::document::Field::STORE_NO) |
-                           int(lucene::document::Field::INDEX_NONORMS);
+        int32_t field_config = int32_t(lucene::document::Field::STORE_NO) |
+                               int32_t(lucene::document::Field::INDEX_NONORMS);
         field_config |= _should_analyzer ? int32_t(lucene::document::Field::INDEX_TOKENIZED)
                                          : int32_t(lucene::document::Field::INDEX_UNTOKENIZED);
         *field = new lucene::document::Field(_field_name.c_str(), field_config);
         (*field)->setOmitTermFreqAndPositions(
                 !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
+        (*field)->setOmitNorms(false);
         DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::create_field_v3", {
             if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::V3) {
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -270,6 +273,7 @@ public:
         _char_string_reader =
                 DORIS_TRY(create_char_string_reader(_inverted_index_ctx->char_filter_map));
         _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+        _similarity = std::make_unique<lucene::search::LengthSimilarity>();
         _index_writer = create_index_writer();
         _doc = std::make_unique<lucene::document::Document>();
         if (_single_field) {
@@ -749,6 +753,7 @@ private:
     // _dir must destruct after _index_writer, so _dir must be defined before _index_writer.
     std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
+    std::unique_ptr<lucene::search::Similarity> _similarity = nullptr;
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;

@@ -267,6 +267,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.output_columns = &read_params.output_column_unique_ids;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     _reader_context.ttl_seconds = _tablet->ttl_seconds();
+    _reader_context.collection_statistics = read_params.collection_statistics;
 
     return Status::OK();
 }

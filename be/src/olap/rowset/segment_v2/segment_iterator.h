@@ -492,6 +492,8 @@ private:
     // cid to virtual column expr
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
+
+    IndexQueryContextPtr _index_query_context;
 };
 
 } // namespace segment_v2

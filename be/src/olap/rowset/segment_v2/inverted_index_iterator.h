@@ -29,18 +29,19 @@ struct InvertedIndexParam {
     uint32_t num_rows;
     std::shared_ptr<roaring::Roaring> roaring;
     bool skip_try = false;
+    bool is_pre_evaluate = false;
 };
 
 class InvertedIndexIterator : public IndexIterator {
 public:
-    InvertedIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                          RuntimeState* runtime_state, const IndexReaderPtr& reader);
+    InvertedIndexIterator(const IndexReaderPtr& reader);
     ~InvertedIndexIterator() override = default;
 
-    IndexType type() override { return IndexType::INVERTED; }
-    IndexReaderPtr get_reader() override { return _index_reader; }
+    IndexReaderPtr get_reader() override { return std::static_pointer_cast<IndexReader>(_reader); }
 
+    Status pre_read_from_index(const IndexParam& param) override;
     Status read_from_index(const IndexParam& param) override;
+
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override;
     bool has_null() override;
 
@@ -48,7 +49,7 @@ private:
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 
-    InvertedIndexReaderPtr _index_reader;
+    InvertedIndexReaderPtr _reader;
 
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
 };

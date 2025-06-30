@@ -29,7 +29,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-        segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        segment_v2::InvertedIndexResultBitmap& bitmap_result, bool is_pre_evaluate) const {
     DCHECK(arguments.size() == 1);
     DCHECK(data_type_with_names.size() == 1);
     DCHECK(iterators.size() == 1);
@@ -68,8 +68,14 @@ Status FunctionMatchBase::evaluate_inverted_index(
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
+    param.is_pre_evaluate = is_pre_evaluate;
     if (is_string_type(param_type)) {
-        RETURN_IF_ERROR(iter->read_from_index(&param));
+        if (is_pre_evaluate) {
+            RETURN_IF_ERROR(iter->pre_read_from_index(&param));
+            return Status::OK();
+        } else {
+            RETURN_IF_ERROR(iter->read_from_index(&param));
+        }
     } else {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",

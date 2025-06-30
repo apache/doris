@@ -17,30 +17,19 @@
 
 #pragma once
 
-#include "olap/rowset//segment_v2/inverted_index/query/prefix_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
+#include <boost/locale.hpp>
 
-CL_NS_USE(search)
+namespace doris::segment_v2::inverted_index {
 
-namespace doris::segment_v2 {
-
-class PhrasePrefixQuery : public Query {
+class StringHelper {
 public:
-    PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context);
-    ~PhrasePrefixQuery() override = default;
+    static std::wstring to_wstring(const std::string& str) {
+        return boost::locale::conv::utf_to_utf<wchar_t>(str);
+    }
 
-    void add(const InvertedIndexQueryInfo& query_info) override;
-    void pre_search(const InvertedIndexQueryInfo& query_info) override;
-    void search(roaring::Roaring& roaring) override;
-
-private:
-    SearcherPtr _searcher;
-    IndexQueryContextPtr _context;
-
-    int32_t _term_size = 0;
-    int32_t _max_expansions = 50;
-    PhraseQuery _phrase_query;
-    PrefixQuery _prefix_query;
+    static std::string to_string(const std::wstring& wstr) {
+        return boost::locale::conv::utf_to_utf<char>(wstr);
+    }
 };
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

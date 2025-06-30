@@ -17,30 +17,25 @@
 
 #pragma once
 
-#include "olap/rowset//segment_v2/inverted_index/query/prefix_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
+#include <cstdint>
+#include <memory>
 
-CL_NS_USE(search)
+#include "olap/collection_similarity.h"
+#include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/rowset/segment_v2/inverted_index/util/term_iterator.h"
 
 namespace doris::segment_v2 {
 
-class PhrasePrefixQuery : public Query {
+class Similarity {
 public:
-    PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context);
-    ~PhrasePrefixQuery() override = default;
+    Similarity() = default;
+    virtual ~Similarity() = default;
 
-    void add(const InvertedIndexQueryInfo& query_info) override;
-    void pre_search(const InvertedIndexQueryInfo& query_info) override;
-    void search(roaring::Roaring& roaring) override;
+    virtual void for_one_term(const IndexQueryContextPtr& context, const std::wstring& field_name,
+                              const std::wstring& term) = 0;
 
-private:
-    SearcherPtr _searcher;
-    IndexQueryContextPtr _context;
-
-    int32_t _term_size = 0;
-    int32_t _max_expansions = 50;
-    PhraseQuery _phrase_query;
-    PrefixQuery _prefix_query;
+    virtual float score(float freq, int64_t encoded_norm) = 0;
 };
+using SimilarityPtr = std::unique_ptr<Similarity>;
 
 } // namespace doris::segment_v2

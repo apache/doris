@@ -69,33 +69,32 @@ using ReadSource = TabletReader::ReadSource;
 OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
-          _tablet_reader_params({
-                  .tablet = std::move(params.tablet),
-                  .tablet_schema {},
-                  .is_pre_aggregation = params.is_pre_aggregation,
-                  .version = {0, params.version},
-                  .start_key {},
-                  .end_key {},
-                  .conditions {},
-                  .bloom_filters {},
-                  .bitmap_filters {},
-                  .in_filters {},
-                  .function_filters {},
-                  .delete_predicates {},
-                  .target_cast_type_for_variants {},
-                  .rs_splits {},
-                  .return_columns {},
-                  .output_column_unique_ids {},
-                  .remaining_conjunct_roots {},
-                  .common_expr_ctxs_push_down {},
-                  .topn_filter_source_node_ids {},
-                  .filter_block_conjuncts {},
-                  .key_group_cluster_key_idxes {},
-                  .virtual_column_exprs {},
-                  .ann_topn_runtime {},
-                  .vir_cid_to_idx_in_block {},
-                  .vir_col_idx_to_type {},
-          }) {
+          _tablet_reader_params({.tablet = std::move(params.tablet),
+                                 .tablet_schema {},
+                                 .is_pre_aggregation = params.is_pre_aggregation,
+                                 .version = {0, params.version},
+                                 .start_key {},
+                                 .end_key {},
+                                 .conditions {},
+                                 .bloom_filters {},
+                                 .bitmap_filters {},
+                                 .in_filters {},
+                                 .function_filters {},
+                                 .delete_predicates {},
+                                 .target_cast_type_for_variants {},
+                                 .rs_splits {},
+                                 .return_columns {},
+                                 .output_column_unique_ids {},
+                                 .remaining_conjunct_roots {},
+                                 .common_expr_ctxs_push_down {},
+                                 .topn_filter_source_node_ids {},
+                                 .filter_block_conjuncts {},
+                                 .key_group_cluster_key_idxes {},
+                                 .virtual_column_exprs {},
+                                 .ann_topn_runtime {},
+                                 .vir_cid_to_idx_in_block {},
+                                 .vir_col_idx_to_type {},
+                                 .collection_statistics {}}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _is_init = false;
     _vector_search_params = params.state->get_vector_search_params();
@@ -240,6 +239,8 @@ Status OlapScanner::init() {
     if (!cached_schema && !schema_key.empty()) {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
+
+    _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
     return Status::OK();
 }

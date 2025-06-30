@@ -17,30 +17,24 @@
 
 #pragma once
 
-#include "olap/rowset//segment_v2/inverted_index/query/prefix_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
+#include <memory>
 
-CL_NS_USE(search)
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
 namespace doris::segment_v2 {
 
-class PhrasePrefixQuery : public Query {
+class QueryHelper {
 public:
-    PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context);
-    ~PhrasePrefixQuery() override = default;
+    static void collect_many(const IndexQueryContextPtr& context, const SimilarityPtr& similarity,
+                             const DocRange& doc_range, const roaring::Roaring& roaring,
+                             bool first);
+    static void collect_range(const IndexQueryContextPtr& context, const SimilarityPtr& similarity,
+                              const DocRange& doc_range, const roaring::Roaring& roaring,
+                              bool first);
 
-    void add(const InvertedIndexQueryInfo& query_info) override;
-    void pre_search(const InvertedIndexQueryInfo& query_info) override;
-    void search(roaring::Roaring& roaring) override;
-
-private:
-    SearcherPtr _searcher;
-    IndexQueryContextPtr _context;
-
-    int32_t _term_size = 0;
-    int32_t _max_expansions = 50;
-    PhraseQuery _phrase_query;
-    PrefixQuery _prefix_query;
+    static void query_statistics(const IndexQueryContextPtr& context, const SearcherPtr& searcher,
+                                 const std::wstring& field_name,
+                                 const std::span<const std::string>& terms);
 };
 
 } // namespace doris::segment_v2

@@ -134,9 +134,10 @@ int VExprContext::register_function_context(RuntimeState* state, const DataTypeP
     return static_cast<int>(_fn_contexts.size()) - 1;
 }
 
-Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
+Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows, bool is_pre_evaluate) {
     Status st;
-    RETURN_IF_CATCH_EXCEPTION({ st = _root->evaluate_inverted_index(this, segment_num_rows); });
+    RETURN_IF_CATCH_EXCEPTION(
+            { st = _root->evaluate_inverted_index(this, segment_num_rows, is_pre_evaluate); });
     return st;
 }
 

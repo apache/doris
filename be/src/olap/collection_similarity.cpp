@@ -15,32 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "olap/collection_similarity.h"
 
-#include "olap/rowset//segment_v2/inverted_index/query/prefix_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
+namespace doris {
 
-CL_NS_USE(search)
+void CollectionSimilarity::collect(segment_v2::rowid_t row_id, float score) {
+    _bm25_scores[row_id] += score;
+}
 
-namespace doris::segment_v2 {
-
-class PhrasePrefixQuery : public Query {
-public:
-    PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context);
-    ~PhrasePrefixQuery() override = default;
-
-    void add(const InvertedIndexQueryInfo& query_info) override;
-    void pre_search(const InvertedIndexQueryInfo& query_info) override;
-    void search(roaring::Roaring& roaring) override;
-
-private:
-    SearcherPtr _searcher;
-    IndexQueryContextPtr _context;
-
-    int32_t _term_size = 0;
-    int32_t _max_expansions = 50;
-    PhraseQuery _phrase_query;
-    PrefixQuery _prefix_query;
-};
-
-} // namespace doris::segment_v2
+} // namespace doris

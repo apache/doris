@@ -17,30 +17,24 @@
 
 #pragma once
 
-#include "olap/rowset//segment_v2/inverted_index/query/prefix_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
+#include "rowset/segment_v2/common.h"
+#include "vec/columns/column.h"
 
-CL_NS_USE(search)
+namespace doris {
 
-namespace doris::segment_v2 {
+using ScoreMap = phmap::flat_hash_map<segment_v2::rowid_t, float>;
 
-class PhrasePrefixQuery : public Query {
+class CollectionSimilarity {
 public:
-    PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context);
-    ~PhrasePrefixQuery() override = default;
+    CollectionSimilarity() { _bm25_scores.reserve(1024 * 16); }
+    ~CollectionSimilarity() = default;
 
-    void add(const InvertedIndexQueryInfo& query_info) override;
-    void pre_search(const InvertedIndexQueryInfo& query_info) override;
-    void search(roaring::Roaring& roaring) override;
+    void collect(segment_v2::rowid_t row_id, float score);
+    const ScoreMap& get_bm25_scores() const { return _bm25_scores; }
 
 private:
-    SearcherPtr _searcher;
-    IndexQueryContextPtr _context;
-
-    int32_t _term_size = 0;
-    int32_t _max_expansions = 50;
-    PhraseQuery _phrase_query;
-    PrefixQuery _prefix_query;
+    ScoreMap _bm25_scores;
 };
+using CollectionSimilarityPtr = std::shared_ptr<CollectionSimilarity>;
 
-} // namespace doris::segment_v2
+} // namespace doris
