@@ -60,7 +60,8 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
      */
     public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable) {
+            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable)
+            throws AnalysisException {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties,
                 ImmutableList.of());
         this.schemaCatalog = schemaCatalog;
