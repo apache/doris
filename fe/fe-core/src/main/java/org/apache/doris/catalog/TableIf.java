@@ -480,9 +480,15 @@ public interface TableIf {
     }
 
     default String getNameWithFullQualifiers() {
-        return String.format("%s.%s.%s", getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
-                getName());
+        DatabaseIf db = getDatabase();
+        // Some kind of table like FunctionGenTable does not belong to any database
+        if (db == null) {
+            return "null.null." + getName();
+        } else {
+            return db.getCatalog().getName()
+                    + "." + ClusterNamespace.getNameFromFullName(db.getFullName())
+                    + "." + getName();
+        }
     }
 
     default boolean isManagedTable() {
@@ -560,3 +566,4 @@ public interface TableIf {
         return false;
     }
 }
+
