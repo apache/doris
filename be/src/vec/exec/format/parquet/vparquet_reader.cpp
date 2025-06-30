@@ -345,6 +345,7 @@ Status ParquetReader::init_reader(
         for (const std::string& name : required_columns) {
             _missing_cols.emplace_back(name);
         }
+
     } else {
         const auto& table_column_idxs = _scan_params.column_idxs;
         std::map<int, int> table_col_id_to_idx;
