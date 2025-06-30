@@ -355,9 +355,11 @@ public class DataDescription implements InsertStmt.DataDesc {
                         this.fileFormat = "parquet";
                         break;
                     case FORMAT_JSON:
-                        return "json";
+                        this.fileFormat = "json";
+                        break;
                     case FORMAT_TEXT:
-                        return "hive_text";
+                        this.fileFormat = "hive_text";
+                        break;
                     case FORMAT_WAL:
                         this.fileFormat = "wal";
                         break;
