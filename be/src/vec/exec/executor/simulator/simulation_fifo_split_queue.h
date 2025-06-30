@@ -94,6 +94,13 @@ public:
         }
     }
 
+    void clear() override {
+        std::lock_guard<std::mutex> lock(_mutex);
+        while (!_queue.empty()) {
+            _queue.pop();
+        }
+    }
+
     void interrupt() override {
         {
             std::lock_guard<std::mutex> lock(_mutex);

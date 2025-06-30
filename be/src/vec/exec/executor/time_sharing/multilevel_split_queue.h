@@ -62,6 +62,7 @@ public:
     size_t size() const override;
     void remove(std::shared_ptr<PrioritizedSplitRunner> split) override;
     void remove_all(const std::vector<std::shared_ptr<PrioritizedSplitRunner>>& splits) override;
+    void clear() override;
     void interrupt() override;
 
     int64_t level_scheduled_time(int level) const { return _level_scheduled_time[level].load(); }

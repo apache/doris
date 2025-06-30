@@ -90,6 +90,7 @@ ScannerContext::ScannerContext(
 // After init function call, should not access _parent
 Status ScannerContext::init() {
 #ifndef BE_TEST
+    //fprintf(stderr, "ScannerContext::init()\n");
     _scanner_profile = _local_state->_scanner_profile;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
     _scanner_memory_used_counter = _local_state->_memory_used_counter;
@@ -116,11 +117,11 @@ Status ScannerContext::init() {
         _scanner_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
     }
     std::shared_ptr<TaskExecutor> task_executor = nullptr;
-    if (thread_token) {
+    /*if (thread_token) {
         task_executor = _state->exec_env()->scanner_scheduler()->limited_scan_task_executor();
-    } else {
-        task_executor = _scanner_scheduler->task_executor();
-    }
+    } else {*/
+    task_executor = _scanner_scheduler->task_executor();
+    //}
     vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
     _task_handle = DORIS_TRY(task_executor->create_task(
             task_id, []() { return 0.0; }, config::task_executor_initial_split_concurrency,
