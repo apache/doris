@@ -854,9 +854,10 @@ Status ColumnReader::new_struct_iterator(ColumnIterator** iterator,
     // create default_iterator for schema-change behavior which increase column
     for (size_t i = child_size; i < tablet_column_size; i++) {
         TabletColumn column = tablet_column->get_sub_column(i);
-        std::unique_ptr<ColumnIterator>* it = new std::unique_ptr<ColumnIterator>();
-        RETURN_IF_ERROR(Segment::new_default_iterator(column, it));
-        sub_column_iterators.push_back(it->get());
+        std::unique_ptr<ColumnIterator> it;
+        RETURN_IF_ERROR(Segment::new_default_iterator(column, &it));
+        sub_column_iterators.push_back(it.get());
+        it.release();
     }
 
     ColumnIterator* null_iterator = nullptr;
