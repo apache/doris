@@ -24,11 +24,11 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_writer.h"
 
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
+class JsonWriter;
 
 namespace vectorized {
 class IColumn;
@@ -38,6 +38,8 @@ class DataTypeArraySerDe : public DataTypeSerDe {
 public:
     DataTypeArraySerDe(DataTypeSerDeSPtr _nested_serde, int nesting_level = 1)
             : DataTypeSerDe(nesting_level), nested_serde(std::move(_nested_serde)) {}
+
+    std::string get_name() const override { return "Array(" + nested_serde->get_name() + ")"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;

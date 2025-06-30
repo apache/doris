@@ -63,6 +63,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -242,7 +243,8 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
                 && sinkCols.size() < olapTable.getColumns().size();
         return UnboundTableSinkCreator.createUnboundTableSink(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
-                false, dataDesc.getPartitionNames(), isPartialUpdate, DMLCommandType.LOAD, tvfLogicalPlan);
+                false, dataDesc.getPartitionNames(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                        DMLCommandType.LOAD, tvfLogicalPlan);
     }
 
     private static void fillDeleteOnColumn(BulkLoadDataDesc dataDesc, OlapTable olapTable,
@@ -444,7 +446,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
 
     private static OlapTable getOlapTable(ConnectContext ctx, BulkLoadDataDesc dataDesc) throws AnalysisException {
         OlapTable targetTable;
-        TableIf table = RelationUtil.getTable(dataDesc.getNameParts(), ctx.getEnv());
+        TableIf table = RelationUtil.getTable(dataDesc.getNameParts(), ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("table must be olapTable in load command");
         }

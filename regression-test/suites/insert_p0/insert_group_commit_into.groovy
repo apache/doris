@@ -66,7 +66,7 @@ suite("insert_group_commit_into") {
             } catch (Exception e) {
                 logger.warn("group_commit_insert failed, retry: " + retry + ", error: " + e.getMessage())
                 retry++
-                if ((e.getMessage().contains("is blocked on schema change") || e.getMessage().contains("can not get a block queue")) && retry < 20) {
+                if ((e.getMessage().contains("is blocked on schema change") || e.getMessage().contains("can not get a block queue") || e.getMessage().contains("schema version not match")) && retry < 20) {
                     sleep(1500)
                     continue
                 } else {
@@ -138,7 +138,7 @@ suite("insert_group_commit_into") {
             group_commit_insert """ insert into ${table}(id) values(4);  """, 1
             group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50); """, 2
             group_commit_insert """ insert into ${table}(id, name) values(2, 'b'); """, 1
-            none_group_commit_insert """ insert into ${table}(id) select 6; """, 1
+            group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
             getRowCount(6)
             order_qt_select1 """ select * from ${table} order by id, name, score asc; """
@@ -226,7 +226,7 @@ suite("insert_group_commit_into") {
             assertTrue(getAlterTableState(), "add rollup should success")
 
             group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
-            none_group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
+            group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
             group_commit_insert """ insert into ${table} with label test_gc_""" + System.currentTimeMillis() + """ (id, name, score) values(13, 'h', 100);  """, 1
             getRowCount(23)
 

@@ -28,13 +28,13 @@
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -482,9 +482,11 @@ private:
                 break;
             }
         } else if ((is_date_or_datetime(right_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(right_type->get_primitive_type())) &&
+                    is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
+                    right_type->get_primitive_type() == TYPE_TIMEV2) &&
                    (is_date_or_datetime(left_element_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()))) {
+                    is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
+                    left_element_type->get_primitive_type() == TYPE_TIMEV2)) {
             if (left_element_type->get_primitive_type() == TYPE_DATE) {
                 return_column = _execute_number_expanded<ColumnDate>(
                         offsets, nested_null_map, *nested_column, *right_column,
@@ -499,6 +501,10 @@ private:
                         right_nested_null_map, array_null_map);
             } else if (left_element_type->get_primitive_type() == TYPE_DATETIMEV2) {
                 return_column = _execute_number_expanded<ColumnDateTimeV2>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (left_element_type->get_primitive_type() == TYPE_TIMEV2) {
+                return_column = _execute_number_expanded<ColumnTimeV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             }

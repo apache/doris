@@ -31,7 +31,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/format_ip.h"
 #include "vec/common/ipv6_to_binary.h"
@@ -634,7 +633,7 @@ public:
                 }
             } else if constexpr (PT == PrimitiveType::TYPE_IPV6) {
                 if (cidr._address.as_v6()) {
-                    col_res_data[i] = match_ipv6_subnet((uint8*)(&ip_data[addr_idx]),
+                    col_res_data[i] = match_ipv6_subnet((uint8_t*)(&ip_data[addr_idx]),
                                                         cidr._address.as_v6(), cidr._prefix)
                                               ? 1
                                               : 0;

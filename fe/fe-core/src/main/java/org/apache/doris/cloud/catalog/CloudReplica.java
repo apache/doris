@@ -28,7 +28,6 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -42,8 +41,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -540,35 +537,6 @@ public class CloudReplica extends Replica {
         }
 
         return true;
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partitionId = in.readLong();
-        indexId = in.readLong();
-        idx = in.readLong();
-        int count = in.readInt();
-        for (int i = 0; i < count; ++i) {
-            String clusterId = Text.readString(in);
-            String realClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getCloudClusterIdByName(clusterId);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
-            }
-
-            if (!Strings.isNullOrEmpty(realClusterId)) {
-                clusterId = realClusterId;
-            }
-
-            long beId = in.readLong();
-            List<Long> bes = new ArrayList<Long>();
-            bes.add(beId);
-            primaryClusterToBackends.put(clusterId, bes);
-        }
     }
 
     public long getDbId() {

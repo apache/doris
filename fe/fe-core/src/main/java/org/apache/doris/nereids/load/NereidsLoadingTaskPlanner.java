@@ -37,6 +37,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
@@ -65,6 +66,7 @@ public class NereidsLoadingTaskPlanner {
     private final List<NereidsBrokerFileGroup> fileGroups;
     private final boolean strictMode;
     private final boolean isPartialUpdate;
+    private final TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy;
     private final String timezone;
     private final long timeoutS; // timeout of load job, in second
     private final int loadParallelism;
@@ -85,7 +87,8 @@ public class NereidsLoadingTaskPlanner {
      */
     public NereidsLoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
             BrokerDesc brokerDesc, List<NereidsBrokerFileGroup> brokerFileGroups,
-            boolean strictMode, boolean isPartialUpdate, String timezone, long timeoutS, int loadParallelism,
+            boolean strictMode, boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            String timezone, long timeoutS, int loadParallelism,
             int sendBatchParallelism, UserIdentity userInfo,
             boolean singleTabletLoadPerSink, boolean enableMemtableOnSinkNode) {
         this.loadJobId = loadJobId;
@@ -96,6 +99,7 @@ public class NereidsLoadingTaskPlanner {
         this.fileGroups = brokerFileGroups;
         this.strictMode = strictMode;
         this.isPartialUpdate = isPartialUpdate;
+        this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.timezone = timezone;
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
@@ -147,7 +151,7 @@ public class NereidsLoadingTaskPlanner {
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
         PartitionNames partitionNames = getPartitionNames();
         LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, partitionNames, context,
-                isPartialUpdate);
+                isPartialUpdate, partialUpdateNewKeyPolicy);
         long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeoutS() : timeoutS;
         if (txnTimeout > Integer.MAX_VALUE) {
             txnTimeout = Integer.MAX_VALUE;
@@ -157,7 +161,7 @@ public class NereidsLoadingTaskPlanner {
                 strictMode, enableMemtableOnSinkNode, partitionNames);
         NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(table, nereidsBrokerLoadTask,
                 loadId, dbId, isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT,
-                partialUpdateInputColumns, context.exprMap);
+                partialUpdateNewKeyPolicy, partialUpdateInputColumns, context.exprMap);
         NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan);
         descTable = loadPlanInfo.getDescriptorTable();
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());

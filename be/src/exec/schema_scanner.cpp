@@ -28,6 +28,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_backend_configuration_scanner.h"
 #include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
@@ -49,9 +50,11 @@
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_table_properties_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
+#include "exec/schema_scanner/schema_tablets_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
+#include "exec/schema_scanner/schema_view_dependency_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
 #include "exec/schema_scanner/schema_workload_group_privileges.h"
 #include "exec/schema_scanner/schema_workload_group_resource_usage_scanner.h"
@@ -69,7 +72,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -195,6 +197,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFilesScanner::create_unique();
     case TSchemaTableType::SCH_PARTITIONS:
         return SchemaPartitionsScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_CONFIGURATION:
+        return SchemaBackendConfigurationScanner::create_unique();
     case TSchemaTableType::SCH_ROWSETS:
         return SchemaRowsetsScanner::create_unique();
     case TSchemaTableType::SCH_METADATA_NAME_IDS:
@@ -231,6 +235,10 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
     case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
         return SchemaRoutineLoadJobScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_TABLETS:
+        return SchemaTabletsScanner::create_unique();
+    case TSchemaTableType::SCH_VIEW_DEPENDENCY:
+        return SchemaViewDependencyScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

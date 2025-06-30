@@ -122,11 +122,18 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * - s3.dualstack.us-east-1.amazonaws.com      => region = us-east-1
      * - s3-fips.us-east-2.amazonaws.com           => region = us-east-2
      * - s3-fips.dualstack.us-east-2.amazonaws.com => region = us-east-2
+     * - s3express-control.us-west-2.amazonaws.com => region = us-west-2 (S3 Directory Bucket Regional)
+     * - s3express-usw2-az1.us-west-2.amazonaws.com => region = us-west-2 (S3 Directory Bucket Zonal)
      * <p>
-     * Group(1) in the pattern captures the region part if available.
+     * Group(1), Group(2), or Group(3) in the pattern captures the region part if available.
      */
     private static final Pattern ENDPOINT_PATTERN = Pattern.compile(
-            "^(?:https?://)?s3(?:[-.]fips)?(?:[-.]dualstack)?(?:[-.]([a-z0-9-]+))?\\.amazonaws\\.com$"
+            "^(?:https?://)?(?:"
+                    + "s3(?:[-.]fips)?(?:[-.]dualstack)?[-.]([a-z0-9-]+)|" // Standard S3 endpoints
+                    + "s3express-control\\.([a-z0-9-]+)|"                  // Directory bucket regional
+                    + "s3express-[a-z0-9-]+\\.([a-z0-9-]+)"                // Directory bucket zonal
+                    + ")\\.amazonaws\\.com(?:/.*)?$",
+            Pattern.CASE_INSENSITIVE
     );
 
     public S3Properties(Map<String, String> origProps) {
@@ -142,7 +149,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
             return;
         }
-        throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.iam_role and "
+        throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
                 + "s3.external_id");
     }
 

@@ -175,7 +175,7 @@ struct TReportExecStatusResult {
 
 // Service Protocol Details
 enum FrontendServiceVersion {
-  V1
+  V1 = 0
 }
 
 struct TDetailedReportParams {
@@ -554,6 +554,7 @@ struct TStreamLoadPutRequest {
     55: optional i32 stream_per_node;
     56: optional string group_commit_mode
     57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
+    58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
 
     // For cloud
     1000: optional string cloud_cluster
@@ -822,6 +823,7 @@ enum TSchemaTableName {
   TABLE_PROPERTIES = 8,
   CATALOG_META_CACHE_STATS = 9,
   PARTITIONS = 10,
+  VIEW_DEPENDENCY = 11,
 }
 
 struct TMetadataTableRequestParams {

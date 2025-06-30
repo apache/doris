@@ -1274,8 +1274,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
         CppType tmp = *reinterpret_cast<const CppType*>(src);
         DateV2Value<DateTimeV2ValueType> value =
                 binary_cast<CppType, DateV2Value<DateTimeV2ValueType>>(tmp);
-        string format = "%Y-%m-%d %H:%i:%s.%f";
-        string res;
+        std::string format = "%Y-%m-%d %H:%i:%s.%f";
+        std::string res;
         res.resize(30 + SAFE_FORMAT_STRING_MARGIN);
         value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
                                             30 + SAFE_FORMAT_STRING_MARGIN);

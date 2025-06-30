@@ -59,7 +59,6 @@
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -500,13 +499,7 @@ Status SegmentWriter::probe_key_for_mow(
                                       specified_rowsets, &loc, _mow_context->max_version,
                                       segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
-        if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-            ++stats.num_rows_filtered;
-            // delete the invalid newly inserted row
-            _mow_context->delete_bitmap->add(
-                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                    segment_pos);
-        } else if (!have_delete_sign) {
+        if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
@@ -679,8 +672,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
         auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema);
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema, [&]() -> std::string {
+                        return block->dump_one_line(block_pos, _num_sort_key_columns);
+                    });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos);
@@ -870,8 +865,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = estimate_segment_size();
-    if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
-                      _num_rows_written >= _opts.max_rows_per_segment)) {
+    if (segment_size >= MAX_SEGMENT_SIZE || _num_rows_written >= _opts.max_rows_per_segment)
+            [[unlikely]] {
         return 0;
     }
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
@@ -917,7 +912,7 @@ std::string SegmentWriter::_full_encode_keys(
 }
 
 void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column,
-                                       size_t pos, string* encoded_keys) {
+                                       size_t pos, std::string* encoded_keys) {
     auto field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column
@@ -932,7 +927,7 @@ void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor
     _seq_coder->full_encode_ascending(field, encoded_keys);
 }
 
-void SegmentWriter::_encode_rowid(const uint32_t rowid, string* encoded_keys) {
+void SegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_keys) {
     encoded_keys->push_back(KEY_NORMAL_MARKER);
     _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
 }

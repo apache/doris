@@ -29,6 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/decimalv2_value.h"
 #include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
 #include "util/quantile_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -38,9 +39,9 @@
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
@@ -111,7 +112,7 @@ OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
         return std::make_unique<OlapColumnDataConvertorVarChar>(false);
     } else if (type == PrimitiveType::TYPE_BITMAP) {
         return std::make_unique<OlapColumnDataConvertorBitMap>();
-    } else if (type == PrimitiveType::INVALID_TYPE) {
+    } else if (type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT) {
         // INVALID_TYPE means function's serialized type is fixed object
         return std::make_unique<OlapColumnDataConvertorAggState>();
     } else if (type == PrimitiveType::TYPE_MAP) {
@@ -678,10 +679,10 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                             "`string_type_length_soft_limit_bytes` in vec engine.");
                 }
                 // Make sure that the json binary data written in is the correct jsonb value.
-                if (_is_jsonb &&
-                    !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
-                    return Status::InvalidArgument("invalid json binary value: {}",
-                                                   std::string_view(slice->data, slice->size));
+                if (_is_jsonb) {
+                    JsonbDocument* doc = nullptr;
+                    RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(
+                            slice->data, slice->size, &doc));
                 }
             } else {
                 // TODO: this may not be necessary, check and remove later
@@ -705,10 +706,10 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                         " in vec engine.");
             }
             // Make sure that the json binary data written in is the correct jsonb value.
-            if (_is_jsonb &&
-                !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
-                return Status::InvalidArgument("invalid json binary value: {}",
-                                               std::string_view(slice->data, slice->size));
+            if (_is_jsonb) {
+                JsonbDocument* doc = nullptr;
+                RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(slice->data,
+                                                                             slice->size, &doc));
             }
             string_offset = *offset_cur;
             ++slice;
@@ -902,15 +903,15 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::convert_to_olap(
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap() {
     assert(_typed_column.column);
-    const vectorized::ColumnDecimal<vectorized::Decimal128V2>* column_decimal = nullptr;
+    const vectorized::ColumnDecimal128V2* column_decimal = nullptr;
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-        column_decimal = assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
+        column_decimal = assert_cast<const vectorized::ColumnDecimal128V2*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_decimal = assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
-                _typed_column.column.get());
+        column_decimal =
+                assert_cast<const vectorized::ColumnDecimal128V2*>(_typed_column.column.get());
     }
 
     assert(column_decimal);

@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.QueryStmt;
@@ -50,6 +49,9 @@ import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -140,9 +142,14 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "   'AWS_BUCKET' = 'bucket',\n"
                 + "   's3_validity_check' = 'false'"
                 + ");";
-        CreateResourceStmt analyzedResourceStmt = createStmt(queryOld);
-        Assertions.assertEquals(analyzedResourceStmt.getProperties().size(), 8);
-        Resource resource = Resource.fromStmt(analyzedResourceStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(queryOld);
+        Assertions.assertTrue(logicalPlan instanceof CreateResourceCommand);
+        CreateResourceCommand command = (CreateResourceCommand) logicalPlan;
+        command.getInfo().validate();
+
+        Assertions.assertEquals(command.getInfo().getProperties().size(), 8);
+        Resource resource = Resource.fromCommand(command);
         // will add converted properties
         Assertions.assertEquals(resource.getCopiedProperties().size(), 20);
 
@@ -158,9 +165,13 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "   's3.bucket' = 'bucket',\n"
                 + "   's3_validity_check' = 'false'"
                 + ");";
-        CreateResourceStmt analyzedResourceStmtNew = createStmt(queryNew);
-        Assertions.assertEquals(analyzedResourceStmtNew.getProperties().size(), 8);
-        Resource newResource = Resource.fromStmt(analyzedResourceStmtNew);
+        logicalPlan = nereidsParser.parseSingle(queryNew);
+        Assertions.assertTrue(logicalPlan instanceof CreateResourceCommand);
+        command = (CreateResourceCommand) logicalPlan;
+        command.getInfo().validate();
+
+        Assertions.assertEquals(command.getInfo().getProperties().size(), 8);
+        Resource newResource = Resource.fromCommand(command);
         // will add converted properties
         Assertions.assertEquals(newResource.getCopiedProperties().size(), 14);
 
@@ -196,7 +207,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmtNew = createStmt(s3RepoNew);
         Assertions.assertEquals(analyzedStmtNew.getProperties().size(), 3);
         Repository repositoryNew = getRepository(analyzedStmtNew, "s3_repo_new");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 3);
+        Assertions.assertEquals(3, repositoryNew.getRemoteFileSystem().getProperties().size());
     }
 
     private static Repository getRepository(CreateRepositoryStmt analyzedStmt, String name) throws DdlException {

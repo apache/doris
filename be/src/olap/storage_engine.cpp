@@ -87,7 +87,7 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
-extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+extern void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap(
@@ -531,7 +531,7 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
-int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
+int StorageEngine::_get_and_set_next_disk_index(int64_t partition_id,
                                                 TStorageMedium::type storage_medium) {
     auto key = CreateTabletRRIdxCache::get_key(partition_id, storage_medium);
     int curr_index = _create_tablet_idx_lru_cache->get_index(key);
@@ -605,7 +605,7 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
 }
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
-        int64 partition_id, TStorageMedium::type storage_medium) {
+        int64_t partition_id, TStorageMedium::type storage_medium) {
     std::vector<DirInfo> dir_infos;
     int curr_index = 0;
     std::vector<DataDir*> stores;
@@ -622,7 +622,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
 }
 
 // maintain in stores LOW,MID,HIGH level round robin
-void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_infos,
                             std::vector<DataDir*>& stores) {
     for (size_t i = 0; i < dir_infos.size();) {
         size_t end = i + 1;
@@ -950,14 +950,27 @@ void StorageEngine::_clean_unused_rowset_metas() {
     for (auto data_dir : data_dirs) {
         static_cast<void>(
                 RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func));
+        // 1. delete delete_bitmap
+        std::set<int64_t> tablets_to_save_meta;
+        for (auto& rowset_meta : invalid_rowset_metas) {
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
+            if (tablet && tablet->tablet_meta()->enable_unique_key_merge_on_write()) {
+                tablet->tablet_meta()->remove_rowset_delete_bitmap(rowset_meta->rowset_id(),
+                                                                   rowset_meta->version());
+                tablets_to_save_meta.emplace(tablet->tablet_id());
+            }
+        }
+        for (const auto& tablet_id : tablets_to_save_meta) {
+            auto tablet = _tablet_manager->get_tablet(tablet_id);
+            if (tablet) {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->save_meta();
+            }
+        }
+        // 2. delete rowset meta
         for (auto& rowset_meta : invalid_rowset_metas) {
             static_cast<void>(RowsetMetaManager::remove(
                     data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()));
-            TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
-            if (tablet && tablet->tablet_meta()->enable_unique_key_merge_on_write()) {
-                tablet->tablet_meta()->delete_bitmap().remove_rowset_cache_version(
-                        rowset_meta->rowset_id());
-            }
         }
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
@@ -1192,6 +1205,7 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
+    DBUG_EXECUTE_IF("StorageEngine::start_delete_unused_rowset.block", DBUG_BLOCK);
     LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size()
               << ", unused delete bitmap size: " << _unused_delete_bitmap.size();
     std::vector<RowsetSharedPtr> unused_rowsets_copy;
@@ -1250,13 +1264,6 @@ void StorageEngine::start_delete_unused_rowset() {
             it = _unused_delete_bitmap.erase(it);
         }
     }
-    for (const auto& tablet_id : tablets_to_save_meta) {
-        auto tablet = _tablet_manager->get_tablet(tablet_id);
-        if (tablet) {
-            std::shared_lock rlock(tablet->get_header_lock());
-            tablet->save_meta();
-        }
-    }
     LOG(INFO) << "collected " << unused_rowsets_copy.size() << " unused rowsets to remove, skipped "
               << due_to_use_count << " rowsets due to use count > 1, skipped "
               << due_to_not_delete_file << " rowsets due to don't need to delete file, skipped "
@@ -1268,13 +1275,19 @@ void StorageEngine::start_delete_unused_rowset() {
         // delete delete_bitmap of unused rowsets
         if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
             tablet && tablet->enable_unique_key_merge_on_write()) {
-            tablet->tablet_meta()->delete_bitmap().remove({rs->rowset_id(), 0, 0},
-                                                          {rs->rowset_id(), UINT32_MAX, 0});
-            tablet->tablet_meta()->delete_bitmap().remove_rowset_cache_version(rs->rowset_id());
+            tablet->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
+            tablets_to_save_meta.emplace(tablet->tablet_id());
         }
         Status status = rs->remove();
         unused_rowsets_counter << -1;
         VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
+    }
+    for (const auto& tablet_id : tablets_to_save_meta) {
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet) {
+            std::shared_lock rlock(tablet->get_header_lock());
+            tablet->save_meta();
+        }
     }
     LOG(INFO) << "removed all collected unused rowsets";
 }

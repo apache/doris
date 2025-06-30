@@ -47,7 +47,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -71,6 +70,7 @@
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
+#include "vec/exec/format/text/text_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -130,8 +130,6 @@ Status FileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjun
     RETURN_IF_ERROR(Scanner::prepare(state, conjuncts));
     _get_block_timer =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
-    _open_reader_timer =
-            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerOpenReaderTime", 1);
     _cast_to_input_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
                                                       "FileScannerCastInputBlockTime", 1);
     _fill_missing_columns_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
@@ -863,15 +861,13 @@ void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int le
     Block::erase_useless_column(block, num_columns_without_result);
 }
 
-Status FileScanner::_create_row_id_column_iterator(const int column_id) {
+Status FileScanner::_create_row_id_column_iterator() {
     auto& id_file_map = _state->get_id_file_map();
     auto file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
             ((pipeline::FileScanLocalState*)_local_state)->parent_id(), _current_range,
             _should_enable_file_meta_cache()));
-    _row_id_column_iterator_pair = std::make_pair(
-            std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
-                                                    BackendOptions::get_backend_id(), file_id),
-            column_id);
+    _row_id_column_iterator_pair.first = std::make_shared<RowIdColumnIteratorV2>(
+            IdManager::ID_VERSION, BackendOptions::get_backend_id(), file_id);
     return Status::OK();
 }
 
@@ -993,15 +989,15 @@ Status FileScanner::_get_next_reader() {
                     _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
-            parquet_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
+
+            if (_row_id_column_iterator_pair.second != -1) {
+                RETURN_IF_ERROR(_create_row_id_column_iterator());
+                parquet_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
+            }
 
             // ATTN: the push down agg type may be set back to NONE,
             // see IcebergTableReader::init_row_filters for example.
             parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
-            {
-                SCOPED_TIMER(_open_reader_timer);
-                RETURN_IF_ERROR(parquet_reader->open());
-            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1013,7 +1009,11 @@ Status FileScanner::_get_next_reader() {
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
-            orc_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
+            if (_row_id_column_iterator_pair.second != -1) {
+                RETURN_IF_ERROR(_create_row_id_column_iterator());
+                orc_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
+            }
+
             orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
@@ -1031,9 +1031,18 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_DEFLATE:
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_PROTO: {
-            _cur_reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
+            auto reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                    _file_slot_descs, _io_ctx.get());
-            init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
+
+            init_status = reader->init_reader(_is_load);
+            _cur_reader = std::move(reader);
+            break;
+        }
+        case TFileFormatType::FORMAT_TEXT: {
+            auto reader = TextReader::create_unique(_state, _profile, &_counter, *_params, range,
+                                                    _file_slot_descs, _io_ctx.get());
+            init_status = reader->init_reader(_is_load);
+            _cur_reader = std::move(reader);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
@@ -1047,12 +1056,12 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_AVRO: {
             _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
                                                        range);
-            init_status = ((AvroJNIReader*)(_cur_reader.get()))
-                                  ->init_fetch_table_reader(_colname_to_value_range);
+            init_status =
+                    ((AvroJNIReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;
         }
         case TFileFormatType::FORMAT_WAL: {
-            _cur_reader.reset(new WalReader(_state));
+            _cur_reader = WalReader::create_unique(_state);
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
             break;
         }
@@ -1289,8 +1298,6 @@ Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
                                             ? ExecEnv::GetInstance()->file_meta_cache()
                                             : nullptr,
                                     false);
-
-                    RETURN_IF_ERROR(parquet_reader->open());
                     RETURN_IF_ERROR(parquet_reader->set_read_lines_mode({rowid}));
                     RETURN_IF_ERROR(_init_parquet_reader(std::move(parquet_reader)));
                     break;
@@ -1411,8 +1418,7 @@ Status FileScanner::_init_expr_ctxes() {
                     fmt::format("Unknown source slot descriptor, slot_id={}", slot_id));
         }
         if (it->second->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-            RETURN_IF_ERROR(
-                    _create_row_id_column_iterator(_default_val_row_desc->get_column_id(slot_id)));
+            _row_id_column_iterator_pair.second = _default_val_row_desc->get_column_id(slot_id);
             continue;
         }
         if (slot_info.is_file_slot) {

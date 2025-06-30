@@ -33,6 +33,8 @@
 #include "gtest/gtest_pred_impl.h"
 #include "olap/hll.h"
 #include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "util/quantile_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -103,9 +105,7 @@ inline void serialize_and_deserialize_pb_test() {
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                              decimal_column.get())
-                             ->get_data();
+        auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
@@ -240,7 +240,9 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                                   jsonb_writer.getOutput()->getSize());
         StringRef jsonb_data = jsonb_column->get_data_at(0);
-        auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+        JsonbDocument* pdoc = nullptr;
+        auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+        ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
         JsonbDocument& doc = *pdoc;
         for (auto it = doc->begin(); it != doc->end(); ++it) {
             serde->read_one_cell_from_jsonb(*vec, it->value());
@@ -270,7 +272,9 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                                   jsonb_writer.getOutput()->getSize());
         StringRef jsonb_data = jsonb_column->get_data_at(0);
-        auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+        JsonbDocument* pdoc = nullptr;
+        auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+        ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
         JsonbDocument& doc = *pdoc;
         for (auto it = doc->begin(); it != doc->end(); ++it) {
             serde->read_one_cell_from_jsonb(*vec, it->value());

@@ -21,7 +21,6 @@
 #include <stddef.h>
 
 #include "runtime/decimalv2_value.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"
@@ -56,8 +55,8 @@ struct MultiplyImpl {
     static void vector_vector(const ColumnDecimal128V2::Container::value_type* __restrict a,
                               const ColumnDecimal128V2::Container::value_type* __restrict b,
                               ColumnDecimal128V2::Container::value_type* c, size_t size) {
-        auto sng_uptr = std::unique_ptr<int8[]>(new int8[size]);
-        int8* sgn = sng_uptr.get();
+        auto sng_uptr = std::unique_ptr<int8_t[]>(new int8_t[size]);
+        int8_t* sgn = sng_uptr.get();
         auto max = DecimalV2Value::get_max_decimal();
         auto min = DecimalV2Value::get_min_decimal();
 

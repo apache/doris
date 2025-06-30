@@ -42,81 +42,126 @@ public class AuditEvent {
     }
 
     @Retention(RetentionPolicy.RUNTIME)
-    public static @interface AuditField {
+    public @interface AuditField {
         String value() default "";
+
+        String colName() default "";
     }
 
     public EventType type;
 
-    // all fields which is about to be audit should be annotated by "@AuditField"
+    // all fields which is about to be audited should be annotated by "@AuditField"
     // make them all "public" so that easy to visit.
-    @AuditField(value = "Timestamp")
-    public long timestamp = -1;
-    @AuditField(value = "Client")
-    public String clientIp = "";
-    @AuditField(value = "User")
-    public String user = "";
-    @AuditField(value = "Ctl")
-    public String ctl = "";
-    @AuditField(value = "Db")
-    public String db = "";
-    @AuditField(value = "CommandType")
-    public String commandType = "";
-    @AuditField(value = "State")
-    public String state = "";
-    @AuditField(value = "ErrorCode")
-    public int errorCode = 0;
-    @AuditField(value = "ErrorMessage")
-    public String errorMessage = "";
-    @AuditField(value = "Time(ms)")
-    public long queryTime = -1;
-    @AuditField(value = "ScanBytes")
-    public long scanBytes = -1;
-    @AuditField(value = "ScanRows")
-    public long scanRows = -1;
-    @AuditField(value = "ReturnRows")
-    public long returnRows = -1;
-    @AuditField(value = "StmtId")
-    public long stmtId = -1;
-    @AuditField(value = "QueryId")
+
+    // uuid and time
+    @AuditField(value = "QueryId", colName = "query_id")
     public String queryId = "";
-    @AuditField(value = "IsQuery")
-    public boolean isQuery = false;
-    @AuditField(value = "IsNereids")
-    public boolean isNereids = false;
-    @AuditField(value = "FeIp")
+    @AuditField(value = "Timestamp", colName = "time")
+    public long timestamp = -1;
+
+    // cs info
+    @AuditField(value = "Client", colName = "client_ip")
+    public String clientIp = "";
+    @AuditField(value = "User", colName = "user")
+    public String user = "";
+    @AuditField(value = "FeIp", colName = "frontend_ip")
     public String feIp = "";
-    @AuditField(value = "StmtType")
-    public String stmtType = "";
-    @AuditField(value = "Stmt")
-    public String stmt = "";
-    @AuditField(value = "CpuTimeMS")
+
+    // default ctl and db
+    @AuditField(value = "Ctl", colName = "catalog")
+    public String ctl = "";
+    @AuditField(value = "Db", colName = "db")
+    public String db = "";
+
+    // query state
+    @AuditField(value = "State", colName = "state")
+    public String state = "";
+    @AuditField(value = "ErrorCode", colName = "error_code")
+    public int errorCode = 0;
+    @AuditField(value = "ErrorMessage", colName = "error_message")
+    public String errorMessage = "";
+
+    // execution info
+    @AuditField(value = "Time(ms)", colName = "query_time")
+    public long queryTime = -1;
+    @AuditField(value = "CpuTimeMS", colName = "cpu_time_ms")
     public long cpuTimeMs = -1;
-    @AuditField(value = "ShuffleSendBytes")
-    public long shuffleSendBytes = -1;
-    @AuditField(value = "ShuffleSendRows")
-    public long shuffleSendRows = -1;
-    @AuditField(value = "SqlHash")
-    public String sqlHash = "";
-    @AuditField(value = "PeakMemoryBytes")
+    @AuditField(value = "PeakMemoryBytes", colName = "peak_memory_bytes")
     public long peakMemoryBytes = -1;
-    @AuditField(value = "SqlDigest")
-    public String sqlDigest = "";
-    @AuditField(value = "ComputeGroupName")
-    public String cloudClusterName = "";
-    @AuditField(value = "WorkloadGroup")
-    public String workloadGroup = "";
-    // note: newly added fields should be always before fuzzyVariables
+    @AuditField(value = "ScanBytes", colName = "scan_bytes")
+    public long scanBytes = -1;
+    @AuditField(value = "ScanRows", colName = "scan_rows")
+    public long scanRows = -1;
+    @AuditField(value = "ReturnRows", colName = "return_rows")
+    public long returnRows = -1;
+    @AuditField(value = "ShuffleSendRows", colName = "shuffle_send_rows")
+    public long shuffleSendRows = -1;
+    @AuditField(value = "ShuffleSendBytes", colName = "shuffle_send_bytes")
+    public long shuffleSendBytes = -1;
+    @AuditField(value = "SpillWriteBytesToLocalStorage", colName = "spill_write_bytes_from_local_storage")
+    public long spillWriteBytesToLocalStorage = -1;
+    @AuditField(value = "SpillReadBytesFromLocalStorage", colName = "spill_read_bytes_from_local_storage")
+    public long spillReadBytesFromLocalStorage = -1;
+    @AuditField(value = "ScanBytesFromLocalStorage", colName = "scan_bytes_from_local_storage")
+    public long scanBytesFromLocalStorage = -1;
+    @AuditField(value = "ScanBytesFromRemoteStorage", colName = "scan_bytes_from_remote_storage")
+    public long scanBytesFromRemoteStorage = -1;
+
+    // plan info
+    @AuditField(value = "ParseTimeMs", colName = "parse_time_ms")
+    public int parseTimeMs = -1;
+    @AuditField(value = "PlanTimesMs", colName = "plan_times_ms")
+    public String planTimesMs = "";
+    @AuditField(value = "GetMetaTimesMs", colName = "get_meta_times_ms")
+    public String getMetaTimesMs = "";
+    @AuditField(value = "ScheduleTimesMs", colName = "schedule_times_ms")
+    public String scheduleTimesMs = "";
+    @AuditField(value = "HitSqlCache", colName = "hit_sql_cache")
+    public boolean hitSqlCache = false;
+    @AuditField(value = "isHandledInFe", colName = "handled_in_fe")
+    public boolean isHandledInFe = false;
+
+    // table, view, m-view
+    @AuditField(value = "queriedTablesAndViews", colName = "queried_tables_and_views")
+    public String queriedTablesAndViews = "";
+    @AuditField(value = "chosenMViews", colName = "chosen_m_views")
+    public String chosenMViews = "";
+
+    // variable and configs
+    @AuditField(value = "ChangedVariables", colName = "changed_variables")
+    public String changedVariables = "";
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
-    @AuditField(value = "ScanBytesFromLocalStorage")
-    public long scanBytesFromLocalStorage = -1;
-    @AuditField(value = "ScanBytesFromRemoteStorage")
-    public long scanBytesFromRemoteStorage = -1;
-    @AuditField(value = "SpillWriteBytesToLocalStorage")
-    public long spillWriteBytesToLocalStorage = -1;
-    @AuditField(value = "SpillReadBytesFromLocalStorage")
-    public long spillReadBytesFromLocalStorage = -1;
+    @AuditField(value = "SqlMode", colName = "sql_mode")
+    public String sqlMode = "";
+
+    // type and digest
+    @AuditField(value = "CommandType")
+    public String commandType = "";
+    @AuditField(value = "StmtType", colName = "stmt_type")
+    public String stmtType = "";
+    @AuditField(value = "StmtId", colName = "stmt_id")
+    public long stmtId = -1;
+    @AuditField(value = "SqlHash", colName = "sql_hash")
+    public String sqlHash = "";
+    @AuditField(value = "SqlDigest", colName = "sql_digest")
+    public String sqlDigest = "";
+    @AuditField(value = "IsQuery", colName = "is_query")
+    public boolean isQuery = false;
+    @AuditField(value = "IsNereids", colName = "is_nereids")
+    public boolean isNereids = false;
+    @AuditField(value = "IsInternal", colName = "is_internal")
+    public boolean isInternal = false;
+
+    // resource
+    @AuditField(value = "WorkloadGroup", colName = "workload_group")
+    public String workloadGroup = "";
+    @AuditField(value = "ComputeGroupName", colName = "compute_group")
+    public String cloudClusterName = "";
+
+    // stmt should be last one
+    @AuditField(value = "Stmt", colName = "stmt")
+    public String stmt = "";
 
     public long pushToAuditLogQueueTime;
 
@@ -231,6 +276,11 @@ public class AuditEvent {
             return this;
         }
 
+        public AuditEventBuilder setisInternal(boolean isInternal) {
+            auditEvent.isInternal = isInternal;
+            return this;
+        }
+
         public AuditEventBuilder setFeIp(String feIp) {
             auditEvent.feIp = feIp;
             return this;
@@ -288,6 +338,56 @@ public class AuditEvent {
 
         public AuditEventBuilder setSpillReadBytesFromLocalStorage(long bytes) {
             auditEvent.spillReadBytesFromLocalStorage = bytes;
+            return this;
+        }
+
+        public AuditEventBuilder setParseTimeMs(int parseTimeMs) {
+            auditEvent.parseTimeMs = parseTimeMs;
+            return this;
+        }
+
+        public AuditEventBuilder setPlanTimesMs(String planTimesMs) {
+            auditEvent.planTimesMs = planTimesMs;
+            return this;
+        }
+
+        public AuditEventBuilder setGetMetaTimeMs(String getMetaTimeMs) {
+            auditEvent.getMetaTimesMs = getMetaTimeMs;
+            return this;
+        }
+
+        public AuditEventBuilder setScheduleTimeMs(String scheduleTimeMs) {
+            auditEvent.scheduleTimesMs = scheduleTimeMs;
+            return this;
+        }
+
+        public AuditEventBuilder setHitSqlCache(boolean hitSqlCache) {
+            auditEvent.hitSqlCache = hitSqlCache;
+            return this;
+        }
+
+        public AuditEventBuilder setHandledInFe(boolean handledInFe) {
+            auditEvent.isHandledInFe = handledInFe;
+            return this;
+        }
+
+        public AuditEventBuilder setChangedVariables(String changedVariables) {
+            auditEvent.changedVariables = changedVariables;
+            return this;
+        }
+
+        public AuditEventBuilder setSqlMode(String sqlMode) {
+            auditEvent.sqlMode = sqlMode;
+            return this;
+        }
+
+        public AuditEventBuilder setQueriedTablesAndViews(String queriedTablesAndViews) {
+            auditEvent.queriedTablesAndViews = queriedTablesAndViews;
+            return this;
+        }
+
+        public AuditEventBuilder setChosenMViews(String chosenMViews) {
+            auditEvent.chosenMViews = chosenMViews;
             return this;
         }
 

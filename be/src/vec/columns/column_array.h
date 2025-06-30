@@ -96,12 +96,12 @@ public:
       */
     using Base = COWHelper<IColumn, ColumnArray>;
 
-    static Ptr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
+    static MutablePtr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
         return ColumnArray::create(nested_column->assume_mutable(),
                                    offsets_column->assume_mutable());
     }
 
-    static Ptr create(const ColumnPtr& nested_column) {
+    static MutablePtr create(const ColumnPtr& nested_column) {
         return ColumnArray::create(nested_column->assume_mutable());
     }
 
@@ -109,6 +109,11 @@ public:
               typename = typename std::enable_if<IsMutableColumns<Args...>::value>::type>
     static MutablePtr create(Args&&... args) {
         return Base::create(std::forward<Args>(args)...);
+    }
+
+    void sanity_check() const override {
+        data->sanity_check();
+        offsets->sanity_check();
     }
 
     void shrink_padding_chars() override;
@@ -153,7 +158,7 @@ public:
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void reserve(size_t n) override;
     size_t byte_size() const override;
@@ -161,7 +166,16 @@ public:
     bool has_enough_capacity(const IColumn& src) const override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
-
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    size_t get_max_row_byte_size() const override;
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
+                                     const uint8_t* null_map) const override;
+    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
+                                       const uint8_t* null_map) override;
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
     const IColumn& get_data() const { return *data; }

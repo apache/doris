@@ -30,12 +30,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
-import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -135,6 +136,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     public static final String KEY_SKIP_LINES = "skip_lines";
     public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     public static final String PARTIAL_COLUMNS = "partial_columns";
+    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_behavior";
 
     public static final String KEY_COMMENT = "comment";
 
@@ -186,6 +188,12 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);
+                }
+            })
+            .put(PARTIAL_UPDATE_NEW_KEY_POLICY, new Function<String, TPartialUpdateNewRowPolicy>() {
+                @Override
+                public @Nullable TPartialUpdateNewRowPolicy apply(@Nullable String s) {
+                    return TPartialUpdateNewRowPolicy.valueOf(s.toUpperCase());
                 }
             })
             .put(TIMEZONE, new Function<String, String>() {
@@ -381,6 +389,16 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             }
         }
 
+        // partial update new key policy
+        final String partialUpdateNewKeyPolicyProperty = properties.get(PARTIAL_UPDATE_NEW_KEY_POLICY);
+        if (partialUpdateNewKeyPolicyProperty != null) {
+            if (!partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("append")
+                    && !partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("error")) {
+                throw new DdlException(PARTIAL_UPDATE_NEW_KEY_POLICY + " should be one of [append, error], but found "
+                        + partialUpdateNewKeyPolicyProperty);
+            }
+        }
+
         // time zone
         final String timezone = properties.get(TIMEZONE);
         if (timezone != null) {
@@ -500,9 +518,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
         } else if (isMysqlLoad) {
             etlJobType = EtlJobType.LOCAL_FILE;
         } else {
-            // if cluster is null, use default hadoop cluster
-            // if cluster is not null, use this hadoop cluster
-            etlJobType = EtlJobType.HADOOP;
+            etlJobType = EtlJobType.UNKNOWN;
         }
 
         try {
@@ -572,7 +588,11 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     private void checkEndpoint(String endpoint) throws UserException {
         HttpURLConnection connection = null;
         try {
-            String urlStr = "http://" + endpoint;
+            String urlStr = endpoint;
+            // Add default protocol if not specified
+            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                urlStr = "http://" + endpoint;
+            }
             SecurityChecker.getInstance().startSSRFChecking(urlStr);
             URL url = new URL(urlStr);
             connection = (HttpURLConnection) url.openConnection();
@@ -629,6 +649,8 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     public void checkWhiteList(String endpoint) throws UserException {
+        endpoint = endpoint.replaceFirst("^http://", "");
+        endpoint = endpoint.replaceFirst("^https://", "");
         List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
         whiteList.removeIf(String::isEmpty);
         if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {

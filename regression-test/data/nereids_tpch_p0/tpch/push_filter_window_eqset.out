@@ -9,4 +9,3 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------filter((region.r_regionkey = 1))
 ----------------PhysicalOlapScan[region]
-

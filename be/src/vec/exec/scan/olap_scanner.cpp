@@ -638,6 +638,10 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_open_timer);
     COUNTER_UPDATE(local_state->_inverted_index_searcher_search_timer,
                    stats.inverted_index_searcher_search_timer);
+    COUNTER_UPDATE(local_state->_inverted_index_searcher_search_init_timer,
+                   stats.inverted_index_searcher_search_init_timer);
+    COUNTER_UPDATE(local_state->_inverted_index_searcher_search_exec_timer,
+                   stats.inverted_index_searcher_search_exec_timer);
     COUNTER_UPDATE(local_state->_inverted_index_searcher_cache_hit_counter,
                    stats.inverted_index_searcher_cache_hit);
     COUNTER_UPDATE(local_state->_inverted_index_searcher_cache_miss_counter,

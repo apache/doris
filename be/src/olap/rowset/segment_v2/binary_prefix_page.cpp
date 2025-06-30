@@ -155,7 +155,12 @@ Status BinaryPrefixPageDecoder::init() {
 Status BinaryPrefixPageDecoder::seek_to_position_in_page(size_t pos) {
     DCHECK(_parsed);
     DCHECK_LE(pos, _num_values);
-
+    if (_num_values == 0) [[unlikely]] {
+        if (pos != 0) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                    "seek pos {} is larger than total elements  {}", pos, _num_values);
+        }
+    }
     // seek past the last value is valid
     if (pos == _num_values) {
         _cur_pos = _num_values;
@@ -216,7 +221,7 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
 
 Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
     DCHECK(_parsed);
-    if (PREDICT_FALSE(*n == 0 || _cur_pos >= _num_values)) {
+    if (*n == 0 || _cur_pos >= _num_values) [[unlikely]] {
         *n = 0;
         return Status::OK();
     }

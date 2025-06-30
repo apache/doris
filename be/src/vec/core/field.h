@@ -40,6 +40,7 @@
 #include "util/quantile_state.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 template <PrimitiveType type>
@@ -82,7 +83,7 @@ struct Map : public FieldVector {
     using FieldVector::FieldVector;
 };
 
-using VariantMap = std::map<String, Field>;
+using VariantMap = std::map<PathInData, Field>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -594,24 +595,6 @@ template <typename T>
 T get(Field& field) {
     return field.template get<T>();
 }
-
-template <>
-struct TypeName<Array> {
-    static std::string get() { return "Array"; }
-};
-template <>
-struct TypeName<Tuple> {
-    static std::string get() { return "Tuple"; }
-};
-
-template <>
-struct TypeName<VariantMap> {
-    static std::string get() { return "VariantMap"; }
-};
-template <>
-struct TypeName<Map> {
-    static std::string get() { return "Map"; }
-};
 
 /// char may be signed or unsigned, and behave identically to signed char or unsigned char,
 ///  but they are always three different types.

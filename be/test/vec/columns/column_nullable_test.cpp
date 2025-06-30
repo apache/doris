@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "testutil/column_helper.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"

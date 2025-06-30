@@ -20,13 +20,13 @@
 #include <bthread/bthread.h>
 #include <bthread/types.h>
 
-#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
 
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/macros.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -300,7 +300,7 @@ static ThreadContext* thread_context() {
 
 class ScopedPeakMem {
 public:
-    explicit ScopedPeakMem(int64* peak_mem)
+    explicit ScopedPeakMem(int64_t* peak_mem)
             : _peak_mem(peak_mem),
               _mem_tracker("ScopedPeakMem:" + UniqueId::gen_uid().to_string()) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
@@ -314,7 +314,7 @@ public:
     }
 
 private:
-    int64* _peak_mem;
+    int64_t* _peak_mem;
     MemTracker _mem_tracker;
 };
 

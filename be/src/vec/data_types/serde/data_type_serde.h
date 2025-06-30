@@ -28,7 +28,6 @@
 #include "arrow/status.h"
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_buffer.hpp"
@@ -101,8 +100,15 @@ struct ColumnVectorBatch;
 
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
+class JsonbOutStream;
 class SlotDescriptor;
+
+template <class OS_TYPE>
+class JsonbWriterT;
+
+using JsonbWriter = JsonbWriterT<JsonbOutStream>;
+
 #include "common/compile_check_begin.h"
 namespace vectorized {
 class IColumn;
@@ -124,14 +130,11 @@ using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 // the developer does not know how many datatypes has to deal.
 class DataTypeSerDe {
 public:
+    // return type name , such as "BOOL", "BIGINT", "ARRAY<DATE>"
+    virtual std::string get_name() const = 0;
     // Text serialization/deserialization of data types depend on some settings witch we define
     // in formatOptions.
     struct FormatOptions {
-        /**
-         * if true, we will use olap format which defined in src/olap/types.h, but we do not suggest
-         * use this format in olap, because it is more slower, keep this option is for compatibility.
-         */
-        bool date_olap_format = false;
         /**
          * field delimiter is used to separate fields in one row
          */
@@ -150,6 +153,8 @@ public:
          *  by dropping the "" or ''.
          */
         bool converted_from_string = false;
+
+        char quote_char = '"';
 
         char escape_char = 0;
         /**
@@ -267,6 +272,14 @@ public:
 
     virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                   const FormatOptions& options) const = 0;
+
+    // In some cases, CSV and JSON deserialization behaviors may differ
+    // so we provide a default implementation that uses JSON deserialization
+    virtual Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                                 const FormatOptions& options) const {
+        return deserialize_one_cell_from_json(column, slice, options);
+    }
+
     // deserialize text vector is to avoid virtual function call in complex type nested loop
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        uint64_t* num_deserialized,

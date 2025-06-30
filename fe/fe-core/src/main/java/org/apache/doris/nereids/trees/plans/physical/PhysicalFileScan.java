@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -46,6 +47,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
     protected final SelectedPartitions selectedPartitions;
     protected final Optional<TableSample> tableSample;
     protected final Optional<TableSnapshot> tableSnapshot;
+    protected final Optional<TableScanParams> scanParams;
 
     /**
      * Constructor for PhysicalFileScan.
@@ -54,9 +56,11 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
-            Optional<TableSnapshot> tableSnapshot, Collection<Slot> operativeSlots) {
+            Optional<TableSnapshot> tableSnapshot,
+            Collection<Slot> operativeSlots,
+            Optional<TableScanParams> scanParams) {
         this(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, distributionSpec, groupExpression,
-                logicalProperties, selectedPartitions, tableSample, tableSnapshot, operativeSlots);
+                logicalProperties, selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams);
     }
 
     /**
@@ -67,10 +71,10 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, SelectedPartitions selectedPartitions,
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
-            Collection<Slot> operativeSlots) {
+            Collection<Slot> operativeSlots, Optional<TableScanParams> scanParams) {
         this(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, distributionSpec, groupExpression,
                 logicalProperties, physicalProperties, statistics, selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     /**
@@ -80,26 +84,30 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
-            Optional<TableSnapshot> tableSnapshot, Collection<Slot> operativeSlots) {
+            Optional<TableSnapshot> tableSnapshot,
+            Collection<Slot> operativeSlots,
+            Optional<TableScanParams> scanParams) {
         super(id, type, table, qualifier, groupExpression, logicalProperties, operativeSlots);
         this.distributionSpec = distributionSpec;
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
+        this.scanParams = scanParams;
     }
 
     protected PhysicalFileScan(RelationId id, PlanType type, ExternalTable table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics,
-            SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
-            Optional<TableSnapshot> tableSnapshot, Collection<Slot> operativeSlots) {
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            Statistics statistics, SelectedPartitions selectedPartitions,
+            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
+            Collection<Slot> operativeSlots, Optional<TableScanParams> scanParams) {
         super(id, type, table, qualifier, groupExpression, logicalProperties,
                 physicalProperties, statistics, operativeSlots);
         this.distributionSpec = distributionSpec;
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
+        this.scanParams = scanParams;
     }
 
     public DistributionSpec getDistributionSpec() {
@@ -118,14 +126,22 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         return tableSnapshot;
     }
 
+    public Optional<TableScanParams> getScanParams() {
+        return scanParams;
+    }
+
     @Override
     public String toString() {
+        String rfV2 = "";
+        if (!runtimeFiltersV2.isEmpty()) {
+            rfV2 = runtimeFiltersV2.toString();
+        }
         return Utils.toSqlString("PhysicalFileScan[" + table.getName() + "]" + getGroupIdWithPrefix(),
             "stats", statistics,
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "selected partitions num",
                 selectedPartitions.isPruned ? selectedPartitions.selectedPartitions.size() : "unknown",
-                "operativeCols", getOperativeSlots()
+                "operativeCols", getOperativeSlots(), "RFV2", rfV2
         );
     }
 
@@ -138,7 +154,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
     public PhysicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
                 groupExpression, getLogicalProperties(), selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     @Override
@@ -146,7 +162,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
                 groupExpression, logicalProperties.get(), selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     @Override
@@ -160,7 +176,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics,
                 selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     @Override

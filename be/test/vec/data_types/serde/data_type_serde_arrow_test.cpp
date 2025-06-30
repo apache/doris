@@ -130,7 +130,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                             mutable_nullable_vector->insert_default();
                         } else {
                             mutable_nullable_vector->insert(
-                                    Field::create_field<TYPE_INT>(int32(i)));
+                                    Field::create_field<TYPE_INT>(int32_t(i)));
                         }
                     }
                     auto data_type = vectorized::make_nullable(
@@ -155,9 +155,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal32>(9, 2);
             type_desc = decimal_data_type;
             auto decimal_column = decimal_data_type->create_column();
-            auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int32>>*)
-                                  decimal_column.get())
-                                 ->get_data();
+            auto& data = ((vectorized::ColumnDecimal32*)decimal_column.get())->get_data();
             for (int i = 0; i < row_num; ++i) {
                 if (i == 0) {
                     data.push_back(Int32(0));
@@ -183,9 +181,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal64>(18, 6);
             type_desc = decimal_data_type;
             auto decimal_column = decimal_data_type->create_column();
-            auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int64>>*)
-                                  decimal_column.get())
-                                 ->get_data();
+            auto& data = ((vectorized::ColumnDecimal64*)decimal_column.get())->get_data();
             for (int i = 0; i < row_num; ++i) {
                 if (i == 0) {
                     data.push_back(Int64(0));
@@ -210,9 +206,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                     doris::vectorized::create_decimal(27, 9, true));
             type_desc = decimal_data_type;
             auto decimal_column = decimal_data_type->create_column();
-            auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                                  decimal_column.get())
-                                 ->get_data();
+            auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
             for (int i = 0; i < row_num; ++i) {
                 auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
                 data.push_back(value);

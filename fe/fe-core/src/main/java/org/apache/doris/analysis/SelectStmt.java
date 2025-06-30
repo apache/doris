@@ -859,6 +859,9 @@ public class SelectStmt extends QueryStmt implements NotFallbackInParser {
                         || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
                 return false;
             }
+            if (getOrderByElements().stream().anyMatch(e -> e.getExpr().getType().isArrayType())) {
+                return false;
+            }
             // Check order by exprs are all slot refs
             // Rethink? implement more generic to support all exprs
             if (LOG.isDebugEnabled()) {
@@ -2422,7 +2425,7 @@ public class SelectStmt extends QueryStmt implements NotFallbackInParser {
             strBuilder.append("DISTINCT ");
         }
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList || resultExprs.isEmpty()) {
+        if (ctx == null || ctx.getState().isInternal() || toSQLWithSelectList || resultExprs.isEmpty()) {
             for (int i = 0; i < selectList.getItems().size(); i++) {
                 strBuilder.append(selectList.getItems().get(i).toSql());
                 strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");

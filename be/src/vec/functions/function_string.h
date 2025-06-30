@@ -45,7 +45,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_search.hpp"
 #include "util/sha.h"
@@ -95,7 +94,6 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pinyin.h"
 #include "vec/common/string_ref.h"
@@ -2852,6 +2850,48 @@ public:
     }
 };
 
+// ----------------------------------------------------------------------
+// SimpleItoaWithCommas()
+//    Description: converts an integer to a string.
+//    Puts commas every 3 spaces.
+//    Faster than printf("%d")?
+//
+//    Return value: string
+// ----------------------------------------------------------------------
+template <typename T>
+char* SimpleItoaWithCommas(T i, char* buffer, int32_t buffer_size) {
+    char* p = buffer + buffer_size;
+    // Need to use unsigned T instead of T to correctly handle
+    std::make_unsigned_t<T> n = i;
+    if (i < 0) {
+        n = 0 - n;
+    }
+    *--p = '0' + n % 10; // this case deals with the number "0"
+    n /= 10;
+    while (n) {
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) {
+            break;
+        }
+
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) {
+            break;
+        }
+
+        *--p = ',';
+        *--p = '0' + n % 10;
+        n /= 10;
+        // For this unrolling, we check if n == 0 in the main while loop
+    }
+    if (i < 0) {
+        *--p = '-';
+    }
+    return p;
+}
+
 namespace MoneyFormat {
 
 constexpr size_t MAX_FORMAT_LEN_DEC32() {
@@ -2928,7 +2968,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
     }
 
     char local[N];
-    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    char* p = SimpleItoaWithCommas<T>(int_value, local, sizeof(local));
     const Int32 integer_str_len = N - (p - local);
     const Int32 frac_str_len = 2;
     const Int32 whole_decimal_str_len =
@@ -2949,7 +2989,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
 };
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringRef do_money_format(FunctionContext* context, const string& value) {
+static StringRef do_money_format(FunctionContext* context, const std::string& value) {
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
     StringRef result = context->create_temp_string_val(result_len);
@@ -3055,7 +3095,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
     }
 
     char local[N];
-    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    char* p = SimpleItoaWithCommas<T>(int_value, local, sizeof(local));
     const Int32 integer_str_len = N - (p - local);
     const Int32 frac_str_len = decimal_places;
     const Int32 whole_decimal_str_len = (append_sign_manually ? 1 : 0) + integer_str_len +
@@ -3083,7 +3123,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
 }
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringRef do_format_round(FunctionContext* context, const string& value,
+static StringRef do_format_round(FunctionContext* context, const std::string& value,
                                  Int32 decimal_places) {
     bool is_positive = (value[0] != '-');
     int32_t result_len =
@@ -3178,7 +3218,7 @@ struct MoneyFormatDecimalImpl {
 
     static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
                         size_t input_rows_count) {
-        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal128V2& dec128 = decimalv2_column->get_element(i);
                 DecimalV2Value value = DecimalV2Value(dec128.value);
@@ -3191,8 +3231,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal32_column =
-                           check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
+        } else if (auto* decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal32& frac_part = decimal32_column->get_fractional_part(i);
@@ -3204,8 +3243,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal64_column =
-                           check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
+        } else if (auto* decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal64& frac_part = decimal64_column->get_fractional_part(i);
@@ -3217,8 +3255,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal128_column =
-                           check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
+        } else if (auto* decimal128_column = check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal128V3& frac_part = decimal128_column->get_fractional_part(i);
@@ -3355,7 +3392,7 @@ struct FormatRoundDecimalImpl {
                           ColumnPtr decimal_places_col_ptr, size_t input_rows_count) {
         const auto& arg_column_data_2 =
                 assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
-        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
                 if (decimal_places < 0) {
@@ -3374,8 +3411,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal32_column =
-                           check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
+        } else if (auto* decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
@@ -3393,8 +3429,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal64_column =
-                           check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
+        } else if (auto* decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
@@ -3412,8 +3447,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal128_column =
-                           check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
+        } else if (auto* decimal128_column = check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
@@ -3708,7 +3742,7 @@ struct ReverseImpl {
         for (ssize_t i = 0; i < rows_count; ++i) {
             auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_len = offsets[i] - offsets[i - 1];
-            string dst;
+            std::string dst;
             dst.resize(src_len);
             simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
                                             StringRef((uint8_t*)dst.data(), src_len));
@@ -4294,29 +4328,33 @@ private:
             return;
         }
         const char* bytes = (const char*)(num);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-        int k = 3;
-        for (; k >= 0; --k) {
-            if (bytes[k]) {
-                break;
+        if constexpr (std::endian::native == std::endian::little) {
+            int k = 3;
+            for (; k >= 0; --k) {
+                if (bytes[k]) {
+                    break;
+                }
             }
-        }
-        offsets[line_num] = offsets[line_num - 1] + k + 1;
-        for (; k >= 0; --k) {
-            chars.push_back(bytes[k] ? bytes[k] : '\0');
-        }
-#else
-        int k = 0;
-        for (; k < 4; ++k) {
-            if (bytes[k]) {
-                break;
+            offsets[line_num] = offsets[line_num - 1] + k + 1;
+            for (; k >= 0; --k) {
+                chars.push_back(bytes[k] ? bytes[k] : '\0');
             }
+        } else if constexpr (std::endian::native == std::endian::big) {
+            int k = 0;
+            for (; k < 4; ++k) {
+                if (bytes[k]) {
+                    break;
+                }
+            }
+            offsets[line_num] = offsets[line_num - 1] + 4 - k;
+            for (; k < 4; ++k) {
+                chars.push_back(bytes[k] ? bytes[k] : '\0');
+            }
+        } else {
+            static_assert(std::endian::native == std::endian::big ||
+                                  std::endian::native == std::endian::little,
+                          "Unsupported endianness");
         }
-        offsets[line_num] = offsets[line_num - 1] + 4 - k;
-        for (; k < 4; ++k) {
-            chars.push_back(bytes[k] ? bytes[k] : '\0');
-        }
-#endif
     }
 };
 

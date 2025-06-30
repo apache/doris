@@ -140,7 +140,7 @@ void serialize_and_deserialize_mysql_test() {
                             vectorized::make_nullable(std::move(column_vector_int32));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
                     for (int i = 0; i < row_num; i++) {
-                        mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(int32(i)));
+                        mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(int32_t(i)));
                     }
                     auto data_type = vectorized::make_nullable(
                             std::make_shared<vectorized::DataTypeInt32>());
@@ -166,9 +166,7 @@ void serialize_and_deserialize_mysql_test() {
             type_desc = decimal_data_type;
             tslot.__set_slotType(type_desc->to_thrift());
             auto decimal_column = decimal_data_type->create_column();
-            auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                                  decimal_column.get())
-                                 ->get_data();
+            auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
             for (int i = 0; i < row_num; ++i) {
                 auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
                 data.push_back(value);

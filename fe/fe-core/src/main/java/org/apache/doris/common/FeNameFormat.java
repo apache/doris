@@ -122,6 +122,12 @@ public class FeNameFormat {
         }
     }
 
+    public static void checkJobName(String jobName) throws AnalysisException {
+        if (Strings.isNullOrEmpty(jobName) || !jobName.matches(getLabelRegex())) {
+            throw new AnalysisException("jobName format error. regex: " + getLabelRegex() + ", jobName: " + jobName);
+        }
+    }
+
     public static void checkUserName(String userName) throws AnalysisException {
         if (Strings.isNullOrEmpty(userName) || !userName.matches(getUserNameRegex())) {
             throw new AnalysisException("invalid user name: " + userName);
@@ -164,6 +170,10 @@ public class FeNameFormat {
 
     public static void checkWorkloadSchedPolicyName(String policyName) throws AnalysisException {
         checkCommonName("workload schedule policy", policyName);
+    }
+
+    public static void checkIndexPolicyName(String policyName) throws AnalysisException {
+        checkCommonName("index policy", policyName);
     }
 
     public static void checkCommonName(String type, String name) throws AnalysisException {

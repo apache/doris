@@ -22,7 +22,6 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
-import org.apache.doris.thrift.TTextSerdeType;
 
 import java.util.Map;
 
@@ -80,8 +79,7 @@ public abstract class FileFormatProperties {
             case FORMAT_CSV:
                 return new CsvFileFormatProperties(formatString);
             case FORMAT_HIVE_TEXT:
-                return new CsvFileFormatProperties(CsvFileFormatProperties.DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR,
-                        TTextSerdeType.HIVE_TEXT_SERDE, formatString);
+                return new TextFileFormatProperties();
             case FORMAT_CSV_WITH_NAMES:
                 return new CsvFileFormatProperties(FORMAT_CSV_WITH_NAMES, formatString);
             case FORMAT_CSV_WITH_NAMES_AND_TYPES:

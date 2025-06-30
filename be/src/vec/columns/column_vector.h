@@ -228,12 +228,12 @@ public:
         memcpy(data.data() + old_size, data_ptr, num * sizeof(value_type));
     }
 
-    void insert_default() override { data.push_back(value_type()); }
+    void insert_default() override { data.push_back(default_value()); }
 
     void insert_many_defaults(size_t length) override {
         size_t old_size = data.size();
         data.resize(old_size + length);
-        memset(data.data() + old_size, 0, length * sizeof(data[0]));
+        std::fill(data.data() + old_size, data.data() + old_size + length, default_value());
     }
 
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
@@ -331,14 +331,7 @@ public:
 
     void resize(size_t n) override { data.resize(n); }
 
-    std::string get_name() const override {
-        // TODO(gabriel)
-        // however we have a conflict type of number and other can store in number type such as ipv4 and uint32
-        if (T == TYPE_IPV4) {
-            return "IPv4";
-        }
-        return TypeName<value_type>::get();
-    }
+    std::string get_name() const override { return type_to_string(T); }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
@@ -372,7 +365,7 @@ public:
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
@@ -404,8 +397,8 @@ public:
                      EqualRange& range, bool last_column) const override;
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                          int direction, std::vector<uint8>& cmp_res,
-                          uint8* __restrict filter) const override;
+                          int direction, std::vector<uint8_t>& cmp_res,
+                          uint8_t* __restrict filter) const override;
 
     void erase(size_t start, size_t length) override {
         if (start >= data.size() || length == 0) {
@@ -419,6 +412,16 @@ public:
     }
 
 protected:
+    static value_type default_value() {
+        if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2) {
+            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY.to_date_int_val();
+        } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
+            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY;
+        } else {
+            return value_type();
+        }
+    }
+
     Container data;
 };
 

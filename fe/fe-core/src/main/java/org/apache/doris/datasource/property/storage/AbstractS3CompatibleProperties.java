@@ -194,7 +194,15 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         }
         Matcher matcher = endpointPattern().matcher(endpoint.toLowerCase());
         if (matcher.find()) {
-            String region = matcher.group(1);
+            // Check all possible groups for region (group 1, 2, or 3)
+            String region = null;
+            for (int i = 1; i <= matcher.groupCount(); i++) {
+                String group = matcher.group(i);
+                if (StringUtils.isNotBlank(group)) {
+                    region = group;
+                    break;
+                }
+            }
             if (StringUtils.isBlank(region)) {
                 throw new IllegalArgumentException("Invalid endpoint format: " + endpoint);
             }

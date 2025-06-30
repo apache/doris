@@ -828,7 +828,6 @@ void Tablet::delete_expired_stale_rowset() {
         auto old_meta_size = _tablet_meta->all_stale_rs_metas().size();
 
         // do delete operation
-        std::vector<std::string> version_to_delete;
         auto to_delete_iter = stale_version_path_map.begin();
         while (to_delete_iter != stale_version_path_map.end()) {
             std::vector<TimestampedVersionSharedPtr>& to_delete_version =
@@ -867,13 +866,11 @@ void Tablet::delete_expired_stale_rowset() {
                 _delete_stale_rowset_by_version(timestampedVersion->version());
             }
             Version version(start_version, end_version);
-            version_to_delete.emplace_back(version.to_string());
             to_delete_iter++;
             if (!remove_rowset_ids.empty()) {
                 deleted_stale_rowsets.emplace_back(version, remove_rowset_ids);
             }
         }
-        _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
 
         bool reconstructed = _reconstruct_version_tracker_if_necessary();
 
@@ -946,7 +943,7 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
     }
 
     DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
         }
@@ -1659,7 +1656,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.version_miss", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto miss = dp->param<bool>("version_miss", true);
             tablet_info->__set_version_miss(miss);
@@ -1709,7 +1706,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.used", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto used = dp->param<bool>("used", true);
             LOG_WARNING("Tablet.build_tablet_report_info.used")
@@ -1796,7 +1793,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
                 config::enable_sleep_between_delete_cumu_compaction) {
                 tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             }
-            if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
+            if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>() &&
+                !res.is<ErrorCode::CUMULATIVE_MEET_DELETE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 return Status::InternalError("prepare cumulative compaction with err: {}",
                                              res.to_string());

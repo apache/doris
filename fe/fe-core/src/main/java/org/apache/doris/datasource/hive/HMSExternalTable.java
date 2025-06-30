@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -36,7 +37,6 @@ import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
-import org.apache.doris.datasource.hudi.HudiMvccSnapshot;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
@@ -663,7 +663,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> getIcebergSchema(SchemaCacheKey key) {
-        return IcebergUtils.loadSchemaCacheValue(catalog, dbName, name, ((IcebergSchemaCacheKey) key).getSchemaId());
+        return IcebergUtils.loadSchemaCacheValue(
+            catalog, dbName, name, ((IcebergSchemaCacheKey) key).getSchemaId(), isView());
     }
 
     private Optional<SchemaCacheValue> getHudiSchema(SchemaCacheKey key) {
@@ -1139,12 +1140,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot) {
+    public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
         if (getDlaType() == DLAType.HUDI) {
-            return new HudiMvccSnapshot(HudiUtils.getPartitionValues(tableSnapshot, this));
+            return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this);
         } else if (getDlaType() == DLAType.ICEBERG) {
             return new IcebergMvccSnapshot(
-                IcebergUtils.getIcebergSnapshotCacheValue(tableSnapshot, getCatalog(), getDbName(), getName()));
+                IcebergUtils.getIcebergSnapshotCacheValue(
+                    tableSnapshot, getCatalog(), getDbName(), getName(), scanParams));
         } else {
             return new EmptyMvccSnapshot();
         }
@@ -1188,4 +1190,5 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 return Lists.newArrayList();
         }
     }
+
 }
