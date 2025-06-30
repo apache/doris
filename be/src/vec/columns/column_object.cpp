@@ -993,7 +993,7 @@ std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const C
     const auto& data_ref = value->get_data_at(row);
     const char* data = data_ref.data;
     DCHECK(data_ref.size > 1);
-    const TypeIndex type = static_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+    const TypeIndex type = static_cast<TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
     Field res;
     FieldInfo info_res = {
             .scalar_type_id = type,
