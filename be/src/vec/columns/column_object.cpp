@@ -2330,7 +2330,7 @@ size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
     // Simple random access iterator over values in ColumnString in specified range.
     class Iterator {
     public:
-        using difference_type = size_t;
+        using difference_type = std::ptrdiff_t;
         using value_type = StringRef;
         using iterator_category = std::random_access_iterator_tag;
         using pointer = StringRef*;
@@ -2355,6 +2355,16 @@ size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
             return *this;
         }
         inline difference_type operator-(const Iterator& rhs) const { return index - rhs.index; }
+        inline Iterator operator+(difference_type n) const { return Iterator(data, index + n); }
+        inline Iterator operator-(difference_type n) const { return Iterator(data, index - n); }
+        inline bool operator<(const Iterator& rhs) const { return index < rhs.index; }
+        inline bool operator>(const Iterator& rhs) const { return index > rhs.index; }
+        inline bool operator<=(const Iterator& rhs) const { return index <= rhs.index; }
+        inline bool operator>=(const Iterator& rhs) const { return index >= rhs.index; }
+        inline Iterator& operator--() { --index; return *this; }
+        inline Iterator operator--(int) { Iterator tmp = *this; --(*this); return tmp; }
+        inline Iterator& operator-=(difference_type n) { index -= n; return *this; }
+        inline reference operator[](difference_type n) const { return *(this->operator+(n)); }
 
         const ColumnString* data;
         size_t index;
