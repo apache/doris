@@ -22,6 +22,7 @@
 #include <type_traits>
 
 #include "cast_base.h"
+#include "common/status.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/binary_cast.hpp"
@@ -30,6 +31,7 @@
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h" // IWYU pragma: keep
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/time_value.h"
@@ -50,16 +52,19 @@ public:
         auto serde = remove_nullable(to_type)->get_serde();
         MutableColumnPtr column_to;
 
+        DataTypeSerDe::FormatOptions options;
+        options.timezone = &context->state()->timezone_obj();
+
         if constexpr (CastMode == CastModeType::StrictMode) {
             DCHECK(!to_type->is_nullable()) << "shouldn't be extra nullable here. if argument is "
                                                "null, should be processed in framework.";
             column_to = to_type->create_column();
-            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to, {}));
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to, options));
         } else {
             auto to_nullable_type = make_nullable(to_type);
             column_to = to_nullable_type->create_column();
             auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
-            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, {}));
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, options));
         }
 
         block.get_by_position(result).column = std::move(column_to);
@@ -73,6 +78,52 @@ class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
+                block.get_by_position(arguments[0]).column.get());
+
+        auto to_type = block.get_by_position(result).type;
+        auto* concrete_serde = assert_cast<typename ToDataType::SerDeType*>(
+                remove_nullable(to_type)->get_serde().get());
+        MutableColumnPtr column_to;
+
+        if constexpr (CastMode == CastModeType::StrictMode) {
+            DCHECK(!to_type->is_nullable()) << "shouldn't be extra nullable here. if argument is "
+                                               "null, should be processed in framework.";
+            column_to = to_type->create_column();
+
+            // datelike types serde must have template functions for those types. but because of they need to be
+            // template functions, so we cannot make them virtual. that's why we assert_cast `serde` before.
+            if constexpr (IsDataTypeInt<FromDataType>) {
+                RETURN_IF_ERROR(concrete_serde->template from_int_strict_mode_batch<FromDataType>(
+                        *col_from, *column_to));
+            } else if constexpr (IsDataTypeFloat<FromDataType>) {
+                RETURN_IF_ERROR(concrete_serde->template from_float_strict_mode_batch<FromDataType>(
+                        *col_from, *column_to));
+            } else {
+                static_assert(IsDataTypeDecimal<FromDataType>);
+                RETURN_IF_ERROR(
+                        concrete_serde->template from_decimal_strict_mode_batch<FromDataType>(
+                                *col_from, *column_to));
+            }
+        } else {
+            auto to_nullable_type = make_nullable(to_type);
+            column_to = to_nullable_type->create_column();
+            auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
+
+            if constexpr (IsDataTypeInt<FromDataType>) {
+                RETURN_IF_ERROR(concrete_serde->template from_int_batch<FromDataType>(
+                        *col_from, nullable_col_to));
+            } else if constexpr (IsDataTypeFloat<FromDataType>) {
+                RETURN_IF_ERROR(concrete_serde->template from_float_batch<FromDataType>(
+                        *col_from, nullable_col_to));
+            } else {
+                static_assert(IsDataTypeDecimal<FromDataType>);
+                RETURN_IF_ERROR(concrete_serde->template from_decimal_batch<FromDataType>(
+                        *col_from, nullable_col_to));
+            }
+        }
+
+        block.get_by_position(result).column = std::move(column_to);
         return Status::OK();
     }
 };

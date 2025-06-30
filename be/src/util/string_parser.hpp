@@ -371,6 +371,12 @@ public:
     static inline T string_to_int_no_overflow(const char* __restrict s, int len,
                                               ParseResult* result);
 
+    // zero length, or at least one legal digit. at most consume MAX_LEN digits and stop. or stop when next
+    // char is not a digit.
+    template <typename T>
+    static inline T string_to_uint_greedy_no_overflow(const char* __restrict s, int max_len,
+                                                      ParseResult* result);
+
     // This is considerably faster than glibc's implementation (>100x why???)
     // No special case handling needs to be done for overflows, the floating point spec
     // already does it and will cap the values to -inf/inf
@@ -621,6 +627,35 @@ T StringParser::string_to_int_no_overflow(const char* __restrict s, int len, Par
                     return 0;
                 }
             }
+            *result = PARSE_SUCCESS;
+            return val;
+        }
+    }
+    *result = PARSE_SUCCESS;
+    return val;
+}
+
+// at least the first char(if any) must be a digit.
+template <typename T>
+T StringParser::string_to_uint_greedy_no_overflow(const char* __restrict s, int max_len, ParseResult* result) {
+    T val = 0;
+    if (max_len == 0) [[unlikely]] {
+        *result = PARSE_SUCCESS;
+        return val;
+    }
+    // Factor out the first char for error handling speeds up the loop.
+    if (is_numeric_ascii(s[0])) [[likely]]{
+        val = s[0] - '0';
+    } else {
+        *result = PARSE_FAILURE;
+        return 0;
+    }
+    for (int i = 1; i < max_len; ++i) {
+        if (is_numeric_ascii(s[i])) [[likely]] {
+            T digit = s[i] - '0';
+            val = val * 10 + digit;
+        } else {
+            // 123abc, return 123
             *result = PARSE_SUCCESS;
             return val;
         }

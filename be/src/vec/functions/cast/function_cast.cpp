@@ -310,12 +310,9 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         } else if constexpr (IsDataTypeFloat<ToDataType>) {
             ret = create_float_wrapper<ToDataType>(context, from_type);
             return true;
-        } else if constexpr (std::is_same_v<ToDataType, DataTypeDate> ||
-                             std::is_same_v<ToDataType, DataTypeDateTime> ||
-                             std::is_same_v<ToDataType, DataTypeDateV2> ||
-                             std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
-                             std::is_same_v<ToDataType, DataTypeTimeV2>) {
+        } else if constexpr (IsDatelikeTypes<ToDataType>) {
             ret = create_datelike_wrapper<ToDataType>(context, from_type);
+            return true;
         } else if constexpr (std::is_same_v<ToDataType, DataTypeIPv4> ||
                              std::is_same_v<ToDataType, DataTypeIPv6>) {
             ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),

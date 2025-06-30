@@ -19,14 +19,13 @@
 
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
-#include <ostream>
+#include <cstdint>
 #include <string>
 
 #include "common/status.h"
 #include "data_type_number_serde.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -37,7 +36,43 @@ class Arena;
 template <PrimitiveType T = PrimitiveType::TYPE_DATE>
 class DataTypeDateSerDe : public DataTypeNumberSerDe<T> {
 public:
+    constexpr static bool IsDatetime = (T == PrimitiveType::TYPE_DATETIME);
+    static_assert(IsDatetime || T == PrimitiveType::TYPE_DATE,
+                  "DataTypeDateSerDe can only be used for TYPE_DATE or TYPE_DATETIME");
+    using ColumnType = PrimitiveTypeTraits<T>::ColumnType;
+    using NativeType = PrimitiveTypeTraits<T>::CppNativeType; // int64
+    using CppType = PrimitiveTypeTraits<T>::CppType;          // VecDateTimeValue
+
     DataTypeDateSerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};
+
+    /// these functions are for both TYPE_DATE and TYPE_DATETIME. we set field according to T.
+    Status from_string_batch(
+            const ColumnString& str, ColumnNullable& column,
+            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const final;
+
+    Status from_string_strict_mode_batch(
+            const ColumnString& str, IColumn& column,
+            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const final;
+
+    template <typename IntDataType>
+    Status from_int_batch(const IntDataType::ColumnType& int_col, ColumnNullable& target_col) const;
+    template <typename IntDataType>
+    Status from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
+                                      IColumn& target_col) const;
+
+    template <typename FloatDataType>
+    Status from_float_batch(const FloatDataType::ColumnType& float_col,
+                            ColumnNullable& target_col) const;
+    template <typename FloatDataType>
+    Status from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
+                                        IColumn& target_col) const;
+
+    template <typename DecimalDataType>
+    Status from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
+                              ColumnNullable& target_col) const;
+    template <typename DecimalDataType>
+    Status from_decimal_strict_mode_batch(const DecimalDataType::ColumnType& decimal_col,
+                                          IColumn& target_col) const;
 
     Status serialize_one_cell_to_json(
             const IColumn& column, int64_t row_num, BufferWritable& bw,
@@ -77,6 +112,20 @@ protected:
     Status _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                    int64_t end, const cctz::time_zone& ctz) const;
 
+    Status _from_string(const std::string& str, CppType& res,
+                        const cctz::time_zone* local_time_zone) const;
+
+    Status _from_string_strict_mode(const std::string& str, CppType& res,
+                                    const cctz::time_zone* local_time_zone) const;
+
+    void _cast_to_type(CppType& res) const {
+        if constexpr (IsDatetime) {
+            res.to_datetime();
+        } else {
+            res.cast_to_date();
+        }
+    }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(
@@ -88,6 +137,8 @@ class DataTypeDateTimeSerDe : public DataTypeDateSerDe<PrimitiveType::TYPE_DATET
 public:
     DataTypeDateTimeSerDe(int nesting_level = 1)
             : DataTypeDateSerDe<PrimitiveType::TYPE_DATETIME>(nesting_level) {};
+
+    // all from_{XXX} use DateTypeDateSerDe's with template check of PrimitiveType T
 
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;

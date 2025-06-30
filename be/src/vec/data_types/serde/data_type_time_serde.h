@@ -45,15 +45,35 @@ public:
     Status from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
                                          const FormatOptions& options) const final;
 
+    template <typename IntDataType>
+    Status from_int_batch(const IntDataType::ColumnType& int_col, ColumnNullable& target_col) const;
+    template <typename IntDataType>
+    Status from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
+                                      IColumn& target_col) const;
+
+    template <typename FloatDataType>
+    Status from_float_batch(const FloatDataType::ColumnType& float_col,
+                            ColumnNullable& target_col) const;
+    template <typename FloatDataType>
+    Status from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
+                                        IColumn& target_col) const;
+
+    template <typename DecimalDataType>
+    Status from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
+                              ColumnNullable& target_col) const;
+    template <typename DecimalDataType>
+    Status from_decimal_strict_mode_batch(const DecimalDataType::ColumnType& decimal_col,
+                                          IColumn& target_col) const;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
 
-    Status _from_string(const std::string& str, TimeValue::TimeType& res) const;
+    Status _from_string(const std::string& str, double& res) const;
 
-    Status _from_string_strict_mode(const std::string& str, TimeValue::TimeType& res) const;
+    Status _from_string_strict_mode(const std::string& str, double& res) const;
 
     int scale;
 };
