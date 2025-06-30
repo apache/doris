@@ -255,7 +255,9 @@ size_t ColumnArray::get_max_row_byte_size() const {
     size_t max_size = 0;
     size_t num_rows = size();
     for (size_t i = 0; i < num_rows; ++i) {
-        max_size = std::max(max_size, size_at(i) * data->get_max_row_byte_size() + (data->is_variable_length() ? sizeof(size_t) * size_at(i) : 0));
+        max_size = std::max(max_size,
+                            size_at(i) * data->get_max_row_byte_size() +
+                                    (data->is_variable_length() ? sizeof(size_t) * size_at(i) : 0));
     }
 
     return sizeof(size_t) + max_size;
