@@ -237,14 +237,14 @@ suite("test_warm_up_cluster") {
     }
 
     try {
-        sql "WARM UP COMPUTE GROUP regression_cluster_name3 WITH Table customer"
+        sql "WARM UP CLUSTER regression_cluster_name3 WITH Table customer"
         assertTrue(false)
     } catch (Exception e) {
         assertTrue(true)
     }
 
     try {
-        sql "WARM UP COMPUTE GROUP regression_cluster_name4 WITH Table supplier"
+        sql "WARM UP CLUSTER regression_cluster_name4 WITH Table supplier"
         assertTrue(false)
     } catch (Exception e) {
         assertTrue(true)
