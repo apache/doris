@@ -121,11 +121,11 @@ Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
     // Update dst column
     if (vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst)) {
         LOG_INFO("Dst is nothing column, create new mutable column");
-        dst = _materialized_column_ptr->clone_resized(rows_num_to_read);
-    } else {
-        size_t start = _row_id_to_idx[_current_ordinal];
-        dst->insert_range_from(*_materialized_column_ptr, start, rows_num_to_read);
+        dst = _materialized_column_ptr->clone_empty();
     }
+
+    size_t start = _row_id_to_idx[_current_ordinal];
+    dst->insert_range_from(*_materialized_column_ptr, start, rows_num_to_read);
 
     LOG_INFO("Virtual column iterators, next_batch, rows reads: {}, dst size: {}", rows_num_to_read,
              dst->size());

@@ -902,6 +902,25 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             olapScanNode.setAnnSortLimit(olapScan.getAnnLimit().get());
         }
 
+        // translate score topn info
+        if (!olapScan.getScoreOrderKeys().isEmpty()) {
+            TupleDescriptor scoreSortTuple = olapScanNode.getTupleDesc();
+            List<Expr> orderingExprs = Lists.newArrayList();
+            List<Boolean> ascOrders = Lists.newArrayList();
+            List<Boolean> nullsFirstParams = Lists.newArrayList();
+            List<OrderKey> scoreOrderKeys = olapScan.getScoreOrderKeys();
+            scoreOrderKeys.forEach(k -> {
+                orderingExprs.add(ExpressionTranslator.translate(k.getExpr(), context));
+                ascOrders.add(k.isAsc());
+                nullsFirstParams.add(k.isNullFirst());
+            });
+            SortInfo scoreSortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, scoreSortTuple);
+            olapScanNode.setScoreSortInfo(scoreSortInfo);
+        }
+        if (olapScan.getScoreLimit().isPresent()) {
+            olapScanNode.setScoreSortLimit(olapScan.getScoreLimit().get());
+        }
+
         // TODO: move all node set cardinality into one place
         if (olapScan.getStats() != null) {
             // NOTICE: we should not set stats row count
@@ -957,6 +976,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                 expr, olapScanNode, context)
                         )
         );
+        // translate rf v2 target
+        List<RuntimeFilterV2> rfV2s = context.getRuntimeFilterV2Context()
+                .getRuntimeFilterV2ByTargetPlan(olapScan);
+        for (RuntimeFilterV2 rfV2 : rfV2s) {
+            Expr targetExpr = rfV2.getTargetExpression().accept(ExpressionTranslator.INSTANCE, context);
+            rfV2.setLegacyTargetNode(olapScanNode);
+            rfV2.setLegacyTargetExpr(targetExpr);
+        }
         context.getTopnFilterContext().translateTarget(olapScan, olapScanNode, context);
         olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
         // Create PlanFragment

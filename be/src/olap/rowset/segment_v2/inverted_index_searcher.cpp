@@ -51,9 +51,6 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
                 "FulltextIndexSearcherBuilder build index_searcher error.");
     }
     reader_size = reader->getTermInfosRAMUsed();
-    // NOTE: need to cl_refcount-- here, so that directory will be deleted when
-    // index_searcher is destroyed
-    _CLDECDELETE(directory)
     output_searcher = index_searcher;
     return Status::OK();
 }
@@ -69,7 +66,6 @@ Status BKDIndexSearcherBuilder::build(lucene::store::Directory* directory,
         }
         reader_size = bkd_reader->ram_bytes_used();
         output_searcher = bkd_reader;
-        _CLDECDELETE(directory)
         return Status::OK();
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -106,11 +102,9 @@ Result<IndexSearcherPtr> IndexSearcherBuilder::get_index_searcher(
     OptionalIndexSearcherPtr result;
     auto st = build(directory, result);
     if (!st.ok()) {
-        _CLDECDELETE(directory)
         return ResultError(st);
     }
     if (!result.has_value()) {
-        _CLDECDELETE(directory)
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "InvertedIndexSearcherCache build error."));
     }

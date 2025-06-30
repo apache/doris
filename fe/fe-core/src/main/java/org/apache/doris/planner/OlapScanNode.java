@@ -210,6 +210,8 @@ public class OlapScanNode extends ScanNode {
     private long maxVersion = -1L;
     private SortInfo annSortInfo = null;
     private long annSortLimit = -1;
+    private SortInfo scoreSortInfo = null;
+    private long scoreSortLimit = -1;
 
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
@@ -322,6 +324,14 @@ public class OlapScanNode extends ScanNode {
 
     public void setAnnSortLimit(long annSortLimit) {
         this.annSortLimit = annSortLimit;
+    }
+
+    public void setScoreSortInfo(SortInfo scoreSortInfo) {
+        this.scoreSortInfo = scoreSortInfo;
+    }
+
+    public void setScoreSortLimit(long scoreSortLimit) {
+        this.scoreSortLimit = scoreSortLimit;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -1351,6 +1361,15 @@ public class OlapScanNode extends ScanNode {
         if (annSortLimit != -1) {
             output.append(prefix).append("ANN SORT LIMIT: ").append(annSortLimit).append("\n");
         }
+        if (scoreSortInfo != null) {
+            output.append(prefix).append("SCORE SORT INFO:\n");
+            scoreSortInfo.getOrderingExprs().forEach(expr -> {
+                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+            });
+        }
+        if (scoreSortLimit != -1) {
+            output.append(prefix).append("SCORE SORT LIMIT: ").append(scoreSortLimit).append("\n");
+        }
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
@@ -1559,6 +1578,19 @@ public class OlapScanNode extends ScanNode {
         }
         if (annSortLimit != -1) {
             msg.olap_scan_node.setAnnSortLimit(annSortLimit);
+        }
+        if (scoreSortInfo != null) {
+            TSortInfo tScoreSortInfo = new TSortInfo(
+                    Expr.treesToThrift(scoreSortInfo.getOrderingExprs()),
+                    scoreSortInfo.getIsAscOrder(),
+                    scoreSortInfo.getNullsFirst());
+            if (scoreSortInfo.getSortTupleSlotExprs() != null) {
+                tScoreSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(scoreSortInfo.getSortTupleSlotExprs()));
+            }
+            msg.olap_scan_node.setScoreSortInfo(tScoreSortInfo);
+        }
+        if (scoreSortLimit != -1) {
+            msg.olap_scan_node.setScoreSortLimit(scoreSortLimit);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         String tableName = olapTable.getName();

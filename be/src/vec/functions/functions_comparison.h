@@ -24,6 +24,7 @@
 #include <type_traits>
 
 #include "common/logging.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -38,7 +39,6 @@
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/functions_logical.h"
 #include "vec/runtime/vdatetime_value.h"
-//#include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -578,7 +578,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_reader()->is_fulltext_index()) {
+        if (segment_v2::IndexReaderHelper::is_fulltext_index(iter->get_reader())) {
             //NOT support comparison predicate when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
@@ -598,7 +598,8 @@ public:
             return Status::InvalidArgument("invalid comparison op type {}", Name::name);
         }
 
-        if (segment_v2::is_range_query(query_type) && iter->get_reader()->is_string_index()) {
+        if (segment_v2::is_range_query(query_type) &&
+            segment_v2::IndexReaderHelper::is_string_index(iter->get_reader())) {
             // untokenized strings exceed ignore_above, they are written as null, causing range query errors
             return Status::OK();
         }

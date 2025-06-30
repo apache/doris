@@ -916,9 +916,10 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
                 return Status::OK();
             }));
 
+    AnnIndexStats ann_index_stats;
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
-                                                    column_iterators, row_bitmap)
+                                                    column_iterators, row_bitmap, ann_index_stats)
                         .ok());
 
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =
@@ -1008,9 +1009,10 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
                 return Status::OK();
             }));
 
+    AnnIndexStats ann_index_stats;
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
-                                                    column_iterators, row_bitmap)
+                                                    column_iterators, row_bitmap, ann_index_stats)
                         .ok());
 
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =

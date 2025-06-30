@@ -92,6 +92,8 @@ public:
     }
 #endif
 
+    bool is_score_expr() const;
+
 private:
     int _column_id;
     int _slot_id;

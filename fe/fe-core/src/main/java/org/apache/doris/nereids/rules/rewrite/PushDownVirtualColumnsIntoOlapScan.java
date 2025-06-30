@@ -21,10 +21,12 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -110,7 +112,10 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         // Step 1: Extract distance functions (preserve existing functionality)
         extractDistanceFunctions(filter, replaceMap, virtualColumnsBuilder);
 
-        // Step 2: Extract repeated sub-expressions
+        // Step 2: Extract score functions
+        // extractScoreFunctions(filter, optionalProject, replaceMap, virtualColumnsBuilder);
+
+        // Step 3: Extract repeated sub-expressions
         extractRepeatedSubExpressions(filter, optionalProject, replaceMap, virtualColumnsBuilder);
 
         if (replaceMap.isEmpty()) {
@@ -147,15 +152,44 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             Map<Expression, Expression> replaceMap,
             ImmutableList.Builder<NamedExpression> virtualColumnsBuilder) {
         for (Expression conjunct : filter.getConjuncts()) {
-            Set<Expression> distanceFunctions = conjunct.collect(
-                    e -> e instanceof L2DistanceApproximate || e instanceof InnerProductApproximate);
-            for (Expression distanceFunction : distanceFunctions) {
-                if (replaceMap.containsKey(distanceFunction)) {
+            Set<Expression> needPushDownFunctions = conjunct.collect(e -> e instanceof L2DistanceApproximate
+                            || e instanceof InnerProductApproximate);
+            for (Expression needPushDownFunction : needPushDownFunctions) {
+                if (replaceMap.containsKey(needPushDownFunction)) {
                     continue;
                 }
-                Alias alias = new Alias(distanceFunction);
-                replaceMap.put(distanceFunction, alias.toSlot());
+                Alias alias = new Alias(needPushDownFunction);
+                replaceMap.put(needPushDownFunction, alias.toSlot());
                 virtualColumnsBuilder.add(alias);
+            }
+        }
+    }
+
+    /**
+     * Extract score functions from project expressions.
+     * Score function should be pushed down only when it's in project list and there is a filter.
+     */
+    private void extractScoreFunctions(LogicalFilter<LogicalOlapScan> filter,
+            Optional<LogicalProject<?>> optionalProject,
+            Map<Expression, Expression> replaceMap,
+            ImmutableList.Builder<NamedExpression> virtualColumnsBuilder) {
+        boolean hasMatchPredicate = filter.getConjuncts().stream()
+                .anyMatch(conjunct -> !conjunct.collect(e -> e instanceof Match).isEmpty());
+        if (!hasMatchPredicate) {
+            return;
+        }
+        if (optionalProject.isPresent()) {
+            LogicalProject<?> project = optionalProject.get();
+            for (NamedExpression namedExpr : project.getProjects()) {
+                Set<Expression> scoreFunctions = namedExpr.collect(e -> e instanceof Score);
+                for (Expression scoreFunc : scoreFunctions) {
+                    if (replaceMap.containsKey(scoreFunc)) {
+                        continue;
+                    }
+                    Alias alias = new Alias(scoreFunc);
+                    replaceMap.put(scoreFunc, alias.toSlot());
+                    virtualColumnsBuilder.add(alias);
+                }
             }
         }
     }
@@ -241,7 +275,9 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         }
 
         // Skip expressions that are already distance functions (handled separately)
-        if (expr instanceof L2DistanceApproximate || expr instanceof InnerProductApproximate) {
+        if (expr instanceof L2DistanceApproximate
+                || expr instanceof InnerProductApproximate
+                || expr instanceof Score) {
             return false;
         }
 

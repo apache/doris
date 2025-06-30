@@ -172,7 +172,11 @@ public:
         // Test EQUAL query for each value
         for (size_t i = 0; i < values.size(); i++) {
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(nullptr, &stats, &runtime_state, "c1", &values[i],
+            auto context = std::make_shared<segment_v2::IndexQueryContext>();
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+
+            auto status = bkd_reader->query(context, "c1", &values[i],
                                             doris::segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
                                             bitmap);
             EXPECT_TRUE(status.ok()) << status;
@@ -194,7 +198,11 @@ public:
         // Test LESS_THAN query
         std::shared_ptr<roaring::Roaring> less_than_bitmap = std::make_shared<roaring::Roaring>();
         int32_t test_value = 200;
-        auto status = bkd_reader->query(nullptr, &stats, &runtime_state, "c1", &test_value,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto status = bkd_reader->query(context, "c1", &test_value,
                                         doris::segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY,
                                         less_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -213,7 +221,7 @@ public:
         // Test GREATER_THAN query
         std::shared_ptr<roaring::Roaring> greater_than_bitmap =
                 std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(nullptr, &stats, &runtime_state, "c1", &test_value,
+        status = bkd_reader->query(context, "c1", &test_value,
                                    doris::segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY,
                                    greater_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -599,9 +607,13 @@ public:
         for (size_t i = 0; i < values.size(); i++) {
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             StringRef str_ref(values[i].data, values[i].size);
-            auto query_status =
-                    inverted_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                           InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto context = std::make_shared<segment_v2::IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+
+            auto query_status = inverted_reader->query(context, field_name, &str_ref,
+                                                       InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             // For regular strings, both should work the same
             if (i == 0 || i == 4) {
@@ -797,13 +809,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
         std::shared_ptr<roaring::Roaring> bitmap_enabled = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> bitmap_disabled = std::make_shared<roaring::Roaring>();
 
-        auto query_status_enabled = inverted_reader_enabled->query(
-                &io_ctx, &stats, &runtime_state, field_name, &values[i],
-                InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status_enabled =
+                inverted_reader_enabled->query(context, field_name, &values[i],
+                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
 
         auto query_status_disabled = inverted_reader_disabled->query(
-                &io_ctx, &stats, &runtime_state, field_name, &values[i],
-                InvertedIndexQueryType::EQUAL_QUERY, bitmap_disabled);
+                context, field_name, &values[i], InvertedIndexQueryType::EQUAL_QUERY,
+                bitmap_disabled);
 
         EXPECT_TRUE(query_status_enabled.ok()) << query_status_enabled;
         EXPECT_TRUE(query_status_disabled.ok()) << query_status_disabled;
