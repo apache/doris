@@ -26,8 +26,12 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
           GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
           GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [filtered_rows: expectedFilteredRows])
           sql "set experimental_enable_parallel_scan = false"
+          sql " set inverted_index_skip_threshold = 0 "
+          sql " set enable_common_expr_pushdown_for_inverted_index = true"
+          sql " set enable_common_expr_pushdown = true"
+          sql " set enable_parallel_scan = false"
           sql "sync"
-          sql "${sqlQuery}"
+          sql "${sqlQuery}" 
       } finally {
           GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
           GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.apply_inverted_index")

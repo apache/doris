@@ -534,7 +534,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // for system table or FeUt, use ColumnStatistic.UNKNOWN
         if (StatisticConstants.isSystemTable(olapTable) || !FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable().internalSession) {
+                || ConnectContext.get().getState().isInternal()) {
             for (Slot slot : ((Plan) olapScan).getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
@@ -1180,7 +1180,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+        if (connectContext != null && connectContext.getState().isInternal()) {
             return ColumnStatistic.UNKNOWN;
         }
         long catalogId;
@@ -1211,7 +1211,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId, List<String> partitionNames) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+        if (connectContext != null && connectContext.getState().isInternal()) {
             return ColumnStatistic.UNKNOWN;
         }
         long catalogId;
@@ -1282,7 +1282,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable().internalSession) {
+                || ConnectContext.get().getState().isInternal()) {
             builder.setRowCount(Math.max(1, tableRowCount));
             for (Slot slot : catalogRelation.getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);

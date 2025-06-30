@@ -340,6 +340,7 @@ struct TPaimonFileDesc {
     13: optional map<string, string> hadoop_conf // deprecated
     14: optional string paimon_table  // deprecated
     15: optional i64 row_count // deprecated
+    16: optional i64 schema_id; // for schema change.
 }
 
 struct TTrinoConnectorFileDesc {
@@ -378,6 +379,7 @@ struct THudiFileDesc {
     9: optional list<string> column_types;
     10: optional list<string> nested_fields;
     11: optional string hudi_jni_scanner; // deprecated
+    12: optional i64 schema_id; // for schema change. (native reader)
 }
 
 struct TLakeSoulFileDesc {
@@ -466,6 +468,7 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
+    25: optional map<i64, map<i32, string>> history_schema_info // paimon/hudi map<schema id, map<column unique id , column name>> : for schema change. (native reader)
 }
 
 struct TFileRangeDesc {
@@ -538,10 +541,8 @@ struct TDataGenScanRange {
 
 
 struct TIcebergMetadataParams {
-  1: optional Types.TIcebergQueryType iceberg_query_type
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
+  1: optional string serialized_task
+  2: optional map<string, string> hadoop_props
 }
 
 struct THudiMetadataParams {
