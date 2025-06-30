@@ -17,11 +17,12 @@
 
 #include "disjunction_query.h"
 
+#include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
+
 namespace doris::segment_v2 {
 
-DisjunctionQuery::DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                                   const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher), _io_ctx(io_ctx) {}
+DisjunctionQuery::DisjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context)
+        : _searcher(std::move(searcher)), _context(std::move(context)) {}
 
 void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
@@ -29,20 +30,52 @@ void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 
     _field_name = query_info.field_name;
-    _term_infos = query_info.term_infos;
+    _iterators.resize(query_info.term_infos.size());
+    for (size_t i = 0; i < query_info.term_infos.size(); i++) {
+        const auto& term_info = query_info.term_infos[i];
+        if (term_info.is_single_term()) {
+            auto iter = TermIterator::create(_context->io_ctx, _searcher->getReader(),
+                                             query_info.field_name, term_info.get_single_term());
+            _iterators[i].emplace_back(iter);
+        } else {
+            for (const auto& term : term_info.get_multi_terms()) {
+                auto iter = TermIterator::create(_context->io_ctx, _searcher->getReader(),
+                                                 query_info.field_name, term);
+                _iterators[i].emplace_back(iter);
+            }
+        }
+    }
+
+    if (_context->collection_similarity && query_info.is_similarity_score) {
+        for (const auto& iters : _iterators) {
+            if (iters.size() > 1) {
+                throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                "Scoring is not supported for this query.");
+            }
+            auto similarity = std::make_unique<BM25Similarity>();
+            similarity->for_one_term(_context, _field_name, iters[0]->term());
+            _similarities.emplace_back(std::move(similarity));
+        }
+    }
 }
 
 void DisjunctionQuery::search(roaring::Roaring& roaring) {
-    auto func = [this, &roaring](const std::string& term, bool first) {
-        auto iter = TermIterator::create(_io_ctx, _searcher->getReader(), _field_name, term);
-
+    auto func = [this, &roaring](size_t i, const TermIterPtr& iter, bool first) {
         DocRange doc_range;
         roaring::Roaring result;
         while (iter->read_range(&doc_range)) {
             if (doc_range.type_ == DocRangeType::kMany) {
                 result.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
+
+                if (!_similarities.empty()) {
+                    QueryHelper::collect_many(_context, _similarities[i], doc_range);
+                }
             } else {
                 result.addRange(doc_range.doc_range.first, doc_range.doc_range.second);
+
+                if (!_similarities.empty()) {
+                    QueryHelper::collect_range(_context, _similarities[i], doc_range);
+                }
             }
         }
 
@@ -52,14 +85,13 @@ void DisjunctionQuery::search(roaring::Roaring& roaring) {
             roaring |= result;
         }
     };
-    for (size_t i = 0; i < _term_infos.size(); i++) {
-        const auto& term_info = _term_infos[i];
-        if (term_info.is_single_term()) {
-            func(term_info.get_single_term(), i == 0);
-        } else {
-            const auto& terms = term_info.get_multi_terms();
-            for (size_t j = 0; j < terms.size(); j++) {
-                func(terms[j], (i == 0 && j == 0));
+
+    for (size_t i = 0; i < _iterators.size(); i++) {
+        if (_iterators[i].size() == 1) {
+            func(i, _iterators[i][0], i == 0);
+        } else if (_iterators[i].size() > 1) {
+            for (size_t j = 0; j < _iterators[i].size(); j++) {
+                func(i, _iterators[i][j], (i == 0 && j == 0));
             }
         }
     }

@@ -57,10 +57,10 @@ public:
               _storage_format(storage_format),
               _idx_file_info(idx_file_info) {}
 
-    Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
-                const io::IOContext* io_ctx = nullptr);
-    Result<std::unique_ptr<DorisCompoundReader>> open(const TabletIndex* index_meta,
-                                                      const io::IOContext* io_ctx = nullptr) const;
+    MOCK_FUNCTION Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
+                              const io::IOContext* io_ctx = nullptr);
+    MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> open(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
     std::string get_index_file_path(const TabletIndex* index_meta) const;
@@ -73,9 +73,9 @@ public:
 
 protected:
     Status _init_from(int32_t read_buffer_size, const io::IOContext* io_ctx);
-    Result<std::unique_ptr<DorisCompoundReader>> _open(int64_t index_id,
-                                                       const std::string& index_suffix,
-                                                       const io::IOContext* io_ctx = nullptr) const;
+    Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> _open(
+            int64_t index_id, const std::string& index_suffix,
+            const io::IOContext* io_ctx = nullptr) const;
 
 private:
     IndicesEntriesMap _indices_entries;

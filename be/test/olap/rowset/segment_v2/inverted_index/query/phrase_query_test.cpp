@@ -218,10 +218,14 @@ TEST_F(PhraseQueryTest, test_exact_phrase_query) {
     ASSERT_NE(searcher, nullptr);
 
     // Test exact phrase query
-    TQueryOptions query_options;
+    RuntimeState runtime_state;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhraseQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
@@ -268,10 +272,14 @@ TEST_F(PhraseQueryTest, test_single_term_query) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
-    TQueryOptions query_options;
+    RuntimeState runtime_state;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhraseQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";
@@ -317,10 +325,14 @@ TEST_F(PhraseQueryTest, test_sloppy_phrase_query) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
-    TQueryOptions query_options;
+    RuntimeState runtime_state;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhraseQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";
@@ -368,10 +380,14 @@ TEST_F(PhraseQueryTest, test_ordered_sloppy_phrase_query) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
-    TQueryOptions query_options;
+    RuntimeState runtime_state;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhraseQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";
@@ -413,10 +429,14 @@ TEST_F(PhraseQueryTest, test_multi_term_vector_add) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
-    TQueryOptions query_options;
+    RuntimeState runtime_state;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhraseQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";
@@ -457,10 +477,14 @@ TEST_F(PhraseQueryTest, test_empty_terms_exception) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
-    TQueryOptions query_options;
+    RuntimeState runtime_state;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhraseQuery query(searcher, context);
 
     // Test with empty terms - should throw exception
     InvertedIndexQueryInfo query_info;
@@ -503,10 +527,14 @@ TEST_F(PhraseQueryTest, test_no_matches) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
-    TQueryOptions query_options;
+    RuntimeState runtime_state;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhraseQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";

@@ -218,4 +218,9 @@ bool VirtualSlotRef::equals(const VExpr& other) {
     return true;
 }
 
+bool VirtualSlotRef::is_score_expr() const {
+    return _virtual_column_expr->fn().name.function_name == "score";
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
