@@ -89,7 +89,9 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   * pad_left ----- c_start -------------c_end ---------------------------- c_end_of_storage ------------- pad_right
   *    ^                                        ^                                                              ^
   *    |                                        |                                                              |
-  *    |                                    c_res_mem (usually > c_end && < c_end + PRE_GROWTH_SIZE)           |
+  *    |                                    c_res_mem (usually > c_end && < c_end + max((capacity_size         |
+  *    |                                                                                 / PRE_GROWTH_RATIO),  |
+  *    |                                                                                 PRE_MIN_GROWTH_SIZE)) |
   *    |                                                                                                       |
   *    +-------------------------------------- allocated_bytes (4096 bytes) -----------------------------------+
   *
@@ -109,7 +111,8 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   * TODO Allow greater alignment than alignof(T). Example: array of char aligned to page size.
   */
 static constexpr size_t EmptyPODArraySize = 1024;
-static constexpr size_t PRE_GROWTH_SIZE = (1ULL << 20); // 1M
+static constexpr size_t PRE_GROWTH_RATIO = 10;
+static constexpr size_t PRE_MIN_GROWTH_SIZE = (1ULL << 20); // 1M
 extern const char empty_pod_array[EmptyPODArraySize];
 
 /** Base class that depend only on size of element, not on element itself.
@@ -174,15 +177,26 @@ protected:
         static_assert(!TAllocator::need_check_and_tracking_memory(),
                       "TAllocator should specify `NoTrackingDefaultMemoryAllocator`");
         if (UNLIKELY(c_end_new - c_res_mem > 0)) {
+            // 1. if (capacity_size / PRE_GROWTH_RATIO) <= PRE_MIN_GROWTH_SIZE:
             // - allocated_bytes = c_end_of_storage - c_start = 4 MB;
             // - used_bytes = c_end_new - c_start = 2.1 MB;
             // - last tracking_res_memory = c_res_mem - c_start = 1 MB;
-            // - res_mem_growth = min(allocated_bytes, integerRoundUp(used_bytes)) - last_tracking_res_memory = 3 - 1 = 2 MB;
+            // - res_mem_growth = min(allocated_bytes, integerRoundUp(used_bytes, 1M)) - last_tracking_res_memory = 3 - 1 = 2 MB;
             // - update tracking_res_memory = 1 + 2 = 3 MB;
             // so after each reset_resident_memory, tracking_res_memory >= used_bytes;
+            //
+            // 2. if (capacity_size / PRE_GROWTH_RATIO) > PRE_MIN_GROWTH_SIZE:
+            // - allocated_bytes = c_end_of_storage - c_start = 1024 MB;
+            // - used_bytes = c_end_new - c_start = 210 MB;
+            // - last tracking_res_memory = c_res_mem - c_start = 102 MB;
+            // - res_mem_growth = min(allocated_bytes, integerRoundUp(used_bytes, 102M)) - last_tracking_res_memory = 306 - 102 = 204 MB;
+            // - update tracking_res_memory = 102 + 204 = 306 MB;
+
+            auto capacity_size = static_cast<size_t>(c_end_of_storage - c_start);
+            auto min_growth_size = std::max(static_cast<size_t>(capacity_size / PRE_GROWTH_RATIO),
+                                            PRE_MIN_GROWTH_SIZE);
             int64_t res_mem_growth =
-                    std::min(static_cast<size_t>(c_end_of_storage - c_start),
-                             integerRoundUp(c_end_new - c_start, PRE_GROWTH_SIZE)) -
+                    std::min(capacity_size, integerRoundUp(c_end_new - c_start, min_growth_size)) -
                     (c_res_mem - c_start);
             check_memory(res_mem_growth);
             CONSUME_THREAD_MEM_TRACKER(res_mem_growth);
