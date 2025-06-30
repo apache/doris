@@ -536,7 +536,6 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
         auto msg = fmt::format("failed to get boundaries, code={}", code);
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
     }
-    std::string msg;
     std::unordered_map<std::string, size_t> partition_count;
     get_partition_boundaries_count(partition_boundaries, partition_count);
 
