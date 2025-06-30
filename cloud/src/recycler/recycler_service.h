@@ -38,6 +38,11 @@ public:
                           ::doris::cloud::RecycleInstanceResponse* response,
                           ::google::protobuf::Closure* done) override;
 
+    void statistics_recycle(::google::protobuf::RpcController* controller,
+                            const ::doris::cloud::StatisticsRecycleRequest* request,
+                            ::doris::cloud::StatisticsRecycleResponse* response,
+                            ::google::protobuf::Closure* done) override;
+
     void http(::google::protobuf::RpcController* controller,
               const ::doris::cloud::MetaServiceHttpRequest* request,
               ::doris::cloud::MetaServiceHttpResponse* response,
