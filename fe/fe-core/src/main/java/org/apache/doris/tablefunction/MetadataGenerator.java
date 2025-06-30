@@ -42,7 +42,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.util.DebugUtil;
@@ -86,8 +85,6 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.THudiMetadataParams;
 import org.apache.doris.thrift.THudiQueryType;
-import org.apache.doris.thrift.TIcebergMetadataParams;
-import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TJobsMetadataParams;
 import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
@@ -112,15 +109,12 @@ import com.google.gson.Gson;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
-import org.apache.iceberg.Snapshot;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
 import java.text.SimpleDateFormat;
-import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -226,9 +220,6 @@ public class MetadataGenerator {
         TMetadataTableRequestParams params = request.getMetadaTableParams();
         TMetadataType metadataType = request.getMetadaTableParams().getMetadataType();
         switch (metadataType) {
-            case ICEBERG:
-                result = icebergMetadataResult(params);
-                break;
             case HUDI:
                 result = hudiMetadataResult(params);
                 break;
@@ -333,56 +324,6 @@ public class MetadataGenerator {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
         result.status.addToErrorMsgs(msg);
-        return result;
-    }
-
-    private static TFetchSchemaTableDataResult icebergMetadataResult(TMetadataTableRequestParams params) {
-        if (!params.isSetIcebergMetadataParams()) {
-            return errorResult("Iceberg metadata params is not set.");
-        }
-
-        TIcebergMetadataParams icebergMetadataParams = params.getIcebergMetadataParams();
-        TIcebergQueryType icebergQueryType = icebergMetadataParams.getIcebergQueryType();
-        IcebergMetadataCache icebergMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
-        List<TRow> dataBatch = Lists.newArrayList();
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-
-        switch (icebergQueryType) {
-            case SNAPSHOTS:
-                List<Snapshot> snapshotList;
-                try {
-                    snapshotList = icebergMetadataCache.getSnapshotList(icebergMetadataParams);
-                } catch (UserException e) {
-                    return errorResult(e.getMessage());
-                }
-                for (Snapshot snapshot : snapshotList) {
-                    TRow trow = new TRow();
-                    LocalDateTime committedAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(
-                            snapshot.timestampMillis()), TimeUtils.getTimeZone().toZoneId());
-                    long encodedDatetime = TimeUtils.convertToDateTimeV2(committedAt.getYear(),
-                            committedAt.getMonthValue(),
-                            committedAt.getDayOfMonth(), committedAt.getHour(), committedAt.getMinute(),
-                            committedAt.getSecond(), committedAt.getNano() / 1000);
-
-                    trow.addToColumnValue(new TCell().setLongVal(encodedDatetime));
-                    trow.addToColumnValue(new TCell().setLongVal(snapshot.snapshotId()));
-                    if (snapshot.parentId() == null) {
-                        trow.addToColumnValue(new TCell().setLongVal(-1L));
-                    } else {
-                        trow.addToColumnValue(new TCell().setLongVal(snapshot.parentId()));
-                    }
-                    trow.addToColumnValue(new TCell().setStringVal(snapshot.operation()));
-                    trow.addToColumnValue(new TCell().setStringVal(snapshot.manifestListLocation()));
-                    trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(snapshot.summary())));
-
-                    dataBatch.add(trow);
-                }
-                break;
-            default:
-                return errorResult("Unsupported iceberg inspect type: " + icebergQueryType);
-        }
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 
