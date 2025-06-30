@@ -336,22 +336,18 @@ std::string handle_kv_output(std::string_view key, std::string_view value,
                  << "key_hex=" << hex(key) << "\n"
                  << "original_value_json=" << original_value_json << "\n"
                  << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
-    std::string final_json_str;
-
-    if (value.size() > 0 && value.size() < 25000) {
-        final_json_str = final_output.str();
-    } else {
+    std::string final_json_str = final_output.str();
+    LOG(INFO) << final_json_str;
+    if (value.size() > 25000) {
         std::string file_path = fmt::format("/tmp/{}.txt", hex(key));
-        final_json_str = "kv msg write to /tmp dir, path=" + file_path + "\n";
         try {
             std::ofstream kv_file(file_path);
             if (kv_file.is_open()) {
-                kv_file << final_output.str();
+                kv_file << final_json_str;
                 kv_file.close();
             }
         } catch (...) {
-            LOG(INFO) << "write file failed, so write to ms log\n" << final_output.str();
-            final_json_str = "kv msg write to /tmp dir failed, write to ms log\n";
+            LOG(INFO) << "write tmp file failed.";
         }
     }
 
