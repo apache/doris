@@ -2334,7 +2334,7 @@ size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
         using value_type = StringRef;
         using iterator_category = std::random_access_iterator_tag;
         using pointer = StringRef*;
-        using reference = StringRef&;
+        using reference = const StringRef&;
 
         Iterator() = delete;
         Iterator(const ColumnString* data_, size_t index_) : data(data_), index(index_) {}
@@ -2361,7 +2361,6 @@ size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
         inline bool operator>(const Iterator& rhs) const { return index > rhs.index; }
         inline bool operator<=(const Iterator& rhs) const { return index <= rhs.index; }
         inline bool operator>=(const Iterator& rhs) const { return index >= rhs.index; }
-        inline Iterator& operator--() { --index; return *this; }
         inline Iterator operator--(int) { Iterator tmp = *this; --(*this); return tmp; }
         inline Iterator& operator-=(difference_type n) { index -= n; return *this; }
         inline reference operator[](difference_type n) const { return *(this->operator+(n)); }
