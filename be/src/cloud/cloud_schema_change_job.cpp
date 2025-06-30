@@ -81,6 +81,13 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
     std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
                                                     std::try_to_lock);
+    _new_tablet->set_alter_failed(false);
+    Defer defer([this] {
+        // if tablet state is not TABLET_RUNNING when return, indicates that alter has failed.
+        if (_new_tablet->tablet_state() != TABLET_RUNNING) {
+            _new_tablet->set_alter_failed(true);
+        }
+    });
     if (!schema_change_lock.owns_lock()) {
         LOG(WARNING) << "Failed to obtain schema change lock. base_tablet="
                      << request.base_tablet_id;
@@ -135,7 +142,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},
                                                          &rs_splits, false));
     }
-    Defer defer {[&]() {
+    Defer defer2 {[&]() {
         _new_tablet->set_alter_version(-1);
         _base_tablet->set_alter_version(-1);
     }};

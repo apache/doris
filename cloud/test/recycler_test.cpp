@@ -54,6 +54,7 @@ using namespace doris;
 static const std::string instance_id = "instance_id_recycle_test";
 static int64_t current_time = 0;
 static constexpr int64_t db_id = 1000;
+static RecyclerMetricsContext ctx;
 
 static doris::cloud::RecyclerThreadPoolGroup thread_group;
 
@@ -1083,7 +1084,7 @@ TEST(RecyclerTest, recycle_tablet) {
 
     ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
 
-    ASSERT_EQ(0, recycler.recycle_tablets(table_id, index_id));
+    ASSERT_EQ(0, recycler.recycle_tablets(table_id, index_id, ctx));
 
     // check rowset does not exist on s3
     std::unique_ptr<ListIterator> list_iter;
@@ -3279,16 +3280,17 @@ TEST(RecyclerTest, delete_rowset_data) {
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB
         constexpr int index_id = 10001, tablet_id = 10002;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         for (int i = 0; i < 10; ++i) {
             auto rowset = create_rowset(resource_id, tablet_id, index_id, 5, schemas[i % 5]);
             create_recycle_rowset(
                     txn_kv.get(), accessor.get(), rowset,
                     static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), true);
 
-            rowset_pbs.emplace_back(std::move(rowset));
+            rowset_pbs.emplace(rowset.rowset_id_v2(), std::move(rowset));
         }
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET));
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET,
+                                                 ctx));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
@@ -3384,16 +3386,17 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB
         constexpr int index_id = 10001, tablet_id = 10002;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         for (int i = 0; i < 10; ++i) {
             auto rowset = create_rowset(resource_id, tablet_id, index_id, 5, schemas[i % 5]);
             create_recycle_rowset(
                     txn_kv.get(), accessor.get(), rowset,
                     static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), true);
 
-            rowset_pbs.emplace_back(std::move(rowset));
+            rowset_pbs.emplace(rowset.rowset_id_v2(), std::move(rowset));
         }
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET));
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET,
+                                                 ctx));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
@@ -3550,7 +3553,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 
     // recycle tablet will fail because unuseful obj accessor can not connectted
-    EXPECT_EQ(recycler.recycle_tablet(0), -1);
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
     // however, useful mock accessor can recycle tablet
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 1);
 }
@@ -3632,7 +3635,7 @@ TEST(RecyclerTest, recycle_tablet_without_resource_id) {
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 
     // recycle tablet will fail because unuseful obj accessor can not connectted
-    EXPECT_EQ(recycler.recycle_tablet(0), -1);
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
     // no resource id, cannot recycle
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 }
@@ -3714,7 +3717,7 @@ TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 
     // recycle tablet will fail because unuseful obj accessor can not connectted
-    EXPECT_EQ(recycler.recycle_tablet(0), -1);
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
     // no resource id, cannot recycle
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 }
@@ -3937,7 +3940,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         doris::RowsetMetaCloudPB rowset;
         rowset.set_rowset_id(0); // useless but required
         rowset.set_rowset_id_v2("1");
@@ -3949,7 +3952,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
         rowset.mutable_tablet_schema()->CopyFrom(schema);
         create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1);
         rowset.clear_tablet_schema();
-        rowset_pbs.emplace_back(rowset);
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
 
         std::unordered_set<std::string> list_files;
         std::unique_ptr<ListIterator> iter;
@@ -3964,7 +3967,8 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
         EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
         EXPECT_TRUE(list_files.contains("data/10000/1_0_1.idx"));
 
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET));
+        ASSERT_EQ(0,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
         list_files.clear();
         iter.reset();
         EXPECT_EQ(accessor->list_all(&iter), 0);
@@ -4016,7 +4020,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         doris::RowsetMetaCloudPB rowset;
         rowset.set_rowset_id(0); // useless but required
         rowset.set_rowset_id_v2("1");
@@ -4028,7 +4032,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
         rowset.mutable_tablet_schema()->CopyFrom(schema);
         create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
         rowset.clear_tablet_schema();
-        rowset_pbs.emplace_back(rowset);
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
 
         std::unordered_set<std::string> list_files;
         std::unique_ptr<ListIterator> iter;
@@ -4043,7 +4047,8 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
         EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
         EXPECT_TRUE(list_files.contains("data/10000/1_0.idx"));
 
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET));
+        ASSERT_EQ(0,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
         list_files.clear();
         iter.reset();
         EXPECT_EQ(accessor->list_all(&iter), 0);
@@ -4100,7 +4105,7 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         doris::RowsetMetaCloudPB rowset;
         rowset.set_rowset_id(0); // useless but required
         rowset.set_rowset_id_v2("1");
@@ -4112,7 +4117,7 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
         rowset.mutable_tablet_schema()->CopyFrom(schema);
         create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
         rowset.clear_tablet_schema();
-        rowset_pbs.emplace_back(rowset);
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
 
         rowset.set_rowset_id(0); // useless but required
         rowset.set_rowset_id_v2("2");
@@ -4124,7 +4129,7 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
         rowset.mutable_tablet_schema()->CopyFrom(schema);
         create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
         rowset.clear_tablet_schema();
-        rowset_pbs.emplace_back(rowset);
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
 
         std::unordered_set<std::string> list_files;
         std::unique_ptr<ListIterator> iter;
@@ -4141,7 +4146,8 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
         EXPECT_TRUE(list_files.contains("data/20000/2_0.dat"));
         EXPECT_TRUE(list_files.contains("data/20000/2_0.idx"));
 
-        EXPECT_EQ(-1, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET));
+        EXPECT_EQ(-1,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
         list_files.clear();
         iter.reset();
         EXPECT_EQ(accessor->list_all(&iter), 0);

@@ -24,6 +24,7 @@
 #include <bvar/reducer.h>
 
 #include <cstdint>
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -139,8 +140,7 @@ public:
         BvarType* stats = counter_.get_stats(std::list<std::string>(dim_values));
         if (stats) {
             if constexpr (std::is_same_v<BvarType, bvar::Status<double>> ||
-                          std::is_same_v<BvarType, bvar::Status<long>> ||
-                          is_pair_status<BvarType>::value) {
+                          std::is_same_v<BvarType, bvar::Status<long>>) {
                 stats->set_value(value);
             } else {
                 *stats << value;
@@ -160,8 +160,6 @@ private:
     template <typename T>
     struct is_valid_bvar_type : std::false_type {};
     template <typename T>
-    struct is_pair_status : std::false_type {};
-    template <typename T>
     struct is_valid_bvar_type<bvar::Adder<T>> : std::true_type {};
     template <>
     struct is_valid_bvar_type<bvar::IntRecorder> : std::true_type {};
@@ -169,8 +167,6 @@ private:
     struct is_valid_bvar_type<bvar::Maxer<T>> : std::true_type {};
     template <typename T>
     struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
-    template <typename T>
-    struct is_pair_status<bvar::Status<std::pair<T, T>>> : std::true_type {};
     template <>
     struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
 
@@ -183,18 +179,8 @@ using mBvarIntRecorder = mBvarWrapper<bvar::IntRecorder>;
 using mBvarLatencyRecorder = mBvarWrapper<bvar::LatencyRecorder>;
 using mBvarIntMaxer = mBvarWrapper<bvar::Maxer<int>>;
 using mBvarDoubleMaxer = mBvarWrapper<bvar::Maxer<double>>;
-using mBvarLongStatus = mBvarWrapper<bvar::Status<long>>;
-using mBvarDoubleStatus = mBvarWrapper<bvar::Status<double>>;
-
-namespace std {
-template <typename T1, typename T2>
-inline std::ostream& operator<<(std::ostream& os, const std::pair<T1, T2>& p) {
-    return os << "{" << p.first << "," << p.second << "}";
-}
-} // namespace std
-
 template <typename T>
-using mBvarPairStatus = mBvarWrapper<bvar::Status<std::pair<T, T>>>;
+using mBvarStatus = mBvarWrapper<bvar::Status<T>>;
 
 // meta-service's bvars
 extern BvarLatencyRecorderWithTag g_bvar_ms_begin_txn;
@@ -270,13 +256,28 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts;
 
+// recycler's mbvars
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
-extern bvar::Adder<int64_t> g_bvar_recycler_task_concurrency;
-extern mBvarIntAdder g_bvar_recycler_instance_running;
-extern mBvarLongStatus g_bvar_recycler_instance_last_recycle_duration;
-extern mBvarLongStatus g_bvar_recycler_instance_next_time;
-extern mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_times;
-extern mBvarLongStatus g_bvar_recycler_instance_recycle_last_success_times;
+extern bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
+extern bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_recycle_duration;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_st_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_ed_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
+
+extern mBvarIntAdder g_bvar_recycler_vault_recycle_status;
+extern mBvarIntAdder g_bvar_recycler_vault_recycle_task_concurrency;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes;
+extern mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts;
+extern mBvarIntAdder g_bvar_recycler_instance_recycle_total_num_since_started;
+extern mBvarIntAdder g_bvar_recycler_instance_recycle_total_bytes_since_started;
+extern mBvarIntAdder g_bvar_recycler_instance_recycle_round;
+extern mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource;
+extern mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms;
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;

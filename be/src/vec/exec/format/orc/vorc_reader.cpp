@@ -742,6 +742,7 @@ bool OrcReader::_init_search_argument(
     std::unique_ptr<orc::SearchArgumentBuilder> builder = orc::SearchArgumentFactory::newBuilder();
     if (build_search_argument(predicates, 0, builder)) {
         std::unique_ptr<orc::SearchArgument> sargs = builder->build();
+        _profile->add_info_string("OrcReader SearchArgument: ", sargs->toString());
         _row_reader_options.searchArgument(std::move(sargs));
         return true;
     } else {

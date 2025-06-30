@@ -15,25 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("query_constant") {
-    multi_sql """
-        set enable_nereids_distribute_planner=true;
-        set enable_pipeline_x_engine=true;
-        set enable_local_shuffle=false;
-        set force_to_local_shuffle=false;
-        """
+#pragma once
 
-    order_qt_query_one_row "select 100 id, 'abc' name"
+#include <vector>
 
-    order_qt_union_all """
-        select 100 id, 'hello' name
-        union all
-        select 200 id, 'world' name
-        """
+namespace doris {
 
-    order_qt_union """
-        select 100 id, 'hello' name
-        union
-        select 200 id, 'world' name
-        """
-}
+struct InvertedIndexQueryStatistics {
+    std::string column_name;
+    int64_t hit_rows = 0;
+    int64_t exec_time = 0;
+};
+
+struct InvertedIndexStatistics {
+    std::vector<InvertedIndexQueryStatistics> stats;
+};
+
+} // namespace doris

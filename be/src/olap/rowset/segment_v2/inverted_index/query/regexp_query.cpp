@@ -27,6 +27,7 @@ namespace doris::segment_v2 {
 RegexpQuery::RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                          const TQueryOptions& query_options, const io::IOContext* io_ctx)
         : _searcher(searcher),
+          _io_ctx(io_ctx),
           _max_expansions(query_options.inverted_index_max_expansions),
           _query(searcher, query_options, io_ctx) {}
 
@@ -66,7 +67,7 @@ void RegexpQuery::add(const std::wstring& field_name, const std::vector<std::str
     int32_t count = 0;
 
     try {
-        enumerator = _searcher->getReader()->terms();
+        enumerator = _searcher->getReader()->terms(nullptr, _io_ctx);
         while (enumerator->next()) {
             term = enumerator->term();
             std::string input = lucene_wcstoutf8string(term->text(), term->textLength());

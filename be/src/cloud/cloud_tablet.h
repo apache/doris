@@ -59,6 +59,8 @@ public:
         return _approximate_data_size.load(std::memory_order_relaxed);
     }
 
+    std::string tablet_path() const override;
+
     // clang-format off
     int64_t fetch_add_approximate_num_rowsets (int64_t x) { return _approximate_num_rowsets .fetch_add(x, std::memory_order_relaxed); }
     int64_t fetch_add_approximate_num_segments(int64_t x) { return _approximate_num_segments.fetch_add(x, std::memory_order_relaxed); }

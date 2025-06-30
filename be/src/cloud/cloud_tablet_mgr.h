@@ -91,6 +91,8 @@ public:
     // **ATTN: JUST FOR UT**
     void put_tablet_for_UT(std::shared_ptr<CloudTablet> tablet);
 
+    std::vector<std::shared_ptr<CloudTablet>> get_all_tablet();
+
 private:
     CloudStorageEngine& _engine;
 

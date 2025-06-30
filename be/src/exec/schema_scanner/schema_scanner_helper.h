@@ -32,9 +32,12 @@ class Block;
 class SchemaScannerHelper {
 public:
     static void insert_string_value(int col_index, std::string str_val, vectorized::Block* block);
-    static void insert_datetime_value(int col_index, const std::vector<void*>& datas,
+    static void insert_datetime_value(int col_index, int64_t timestamp, const std::string& ctz,
                                       vectorized::Block* block);
 
+    static void insert_bool_value(int col_index, bool bool_val, vectorized::Block* block);
+
+    static void insert_int32_value(int col_index, int32_t int_val, vectorized::Block* block);
     static void insert_int64_value(int col_index, int64_t int_val, vectorized::Block* block);
     static void insert_double_value(int col_index, double double_val, vectorized::Block* block);
 };
