@@ -850,14 +850,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(alterJobs);
 
         String buildNgramBfIndexStmtStr = "BUILD INDEX idx_error_msg on test.sc_dup ";
-        AlterTableStmt buildNgramBfIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(buildNgramBfIndexStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(buildNgramBfIndexStmt);
-
-        jobSize++;
-        alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
-        LOG.info("alterJobs:{}", alterJobs);
-        Assertions.assertEquals(jobSize, alterJobs.size());
-        waitAlterJobDone(alterJobs);
+        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> parseAndAnalyzeStmt(buildNgramBfIndexStmtStr));
 
         tbl.readLock();
         try {
