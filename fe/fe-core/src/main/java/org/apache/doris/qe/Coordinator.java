@@ -135,6 +135,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.ByteString;
+import org.apache.commons.collections.map.MultiValueMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
@@ -311,6 +312,8 @@ public class Coordinator implements CoordInterface {
 
     private volatile QueueToken queueToken = null;
     private QueryQueue queryQueue = null;
+    private long queueTimeMs = 0;
+    private static long CHECK_REPLICA_MIN_QUEUE_TIME_MS = 10000;
 
     public ExecutionProfile getExecutionProfile() {
         return executionProfile;
@@ -659,6 +662,7 @@ public class Coordinator implements CoordInterface {
                 this.setTWorkloadGroups(wgList);
                 boolean shouldQueue = this.shouldQueue();
                 if (shouldQueue) {
+                    long start = System.currentTimeMillis();
                     Set<Long> wgIdSet = Sets.newHashSet();
                     for (TPipelineWorkloadGroup twg : wgList) {
                         wgIdSet.add(twg.getId());
@@ -672,6 +676,7 @@ public class Coordinator implements CoordInterface {
                     queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     queueToken.get(DebugUtil.printId(queryId),
                             this.queryOptions.getExecutionTimeout() * 1000);
+                    queueTimeMs = System.currentTimeMillis() - start;
                 }
             } else {
                 context.setWorkloadGroupName("");
@@ -2264,12 +2269,65 @@ public class Coordinator implements CoordInterface {
         });
     }
 
+    private List<TScanRangeLocation> validateLocations(List<TScanRangeLocation> locs, List<TScanRange> scanRanges)
+            throws UserException {
+        List<TScanRangeLocation> retLocations = locs;
+        if (!Config.isCloudMode() && queueTimeMs > CHECK_REPLICA_MIN_QUEUE_TIME_MS) {
+            final Map<Long, Set<Long>> beId2TabletIs = new HashMap<>();
+            for (TScanRange scanRange : scanRanges) {
+                if (scanRange != null && scanRange.isSetPaloScanRange()) {
+                    TPaloScanRange paloScanRange = scanRange.getPaloScanRange();
+                    long tabletId = paloScanRange.getTabletId();
+                    Set<Long> beIds = Env.getCurrentInvertedIndex().getReplicasByTabletId(tabletId).stream()
+                            .map(replica -> {
+                                try {
+                                    return replica.getBackendId();
+                                } catch (UserException e) {
+                                    return Long.MAX_VALUE;
+                                }
+                            }).collect(Collectors.toSet());
+                    retLocations = retLocations.stream().filter(location -> {
+                        if (!beIds.contains(location.getBackendId())) {
+                            beId2TabletIs.computeIfAbsent(location.getBackendId(), x -> new HashSet<>()).add(tabletId);
+                            return false;
+                        } else {
+                            return true;
+                        }
+                    })
+                            .collect(Collectors.toList());
+                }
+            }
+            if (retLocations.isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("Queue time ").append(queueTimeMs).append(" ms. Some BE lost tablet and can not find a BE to"
+                        + " query all the tablets. The lost info: ");
+                for (Map.Entry<Long, Set<Long>> entry : beId2TabletIs.entrySet()) {
+                    sb.append(" ").append(entry.getKey()).append(": [");
+                    boolean first = true;
+                    for (Long tabletId : entry.getValue()) {
+                        if (!first) {
+                            sb.append(", ");
+                        }
+                        sb.append(tabletId);
+                        first = false;
+                    }
+                    sb.append("]");
+                }
+
+                throw new UserException(sb.toString());
+            }
+        }
+        return retLocations;
+    }
+
     public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
                                                          Map<TNetworkAddress, Long> assignedBytesPerHost,
                                                          Map<TNetworkAddress, Long> replicaNumPerHost,
                                                          Reference<Long> backendIdRef,
                                                          boolean isEnableOrderedLocations) throws UserException {
         List<TScanRangeLocation> locations = seqLocation.getLocations();
+        TScanRange scanRange = seqLocation.getScanRange();
+        locations = validateLocations(locations, Lists.newArrayList(scanRange));
         if (isEnableOrderedLocations) {
             Collections.sort(locations);
         }
@@ -2634,15 +2692,21 @@ public class Coordinator implements CoordInterface {
         }
 
         // make sure each host have average bucket to scan
-        private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation,
+        private void getExecHostPortForFragmentIDAndBucketSeq(List<TScanRangeLocations> seqLocations,
                 PlanFragmentId fragmentId, Integer bucketSeq, ImmutableMap<Long, Backend> idToBackend,
                 Map<TNetworkAddress, Long> addressToBackendID,
                 Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
             Map<Long, Integer> buckendIdToBucketCountMap = fragmentIdToBuckendIdBucketCountMap.get(fragmentId);
+            TScanRangeLocations seqLocation = seqLocations.get(0);
+
+            List<TScanRangeLocation> locations = seqLocation.getLocations();
+            locations = validateLocations(locations, seqLocations.stream().map(TScanRangeLocations::getScanRange)
+                    .collect(Collectors.toList()));
+
             int maxBucketNum = Integer.MAX_VALUE;
             long buckendId = Long.MAX_VALUE;
             Long minReplicaNum = Long.MAX_VALUE;
-            for (TScanRangeLocation location : seqLocation.locations) {
+            for (TScanRangeLocation location : locations) {
                 if (buckendIdToBucketCountMap.getOrDefault(location.backend_id, 0) < maxBucketNum) {
                     maxBucketNum = buckendIdToBucketCountMap.getOrDefault(location.backend_id, 0);
                     buckendId = location.backend_id;
@@ -2654,8 +2718,7 @@ public class Coordinator implements CoordInterface {
                 }
             }
             Reference<Long> backendIdRef = new Reference<>();
-            TNetworkAddress execHostPort = SimpleScheduler.getHost(buckendId,
-                    seqLocation.locations, idToBackend, backendIdRef);
+            TNetworkAddress execHostPort = SimpleScheduler.getHost(buckendId, locations, idToBackend, backendIdRef);
             //the backend with buckendId is not alive, chose another new backend
             if (backendIdRef.getRef() != buckendId) {
                 buckendIdToBucketCountMap.put(backendIdRef.getRef(),
@@ -2691,7 +2754,7 @@ public class Coordinator implements CoordInterface {
                 //fill scanRangeParamsList
                 List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
                 if (!bucketSeqToAddress.containsKey(bucketSeq)) {
-                    getExecHostPortForFragmentIDAndBucketSeq(locations.get(0), scanNode.getFragmentId(),
+                    getExecHostPortForFragmentIDAndBucketSeq(locations, scanNode.getFragmentId(),
                             bucketSeq, idToBackend, addressToBackendID, replicaNumPerHost);
                 }
 
