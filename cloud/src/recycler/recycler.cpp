@@ -719,8 +719,8 @@ int InstanceRecycler::recycle_deleted_instance() {
     DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(WARNING) << (ret == 0 ? "successfully" : "failed to")
-                  << " recycle deleted instance, cost=" << cost
-                  << "s, instance_id=" << instance_id_;
+                     << " recycle deleted instance, cost=" << cost
+                     << "s, instance_id=" << instance_id_;
     };
 
     // delete all remote data
