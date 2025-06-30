@@ -323,7 +323,8 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,
-                                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                                .is_dryrun = config::
+                                                        enable_reader_dryrun_when_download_file_cache,
                                         },
                                 .download_done {[](Status st) {
                                     if (!st) {
