@@ -414,6 +414,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         // if needRuntimeAnyValue is true, we will add it to the project list
         boolean needRuntimeAnyValue = false;
         NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0);
+        if (subquery instanceof ScalarSubquery) {
+            // scalar sub query may adjust output slot's nullable.
+            oldSubqueryOutput = ((ScalarSubquery) subquery).getOutputSlotAdjustNullable();
+        }
         Slot countSlot = null;
         Slot anyValueSlot = null;
         Optional<Expression> newConjunct = conjunct;
@@ -427,9 +431,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 // but COUNT function is always not nullable.
                 // so wrap COUNT with Nvl to ensure its result is 0 instead of null to get the correct result
                 if (conjunct.isPresent()) {
-                    Map<Expression, Expression> replaceMap = new HashMap<>();
-                    NamedExpression agg = ((ScalarSubquery) subquery).getTopLevelScalarAggFunction().get();
+                    NamedExpression agg = ScalarSubquery.getTopLevelScalarAggFunction(
+                            subquery.getQueryPlan(), subquery.getCorrelateSlots()).get();
                     if (agg instanceof Alias) {
+                        Map<Expression, Expression> replaceMap = new HashMap<>();
                         if (((Alias) agg).child() instanceof NotNullableAggregateFunction) {
                             NotNullableAggregateFunction notNullableAggFunc =
                                     (NotNullableAggregateFunction) ((Alias) agg).child();
@@ -451,9 +456,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                 replaceMap.put(oldSubqueryOutput, new Nvl(oldSubqueryOutput,
                                         notNullableAggFunc.resultForEmptyInput()));
                             }
-                        }
-                        if (!replaceMap.isEmpty()) {
-                            newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
+                            if (!replaceMap.isEmpty()) {
+                                newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
+                            }
                         }
                     }
                 }

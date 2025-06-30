@@ -18,11 +18,9 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
 import com.google.common.base.CaseFormat;
@@ -202,7 +200,7 @@ public class Utils {
      * return abs(t2.d)
      */
     public static List<Expression> getUnCorrelatedExprs(List<Expression> correlatedPredicates,
-                                                        List<Expression> correlatedSlots) {
+                                                        List<Slot> correlatedSlots) {
         List<Expression> unCorrelatedExprs = new ArrayList<>();
         correlatedPredicates.forEach(predicate -> {
             if (!(predicate instanceof BinaryExpression) && (!(predicate instanceof Not)
@@ -240,27 +238,8 @@ public class Utils {
         return unCorrelatedExprs;
     }
 
-    private static List<Expression> collectCorrelatedSlotsFromChildren(
-            BinaryExpression binaryExpression, List<Expression> correlatedSlots) {
-        List<Expression> slots = new ArrayList<>();
-        if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
-            if (binaryExpression.right() instanceof SlotReference) {
-                slots.add(binaryExpression.right());
-            } else if (binaryExpression.right() instanceof Cast) {
-                slots.add(((Cast) binaryExpression.right()).child());
-            }
-        } else {
-            if (binaryExpression.left() instanceof SlotReference) {
-                slots.add(binaryExpression.left());
-            } else if (binaryExpression.left() instanceof Cast) {
-                slots.add(((Cast) binaryExpression.left()).child());
-            }
-        }
-        return slots;
-    }
-
     public static Map<Boolean, List<Expression>> splitCorrelatedConjuncts(
-            Set<Expression> conjuncts, List<Expression> slots) {
+            Set<Expression> conjuncts, List<Slot> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
                 expr -> expr.anyMatch(slots::contains)));
     }
