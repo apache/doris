@@ -235,7 +235,8 @@ suite("cast") {
     }
     test {
         sql "select cast(12 as decimalv3(2,1))"
-        exception "Arithmetic overflow"
+        // exception "Arithmetic overflow"
+        exception "can't cast to"
     }
 
     // date

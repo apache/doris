@@ -36,9 +36,7 @@ suite("test_cast_to_decimal128i_38_1_from_str") {
     """
 
     sql "set enable_strict_cast=true;"
-    qt_sql_7_strict '
-    select f1, cast(f2 as decimalv3(38, 1)) from test_cast_to_decimal128i_38_1_from_str_7_nullable order by 1;
-    '
+    qt_sql_7_strict 'select f1, cast(f2 as decimalv3(38, 1)) from test_cast_to_decimal128i_38_1_from_str_7_nullable order by 1;'
 
     sql "set enable_strict_cast=false;"
     qt_sql_7_non_strict 'select f1, cast(f2 as decimalv3(38, 1)) from test_cast_to_decimal128i_38_1_from_str_7_nullable order by 1;'
