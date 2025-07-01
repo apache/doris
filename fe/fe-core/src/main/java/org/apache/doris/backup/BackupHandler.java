@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AbstractBackupStmt;
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupType;
-import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
@@ -230,31 +229,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (!st.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                     "Failed to create repository: " + st.getErrMsg());
-        }
-        if (!repo.ping()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "Failed to create repository: failed to connect to the repo");
-        }
-    }
-
-    // handle create repository stmt
-    public void createRepository(CreateRepositoryStmt stmt) throws DdlException {
-        if (!env.getBrokerMgr().containsBroker(stmt.getBrokerName())
-                && stmt.getStorageType() == StorageBackend.StorageType.BROKER) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "broker does not exist: " + stmt.getBrokerName());
-        }
-
-        RemoteFileSystem fileSystem;
-        fileSystem = FileSystemFactory.get(stmt.getStorageProperties());
-        long repoId = env.getNextId();
-        Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
-                fileSystem);
-
-        Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
-        if (!st.ok()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                           "Failed to create repository: " + st.getErrMsg());
         }
         if (!repo.ping()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
