@@ -476,7 +476,7 @@ int InstanceChecker::do_check() {
     long instance_volume = 0;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "check instance objects finished, cost=" << cost
                   << "s. instance_id=" << instance_id_ << " num_scanned=" << num_scanned
@@ -489,7 +489,7 @@ int InstanceChecker::do_check() {
         g_bvar_checker_check_cost_s.put(instance_id_, static_cast<long>(cost));
         // FIXME(plat1ko): What if some list operation failed?
         g_bvar_checker_instance_volume.put(instance_id_, instance_volume);
-    });
+    };
 
     struct TabletFiles {
         int64_t tablet_id {0};
@@ -688,14 +688,14 @@ int InstanceChecker::do_inverted_check() {
     long num_file_leak = 0;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         g_bvar_inverted_checker_num_scanned.put(instance_id_, num_scanned);
         g_bvar_inverted_checker_num_check_failed.put(instance_id_, num_file_leak);
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "inverted check instance objects finished, cost=" << cost
                   << "s. instance_id=" << instance_id_ << " num_scanned=" << num_scanned
                   << " num_file_leak=" << num_file_leak;
-    });
+    };
 
     struct TabletRowsets {
         int64_t tablet_id {0};
@@ -1067,7 +1067,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
     int64_t leaked_delete_bitmaps {0};
 
     auto start_time = std::chrono::steady_clock::now();
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         g_bvar_inverted_checker_leaked_delete_bitmaps.put(instance_id_, leaked_delete_bitmaps);
         g_bvar_inverted_checker_abnormal_delete_bitmaps.put(instance_id_, abnormal_delete_bitmaps);
         g_bvar_inverted_checker_delete_bitmaps_scanned.put(instance_id_, total_delete_bitmap_keys);
@@ -1088,7 +1088,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                     "passed. cost={} ms, total_delete_bitmap_keys={}",
                     instance_id_, cost, total_delete_bitmap_keys);
         }
-    });
+    };
 
     struct TabletsRowsetsCache {
         int64_t tablet_id {-1};
