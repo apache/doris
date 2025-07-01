@@ -20,7 +20,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -30,7 +29,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Node that applies conjuncts and a limit clause. Has exactly one child.
@@ -47,32 +45,9 @@ public class SelectNode extends PlanNode {
         this.nullableTupleIds = child.nullableTupleIds;
     }
 
-    protected SelectNode(PlanNodeId id, PlanNode child, List<Expr> conjuncts) {
-        super(id, new ArrayList<>(child.getOutputTupleIds()), "SELECT", StatisticalType.SELECT_NODE);
-        addChild(child);
-        this.tblRefIds = child.tblRefIds;
-        this.nullableTupleIds = child.nullableTupleIds;
-        this.conjuncts.addAll(conjuncts);
-    }
-
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SELECT_NODE;
-    }
-
-
-    @Override
-    protected void computeOldCardinality() {
-        long cardinality = getChild(0).cardinality;
-        double selectivity = computeOldSelectivity();
-        if (cardinality < 0 || selectivity < 0) {
-            this.cardinality = -1;
-        } else {
-            this.cardinality = Math.round(cardinality * selectivity);
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Select: cardinality={}", this.cardinality);
-        }
     }
 
     @Override
