@@ -381,9 +381,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> beProperties = new HashMap<>();
         beProperties.putAll(backendConnectProperties);
         fileScanRangeParams.setProperties(beProperties);
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
-            fileScanRangeParams.setTextSerdeType(((CsvFileFormatProperties) fileFormatProperties).getTextSerdeType());
-        }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
