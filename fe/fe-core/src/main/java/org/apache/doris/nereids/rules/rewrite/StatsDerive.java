@@ -263,15 +263,14 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     @Override
     public Statistics visitLogicalIntersect(
             LogicalIntersect intersect, DeriveContext context) {
-        Statistics leftStats = null;
+        List<Statistics> childrenStats = new ArrayList<>();
         for (Plan child : intersect.children()) {
             Statistics childStats = child.accept(this, context);
-            if (leftStats == null) {
-                leftStats = childStats;
-            }
+            childrenStats.add(childStats);
         }
-        Statistics stats = StatsCalculator.INSTANCE.computeIntersect(intersect, leftStats);
-        intersect.setStatistics(leftStats);
+
+        Statistics stats = StatsCalculator.INSTANCE.computeIntersect(intersect, childrenStats);
+        intersect.setStatistics(stats);
         return stats;
     }
 

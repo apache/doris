@@ -903,7 +903,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalIntersect(
             LogicalIntersect intersect, Void context) {
-        return computeIntersect(intersect, groupExpression.childStatistics(0));
+        List<Statistics> childrenStats = new ArrayList<>();
+        for (int i = 0; i < intersect.arity(); i++) {
+            childrenStats.add(groupExpression.childStatistics(i));
+        }
+        return computeIntersect(intersect,childrenStats);
     }
 
     @Override
@@ -1066,7 +1070,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalIntersect(PhysicalIntersect intersect, Void context) {
-        return computeIntersect(intersect, groupExpression.childStatistics(0));
+        List<Statistics> childrenStats = new ArrayList<>();
+        for (int i = 0; i < intersect.arity(); i++) {
+            childrenStats.add(groupExpression.childStatistics(i));
+        }
+        return computeIntersect(intersect, childrenStats);
     }
 
     @Override
@@ -1492,16 +1500,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     /**
      * computeIntersect
      */
-    public Statistics computeIntersect(SetOperation setOperation, Statistics leftChildStats) {
+    public Statistics computeIntersect(SetOperation setOperation, List<Statistics> childrenStats) {
+        Statistics leftChildStats = childrenStats.get(0);
+        Preconditions.checkArgument(leftChildStats != null, "Intersect: " + setOperation
+                + " child stats is null");
         double rowCount = leftChildStats.getRowCount();
         for (int i = 1; i < setOperation.getArity(); ++i) {
-            rowCount = Math.min(rowCount, groupExpression.childStatistics(i).getRowCount());
+            rowCount = Math.min(rowCount, childrenStats.get(i).getRowCount());
         }
         double minProd = Double.POSITIVE_INFINITY;
-        for (Group group : groupExpression.children()) {
-            Statistics statistics = group.getStatistics();
+        for (Statistics childStats : childrenStats) {
             double prod = 1.0;
-            for (ColumnStatistic columnStatistic : statistics.columnStatistics().values()) {
+            for (ColumnStatistic columnStatistic : childStats.columnStatistics().values()) {
                 prod *= columnStatistic.ndv;
             }
             if (minProd < prod) {
