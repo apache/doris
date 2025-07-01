@@ -23,6 +23,7 @@
 #include <google/protobuf/util/json_util.h>
 
 #include <bit>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -32,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -326,6 +328,34 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
     return http_text_reply(MetaServiceCode::OK, "", readable_value);
 }
 
+std::string handle_kv_output(std::string_view key, std::string_view value,
+                             std::string_view original_value_json,
+                             std::string_view serialized_value_to_save) {
+    std::stringstream final_output;
+    final_output << "original_value_hex=" << hex(value) << "\n"
+                 << "key_hex=" << hex(key) << "\n"
+                 << "original_value_json=" << original_value_json << "\n"
+                 << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
+    std::string final_json_str = final_output.str();
+    LOG(INFO) << final_json_str;
+    if (final_json_str.size() > 25000) {
+        std::string file_path = fmt::format("/tmp/{}.txt", hex(key));
+        LOG(INFO) << "write to file=" << file_path << ", key=" << hex(key)
+                  << " size=" << final_json_str.size();
+        try {
+            std::ofstream kv_file(file_path);
+            if (kv_file.is_open()) {
+                kv_file << final_json_str;
+                kv_file.close();
+            }
+        } catch (...) {
+            LOG(INFO) << "write tmp file failed.";
+        }
+    }
+
+    return final_json_str;
+}
+
 HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     const brpc::URI& uri = cntl->http_request().uri();
     std::string body = cntl->request_attachment().to_string();
@@ -426,12 +456,10 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     }
     LOG(WARNING) << "set_value saved, key=" << hex(key);
 
-    std::stringstream final_json;
-    final_json << "original_value_hex=" << hex(value.value()) << "\n"
-               << "key_hex=" << hex(key) << "\n"
-               << "original_value_json=" << original_value_json << "\n";
+    std::string final_json_str =
+            handle_kv_output(key, value.value(), original_value_json, serialized_value_to_save);
 
-    return http_text_reply(MetaServiceCode::OK, "", final_json.str());
+    return http_text_reply(MetaServiceCode::OK, "", final_json_str);
 }
 
 HttpResponse process_http_encode_key(const brpc::URI& uri) {
