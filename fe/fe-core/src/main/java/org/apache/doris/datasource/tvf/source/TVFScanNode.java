@@ -48,7 +48,6 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -149,9 +148,8 @@ public class TVFScanNode extends FileQueryScanNode {
         }
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            Map<String, String> prop = Maps.newHashMap();
             try {
-                splits.addAll(FileSplitter.splitFile(new LocationPath(fileStatus.getPath(), prop),
+                splits.addAll(FileSplitter.splitFile(LocationPath.of(fileStatus.getPath()),
                         getRealFileSplitSize(needSplit ? fileStatus.getBlockSize() : Long.MAX_VALUE),
                         null, fileStatus.getSize(),
                         fileStatus.getModificationTime(), fileStatus.isSplitable, null,

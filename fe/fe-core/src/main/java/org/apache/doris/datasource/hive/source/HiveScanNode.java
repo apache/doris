@@ -293,7 +293,7 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName);
+            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1);
         }
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
@@ -393,7 +393,7 @@ public class HiveScanNode extends FileQueryScanNode {
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
         return cache.getFilesByTransaction(partitions, validWriteIds,
-            hiveTransaction.isFullAcid(), skipCheckingAcidVersionFile, hmsTable.getId(), bindBrokerName);
+            hiveTransaction.isFullAcid(), skipCheckingAcidVersionFile, hmsTable.getId());
     }
 
     @Override

@@ -187,7 +187,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             true,
             preExecutionAuthenticator);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
-                this.bindBrokerName(), this.catalogProperty.getHadoopProperties());
+                 this.catalogProperty.getStoragePropertiesMap());
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE, String.format("hms_committer_%s_file_system_executor_pool", name), true);
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,

@@ -47,6 +47,7 @@ import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.systable.SupportedSysTables;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
@@ -574,6 +575,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return catalog.getProperties();
     }
 
+    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+        return catalog.getCatalogProperty().getStoragePropertiesMap();
+    }
+
     public Map<String, String> getHadoopProperties() {
         return catalog.getCatalogProperty().getHadoopProperties();
     }
@@ -1080,7 +1085,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
             }
         }
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions);
     }
 
     @Override

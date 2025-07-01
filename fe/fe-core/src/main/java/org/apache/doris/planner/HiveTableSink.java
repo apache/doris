@@ -22,6 +22,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -124,7 +125,12 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         setSerDeProperties(tSink);
 
         THiveLocationParams locationParams = new THiveLocationParams();
-        LocationPath locationPath = new LocationPath(sd.getLocation(), targetTable.getHadoopProperties(), false);
+        LocationPath locationPath = null;
+        try {
+            locationPath = LocationPath.of(sd.getLocation(), targetTable.getStoragePropertiesMap(), false);
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
         String location = locationPath.getPath().toString();
         String storageLocation = locationPath.toStorageLocation().toString();
         TFileType fileType = locationPath.getTFileTypeForBE();
