@@ -1493,7 +1493,6 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
     }
 
     for (int retry = 0; retry <= 1; retry++) {
-        response->Clear();
         bool need_commit = false;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1576,6 +1575,9 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                     // The only fdb txn conflict here is that during the compaction job commit,
                     // a compaction lease RPC comes and finishes before the commit,
                     // so we retry to commit the compaction job again.
+                    response->Clear();
+                    code = MetaServiceCode::OK;
+                    msg.clear();
                     continue;
                 }
             }
