@@ -96,6 +96,8 @@ public class HiveMetaStoreClientHelper {
     public static final String HIVE_JSON_SERDE = "org.apache.hive.hcatalog.data.JsonSerDe";
     public static final String LEGACY_HIVE_JSON_SERDE = "org.apache.hadoop.hive.serde2.JsonSerDe";
     public static final String OPENX_JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe";
+    public static final String HIVE_TEXT_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+    public static final String HIVE_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
@@ -835,7 +837,6 @@ public class HiveMetaStoreClientHelper {
             }
         }
     }
-
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login

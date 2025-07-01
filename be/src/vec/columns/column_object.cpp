@@ -974,7 +974,7 @@ const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Fi
         for (size_t i = 0; i < size; ++i) {
             Field nested_field;
             const auto nested_type =
-                    static_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+                    static_cast<TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
             data = parse_binary_from_sparse_column(nested_type, data, nested_field, info_res);
             array[i] = std::move(nested_field);
         }
@@ -993,7 +993,7 @@ std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const C
     const auto& data_ref = value->get_data_at(row);
     const char* data = data_ref.data;
     DCHECK(data_ref.size > 1);
-    const TypeIndex type = static_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+    const TypeIndex type = static_cast<TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
     Field res;
     FieldInfo info_res = {
             .scalar_type_id = type,
@@ -2330,11 +2330,14 @@ size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
     // Simple random access iterator over values in ColumnString in specified range.
     class Iterator {
     public:
-        using difference_type = size_t;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-local-typedefs"
+        using difference_type = std::ptrdiff_t;
         using value_type = StringRef;
         using iterator_category = std::random_access_iterator_tag;
         using pointer = StringRef*;
         using reference = StringRef&;
+#pragma GCC diagnostic pop
 
         Iterator() = delete;
         Iterator(const ColumnString* data_, size_t index_) : data(data_), index(index_) {}

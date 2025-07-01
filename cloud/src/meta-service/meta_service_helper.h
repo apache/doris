@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "common/defer.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -226,24 +227,57 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     }
 }
 
-#define RPC_PREPROCESS(func_name)                                                    \
-    StopWatch sw;                                                                    \
-    auto ctrl = static_cast<brpc::Controller*>(controller);                          \
-    begin_rpc(#func_name, ctrl, request);                                            \
-    brpc::ClosureGuard closure_guard(done);                                          \
-    [[maybe_unused]] std::stringstream ss;                                           \
-    [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                     \
-    [[maybe_unused]] std::string msg;                                                \
-    [[maybe_unused]] std::string instance_id;                                        \
-    [[maybe_unused]] bool drop_request = false;                                      \
-    DORIS_CLOUD_DEFER {                                                              \
-        response->mutable_status()->set_code(code);                                  \
-        response->mutable_status()->set_msg(msg);                                    \
-        finish_rpc(#func_name, ctrl, response);                                      \
-        closure_guard.reset(nullptr);                                                \
-        if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) { \
-            g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us());                 \
-        }                                                                            \
+// don't use these macro it just for defer count, reduce useless variable(some rpc just need one of rw op)
+// If we have to write separate code for each RPC, it would be quite troublesome
+// After all, adding put, get, and del after the RPC_PREPROCESS macro is simpler than writing a long string of code
+#define RPCKVCOUNTHELPER(func_name, op) \
+    g_bvar_rpc_kv_##func_name##_##op##_counter.put({instance_id}, stats.op##_counter);
+#define RPCKVCOUNT_0(func_name)
+#define RPCKVCOUNT_1(func_name, op1) RPCKVCOUNTHELPER(func_name, op1)
+#define RPCKVCOUNT_2(func_name, op1, op2) \
+    RPCKVCOUNT_1(func_name, op1) RPCKVCOUNTHELPER(func_name, op2)
+#define RPCKVCOUNT_3(func_name, op1, op2, op3) \
+    RPCKVCOUNT_2(func_name, op1, op2) RPCKVCOUNTHELPER(func_name, op3)
+#define GET_RPCKVCOUNT_MACRO(_0, _1, _2, _3, NAME, ...) NAME
+
+// input func_name, count type(get, put, del), make sure the counter is exist
+// about defer_count:
+// which means that these bvars will only be counted after stats has finished counting.
+// why not cancle KVStats, count directly?
+// 1. some RPC operations call functions and function reset txn it also need to be counted
+// 2. some function such as `scan_tmp_rowset` it used by RPC(commit_txn) and non rpc
+// maybe we can add a bool variable to judge weather we need count, but if have more complex situation
+// `func1` used by RPC1, RPC2 and RPC3 judge it or just give func1 a pointer
+#define RPC_PREPROCESS(func_name, ...)                                                        \
+    StopWatch sw;                                                                             \
+    auto ctrl = static_cast<brpc::Controller*>(controller);                                   \
+    begin_rpc(#func_name, ctrl, request);                                                     \
+    brpc::ClosureGuard closure_guard(done);                                                   \
+    [[maybe_unused]] std::stringstream ss;                                                    \
+    [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                              \
+    [[maybe_unused]] std::unique_ptr<Transaction> txn;                                        \
+    [[maybe_unused]] std::string msg;                                                         \
+    [[maybe_unused]] std::string instance_id;                                                 \
+    [[maybe_unused]] bool drop_request = false;                                               \
+    [[maybe_unused]] KVStats stats;                                                           \
+    DORIS_CLOUD_DEFER {                                                                       \
+        response->mutable_status()->set_code(code);                                           \
+        response->mutable_status()->set_msg(msg);                                             \
+        finish_rpc(#func_name, ctrl, response);                                               \
+        closure_guard.reset(nullptr);                                                         \
+        if (txn != nullptr) {                                                                 \
+            stats.get_counter += txn->num_get_keys();                                         \
+            stats.put_counter += txn->num_put_keys();                                         \
+            stats.del_counter += txn->num_del_keys();                                         \
+        }                                                                                     \
+        if (config::use_detailed_metrics && !instance_id.empty()) {                           \
+            if (!drop_request) {                                                              \
+                g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us());                      \
+            }                                                                                 \
+            GET_RPCKVCOUNT_MACRO(_0, ##__VA_ARGS__, RPCKVCOUNT_3, RPCKVCOUNT_2, RPCKVCOUNT_1, \
+                                 RPCKVCOUNT_0)                                                \
+            (func_name, ##__VA_ARGS__)                                                        \
+        }                                                                                     \
     };
 
 #define RPC_RATE_LIMIT(func_name)                                                            \
@@ -272,7 +306,8 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
 /**
  * Notifies other metaservice to refresh instance
  */
-void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id);
+void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                             KVStats* stats);
 
 void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
                     const std::string& instance_id, int64_t tablet_id, TabletIndexPB& tablet_idx);

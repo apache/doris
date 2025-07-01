@@ -17,16 +17,14 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.thrift.TIcebergMetadataParams;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
@@ -78,16 +76,6 @@ public class IcebergMetadataCache {
         this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), null, executor);
     }
 
-    public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
-        if (catalog == null) {
-            throw new UserException("The specified catalog does not exist:" + params.getCatalog());
-        }
-        IcebergMetadataCacheKey key =
-                IcebergMetadataCacheKey.of(catalog, params.getDatabase(), params.getTable());
-        return snapshotListCache.get(key);
-    }
-
     public Table getIcebergTable(CatalogIf catalog, String dbName, String tbName) {
         IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
         return tableCache.get(key);
@@ -136,12 +124,18 @@ public class IcebergMetadataCache {
 
     @NotNull
     private IcebergSnapshotCacheValue loadSnapshot(IcebergMetadataCacheKey key) throws AnalysisException {
-        IcebergExternalTable table = (IcebergExternalTable) key.catalog.getDbOrAnalysisException(key.dbName)
+        MTMVRelatedTableIf table = (MTMVRelatedTableIf) key.catalog.getDbOrAnalysisException(key.dbName)
                 .getTableOrAnalysisException(key.tableName);
-        long snapshotId = table.getLatestSnapshotId();
-        long schemaId = table.getSchemaId(snapshotId);
-        IcebergPartitionInfo icebergPartitionInfo = table.loadPartitionInfo(snapshotId);
-        return new IcebergSnapshotCacheValue(icebergPartitionInfo, new IcebergSnapshot(snapshotId, schemaId));
+        IcebergSnapshot lastedIcebergSnapshot = IcebergUtils.getLastedIcebergSnapshot(
+                (ExternalCatalog) key.catalog, key.dbName, key.tableName);
+        IcebergPartitionInfo icebergPartitionInfo;
+        if (!table.isValidRelatedTable()) {
+            icebergPartitionInfo = IcebergPartitionInfo.empty();
+        } else {
+            icebergPartitionInfo = IcebergUtils.loadPartitionInfo(
+                (ExternalCatalog) key.catalog, key.dbName, key.tableName, lastedIcebergSnapshot.getSnapshotId());
+        }
+        return new IcebergSnapshotCacheValue(icebergPartitionInfo, lastedIcebergSnapshot);
     }
 
     public void invalidateCatalogCache(long catalogId) {

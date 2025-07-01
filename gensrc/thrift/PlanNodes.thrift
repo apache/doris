@@ -120,7 +120,8 @@ enum TFileFormatType {
     FORMAT_CSV_LZ4BLOCK,
     FORMAT_CSV_SNAPPYBLOCK,
     FORMAT_WAL,
-    FORMAT_ARROW
+    FORMAT_ARROW,
+    FORMAT_TEXT
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -379,6 +380,7 @@ struct THudiFileDesc {
     9: optional list<string> column_types;
     10: optional list<string> nested_fields;
     11: optional string hudi_jni_scanner; // deprecated
+    12: optional i64 schema_id; // for schema change. (native reader)
 }
 
 struct TLakeSoulFileDesc {
@@ -411,6 +413,7 @@ struct TTableFormatFileDesc {
     9: optional i64 table_level_row_count
 }
 
+// Deprecated, hive text talbe is a special format, not a serde type
 enum TTextSerdeType {
     JSON_TEXT_SERDE = 0,
     HIVE_TEXT_SERDE = 1,
@@ -459,6 +462,7 @@ struct TFileScanRangeParams {
     19: optional map<string, i32> slot_name_to_schema_pos
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
+    // Deprecated, hive text talbe is a special format, not a serde type
     22: optional TTextSerdeType  text_serde_type 
     // used by flexible partial update
     23: optional string sequence_map_col
@@ -467,7 +471,7 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
-    25: optional map<i64, map<i64, string>> paimon_schema_info //paimon map<schema id, map<column unique id , column name>> : for schema change.
+    25: optional map<i64, map<i32, string>> history_schema_info // paimon/hudi map<schema id, map<column unique id , column name>> : for schema change. (native reader)
 }
 
 struct TFileRangeDesc {
@@ -540,10 +544,8 @@ struct TDataGenScanRange {
 
 
 struct TIcebergMetadataParams {
-  1: optional Types.TIcebergQueryType iceberg_query_type
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
+  1: optional string serialized_task
+  2: optional map<string, string> hadoop_props
 }
 
 struct THudiMetadataParams {

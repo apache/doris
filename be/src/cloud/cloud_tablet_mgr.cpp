@@ -538,6 +538,13 @@ void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
               << max_base_rowset_delete_bitmap_score_tablet_id << ", tablets=[" << ss.str() << "]";
 }
 
+std::vector<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_all_tablet() {
+    std::vector<std::shared_ptr<CloudTablet>> tablets;
+    tablets.reserve(_tablet_map->size());
+    _tablet_map->traverse([&tablets](auto& t) { tablets.push_back(t); });
+    return tablets;
+}
+
 void CloudTabletMgr::put_tablet_for_UT(std::shared_ptr<CloudTablet> tablet) {
     _tablet_map->put(tablet);
 }
