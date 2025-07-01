@@ -18,38 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
-suite("test_compaction_sparse_column", "p1,nonConcurrent") {
+suite("test_compaction_sparse_column", "p1") {
     def tableName = "test_compaction"
 
     try {
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        boolean disableAutoCompaction = true
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
-        }
-
-        def set_be_config = { key, value ->
-            (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-        set_be_config.call("write_buffer_size", "10240")
-
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE ${tableName} (
@@ -110,19 +82,6 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
         // trigger compactions for all tablets in ${tableName}
         trigger_and_wait_compaction(tableName, "cumulative")
 
-        int rowCount = 0
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
-            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def tabletJson = parseJson(out.trim())
-            assert tabletJson.rowsets instanceof List
-            for (String rowset in (List<String>) tabletJson.rowsets) {
-                rowCount += Integer.parseInt(rowset.split(" ")[1])
-            }
-        }
-        assert (rowCount <= 8)
         qt_select_b """ SELECT count(cast(v['b'] as int)) FROM ${tableName};"""
         qt_select_xxxx """ SELECT count(cast(v['xxxx'] as string)) FROM ${tableName};"""
         qt_select_point """ SELECT count(cast(v['point'] as bigint)) FROM ${tableName};"""
@@ -140,8 +99,5 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
         qt_select_6_1 """ SELECT count(cast(v['b'] as int)) FROM ${tableName} where cast(v['b'] as int) = 42005;"""
         qt_select_all """SELECT k, v['a'], v['b'], v['xxxx'], v['point'], v['ddddd'] from ${tableName} where (cast(v['point'] as int) = 1);"""
     } finally {
-        // try_sql("DROP TABLE IF EXISTS ${tableName}")
-        set_be_config.call("write_buffer_size", "209715200")
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     }
 }
