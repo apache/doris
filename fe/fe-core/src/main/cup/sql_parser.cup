@@ -723,10 +723,10 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt, unset_var_stmt, unset_default_storage_vault_stmt,
     create_job_stmt, pause_job_stmt, resume_job_stmt,stop_job_stmt, cancel_job_task_stmt,
-    use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
+    use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, kill_analysis_job_stmt, insert_overwrite_stmt, copy_stmt,
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, kill_analysis_job_stmt, copy_stmt,
     warm_up_stmt;
 
 nonterminal FromClause opt_using_clause;
@@ -763,7 +763,6 @@ nonterminal QueryStmt set_operand;
 nonterminal List<SetOperand> set_operand_list;
 // List of select blocks connected by set operators, with order by or limit.
 nonterminal QueryStmt set_operation_with_order_by_or_limit;
-nonterminal InsertStmt insert_stmt;
 nonterminal InsertTarget insert_target;
 nonterminal InsertSource insert_source;
 nonterminal List<BinaryPredicate> set_clause;
@@ -1221,14 +1220,6 @@ stmt ::=
     | cancel_stmt : stmt
     {: RESULT = stmt; :}
     | sync_stmt : stmt
-    {: RESULT = stmt; :}
-    | insert_stmt : stmt
-    {:
-        RESULT = stmt;
-        stmt.setPlaceHolders(parser.placeholder_expr_list);
-        parser.placeholder_expr_list.clear();
-    :}
-    | insert_overwrite_stmt : stmt
     {: RESULT = stmt; :}
     | backup_stmt : stmt
     {: RESULT = stmt; :}
@@ -1835,21 +1826,6 @@ create_stmt ::=
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
-    :}
-    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            opt_col_list:columns
-            opt_engine:engineName
-            opt_keys:keys
-            opt_comment:tableComment
-            opt_partition:partition
-            opt_distribution:distribution
-            opt_rollup:index
-            opt_properties:tblProperties
-            opt_ext_properties:extProperties
-            KW_AS query_stmt:query_def
-    {:
-        RESULT = new CreateTableAsSelectStmt(new CreateTableStmt(ifNotExists, isExternal, name, null, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment, index), columns, query_def);
     :}
     | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
@@ -4299,13 +4275,6 @@ use_stmt ::=
         RESULT = new UseStmt(ctl, db);
     :}
     ;
-// Insert overwrite statement
-insert_overwrite_stmt ::=
-    KW_INSERT KW_OVERWRITE KW_TABLE insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
-    {:
-       RESULT = new InsertOverwriteTableStmt(target, label, cols, source, hints);
-    :}
-    ;
 
 // Change cloud cluster
 use_cloud_cluster_stmt ::=
@@ -4320,21 +4289,6 @@ use_cloud_cluster_stmt ::=
     | KW_USE ident:ctl DOT ident:db AT ident:cluster
     {:
         RESULT = new UseCloudClusterStmt(cluster, db, ctl);
-    :}
-    ;
-
-// Insert statement
-insert_stmt ::=
-    KW_INSERT KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
-    {:
-        RESULT = new NativeInsertStmt(target, label, cols, source, hints);
-    :}
-    // TODO(zc) add default value for SQL-2003
-    // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
-    | /* used for group commit */
-    KW_INSERT KW_INTO KW_DORIS_INTERNAL_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
-    {:
-        RESULT = new NativeInsertStmt(table_id, label, cols, source, hints);
     :}
     ;
 

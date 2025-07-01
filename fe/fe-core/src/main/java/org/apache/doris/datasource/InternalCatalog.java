@@ -24,11 +24,7 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
@@ -36,7 +32,6 @@ import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MultiPartitionDesc;
@@ -45,7 +40,6 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
@@ -54,7 +48,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TruncateTableStmt;
-import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.BrokerTable;
@@ -96,14 +89,12 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.RecyclePartitionParam;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -124,7 +115,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -1340,136 +1330,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         Preconditions.checkState(false);
         return false;
-    }
-
-    /**
-     * Create table for select.
-     **/
-    public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
-        try {
-            List<String> columnNames = stmt.getColumnNames();
-            CreateTableStmt createTableStmt = stmt.getCreateTableStmt();
-            QueryStmt queryStmt = stmt.getQueryStmt();
-            KeysDesc keysDesc = createTableStmt.getKeysDesc();
-            ArrayList<Expr> resultExprs = queryStmt.getResultExprs();
-            ArrayList<String> colLabels = queryStmt.getColLabels();
-            int size = resultExprs.size();
-            // Check columnNames
-            int colNameIndex = 0;
-            for (int i = 0; i < size; ++i) {
-                String name;
-                if (columnNames != null) {
-                    // use custom column names
-                    name = columnNames.get(i);
-                } else {
-                    name = colLabels.get(i);
-                }
-                try {
-                    FeNameFormat.checkColumnName(name);
-                } catch (AnalysisException exception) {
-                    if (ConnectContext.get() != null) {
-                        ConnectContext.get().getState().reset();
-                    }
-                    name = "_col" + (colNameIndex++);
-                }
-                TypeDef typeDef;
-                Expr resultExpr = resultExprs.get(i);
-                Type resultType = resultExpr.getType();
-                if (resultExpr instanceof FunctionCallExpr
-                        && resultExpr.getType().getPrimitiveType().equals(PrimitiveType.VARCHAR)
-                        && resultExpr.getType().getLength() == -1) {
-                    resultType = ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH);
-                }
-                if (resultType.isStringType() && (keysDesc == null || !keysDesc.containsCol(name))) {
-                    switch (resultType.getPrimitiveType()) {
-                        case STRING:
-                            typeDef = new TypeDef(ScalarType.createStringType());
-                            break;
-                        case VARCHAR:
-                            typeDef = new TypeDef(ScalarType.createVarchar(resultType.getLength()));
-                            break;
-                        case CHAR:
-                            typeDef = new TypeDef(ScalarType.createCharType(resultType.getLength()));
-                            break;
-                        default:
-                            throw new DdlException("Unsupported string type for ctas");
-                    }
-                    if (resultExpr.getSrcSlotRef() != null
-                            && resultExpr.getSrcSlotRef().getTable() != null
-                            && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
-                        if ((createTableStmt.getPartitionDesc() != null
-                                && createTableStmt.getPartitionDesc().inIdentifierPartitions(
-                                resultExpr.getSrcSlotRef().getColumnName()))
-                                || (createTableStmt.getDistributionDesc() != null
-                                && createTableStmt.getDistributionDesc().inDistributionColumns(
-                                        resultExpr.getSrcSlotRef().getColumnName()))) {
-                            // String type can not be used in partition/distributed column
-                            // so we replace it to varchar
-                            if (resultType.getPrimitiveType() == PrimitiveType.STRING) {
-                                typeDef = new TypeDef(ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH));
-                            }
-                        } else {
-                            typeDef = new TypeDef(ScalarType.createStringType());
-                        }
-                    }
-                } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
-                    typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
-                } else if (resultType.isDecimalV3()) {
-                    typeDef = new TypeDef(ScalarType.createDecimalV3Type(resultType.getPrecision(),
-                            ((ScalarType) resultType).getScalarScale()));
-                } else if (resultType.isNull()) {
-                    // if typeDef is NULL_TYPE, be will core when executing CTAS expression,
-                    // we change it to tinyint nullable.
-                    typeDef = TypeDef.create(PrimitiveType.TINYINT);
-                } else {
-                    typeDef = new TypeDef(resultType);
-                }
-                if (i == 0) {
-                    // If this is the first column, because olap table does not support the first column to be
-                    // string, float, double or array, we should check and modify its type
-                    // For string type, change it to varchar.
-                    // For other unsupported types, just remain unchanged, the analysis phash of create table stmt
-                    // will handle it.
-                    if (typeDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                        typeDef = TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH);
-                    }
-                }
-                ColumnDef columnDef;
-                if (resultExpr.getSrcSlotRef() == null) {
-                    columnDef = new ColumnDef(name, typeDef, false, null, true, -1, new DefaultValue(false, null), "",
-                            true);
-                } else {
-                    Column column = resultExpr.getSrcSlotRef().getDesc().getColumn();
-                    boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
-                    DefaultValue defaultValue;
-                    if (column.getDefaultValueExprDef() != null) {
-                        if (column.getDefaultValueExprDef().getPrecision() != null) {
-                            defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
-                                column.getDefaultValueExprDef().getExprName(),
-                                column.getDefaultValueExprDef().getPrecision());
-                        } else {
-                            defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
-                                column.getDefaultValueExprDef().getExprName());
-                        }
-                    } else {
-                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
-                    }
-                    columnDef = new ColumnDef(name, typeDef, false, null, column.isAllowNull(), -1, defaultValue,
-                            column.getComment(), true);
-                }
-                createTableStmt.addColumnDef(columnDef);
-                // set first column as default distribution
-                if (createTableStmt.getDistributionDesc() == null && i == 0) {
-                    createTableStmt.setDistributionDesc(new HashDistributionDesc(10, Lists.newArrayList(name)));
-                }
-            }
-            Analyzer dummyRootAnalyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
-            createTableStmt.analyze(dummyRootAnalyzer);
-            boolean tableHasExists = createTable(createTableStmt);
-            stmt.setTableHasExists(tableHasExists);
-        } catch (UserException e) {
-            throw new DdlException("Failed to execute CTAS Reason: " + e.getMessage());
-        }
     }
 
     public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {

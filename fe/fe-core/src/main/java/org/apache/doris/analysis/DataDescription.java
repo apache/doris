@@ -85,7 +85,7 @@ import java.util.TreeSet;
  * The transform after the keyword named SET is the old ways which only supports the hadoop function.
  * It old way of transform will be removed gradually. It
  */
-public class DataDescription implements InsertStmt.DataDesc {
+public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(

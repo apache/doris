@@ -26,7 +26,6 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
@@ -683,11 +682,6 @@ public abstract class TestWithFeService {
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) parseAndAnalyzeStmt(
                 "recover table " + table + ";", connectContext);
         Env.getCurrentEnv().recoverTable(recoverTableStmt);
-    }
-
-    public void createTableAsSelect(String sql) throws Exception {
-        CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
     }
 
     public void createCatalog(String sql) throws Exception {

@@ -39,8 +39,6 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -163,7 +161,6 @@ import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -555,11 +552,6 @@ public class Env {
 
     private QueryCancelWorker queryCancelWorker;
 
-    /**
-     * TODO(tsy): to be removed after load refactor
-     */
-    private final LoadManagerAdapter loadManagerAdapter;
-
     private StatisticsAutoCollector statisticsAutoCollector;
 
     private StatisticsJobAppender statisticsJobAppender;
@@ -829,7 +821,6 @@ public class Env {
         this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
-        this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
         this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
@@ -3492,10 +3483,6 @@ public class Env {
         return catalogIf.createTable(stmt);
     }
 
-    public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
-        getInternalCatalog().createTableAsSelect(stmt);
-    }
-
     /**
      * Adds a partition to a table
      *
@@ -3948,11 +3935,7 @@ public class Env {
         }
 
         // create table like a temporary table or create temporary table like a table
-        if (ddlStmt instanceof CreateTableLikeStmt) {
-            if (((CreateTableLikeStmt) ddlStmt).isTemp()) {
-                sb.append("TEMPORARY ");
-            }
-        } else if (table.isTemporary()) {
+        if (table.isTemporary()) {
             // used for show create table
             sb.append("TEMPORARY ");
         }
@@ -4049,50 +4032,6 @@ public class Env {
             // distribution
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
             sb.append("\n").append(distributionInfo.toSql());
-
-            // rollup index
-            if (ddlStmt instanceof CreateTableLikeStmt) {
-
-                CreateTableLikeStmt stmt = (CreateTableLikeStmt) ddlStmt;
-
-                ArrayList<String> rollupNames = stmt.getRollupNames();
-                boolean withAllRollup = stmt.isWithAllRollup();
-                List<Long> addIndexIdList = Lists.newArrayList();
-
-                if (!CollectionUtils.isEmpty(rollupNames)) {
-                    for (String rollupName : rollupNames) {
-                        addIndexIdList.add(olapTable.getIndexIdByName(rollupName));
-                    }
-                } else if (withAllRollup) {
-                    addIndexIdList = olapTable.getIndexIdListExceptBaseIndex();
-                }
-
-                if (!addIndexIdList.isEmpty()) {
-                    sb.append("\n").append("rollup (");
-                }
-
-                int size = addIndexIdList.size();
-                int index = 1;
-                for (long indexId : addIndexIdList) {
-                    String indexName = olapTable.getIndexNameById(indexId);
-                    sb.append("\n").append(indexName).append("(");
-                    List<Column> indexSchema = olapTable.getSchemaByIndexId(indexId, false);
-                    for (int i = 0; i < indexSchema.size(); i++) {
-                        Column column = indexSchema.get(i);
-                        sb.append(column.getName());
-                        if (i != indexSchema.size() - 1) {
-                            sb.append(", ");
-                        }
-                    }
-                    if (index != size) {
-                        sb.append("),");
-                    } else {
-                        sb.append(")");
-                        sb.append("\n)");
-                    }
-                    index++;
-                }
-            }
 
             // with all rollup
             do {
@@ -6922,10 +6861,6 @@ public class Env {
 
     public StatisticsCleaner getStatisticsCleaner() {
         return statisticsCleaner;
-    }
-
-    public LoadManagerAdapter getLoadManagerAdapter() {
-        return loadManagerAdapter;
     }
 
     public QueryStats getQueryStats() {
