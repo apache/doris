@@ -174,6 +174,8 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
             scalar_type.__set_variant_max_subcolumns_count(variant_max_subcolumns_count);
         } else if (type == TYPE_DATETIMEV2) {
             DCHECK_NE(scale, -1);
+            scalar_type.__set_precision(
+                    precision); // -1, adapting upgrade and downgrade compatibility.
             scalar_type.__set_scale(scale);
         }
     }
@@ -194,6 +196,7 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         scalar_type->set_scale(scale);
     } else if (type == TYPE_DATETIMEV2) {
         DCHECK_NE(scale, -1);
+        scalar_type->set_precision(precision); // -1, adapting upgrade and downgrade compatibility.
         scalar_type->set_scale(scale);
     } else if (type == TYPE_ARRAY) {
         node->set_type(TTypeNodeType::ARRAY);
