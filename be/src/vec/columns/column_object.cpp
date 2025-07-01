@@ -1501,7 +1501,6 @@ void ColumnObject::serialize_one_row_to_string(int row, std::string* output) con
     write_buffer.commit();
     auto str_ref = tmp_col->get_data_at(0);
     *output = std::string(str_ref.data, str_ref.size);
-    return;
 }
 
 void ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
@@ -1510,7 +1509,6 @@ void ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) 
         return;
     }
     serialize_one_row_to_json_format(row, output, nullptr);
-    return;
 }
 
 /// Struct that represents elements of the JSON path.

@@ -15,16 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    } 
+suite("regression_test_variant_github_events_p0", "p0"){
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -59,7 +50,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant,
+            v variant<'payload.pull_request.head.repo.topics' : array<text>>,
             INDEX idx_var(v) USING INVERTED COMMENT ''
         )
         DUPLICATE KEY(`k`)
