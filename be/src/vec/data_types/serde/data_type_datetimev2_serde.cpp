@@ -82,12 +82,16 @@ Status DataTypeDateTimeV2SerDe::from_string_batch(const ColumnString& col_str,
 
 Status DataTypeDateTimeV2SerDe::from_string_strict_mode_batch(const ColumnString& col_str,
                                                               IColumn& col_res,
-                                                              const FormatOptions& options) const {
+                                                              const FormatOptions& options,
+                                                              const NullMap::value_type* null_map) const {
     size_t row = col_str.size();
     col_res.resize(row);
     auto& col_data = assert_cast<ColumnDateTimeV2&>(col_res);
 
     for (size_t i = 0; i < row; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         auto str = col_str.get_element(i);
         DateV2Value<DateTimeV2ValueType> res;
         RETURN_IF_ERROR(_from_string_strict_mode(str, res, options.timezone));
@@ -242,10 +246,9 @@ Status DataTypeDateTimeV2SerDe::_from_string(const std::string& str,
             StringParser::ParseResult success;
             auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
                     start, std::min<int>((int)length, 6), &success);
-            if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
-                return Status::InvalidArgument("invalid fractional part in datetime string '{}'",
-                                               std::string {start, ptr});
-            }
+            RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                      "invalid fractional part in datetime string '{}'",
+                                      std::string {start, ptr});
 
             if (length > 6) {
                 // round off to at most 6 digits
@@ -518,10 +521,9 @@ Status DataTypeDateTimeV2SerDe::_from_string_strict_mode(
             StringParser::ParseResult success;
             auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
                     start, std::min<int>((int)length, 6), &success);
-            if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
-                return Status::InvalidArgument("invalid fractional part in datetime string '{}'",
-                                               std::string {start, ptr});
-            }
+            RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                      "invalid fractional part in datetime string '{}'",
+                                      std::string {start, ptr});
 
             if (length > 6) {
                 // round off to at most 6 digits

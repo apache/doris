@@ -56,7 +56,6 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
-#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "service/point_query_executor.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -1628,4 +1627,3 @@ inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 } // namespace doris::segment_v2
-

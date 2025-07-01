@@ -239,12 +239,16 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
 
 Status DataTypeDateV2SerDe::from_string_strict_mode_batch(const ColumnString& col_str,
                                                           IColumn& col_res,
-                                                          const FormatOptions& options) const {
+                                                          const FormatOptions& options,
+                                                          const NullMap::value_type* null_map) const {
     size_t row = col_str.size();
     col_res.resize(row);
     auto& col_data = assert_cast<ColumnDateV2&>(col_res);
 
     for (size_t i = 0; i < row; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         auto str = col_str.get_element(i);
         DateV2Value<DateV2ValueType> res;
         RETURN_IF_ERROR(_from_string_strict_mode(str, res, options.timezone));

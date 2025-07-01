@@ -41,7 +41,8 @@ public:
                              const FormatOptions& options) const final;
 
     Status from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
-                                         const FormatOptions& options) const final;
+                                         const FormatOptions& options,
+                                         const NullMap::value_type* null_map = nullptr) const final;
 
     template <typename IntDataType>
     Status from_int_batch(const IntDataType::ColumnType& int_col, ColumnNullable& target_col) const;

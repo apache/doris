@@ -32,7 +32,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 /// TODO:  Due to the "Time type is not supported for OLAP table" issue, a lot of basic content is missing.It will be supplemented later.
-// now we do check only when print. 
+// now we do check only when print.
 class TimeValue {
 public:
     constexpr static int64_t ONE_SECOND_MICROSECONDS = 1000000;
@@ -104,9 +104,7 @@ public:
         return std::abs(static_cast<int32_t>(limit_with_bound(time) % ONE_SECOND_MICROSECONDS));
     }
 
-    static int8_t sign(TimeType time) {
-        return (time < 0) ? -1 : 1;
-    }
+    static int8_t sign(TimeType time) { return (time < 0) ? -1 : 1; }
 
     // Construct time based on seconds
     static TimeType from_second(int64_t sec) {
@@ -329,9 +327,7 @@ public:
         return static_cast<int64_t>(time);
     }
 
-    static bool valid(double time) {
-        return time <= MAX_TIME && time >= -MAX_TIME;
-    }
+    static bool valid(double time) { return time <= MAX_TIME && time >= -MAX_TIME; }
 
 private:
     static TimeType make_time_with_negative(bool negative, int64_t hour, int64_t minute,

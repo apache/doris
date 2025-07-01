@@ -52,7 +52,8 @@ public:
 
     Status from_string_strict_mode_batch(
             const ColumnString& str, IColumn& column,
-            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const final;
+            const typename DataTypeNumberSerDe<T>::FormatOptions& options,
+            const NullMap::value_type* null_map = nullptr) const final;
 
     template <typename IntDataType>
     Status from_int_batch(const IntDataType::ColumnType& int_col, ColumnNullable& target_col) const;

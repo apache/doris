@@ -353,12 +353,16 @@ Status DataTypeDateSerDe<T>::from_string_batch(
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
         const ColumnString& col_str, IColumn& col_res,
-        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+        const typename DataTypeNumberSerDe<T>::FormatOptions& options,
+        const NullMap::value_type* null_map) const {
     size_t row = col_str.size();
     col_res.resize(row);
     auto& col_data = assert_cast<ColumnType&>(col_res);
 
     for (size_t i = 0; i < row; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         auto str = col_str.get_element(i);
         CppType res;
         RETURN_IF_ERROR(_from_string_strict_mode(str, res, options.timezone));
@@ -474,11 +478,9 @@ Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
                 StringParser::ParseResult success;
                 auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
                         start, std::min<int>((int)length, 6), &success);
-                if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
-                    return Status::InvalidArgument(
-                            "invalid fractional part in datetime string '{}'",
-                            std::string {start, ptr});
-                }
+                RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                          "invalid fractional part in datetime string '{}'",
+                                          std::string {start, ptr});
 
                 if (length > 6) {
                     // round off to at most 6 digits
@@ -695,11 +697,9 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
                 StringParser::ParseResult success;
                 auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
                         start, std::min<int>((int)length, 6), &success);
-                if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
-                    return Status::InvalidArgument(
-                            "invalid fractional part in datetime string '{}'",
-                            std::string {start, ptr});
-                }
+                RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                          "invalid fractional part in datetime string '{}'",
+                                          std::string {start, ptr});
 
                 if (length > 6) {
                     // round off to at most 6 digits
