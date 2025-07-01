@@ -236,19 +236,10 @@ suite("test_warm_up_cluster") {
         assertTrue(true)
     }
 
-    try {
-        sql "WARM UP CLUSTER regression_cluster_name3 WITH Table customer"
-        assertTrue(false)
-    } catch (Exception e) {
-        assertTrue(true)
-    }
+    sql "WARM UP CLUSTER regression_cluster_name3 WITH Table customer"
+    assertTrue(false)
 
-    try {
-        sql "WARM UP CLUSTER regression_cluster_name4 WITH Table supplier"
-        assertTrue(false)
-    } catch (Exception e) {
-        assertTrue(true)
-    }
+    sql "WARM UP CLUSTER regression_cluster_name4 WITH Table supplier"
 
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
     sql new File("""${context.file.parent}/../ddl/supplier_delete.sql""").text
