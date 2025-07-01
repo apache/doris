@@ -185,17 +185,17 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
     const auto* col = *column;
     // const flag
     bool is_const_column = is_column_const(*col);
-    *reinterpret_cast<bool*>(buf) = is_const_column;
+    unaligned_store<bool>(buf, is_const_column);
     buf += sizeof(bool);
 
     // row num
     const auto row_num = col->size();
-    *reinterpret_cast<size_t*>(buf) = row_num;
+    unaligned_store<size_t>(buf, row_num);
     buf += sizeof(size_t);
 
     // real saved num
     *real_need_copy_num = is_const_column ? 1 : row_num;
-    *reinterpret_cast<size_t*>(buf) = *real_need_copy_num;
+    unaligned_store<size_t>(buf, *real_need_copy_num);
     buf += sizeof(size_t);
 
     if (is_const_column) {
@@ -208,15 +208,13 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
 const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
                                                size_t* real_have_saved_num) {
     // const flag
-    bool is_const_column;
-    memcpy(&is_const_column, buf, sizeof(bool));
+    bool is_const_column = unaligned_load<bool>(buf);
     buf += sizeof(bool);
     // row num
-    size_t row_num;
-    memcpy(&row_num, buf, sizeof(size_t));
+    size_t row_num = unaligned_load<size_t>(buf);
     buf += sizeof(size_t);
     // real saved num
-    memcpy(real_have_saved_num, buf, sizeof(size_t));
+    *real_have_saved_num = unaligned_load<size_t>(buf);
     buf += sizeof(size_t*);
 
     if (is_const_column) {
