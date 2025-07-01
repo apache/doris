@@ -1771,10 +1771,22 @@ TTabletInfo create_tablet_info(const TabletSharedPtr& tablet, int64_t version) {
 
 Status check_tablet_limit() {
     size_t tablet_num_in_bvar = doris::g_total_tablet_num.get_value();
+    DBUG_EXECUTE_IF("WorkPoolCreateTablet.check_tablet_limit.change_tablet_num_in_bvar", {
+        LOG_WARNING(
+                "debug point WorkPoolCreateTablet.check_tablet_limit.change_tablet_num_in_bvar, "
+                "create tablet will failed");
+        tablet_num_in_bvar = 1000001;
+    });
     if (tablet_num_in_bvar >= config::be_tablet_num_upper_limit) {
-        return Status::InternalError<false>(
-                "Tablet number {} exceeds limit {}, trash may be not cleaned", tablet_num_in_bvar,
-                config::be_tablet_num_upper_limit);
+        return Status::DataQualityError<false>(
+                R"(Error: The current number of tablets in BE ({}) exceeds the allowed limit ({}).
+This may include unused tablets that were dropped from the frontend but not asynchronously dropped from the backend.
+Please check your usage of mtmv (e.g., refreshing too frequently) or any misuse of auto partition.
+You can resolve this issue by:
+1. Increasing the value of 'be_tablet_num_upper_limit'.
+2. Executing the SQL command 'ADMIN CLEAN TRASH' to clean up trash data.
+3. Optionally, you can set 'trash_file_expire_time_sec' to 0 to disable trash file expiration.)",
+                tablet_num_in_bvar, config::be_tablet_num_upper_limit);
     }
     return Status::OK();
 }
