@@ -80,10 +80,9 @@ Status DataTypeDateTimeV2SerDe::from_string_batch(const ColumnString& col_str,
     return Status::OK();
 }
 
-Status DataTypeDateTimeV2SerDe::from_string_strict_mode_batch(const ColumnString& col_str,
-                                                              IColumn& col_res,
-                                                              const FormatOptions& options,
-                                                              const NullMap::value_type* null_map) const {
+Status DataTypeDateTimeV2SerDe::from_string_strict_mode_batch(
+        const ColumnString& col_str, IColumn& col_res, const FormatOptions& options,
+        const NullMap::value_type* null_map) const {
     size_t row = col_str.size();
     col_res.resize(row);
     auto& col_data = assert_cast<ColumnDateTimeV2&>(col_res);
