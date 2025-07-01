@@ -1124,16 +1124,18 @@ DeleteBitmap& DeleteBitmap::operator=(const DeleteBitmap& o) {
 }
 
 DeleteBitmap::DeleteBitmap(DeleteBitmap&& o) noexcept {
-    std::unique_lock l(o.lock);
+    std::scoped_lock l(o.lock, o._rowset_cache_version_lock);
     delete_bitmap = std::move(o.delete_bitmap);
     _tablet_id = std::move(o._tablet_id);
+    o._rowset_cache_version.clear();
 }
 
 DeleteBitmap& DeleteBitmap::operator=(DeleteBitmap&& o) noexcept {
     if (this == &o) return *this;
-    std::scoped_lock l(lock, o.lock);
+    std::scoped_lock l(lock, o.lock, o._rowset_cache_version_lock);
     delete_bitmap = std::move(o.delete_bitmap);
     _tablet_id = std::move(o._tablet_id);
+    o._rowset_cache_version.clear();
     return *this;
 }
 
