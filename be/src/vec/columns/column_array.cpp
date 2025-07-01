@@ -515,57 +515,10 @@ void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t s
 }
 
 ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
-    if (typeid_cast<const ColumnUInt8*>(data.get()))
-        return filter_number<TYPE_BOOLEAN>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt8*>(data.get()))
-        return filter_number<TYPE_TINYINT>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt16*>(data.get()))
-        return filter_number<TYPE_SMALLINT>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt32*>(data.get()))
-        return filter_number<TYPE_INT>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt64*>(data.get()))
-        return filter_number<TYPE_BIGINT>(filt, result_size_hint);
-    if (typeid_cast<const ColumnFloat32*>(data.get()))
-        return filter_number<TYPE_FLOAT>(filt, result_size_hint);
-    if (typeid_cast<const ColumnFloat64*>(data.get()))
-        return filter_number<TYPE_DOUBLE>(filt, result_size_hint);
-    if (typeid_cast<const ColumnDate*>(data.get()))
-        return filter_number<TYPE_DATE>(filt, result_size_hint);
-    if (typeid_cast<const ColumnDateV2*>(data.get()))
-        return filter_number<TYPE_DATEV2>(filt, result_size_hint);
-    if (typeid_cast<const ColumnDateTime*>(data.get()))
-        return filter_number<TYPE_DATETIME>(filt, result_size_hint);
-    if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
-        return filter_number<TYPE_DATETIMEV2>(filt, result_size_hint);
-    if (typeid_cast<const ColumnTimeV2*>(data.get()))
-        return filter_number<TYPE_TIMEV2>(filt, result_size_hint);
-    if (typeid_cast<const ColumnTime*>(data.get()))
-        return filter_number<TYPE_TIME>(filt, result_size_hint);
-    if (typeid_cast<const ColumnIPv4*>(data.get()))
-        return filter_number<TYPE_IPV4>(filt, result_size_hint);
-    if (typeid_cast<const ColumnString*>(data.get())) return filter_string(filt, result_size_hint);
-    //if (typeid_cast<const ColumnTuple *>(data.get()))      return filterTuple(filt, result_size_hint);
-    if (typeid_cast<const ColumnNullable*>(data.get()))
-        return filter_nullable(filt, result_size_hint);
     return filter_generic(filt, result_size_hint);
 }
 
 size_t ColumnArray::filter(const Filter& filter) {
-    if (typeid_cast<const ColumnUInt8*>(data.get())) return filter_number<TYPE_BOOLEAN>(filter);
-    if (typeid_cast<const ColumnInt8*>(data.get())) return filter_number<TYPE_TINYINT>(filter);
-    if (typeid_cast<const ColumnInt16*>(data.get())) return filter_number<TYPE_SMALLINT>(filter);
-    if (typeid_cast<const ColumnInt32*>(data.get())) return filter_number<TYPE_INT>(filter);
-    if (typeid_cast<const ColumnInt64*>(data.get())) return filter_number<TYPE_BIGINT>(filter);
-    if (typeid_cast<const ColumnFloat32*>(data.get())) return filter_number<TYPE_FLOAT>(filter);
-    if (typeid_cast<const ColumnFloat64*>(data.get())) return filter_number<TYPE_DOUBLE>(filter);
-    if (typeid_cast<const ColumnDate*>(data.get())) return filter_number<TYPE_DATE>(filter);
-    if (typeid_cast<const ColumnDateV2*>(data.get())) return filter_number<TYPE_DATEV2>(filter);
-    if (typeid_cast<const ColumnDateTime*>(data.get())) return filter_number<TYPE_DATETIME>(filter);
-    if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
-        return filter_number<TYPE_DATETIMEV2>(filter);
-    if (typeid_cast<const ColumnTimeV2*>(data.get())) return filter_number<TYPE_TIMEV2>(filter);
-    if (typeid_cast<const ColumnTime*>(data.get())) return filter_number<TYPE_TIME>(filter);
-    if (typeid_cast<const ColumnIPv4*>(data.get())) return filter_number<TYPE_IPV4>(filter);
     return filter_generic(filter);
 }
 
@@ -840,77 +793,6 @@ void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t l
 ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
     if (replicate_offsets.empty()) {
         return clone_empty();
-    }
-
-    // keep ColumnUInt8 for ColumnNullable::null_map
-    if (typeid_cast<const ColumnUInt8*>(data.get())) {
-        return replicate_number<TYPE_BOOLEAN>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt8*>(data.get())) {
-        return replicate_number<TYPE_TINYINT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt16*>(data.get())) {
-        return replicate_number<TYPE_SMALLINT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt32*>(data.get())) {
-        return replicate_number<TYPE_INT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt64*>(data.get())) {
-        return replicate_number<TYPE_BIGINT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt128*>(data.get())) {
-        return replicate_number<TYPE_LARGEINT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnIPv4*>(data.get())) {
-        return replicate_number<TYPE_IPV4>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnIPv6*>(data.get())) {
-        return replicate_number<TYPE_IPV6>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDate*>(data.get())) {
-        return replicate_number<TYPE_DATE>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDateTime*>(data.get())) {
-        return replicate_number<TYPE_DATETIME>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDateV2*>(data.get())) {
-        return replicate_number<TYPE_DATEV2>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDateTimeV2*>(data.get())) {
-        return replicate_number<TYPE_DATETIMEV2>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnFloat32*>(data.get())) {
-        return replicate_number<TYPE_FLOAT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnFloat64*>(data.get())) {
-        return replicate_number<TYPE_DOUBLE>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnTime*>(data.get())) {
-        return replicate_number<TYPE_TIME>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnTimeV2*>(data.get())) {
-        return replicate_number<TYPE_TIMEV2>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal32*>(data.get())) {
-        return replicate_number<TYPE_DECIMAL32>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal64*>(data.get())) {
-        return replicate_number<TYPE_DECIMAL64>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
-        return replicate_number<TYPE_DECIMALV2>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
-        return replicate_number<TYPE_DECIMAL128I>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal256*>(data.get())) {
-        return replicate_number<TYPE_DECIMAL256>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnString*>(data.get())) {
-        return replicate_string(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnNullable*>(data.get())) {
-        return replicate_nullable(replicate_offsets);
     }
     return replicate_generic(replicate_offsets);
 }
