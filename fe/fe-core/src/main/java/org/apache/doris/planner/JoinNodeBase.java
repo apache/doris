@@ -29,26 +29,20 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.TupleIsNullPredicate;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TNullSide;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 public abstract class JoinNodeBase extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(JoinNodeBase.class);
@@ -265,66 +259,6 @@ public abstract class JoinNodeBase extends PlanNode {
         outputSmap = ExprSubstitutionMap.composeAndReplace(outputSmap, srcTblRefToOutputTupleSmap, analyzer);
     }
 
-    @Override
-    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
-        outputSlotIds = Lists.newArrayList();
-        List<TupleDescriptor> outputTupleDescList = Lists.newArrayList();
-        if (outputTupleDesc != null) {
-            outputTupleDescList.add(outputTupleDesc);
-        } else {
-            for (TupleId tupleId : tupleIds) {
-                outputTupleDescList.add(analyzer.getTupleDesc(tupleId));
-            }
-        }
-        SlotId firstMaterializedSlotId = null;
-        for (TupleDescriptor tupleDescriptor : outputTupleDescList) {
-            for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
-                if (slotDescriptor.isMaterialized()) {
-                    if ((requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
-                        outputSlotIds.add(slotDescriptor.getId());
-                    }
-                    if (firstMaterializedSlotId == null) {
-                        firstMaterializedSlotId = slotDescriptor.getId();
-                    }
-                }
-            }
-        }
-
-        // be may be possible to output correct row number without any column data in future
-        // but for now, in order to have correct output row number, should keep at least one slot.
-        // use first materialized slot if outputSlotIds is empty.
-        if (outputSlotIds.isEmpty() && firstMaterializedSlotId != null) {
-            outputSlotIds.add(firstMaterializedSlotId);
-        }
-    }
-
-    @Override
-    public void projectOutputTuple() {
-        if (outputTupleDesc == null) {
-            return;
-        }
-        if (outputTupleDesc.getSlots().size() == outputSlotIds.size()) {
-            return;
-        }
-        Iterator<SlotDescriptor> iterator = outputTupleDesc.getSlots().iterator();
-        while (iterator.hasNext()) {
-            SlotDescriptor slotDescriptor = iterator.next();
-            boolean keep = false;
-            for (SlotId outputSlotId : outputSlotIds) {
-                if (slotDescriptor.getId().equals(outputSlotId)) {
-                    keep = true;
-                    break;
-                }
-            }
-            if (!keep) {
-                iterator.remove();
-                SlotRef slotRef = new SlotRef(slotDescriptor);
-                vSrcToOutputSMap.removeByRhsExpr(slotRef);
-            }
-        }
-        outputTupleDesc.computeStatAndMemLayout();
-    }
-
     protected abstract Pair<Boolean, Boolean> needToCopyRightAndLeft();
 
     protected abstract void computeOtherConjuncts(Analyzer analyzer, ExprSubstitutionMap originToIntermediateSmap);
@@ -420,38 +354,6 @@ public abstract class JoinNodeBase extends PlanNode {
 
     protected abstract List<SlotId> computeSlotIdsForJoinConjuncts(Analyzer analyzer);
 
-    @Override
-    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
-        Set<SlotId> result = Sets.newHashSet();
-        Preconditions.checkState(outputSlotIds != null);
-        // step1: change output slot id to src slot id
-        if (vSrcToOutputSMap != null) {
-            for (SlotId slotId : outputSlotIds) {
-                SlotRef slotRef = new SlotRef(analyzer.getDescTbl().getSlotDesc(slotId));
-                Expr srcExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
-                if (srcExpr == null) {
-                    result.add(slotId);
-                } else {
-                    List<SlotRef> srcSlotRefList = Lists.newArrayList();
-                    srcExpr.collect(SlotRef.class, srcSlotRefList);
-                    result.addAll(srcSlotRefList.stream().map(e -> e.getSlotId()).collect(Collectors.toList()));
-                }
-            }
-        }
-        result.addAll(computeSlotIdsForJoinConjuncts(analyzer));
-        // conjunct
-        List<SlotId> conjunctSlotIds = Lists.newArrayList();
-        Expr.getIds(conjuncts, null, conjunctSlotIds);
-        result.addAll(conjunctSlotIds);
-        return result;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        super.finalize(analyzer);
-        computeIntermediateTuple(analyzer);
-    }
-
     /**
      * Only for Nereids.
      */
@@ -467,18 +369,6 @@ public abstract class JoinNodeBase extends PlanNode {
         return innerRef;
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        assignedConjuncts = analyzer.getAssignedConjuncts();
-        // outSmap replace in outer join may cause NULL be replace by literal
-        // so need replace the outsmap in nullableTupleID
-        computeStats(analyzer);
-
-        if (isMarkJoin() && !joinOp.supportMarkJoin()) {
-            throw new UserException("Mark join is supported only for LEFT SEMI JOIN/LEFT ANTI JOIN/CROSS JOIN");
-        }
-    }
 
     /**
      * If parent wants to get join node tupleids,
@@ -531,16 +421,6 @@ public abstract class JoinNodeBase extends PlanNode {
             default:
                 return tupleIds;
         }
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            return;
-        }
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override

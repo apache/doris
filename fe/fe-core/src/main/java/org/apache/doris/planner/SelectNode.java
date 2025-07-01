@@ -20,11 +20,8 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -63,26 +60,6 @@ public class SelectNode extends PlanNode {
         msg.node_type = TPlanNodeType.SELECT_NODE;
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        analyzer.markConjunctsAssigned(conjuncts);
-        computeStats(analyzer);
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            return;
-        }
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Select: cardinality={}", this.cardinality);
-        }
-    }
 
     @Override
     protected void computeOldCardinality() {

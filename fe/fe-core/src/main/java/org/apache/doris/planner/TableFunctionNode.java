@@ -25,9 +25,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -147,45 +145,6 @@ public class TableFunctionNode extends PlanNode {
         for (SlotRef slotRef : outputSlotRef) {
             outputSlotIds.add(slotRef.getSlotId());
         }
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        fnCallExprList = new ArrayList<>(lateralViewRefs.stream().map(e -> e.getFnExpr()).collect(Collectors.toList()));
-        Set<SlotRef> outputSlotRef = Sets.newHashSet();
-        for (Expr expr : conjuncts) {
-            expr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
-            Expr dst = outputSmap.get(expr);
-            if (dst != null) {
-                dst.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
-            }
-        }
-        for (SlotRef slotRef : outputSlotRef) {
-            outputSlotIds.add(slotRef.getSlotId());
-        }
-        /*
-        When the expression of the lateral view involves the column of the subquery,
-        the column needs to be rewritten as the real column in the subquery through childrenSmap.
-        Example:
-          select e1 from (select a from t1) tmp1 lateral view explode_split(a, ",") tmp2 as e1
-          Slot 'a' is originally linked to tuple 'tmp1'. <tmp1.a>
-          But tmp1 is just a virtual and unreal inline view tuple.
-          So we need to push down 'a' and hang it on the real tuple 't1'. <t1.a>
-         */
-        outputSmap = getCombinedChildSmap();
-        fnCallExprList = Expr.substituteList(fnCallExprList, outputSmap, analyzer, false);
-        // end
-
-        computeStats(analyzer);
-    }
-
-    @Override
-    protected void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override

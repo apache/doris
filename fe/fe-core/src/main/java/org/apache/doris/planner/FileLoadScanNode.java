@@ -119,15 +119,6 @@ public class FileLoadScanNode extends FileScanNode {
         fileGroupInfos.add(fileGroupInfo);
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        for (FileGroupInfo fileGroupInfo : fileGroupInfos) {
-            this.scanProviders.add(new LoadScanProvider(fileGroupInfo, desc));
-        }
-        initParamCreateContexts(analyzer);
-    }
-
     // For each scan provider, create a corresponding ParamCreateContext
     private void initParamCreateContexts(Analyzer analyzer) throws UserException {
         for (LoadScanProvider scanProvider : scanProviders) {
@@ -191,29 +182,6 @@ public class FileLoadScanNode extends FileScanNode {
             throw new UserException("where statement is not a valid statement return bool");
         }
         return newWhereExpr;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        Preconditions.checkState(contexts.size() == scanProviders.size(),
-                contexts.size() + " vs. " + scanProviders.size());
-        // ATTN: for load scan node, do not use backend policy in ExternalScanNode.
-        // Because backend policy in ExternalScanNode may only contain compute backend.
-        // But for load job, we should select backends from all backends, both compute and mix.
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
-                .needQueryAvailable()
-                .needLoadAvailable()
-                .build();
-        FederationBackendPolicy localBackendPolicy = new FederationBackendPolicy();
-        localBackendPolicy.init(policy);
-        for (int i = 0; i < contexts.size(); ++i) {
-            FileLoadScanNode.ParamCreateContext context = contexts.get(i);
-            LoadScanProvider scanProvider = scanProviders.get(i);
-            finalizeParamsForLoad(context, analyzer);
-            createScanRangeLocations(context, scanProvider, localBackendPolicy);
-            this.selectedSplitNum += scanProvider.getInputSplitNum();
-            this.totalFileSize += scanProvider.getInputFileSize();
-        }
     }
 
     public void finalizeForNereids(TUniqueId loadId, List<NereidsFileGroupInfo> fileGroupInfos,

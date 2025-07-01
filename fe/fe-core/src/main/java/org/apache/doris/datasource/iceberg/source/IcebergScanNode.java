@@ -18,11 +18,9 @@
 package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -489,17 +487,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public Map<String, String> getLocationProperties() throws UserException {
         return source.getCatalog().getCatalogProperty().getHadoopProperties();
-    }
-
-    @Override
-    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
-        String aggFunctionName = aggExpr.getFnName().getFunction().toUpperCase();
-        return "COUNT".equals(aggFunctionName);
-    }
-
-    @Override
-    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
-        return !col.isAllowNull();
     }
 
     @VisibleForTesting

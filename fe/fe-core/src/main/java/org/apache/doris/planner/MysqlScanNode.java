@@ -29,7 +29,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TMySQLScanNode;
 import org.apache.doris.thrift.TPlanNode;
@@ -67,14 +66,6 @@ public class MysqlScanNode extends ExternalScanNode {
     protected String debugString() {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         return helper.addValue(super.debugString()).toString();
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        // Convert predicates to MySQL columns and filters.
-        createMySQLColumns(analyzer);
-        createMySQLFilters(analyzer);
-        createScanRangeLocations();
     }
 
     @Override
@@ -166,15 +157,5 @@ public class MysqlScanNode extends ExternalScanNode {
     @Override
     public int getNumInstances() {
         return 1;
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
-        numNodes = numNodes <= 0 ? 1 : numNodes;
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
     }
 }
