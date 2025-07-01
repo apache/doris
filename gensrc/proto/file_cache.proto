@@ -38,6 +38,7 @@ message LRUDumpEntryGroupPb {
 message EntryGroupOffsetSizePb {
     optional uint64 offset = 1;
     optional uint64 size = 2;
+    optional uint32 checksum = 3;
 }
 
 message LRUDumpMetaPb{

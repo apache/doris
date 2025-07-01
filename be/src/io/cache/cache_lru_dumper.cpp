@@ -19,6 +19,7 @@
 
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cache_lru_dumper.h"
+#include "util/crc32c.h"
 
 namespace doris::io {
 Status CacheLRUDumper::check_ofstream_status(std::ofstream& out, std::string& filename) {
@@ -134,6 +135,8 @@ Status CacheLRUDumper::flush_current_group(std::ofstream& out, std::string& file
     ::doris::io::cache::EntryGroupOffsetSizePb* group_info = _dump_meta.add_group_offset_size();
     group_info->set_offset(group_start);
     group_info->set_size(serialized.size());
+    uint32_t checksum = crc32c::Value(serialized.data(), serialized.size());
+    group_info->set_checksum(checksum);
 
     // Reset for next group
     _current_dump_group.Clear();
@@ -166,7 +169,7 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
     // Write footer
     Footer footer;
     footer.meta_offset = htole64(meta_offset); // Explicitly convert to little-endian
-    footer.checksum = 0;                       // TODO: Calculate checksum
+    footer.checksum = 0;
     footer.version = 1;
     std::memcpy(footer.magic, "DOR", 3);
 
@@ -299,7 +302,13 @@ Status CacheLRUDumper::parse_one_lru_entry(std::ifstream& in, std::string& filen
         std::string group_serialized(group_info.size(), '\0');
         in.read(&group_serialized[0], group_serialized.size());
         RETURN_IF_ERROR(check_ifstream_status(in, filename));
-
+        uint32_t checksum = crc32c::Value(group_serialized.data(), group_serialized.size());
+        if (checksum != group_info.checksum()) {
+            std::string warn_msg =
+                    fmt::format("restore lru failed as checksum not match, file={}", filename);
+            LOG(WARNING) << warn_msg;
+            return Status::InternalError(warn_msg);
+        }
         if (!_current_parse_group.ParseFromString(group_serialized)) {
             std::string warn_msg =
                     fmt::format("restore lru failed to parse group, file={}", filename);
