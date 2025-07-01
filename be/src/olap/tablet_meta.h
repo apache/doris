@@ -585,6 +585,12 @@ public:
             std::call_once(once, [size_in_bytes] {
                 auto* tmp = new AggCachePolicy(size_in_bytes);
                 AggCache::s_repr.store(tmp, std::memory_order_release);
+
+                // release the sigleton instance at program exit
+                std::atexit([] {
+                    auto *ptr = AggCache::s_repr.exchange(nullptr, std::memory_order_acquire);
+                    delete ptr;
+                });
             });
 
             while (!s_repr.load(std::memory_order_acquire)) {
