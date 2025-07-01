@@ -70,6 +70,10 @@ bool CloudTablet::exceed_version_limit(int32_t limit) {
     return _approximate_num_rowsets.load(std::memory_order_relaxed) > limit;
 }
 
+std::string CloudTablet::tablet_path() const {
+    return "";
+}
+
 Status CloudTablet::capture_rs_readers(const Version& spec_version,
                                        std::vector<RowSetSplits>* rs_splits,
                                        bool skip_missing_version) {
