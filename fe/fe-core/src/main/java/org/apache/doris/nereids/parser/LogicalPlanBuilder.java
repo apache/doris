@@ -7459,7 +7459,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public MysqlDataDescription visitMysqlDataDesc(DorisParser.MysqlDataDescContext ctx) {
         List<String> filePaths = new ArrayList<>();
-        filePaths.add(ctx.filePath.getText());
+        filePaths.add(stripQuotes(ctx.filePath.getText()));
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
         boolean isClientLocal = ctx.LOCAL() != null;
 
