@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/olap_common.pb.h>
+
 #include <memory>
 #include <shared_mutex>
 #include <string>
@@ -63,10 +65,12 @@ public:
     int64_t partition_id() const { return _tablet_meta->partition_id(); }
     int64_t tablet_id() const { return _tablet_meta->tablet_id(); }
     int32_t schema_hash() const { return _tablet_meta->schema_hash(); }
+    size_t row_size() const { return _tablet_meta->tablet_schema()->row_size(); }
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
     int64_t ttl_seconds() const { return _tablet_meta->ttl_seconds(); }
     std::mutex& get_schema_change_lock() { return _schema_change_lock; }
+    CompressKind compress_kind() const { return _tablet_meta->tablet_schema()->compress_kind(); }
     bool enable_unique_key_merge_on_write() const {
 #ifdef BE_TEST
         if (_tablet_meta == nullptr) {
@@ -92,6 +96,11 @@ public:
         std::shared_lock rlock(_meta_lock);
         return _max_version_schema;
     }
+
+    void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
+    bool is_alter_failed() { return _alter_failed; }
+
+    virtual std::string tablet_path() const = 0;
 
     virtual bool exceed_version_limit(int32_t limit) = 0;
 
@@ -344,6 +353,9 @@ protected:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _max_version_schema;
+
+    // `_alter_failed` is used to indicate whether the tablet failed to perform a schema change
+    std::atomic<bool> _alter_failed = false;
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;
