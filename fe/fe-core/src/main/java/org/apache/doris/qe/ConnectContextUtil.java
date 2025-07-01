@@ -23,6 +23,11 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 
 public class ConnectContextUtil {
+
+    // Sometimes it's necessary to parse SQL, but not in a user thread where no ConnectContext exists.
+    // In such cases, we need to simulate one—for example,
+    // when replaying metadata to parse materialized view (MV) creation statements.
+    // Note: After calling this method, ensure to invoke the cleanup() method of ConnectContext.
     public static ConnectContext getDummyCtx(String dbName) {
         ConnectContext ctx = new ConnectContext();
         ctx.setDatabase(dbName);
