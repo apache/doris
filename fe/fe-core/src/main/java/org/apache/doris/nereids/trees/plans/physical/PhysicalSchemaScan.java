@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import jdk.internal.org.objectweb.asm.tree.analysis.AnalyzerException;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -68,7 +68,7 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
         if (!checkUserAccessPermission(table.getName())) {
-            throw new AnalyzerException(
+            throw new AnalysisException(
                     "Access denied; you need (at least one of) the ADMIN privilege(s) for this operation");
         }
     }
