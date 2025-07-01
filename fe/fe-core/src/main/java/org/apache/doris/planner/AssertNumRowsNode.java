@@ -17,12 +17,9 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.AssertNumRowsElement;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAssertNumRowsNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -70,20 +67,6 @@ public class AssertNumRowsNode extends PlanNode {
         this.tblRefIds.addAll(input.getTblRefIds());
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.shouldConvertOutputToNullable = convertToNullable;
-    }
-
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        super.computeStats(analyzer);
-        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-            cardinality = (long) statsDeriveResult.getRowCount();
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats AssertNumRows: cardinality={}", cardinality);
-        }
     }
 
     @Override
