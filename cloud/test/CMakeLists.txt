@@ -63,6 +63,8 @@ add_executable(network_util_test network_util_test.cpp)
 
 add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
 
+add_executable(versionstamp_test versionstamp_test.cpp)
+
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
 
@@ -103,6 +105,8 @@ target_link_libraries(util_test ${TEST_LINK_LIBS})
 target_link_libraries(network_util_test ${TEST_LINK_LIBS})
 
 target_link_libraries(txn_lazy_commit_test ${TEST_LINK_LIBS})
+
+target_link_libraries(versionstamp_test ${TEST_LINK_LIBS})
 
 # FDB related tests need to be linked with libfdb_c
 set(FDB_LINKER_FLAGS "-lfdb_c -L${THIRDPARTY_DIR}/lib")
