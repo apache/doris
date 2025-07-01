@@ -1088,7 +1088,7 @@ public final class MetricRepo {
             return;
         }
         String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getCloudClusterNameToId().get(clusterName);
+                .getCloudClusterNameToId(true).get(clusterName);
         if (Strings.isNullOrEmpty(clusterId)) {
             return;
         }
@@ -1106,7 +1106,7 @@ public final class MetricRepo {
             return;
         }
         String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getCloudClusterNameToId().get(clusterName);
+                .getCloudClusterNameToId(true).get(clusterName);
         if (Strings.isNullOrEmpty(clusterId)) {
             return;
         }
@@ -1124,7 +1124,7 @@ public final class MetricRepo {
             return;
         }
         String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getCloudClusterNameToId().get(clusterName);
+                .getCloudClusterNameToId(true).get(clusterName);
         if (Strings.isNullOrEmpty(clusterId)) {
             return;
         }
