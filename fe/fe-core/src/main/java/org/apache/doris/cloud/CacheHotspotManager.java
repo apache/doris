@@ -365,7 +365,7 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     private Map<Long, List<List<Long>>> splitBatch(Map<Long, List<Tablet>> beToWarmUpTablets) {
-        final Long maxSizePerBatch = 10737418240L; // 10G
+        final Long maxSizePerBatch = Config.cloud_warm_up_job_max_bytes_per_batch;
         Map<Long, List<List<Long>>> beToTabletIdBatches = new HashMap<>();
         for (Map.Entry<Long, List<Tablet>> entry : beToWarmUpTablets.entrySet()) {
             List<List<Long>> batches = new ArrayList<>();

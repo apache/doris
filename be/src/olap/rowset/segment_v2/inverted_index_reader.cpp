@@ -287,8 +287,14 @@ Status InvertedIndexReader::match_index_search(
             return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
                     "query type " + query_type_to_string(query_type) + ", query is nullptr");
         }
-        query->add(query_info);
-        query->search(*term_match_bitmap);
+        {
+            SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_init_timer);
+            query->add(query_info);
+        }
+        {
+            SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_exec_timer);
+            query->search(*term_match_bitmap);
+        }
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
                                                                       e.what());
@@ -615,10 +621,11 @@ Status BkdIndexReader::invoke_bkd_try_query(const io::IOContext* io_ctx, const v
     return Status::OK();
 }
 
-Status BkdIndexReader::invoke_bkd_query(const io::IOContext* io_ctx, const void* query_value,
-                                        InvertedIndexQueryType query_type,
+Status BkdIndexReader::invoke_bkd_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
+                                        const void* query_value, InvertedIndexQueryType query_type,
                                         std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                         std::shared_ptr<roaring::Roaring>& bit_map) {
+    SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
     switch (query_type) {
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
         auto visitor =
@@ -733,7 +740,7 @@ Status BkdIndexReader::query(const io::IOContext* io_ctx, OlapReaderStatistics* 
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(invoke_bkd_query(io_ctx, query_value, query_type, r, bit_map));
+        RETURN_IF_ERROR(invoke_bkd_query(io_ctx, stats, query_value, query_type, r, bit_map));
         bit_map->runOptimize();
         cache->insert(cache_key, bit_map, &cache_handler);
 

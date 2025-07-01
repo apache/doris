@@ -162,7 +162,7 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     private static void validateGroupingExprs(List<Expr> groupingExprs) throws AnalysisException {
         for (Expr expr : groupingExprs) {
-            if (expr.getType().isOnlyMetricType()) {
+            if (expr.getType().isOnlyMetricType() && !expr.getType().isArrayTypeNestedBaseType()) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }

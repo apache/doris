@@ -1945,7 +1945,8 @@ public abstract class RoutineLoadJob
                 ctx.cleanup();
             }
         } catch (Exception e) {
-            throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
+            this.state = JobState.CANCELLED;
+            LOG.warn("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
         if (userIdentity != null) {
             userIdentity.setIsAnalyzed();
