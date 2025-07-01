@@ -83,12 +83,10 @@ TEST(function_hll_test, function_hll_to_base64_test) {
 
     HyperLogLog empty_hll;
 
-    DataSet data_set = {{{&hll1}, std::string("AQHm5IIJCx0h/w==")},
-                        {{&hll2}, std::string("AQG/Hk98sO59Sw==")},
-                        {{&hll3}, std::string("AQHm5IIJCx0h/w==")},
-                        {{&hll4}, std::string("AQG/Hk98sO59Sw==")},
-                        {{&empty_hll}, std::string("AA==")},
-                        {{Null()}, Null()}};
+    DataSet data_set = {
+            {{&hll1}, std::string("AQHm5IIJCx0h/w==")}, {{&hll2}, std::string("AQG/Hk98sO59Sw==")},
+            {{&hll3}, std::string("AQHm5IIJCx0h/w==")}, {{&hll4}, std::string("AQG/Hk98sO59Sw==")},
+            {{&empty_hll}, std::string("AA==")},        {{Null()}, Null()}};
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
