@@ -190,7 +190,7 @@ struct RefreshFSVaultVisitor {
 };
 
 Status CloudStorageEngine::open() {
-    sync_storage_vault(config::enable_check_storage_vault);
+    sync_storage_vault();
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
@@ -335,30 +335,28 @@ Status CloudStorageEngine::start_bg_threads() {
     return Status::OK();
 }
 
-void CloudStorageEngine::sync_storage_vault(bool check_storage_vault) {
+void CloudStorageEngine::sync_storage_vault() {
     cloud::StorageVaultInfos vault_infos;
     bool enable_storage_vault = false;
-    auto st = Status::OK();
-    while (true) {
-        st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
-        if (st.ok()) {
-            break;
-        }
 
-        if (!check_storage_vault) {
-            LOG(WARNING) << "failed to get storage vault info. err=" << st;
-            return;
-        }
-
-        LOG(WARNING) << "failed to get storage vault info from ms, err=" << st
-                     << " sleep 200ms retry or add enable_check_storage_vault=false to be.conf"
-                     << " to skip the check.";
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to get storage vault info. err=" << st;
+        return;
     }
 
     if (vault_infos.empty()) {
         LOG(WARNING) << "empty storage vault info";
         return;
+    }
+
+    bool check_storage_vault = false;
+    bool expected = false;
+    if (first_sync_storage_vault.compare_exchange_strong(expected, true)) {
+        check_storage_vault = config::enable_check_storage_vault;
+        LOG(INFO) << "first sync storage vault info, BE try to check iam role connectivity, "
+                     "check_storage_vault="
+                  << check_storage_vault;
     }
 
     for (auto& [id, vault_info, path_format] : vault_infos) {
