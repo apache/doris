@@ -72,22 +72,21 @@ TEST(function_hll_test, function_hll_to_base64_test) {
             HashUtil::murmur_hash64A(input2.data(), input2.size(), HashUtil::MURMUR_SEED);
     HyperLogLog hll2(hash_value2);
 
+    // Although the hhl3 and hll4 update the same value twice, the result should be the same as update once.
     HyperLogLog hll3;
     hll3.update(hash_value1);
-    hll3.update(hash_value2);
+    hll3.update(hash_value1);
 
-    // Although the hll4 update the hash_value1 twice, the result should be the same as update once.
     HyperLogLog hll4;
-    hll4.update(hash_value1);
     hll4.update(hash_value2);
-    hll4.update(hash_value1);
+    hll4.update(hash_value2);
 
     HyperLogLog empty_hll;
 
     DataSet data_set = {{{&hll1}, std::string("AQHm5IIJCx0h/w==")},
                         {{&hll2}, std::string("AQG/Hk98sO59Sw==")},
-                        {{&hll3}, std::string("AQLm5IIJCx0h/78eT3yw7n1L")},
-                        {{&hll4}, std::string("AQLm5IIJCx0h/78eT3yw7n1L")},
+                        {{&hll3}, std::string("AQHm5IIJCx0h/w==")},
+                        {{&hll4}, std::string("AQG/Hk98sO59Sw==")},
                         {{&empty_hll}, std::string("AA==")},
                         {{Null()}, Null()}};
 
