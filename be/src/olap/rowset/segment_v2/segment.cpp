@@ -1125,6 +1125,10 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         vectorized::PathInDataPtr path = std::make_shared<vectorized::PathInData>(
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(),
                 slot->column_paths());
+
+        // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
+        // if segment cache miss, column reader will be created to make sure the variant column result not coredump
+        RETURN_IF_ERROR(_create_column_readers_once(&stats));
         auto storage_type = get_data_type_of(ColumnIdentifier {.unique_id = slot->col_unique_id(),
                                                                .path = path,
                                                                .is_nullable = slot->is_nullable()},
