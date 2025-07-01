@@ -588,7 +588,7 @@ public:
 
                 // release the sigleton instance at program exit
                 std::atexit([] {
-                    auto *ptr = AggCache::s_repr.exchange(nullptr, std::memory_order_acquire);
+                    auto* ptr = AggCache::s_repr.exchange(nullptr, std::memory_order_acquire);
                     delete ptr;
                 });
             });
