@@ -211,6 +211,71 @@ TEST(ColumnVariantTest, basic_deserialize) {
     }
 }
 
+// test ColumnVariant with ColumnNothing using update_hash_with_value
+TEST(ColumnVariantTest, updateHashValueWithColumnNothingTest) {
+    // Create a ColumnObject with a subcolumn that contains ColumnNothing
+    auto variant = ColumnObject::create(3, 3);
+
+    // Create a subcolumn with ColumnNothing type
+    PathInData path("v.nothing");
+    auto type = DataTypeFactory::instance().create_data_type(TypeIndex::Nothing);
+    auto column = type->create_column();
+    column->insert_many_defaults(3);
+    variant->add_sub_column(path, std::move(column), type);
+
+    // Finalize the variant column to ensure proper structure
+    // EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+    // EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}).ok());
+    EXPECT_EQ(variant->size(), 3);
+
+    // Test update_hash_with_value with ColumnNothing
+    SipHash hash1, hash2, hash3;
+
+    // Test that update_hash_with_value doesn't crash with ColumnNothing
+    EXPECT_NO_THROW(variant->update_hash_with_value(0, hash1));
+    EXPECT_NO_THROW(variant->update_hash_with_value(1, hash2));
+    EXPECT_NO_THROW(variant->update_hash_with_value(2, hash3));
+
+    // For ColumnNothing, the hash should be consistent since it doesn't contain actual data
+    // However, the hash might include structural information, so we just verify it doesn't crash
+    // and produces some hash value
+    EXPECT_NE(hash1.get64(), 0);
+    EXPECT_NE(hash2.get64(), 0);
+    EXPECT_NE(hash3.get64(), 0);
+
+    // Test update_hashes_with_value with ColumnNothing
+    std::vector<uint64_t> hashes(3, 0);
+    EXPECT_NO_THROW(variant->update_hashes_with_value(hashes.data()));
+
+    // Verify that hashes are computed (non-zero)
+    EXPECT_NE(hashes[0], 0);
+    EXPECT_NE(hashes[1], 0);
+    EXPECT_NE(hashes[2], 0);
+
+    // Test update_xxHash_with_value with ColumnNothing
+    uint64_t xxhash = 0;
+    EXPECT_NO_THROW(variant->update_xxHash_with_value(0, 3, xxhash, nullptr));
+    EXPECT_NE(xxhash, 0);
+
+    // Test update_crc_with_value with ColumnNothing
+    uint32_t crc_hash = 0;
+    EXPECT_NO_THROW(variant->update_crc_with_value(0, 3, crc_hash, nullptr));
+    EXPECT_NE(crc_hash, 0);
+
+    // Test with null map
+    std::vector<uint8_t> null_map(3, 0);
+    null_map[1] = 1; // Mark second row as null
+
+    std::vector<uint64_t> hashes_with_null(3, 0);
+    EXPECT_NO_THROW(variant->update_hashes_with_value(hashes_with_null.data(), null_map.data()));
+
+    uint64_t xxhash_with_null = 0;
+    EXPECT_NO_THROW(variant->update_xxHash_with_value(0, 3, xxhash_with_null, null_map.data()));
+
+    uint32_t crc_hash_with_null = 0;
+    EXPECT_NO_THROW(variant->update_crc_with_value(0, 3, crc_hash_with_null, null_map.data()));
+}
+
 TEST(ColumnVariantTest, basic_inset_range_from) {
     auto src = VariantUtil::construct_basic_varint_column();
     EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
