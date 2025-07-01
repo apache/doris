@@ -83,7 +83,7 @@ public abstract class IntegerLikeLiteral extends NumericLiteral {
                     return BooleanLiteral.TRUE;
                 }
             }
-            long longValue = (Long) value;
+            long longValue = ((Number) value).longValue();
             if (longValue == 0) {
                 return BooleanLiteral.FALSE;
             } else {
