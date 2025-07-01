@@ -668,6 +668,17 @@ public class SchemaTable extends Table {
                             .column("IS_OVERLAP", ScalarType.createType(PrimitiveType.BOOLEAN))
                             .build())
             )
+            .put("view_dependency",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "view_dependency", TableType.SCHEMA,
+                        builder().column("VIEW_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("VIEW_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("VIEW_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("VIEW_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .build()))
             .build();
 
     private boolean fetchAllFe = false;

@@ -136,6 +136,10 @@ public:
 
     void update_scan_cpu_timer();
 
+    // Some counters need to be updated realtime, for example, workload group policy need
+    // scan bytes to cancel the query exceed limit.
+    virtual void update_realtime_counters() {}
+
     RuntimeState* runtime_state() { return _state; }
 
     bool is_open() { return _is_open; }
