@@ -1493,6 +1493,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
     }
 
     for (int retry = 0; retry <= 1; retry++) {
+        response->Clear();
         bool need_commit = false;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
