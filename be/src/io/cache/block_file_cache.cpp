@@ -230,6 +230,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_recycle_keys_length");
     _ttl_gc_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
                                                                  "file_cache_ttl_gc_latency_us");
+    _shadow_queue_levenshtein_distance = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_shadow_queue_levenshtein_distance");
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
@@ -1593,6 +1595,48 @@ std::string LRUQueue::to_string(std::lock_guard<std::mutex>& /* cache_lock */) c
     return result;
 }
 
+size_t LRUQueue::levenshtein_distance_from(LRUQueue& base,
+                                           std::lock_guard<std::mutex>& cache_lock) {
+    std::list<FileKeyAndOffset> target_queue = this->queue;
+    std::list<FileKeyAndOffset> base_queue = base.queue;
+    std::vector<FileKeyAndOffset> vec1(target_queue.begin(), target_queue.end());
+    std::vector<FileKeyAndOffset> vec2(base_queue.begin(), base_queue.end());
+
+    size_t m = vec1.size();
+    size_t n = vec2.size();
+
+    // Create a 2D vector (matrix) to store the Levenshtein distances
+    // dp[i][j] will hold the distance between the first i elements of vec1 and the first j elements of vec2
+    std::vector<std::vector<size_t>> dp(m + 1, std::vector<size_t>(n + 1, 0));
+
+    // Initialize the first row and column of the matrix
+    // The distance between an empty list and a list of length k is k (all insertions or deletions)
+    for (size_t i = 0; i <= m; ++i) {
+        dp[i][0] = i;
+    }
+    for (size_t j = 0; j <= n; ++j) {
+        dp[0][j] = j;
+    }
+
+    // Fill the matrix using dynamic programming
+    for (size_t i = 1; i <= m; ++i) {
+        for (size_t j = 1; j <= n; ++j) {
+            // Check if the current elements of both vectors are equal
+            size_t cost = (vec1[i - 1].hash == vec2[j - 1].hash &&
+                           vec1[i - 1].offset == vec2[j - 1].offset)
+                                  ? 0
+                                  : 1;
+            // Calculate the minimum cost of three possible operations:
+            // 1. Insertion: dp[i][j-1] + 1
+            // 2. Deletion: dp[i-1][j] + 1
+            // 3. Substitution: dp[i-1][j-1] + cost (0 if elements are equal, 1 if not)
+            dp[i][j] = std::min({dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost});
+        }
+    }
+    // The bottom-right cell of the matrix contains the Levenshtein distance
+    return dp[m][n];
+}
+
 std::string BlockFileCache::dump_structure(const UInt128Wrapper& hash) {
     SCOPED_CACHE_LOCK(_mutex, this);
     return dump_structure_unlocked(hash, cache_lock);
@@ -2297,7 +2341,24 @@ void BlockFileCache::run_background_lru_log_replay() {
         replay_queue_event(_normal_lru_log_queue, _shadow_normal_queue);
         replay_queue_event(_disposable_lru_log_queue, _shadow_disposable_queue);
 
-        //TODO(zhengyu): add debug facilities to check diff between real and shadow queue
+        if (config::enable_evaluate_shadow_queue_diff) {
+            evaluate_queue_diff(_shadow_ttl_queue, _ttl_queue, "ttl");
+            evaluate_queue_diff(_shadow_index_queue, _index_queue, "index");
+            evaluate_queue_diff(_shadow_normal_queue, _normal_queue, "normal");
+            evaluate_queue_diff(_shadow_disposable_queue, _disposable_queue, "disposable");
+        }
+    }
+}
+
+// we evaluate the diff between two queue by calculate how many operation is
+// needed for transfer one to another (Levenshtein Distance)
+// NOTE: HEAVY calculation with cache lock, only for debugging
+void BlockFileCache::evaluate_queue_diff(LRUQueue& target, LRUQueue& base, std::string name) {
+    SCOPED_CACHE_LOCK(_mutex, this);
+    size_t distance = target.levenshtein_distance_from(base, cache_lock);
+    *_shadow_queue_levenshtein_distance << distance;
+    if (distance > 20) {
+        LOG(WARNING) << name << " shadow queue is different from real queue";
     }
 }
 

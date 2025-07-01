@@ -151,6 +151,8 @@ public:
         cache_size = 0;
     }
 
+    size_t levenshtein_distance_from(LRUQueue& base, std::lock_guard<std::mutex>& cache_lock);
+
     size_t max_size;
     size_t max_element_size;
     std::list<FileKeyAndOffset> queue;
@@ -523,6 +525,7 @@ private:
     void record_queue_event(CacheLRULogQueue& log_queue, CacheLRULogType log_type,
                             const UInt128Wrapper hash, const size_t offset, const size_t size);
     void replay_queue_event(CacheLRULogQueue& log_queue, LRUQueue& shadown_queue);
+    void evaluate_queue_diff(LRUQueue& target, LRUQueue& base, std::string name);
 
     Status check_ofstream_status(std::ofstream& out, std::string& filename);
     Status dump_one_lru_entry(std::ofstream& out, std::string& filename, const UInt128Wrapper& hash,
@@ -637,6 +640,8 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _evict_in_advance_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _recycle_keys_length_recorder;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
+
+    std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
     // keep _storage last so it will deconstruct first
     // otherwise, load_cache_info_into_memory might crash
     // coz it will use other members of BlockFileCache

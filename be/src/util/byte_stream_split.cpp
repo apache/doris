@@ -19,8 +19,8 @@
 
 #include <glog/logging.h>
 
-#include <bit>
 #include <array>
+#include <bit>
 #include <cstring>
 #include <vector>
 

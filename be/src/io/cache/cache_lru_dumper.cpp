@@ -354,7 +354,11 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
             if (queue_name == "ttl") {
                 ctx.cache_type = FileCacheType::TTL;
                 // TODO(zhengyu): we haven't persist expiration time yet, use 3h default
-                // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
+                // There are mulitiple places we can correct this fake 3h ttl, e.g.:
+                // 1. during load_cache_info_into_memory (this will cause overwriting the ttl of async load)
+                // 2. after restoring, use sync_meta to modify the ttl
+                // However, I plan not to do this in this commit but to figure a more elegant way
+                // after ttl expiration time being changed from file name encoding to rocksdb persistency.
                 ctx.expiration_time = 10800;
             } else if (queue_name == "index") {
                 ctx.cache_type = FileCacheType::INDEX;
@@ -367,6 +371,7 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
                 DCHECK(false);
                 return;
             }
+            // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
             _mgr->add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
         }
         in.close();
