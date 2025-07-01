@@ -45,6 +45,8 @@ class TShowUserRequest;
 class TShowUserResult;
 class TFetchBackendsRequest;
 class TFetchBackendsResult;
+class TFetchFrontendsRequest;
+class TFetchFrontendsResult;
 
 // this class is a helper for getting schema info from FE
 class SchemaHelper {
