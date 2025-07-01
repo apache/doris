@@ -29,10 +29,16 @@ public class IcebergPartitionInfo {
     private final Map<String, IcebergPartition> nameToIcebergPartition;
     private final Map<String, Set<String>> nameToIcebergPartitionNames;
 
+    private static final IcebergPartitionInfo EMPTY = new IcebergPartitionInfo();
+
     public IcebergPartitionInfo() {
         this.nameToPartitionItem = Maps.newHashMap();
         this.nameToIcebergPartition = Maps.newHashMap();
         this.nameToIcebergPartitionNames = Maps.newHashMap();
+    }
+
+    static IcebergPartitionInfo empty() {
+        return EMPTY;
     }
 
     public IcebergPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
