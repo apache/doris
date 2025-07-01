@@ -844,7 +844,7 @@ public class StmtExecutor {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
-            profile.getSummaryProfile().setQueryPlanFinishTime();
+            profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
             handleQueryWithRetry(queryId);
         }
     }
@@ -1598,7 +1598,7 @@ public class StmtExecutor {
                 }
             }
         }
-        profile.getSummaryProfile().setQueryPlanFinishTime();
+        profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
     }
 
     private void resetAnalyzerAndStmt() {
@@ -1932,7 +1932,7 @@ public class StmtExecutor {
 
         try {
             coordBase.exec();
-            profile.getSummaryProfile().setQueryScheduleFinishTime();
+            profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -2029,7 +2029,7 @@ public class StmtExecutor {
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
-            profile.getSummaryProfile().setQueryFetchResultFinishTime();
+            profile.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
         } catch (Exception e) {
             // notify all be cancel running fragment
             // in some case may block all fragment handle threads
