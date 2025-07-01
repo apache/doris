@@ -8007,10 +8007,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitWarmUpCluster(DorisParser.WarmUpClusterContext ctx) {
         String dstCluster = ctx.destination.getText();
-        String srcCluster = null;
-        if (ctx.source != null) {
-            srcCluster = ctx.source.getText();
-        }
+        String srcCluster = ctx.source.getText();
         boolean isWarmUpWithTable = false;
         List<WarmUpItem> warmUpItems = new ArrayList<>();
         if (ctx.warmUpItem() != null && !ctx.warmUpItem().isEmpty()) {
