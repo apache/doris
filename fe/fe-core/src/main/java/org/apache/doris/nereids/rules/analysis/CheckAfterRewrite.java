@@ -151,7 +151,8 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
             for (Expression groupBy : agg.getGroupByExpressions()) {
-                if (groupBy.getDataType().isOnlyMetricType()) {
+                if (groupBy.getDataType().isOnlyMetricType()
+                        && !groupBy.getDataType().isArrayTypeNestedBaseType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -178,11 +179,13 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
                 WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
                 if (windowExpression.getOrderKeys().stream().anyMatch((
-                        orderKey -> orderKey.getDataType().isOnlyMetricType()))) {
+                        orderKey -> orderKey.getDataType().isOnlyMetricType()
+                                && !orderKey.getDataType().isArrayType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
                 if (windowExpression.getPartitionKeys().stream().anyMatch((
-                        partitionKey -> partitionKey.getDataType().isOnlyMetricType()))) {
+                        partitionKey -> partitionKey.getDataType().isOnlyMetricType()
+                                && !partitionKey.getDataType().isArrayTypeNestedBaseType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });

@@ -17,7 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -28,8 +33,18 @@ import java.util.List;
  * like expression: a like 'xxx%'.
  */
 public class Like extends StringRegexPredicate {
+
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT,
+                    VarcharType.SYSTEM_DEFAULT));
+
     public Like(Expression left, Expression right) {
         this(ImmutableList.of(left, right));
+    }
+
+    public Like(Expression left, Expression right, Expression escape) {
+        this(ImmutableList.of(left, right, escape));
     }
 
     private Like(List<Expression> children) {
@@ -41,8 +56,31 @@ public class Like extends StringRegexPredicate {
     }
 
     @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
+    }
+
+    @Override
+    public String computeToSql() {
+        if (arity() == 2) {
+            return super.computeToSql();
+        }
+        return '(' + left().toSql() + ' ' + getName() + ' ' + right().toSql() + " escape " + child(2).toSql()
+                + ')';
+    }
+
+    @Override
+    public String toString() {
+        if (arity() == 2) {
+            return super.computeToSql();
+        }
+        return "(" + left() + " " + getName() + " " + right() + " escape " + child(2)
+                + ")";
+    }
+
+    @Override
     public Like withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
         return new Like(children);
     }
 
@@ -53,5 +91,20 @@ public class Like extends StringRegexPredicate {
     @Override
     public Expression withInferred(boolean inferred) {
         return new Like(this.children, inferred);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (arity() == 3) {
+            if (child(2) instanceof StringLikeLiteral) {
+                String escapeChar = ((StringLikeLiteral) child(2)).getStringValue();
+                if (escapeChar.getBytes().length != 1) {
+                    throw new AnalysisException(
+                            "like escape character must be a single ascii character: " + escapeChar);
+                }
+            } else {
+                throw new AnalysisException("like escape character must be a string literal: " + this.toSql());
+            }
+        }
     }
 }
