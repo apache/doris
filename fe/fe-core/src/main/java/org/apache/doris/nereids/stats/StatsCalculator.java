@@ -907,7 +907,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         for (int i = 0; i < intersect.arity(); i++) {
             childrenStats.add(groupExpression.childStatistics(i));
         }
-        return computeIntersect(intersect,childrenStats);
+        return computeIntersect(intersect, childrenStats);
     }
 
     @Override
