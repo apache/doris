@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AWSGluePropertiesTest {
+public class AWSGlueMetaStorePropertiesTest {
     private static Map<String, String> baseProps = new HashMap<>();
 
     @BeforeAll
@@ -44,7 +44,7 @@ public class AWSGluePropertiesTest {
 
         props.put("glue.endpoint", "https://glue.ap-northeast-1.amazonaws.com");
 
-        AWSGlueProperties glueProperties = (AWSGlueProperties) MetastoreProperties.create(props);
+        AWSGlueMetaStoreProperties glueProperties = (AWSGlueMetaStoreProperties) MetastoreProperties.create(props);
 
         Map<String, String> catalogProps = new HashMap<>();
         glueProperties.toIcebergGlueCatalogProperties(catalogProps);
@@ -56,7 +56,7 @@ public class AWSGluePropertiesTest {
                 .get("client.credentials-provider.glue.secret_key"));
         Assertions.assertEquals("ap-northeast-1", catalogProps
                 .get("client.region"));
-        AWSGlueProperties.AWSCatalogMetastoreClientCredentials awsCatalogMetastoreClientCredentials = glueProperties.getAWSCatalogMetastoreClientCredentials();
+        AWSGlueMetaStoreProperties.AWSCatalogMetastoreClientCredentials awsCatalogMetastoreClientCredentials = glueProperties.getAWSCatalogMetastoreClientCredentials();
         Map<String, String> credentials = awsCatalogMetastoreClientCredentials.getCredentials();
         Assertions.assertEquals("test_access_key", credentials.get("aws.glue.access-key"));
         Assertions.assertEquals("test_secret_key", credentials.get("aws.glue.secret-key"));
@@ -68,7 +68,7 @@ public class AWSGluePropertiesTest {
         props.put("glue.endpoint", "https://glue.ap-northeast-1.amazonaws.com");
         props.put("aws.glue.secret-key", "test_secret_key");
         props.put("aws.glue.access-key", "test_access_key");
-        glueProperties = (AWSGlueProperties) MetastoreProperties.create(props);
+        glueProperties = (AWSGlueMetaStoreProperties) MetastoreProperties.create(props);
         catalogProps = new HashMap<>();
         glueProperties.toIcebergGlueCatalogProperties(catalogProps);
         Assertions.assertEquals("ap-northeast-1", catalogProps.get("client.region"));
@@ -80,7 +80,7 @@ public class AWSGluePropertiesTest {
         props.put("glue.endpoint", "https://glue.ap-northeast-1.amazonaws.com");
         props.put("aws.glue.secret-key", "test_secret_key");
         props.put("glue.access_key", "test_glue_access_key");
-        glueProperties = (AWSGlueProperties) MetastoreProperties.create(props);
+        glueProperties = (AWSGlueMetaStoreProperties) MetastoreProperties.create(props);
         catalogProps = new HashMap<>();
         glueProperties.toIcebergGlueCatalogProperties(catalogProps);
         Assertions.assertEquals("ap-northeast-1", catalogProps.get("client.region"));
@@ -131,33 +131,33 @@ public class AWSGluePropertiesTest {
         props.put("glue.access_key", "a");
         props.put("glue.secret_key", "test_secret_key");
         props.put("glue.endpoint", "https://glue.us-west-2.amazonaws.com");
-        AWSGlueProperties glueProperties = (AWSGlueProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
+        AWSGlueMetaStoreProperties glueProperties = (AWSGlueMetaStoreProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
         Map<String, String> catalogProps = new HashMap<>();
         glueProperties.toIcebergGlueCatalogProperties(catalogProps);
         Assertions.assertEquals("us-west-2", catalogProps.get("client.region"));
         props.put("glue.endpoint", "https://glue-fips.us-west-2.api.aws");
-        glueProperties = (AWSGlueProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
+        glueProperties = (AWSGlueMetaStoreProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
         catalogProps = new HashMap<>();
         glueProperties.toIcebergGlueCatalogProperties(catalogProps);
         Assertions.assertEquals("us-west-2", catalogProps.get("client.region"));
         props.put("glue.endpoint", "https://glue-fips.us-west-2.amazonaws.com");
-        glueProperties = (AWSGlueProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
+        glueProperties = (AWSGlueMetaStoreProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
         catalogProps = new HashMap<>();
         glueProperties.toIcebergGlueCatalogProperties(catalogProps);
         Assertions.assertEquals("us-west-2", catalogProps.get("client.region"));
         props.put("glue.endpoint", "https://glue.us-west-2.api.aws");
-        glueProperties = (AWSGlueProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
+        glueProperties = (AWSGlueMetaStoreProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
         catalogProps = new HashMap<>();
         glueProperties.toIcebergGlueCatalogProperties(catalogProps);
         Assertions.assertEquals("us-west-2", catalogProps.get("client.region"));
         props.put("glue.endpoint", "https://glue.us-west-2.amazonaws.com");
-        glueProperties = (AWSGlueProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
+        glueProperties = (AWSGlueMetaStoreProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
         catalogProps = new HashMap<>();
         glueProperties.toIcebergGlueCatalogProperties(catalogProps);
         Assertions.assertEquals("us-west-2", catalogProps.get("client.region"));
 
         props.put("glue.endpoint", "glue.us-west-2.amazonaws.com");
-        glueProperties = (AWSGlueProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
+        glueProperties = (AWSGlueMetaStoreProperties) MetastoreProperties.create(MetastoreProperties.Type.GLUE, props);
         catalogProps = new HashMap<>();
         glueProperties.toIcebergGlueCatalogProperties(catalogProps);
         Assertions.assertEquals("us-west-2", catalogProps.get("client.region"));

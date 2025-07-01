@@ -110,7 +110,7 @@ public class MetastoreProperties extends ConnectionProperties {
     static {
         // Register all known factories here
         FACTORY_MAP.put(Type.HMS, HMSProperties::new);
-        FACTORY_MAP.put(Type.GLUE, AWSGlueProperties::new);
+        FACTORY_MAP.put(Type.GLUE, AWSGlueMetaStoreProperties::new);
         FACTORY_MAP.put(Type.DLF, AliyunDLFProperties::new);
         FACTORY_MAP.put(Type.ICEBERG_REST, IcebergRestProperties::new);
         FACTORY_MAP.put(Type.DATAPROC, DataProcProperties::new);

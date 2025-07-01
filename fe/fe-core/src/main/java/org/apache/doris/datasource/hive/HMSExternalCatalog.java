@@ -39,6 +39,7 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.metastore.AbstractHMSProperties;
 import org.apache.doris.datasource.property.metastore.HMSProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.fs.FileSystemProvider;
@@ -84,7 +85,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     //for "type" = "hms" , but is iceberg table.
     private IcebergMetadataOps icebergMetadataOps;
 
-    private volatile HMSProperties hmsProperties;
+    private volatile AbstractHMSProperties hmsProperties;
 
     /**
      * Lazily initializes HMSProperties from catalog properties.
@@ -97,14 +98,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
      * We will consider a unified solution for alter support later,
      * as it's currently not feasible to handle it in a common/shared location.
      */
-    public HMSProperties getHmsProperties() {
-        if (hmsProperties == null) {
-            synchronized (this) {
-                if (hmsProperties == null) {
-                    initHmsProperties();
-                }
-            }
-        }
+    public AbstractHMSProperties getHmsProperties() {
+        makeSureInitialized();
         return hmsProperties;
     }
 
@@ -215,6 +210,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
+        initHmsProperties();
         initPreExecutionAuthenticator();
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(getHiveConf(), this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
@@ -331,10 +327,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
-    }
-
-    public String getHiveMetastoreUris() {
-        return hmsProperties.getHiveMetastoreUri();
     }
 
     public IcebergMetadataOps getIcebergMetadataOps() {

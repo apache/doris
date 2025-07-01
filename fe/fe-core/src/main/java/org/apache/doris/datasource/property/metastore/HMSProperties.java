@@ -37,7 +37,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
-public class HMSProperties extends MetastoreProperties {
+public class HMSProperties extends AbstractHMSProperties{
 
     @Getter
     @ConnectorProperty(names = {"hive.metastore.uris", "uri"},
@@ -94,17 +94,7 @@ public class HMSProperties extends MetastoreProperties {
             description = "The batch size of hms events per rpc.")
     private String hmsEventisBatchSizePerRpcString;
 
-    @Getter
-    private boolean hmsEventsIncrementalSyncEnabled = Config.enable_hms_events_incremental_sync;
 
-    @Getter
-    private int hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
-
-    @Getter
-    private HiveConf hiveConf;
-
-    @Getter
-    private HadoopAuthenticator hdfsAuthenticator;
 
     private Map<String, String> userOverriddenHiveConfig = new HashMap<>();
 
