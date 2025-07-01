@@ -1569,15 +1569,15 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                 } else if (action == FinishTabletJobRequest::ABORT) {
                     g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter << 1;
                 }
-            }
 
-            if (retry == 0 && !request->job().compaction().empty() &&
-                request->job().compaction(0).has_delete_bitmap_lock_initiator()) {
-                // Do a fast retry for mow when commit compaction job.
-                // The only fdb txn conflict here is that during the compaction job commit,
-                // a compaction lease RPC comes and finishes before the commit,
-                // so we retry to commit the compaction job again.
-                continue;
+                if (retry == 0 && !request->job().compaction().empty() &&
+                    request->job().compaction(0).has_delete_bitmap_lock_initiator()) {
+                    // Do a fast retry for mow when commit compaction job.
+                    // The only fdb txn conflict here is that during the compaction job commit,
+                    // a compaction lease RPC comes and finishes before the commit,
+                    // so we retry to commit the compaction job again.
+                    continue;
+                }
             }
 
             code = cast_as<ErrCategory::COMMIT>(err);
