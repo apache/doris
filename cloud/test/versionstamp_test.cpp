@@ -37,31 +37,44 @@ int main(int argc, char** argv) {
     return RUN_ALL_TESTS();
 }
 
+TEST(VersionstampTest, ByteSwap) {
+    using namespace doris::cloud;
+
+    // Test byte swapping functions
+    constexpr uint64_t original64 = 0x0102030405060708;
+    constexpr uint64_t swapped64 = Versionstamp::byteswap64(original64);
+    EXPECT_EQ(swapped64, 0x0807060504030201);
+
+    constexpr uint16_t original16 = 0x0102;
+    constexpr uint16_t swapped16 = Versionstamp::byteswap16(original16);
+    EXPECT_EQ(swapped16, 0x0201);
+}
+
 TEST(VersionstampTest, Usage) {
     using namespace doris::cloud;
 
     // Create a versionstamp from a byte array
-    uint8_t data[10] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A};
-    Versionstamp vs(data);
+    constexpr uint8_t data[10] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A};
+    constexpr Versionstamp vs(data);
 
     // Check the minimum and maximum versionstamps
     EXPECT_EQ(Versionstamp::min() < vs, true);
     EXPECT_EQ(Versionstamp::max() > vs, true);
 
     // Check equality and ordering
-    Versionstamp vs2(data);
+    constexpr Versionstamp vs2(data);
     EXPECT_EQ(vs == vs2, true);
     EXPECT_EQ(vs < Versionstamp::max(), true);
 
     // Create a versionstamp from a version and order
-    uint64_t version = 0x0102030405060708;
-    uint16_t order = 0x090A;
-    Versionstamp vs3(version, order);
+    constexpr uint64_t version = 0x0102030405060708;
+    constexpr uint16_t order = 0x090A;
+    constexpr Versionstamp vs3(version, order);
     EXPECT_EQ(vs3.version(), version);
     EXPECT_EQ(vs3.order(), order);
 
     // The default constructor creates a zeroed versionstamp
-    Versionstamp vs_default;
+    constexpr Versionstamp vs_default;
     EXPECT_EQ(vs_default.version(), 0);
     EXPECT_EQ(vs_default.order(), 0);
     EXPECT_EQ(vs_default == Versionstamp::min(), true);

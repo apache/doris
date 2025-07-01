@@ -35,6 +35,15 @@ namespace doris::cloud {
 // in big-endian order).
 class Versionstamp {
 public:
+    constexpr static uint64_t byteswap64(uint64_t x) {
+        return ((x & 0xFF00000000000000ULL) >> 56) | ((x & 0x00FF000000000000ULL) >> 40) |
+               ((x & 0x0000FF0000000000ULL) >> 24) | ((x & 0x000000FF00000000ULL) >> 8) |
+               ((x & 0x00000000FF000000ULL) << 8) | ((x & 0x0000000000FF0000ULL) << 24) |
+               ((x & 0x000000000000FF00ULL) << 40) | ((x & 0x00000000000000FFULL) << 56);
+    }
+
+    constexpr static uint16_t byteswap16(uint16_t x) { return (x << 8) | (x >> 8); }
+
     constexpr Versionstamp()
             : Versionstamp({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}) {}
     constexpr Versionstamp(const std::array<uint8_t, 10>& data) : data_(data) {}
@@ -42,8 +51,8 @@ public:
     constexpr Versionstamp(uint64_t version, uint16_t order) {
         if constexpr (std::endian::native == std::endian::little) {
             // If the native endianness is little-endian, we need to convert to big-endian
-            version = bswap_64(version);
-            order = bswap_16(order);
+            version = byteswap64(version);
+            order = byteswap16(order);
         }
 
         // Copy the big-endian version and order into the data array
@@ -90,7 +99,7 @@ public:
         }
         if constexpr (std::endian::native == std::endian::little) {
             // If the native endianness is little-endian, we need to convert to big-endian
-            version = bswap_64(version);
+            version = byteswap64(version);
         }
         return version;
     }
@@ -102,7 +111,7 @@ public:
             order |= static_cast<uint16_t>(data_[8 + i]) << ((1 - i) * 8);
         }
         if constexpr (std::endian::native == std::endian::little) {
-            order = bswap_16(order);
+            order = byteswap16(order);
         }
         return order;
     }
