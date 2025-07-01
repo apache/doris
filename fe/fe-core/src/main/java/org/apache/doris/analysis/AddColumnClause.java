@@ -73,12 +73,15 @@ public class AddColumnClause extends AlterTableClause {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
+        boolean isAggKey = false;
         if (tableName != null) {
             Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
                     .getTableOrDdlException(tableName.getTbl());
-            if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
-                    && columnDef.getAggregateType() == null) {
-                columnDef.setIsKey(true);
+            if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS) {
+                isAggKey = true;
+                if (columnDef.getAggregateType() == null) {
+                    columnDef.setIsKey(true);
+                }
             }
         }
         columnDef.analyze(true);
@@ -92,6 +95,10 @@ public class AddColumnClause extends AlterTableClause {
 
         if (columnDef.getAggregateType() != null && colPos != null && colPos.isFirst()) {
             throw new AnalysisException("Cannot add value column[" + columnDef.getName() + "] at first");
+        }
+
+        if (isAggKey && columnDef.getType().isArrayType()) {
+            throw new AnalysisException("Array column can't be used in aggregate table");
         }
 
         if (Strings.isNullOrEmpty(rollupName)) {
