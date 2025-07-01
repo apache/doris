@@ -28,7 +28,6 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
@@ -70,7 +69,6 @@ import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UnlockTablesStmt;
 import org.apache.doris.analysis.UnsetVariableStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
-import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -510,7 +508,7 @@ public class StmtExecutor {
                     || logicalPlan instanceof DeleteFromCommand;
         }
         return parsedStmt instanceof InsertStmt || parsedStmt instanceof InsertOverwriteTableStmt
-                || parsedStmt instanceof CreateTableAsSelectStmt || parsedStmt instanceof DeleteStmt;
+                || parsedStmt instanceof CreateTableAsSelectStmt;
     }
 
     public boolean isAnalyzeStmt() {
@@ -1112,20 +1110,8 @@ public class StmtExecutor {
                 }
             } else if (parsedStmt instanceof LoadStmt) {
                 handleLoadStmt();
-            } else if (parsedStmt instanceof UpdateStmt) {
-                handleUpdateStmt();
             } else if (parsedStmt instanceof DdlStmt) {
-                if (parsedStmt instanceof DeleteStmt) {
-                    if (((DeleteStmt) parsedStmt).getInsertStmt() != null) {
-                        handleDeleteStmt();
-                    } else {
-                        Env.getCurrentEnv()
-                                .getDeleteHandler()
-                                .process((DeleteStmt) parsedStmt, context.getState());
-                    }
-                } else {
-                    handleDdlStmt();
-                }
+                handleDdlStmt();
             } else if (parsedStmt instanceof ShowStmt) {
                 handleShow();
             } else if (parsedStmt instanceof ExportStmt) {
@@ -2972,32 +2958,6 @@ public class StmtExecutor {
             // Maybe our bug
             LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-        }
-    }
-
-    private void handleUpdateStmt() {
-        try {
-            UpdateStmt updateStmt = (UpdateStmt) parsedStmt;
-            parsedStmt = updateStmt.getInsertStmt();
-            execute();
-            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-                LOG.warn("update data error, stmt={}", updateStmt.toSql());
-            }
-        } catch (Exception e) {
-            LOG.warn("update data error, stmt={}", parsedStmt.toSql(), e);
-        }
-    }
-
-    private void handleDeleteStmt() {
-        try {
-            DeleteStmt deleteStmt = (DeleteStmt) parsedStmt;
-            parsedStmt = deleteStmt.getInsertStmt();
-            execute();
-            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-                LOG.warn("delete data error, stmt={}", deleteStmt.toSql());
-            }
-        } catch (Exception e) {
-            LOG.warn("delete data error, stmt={}", parsedStmt.toSql(), e);
         }
     }
 
