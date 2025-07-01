@@ -31,8 +31,8 @@
 
 #include "common/config.h"
 #include "io/fs/file_system.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 
 namespace doris {
 class TabletIndex;
@@ -40,7 +40,7 @@ namespace segment_v2 {
 class ReaderFileEntry;
 class DorisCompoundReader;
 
-class InvertedIndexFileReader {
+class IndexFileReader {
 public:
     using EntriesType =
             lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
@@ -50,9 +50,9 @@ public:
     using IndicesEntriesMap =
             std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;
 
-    InvertedIndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
-                            InvertedIndexStorageFormatPB storage_format,
-                            InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo())
+    IndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
+                    InvertedIndexStorageFormatPB storage_format,
+                    InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo())
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _storage_format(storage_format),
@@ -70,7 +70,7 @@ public:
     Result<InvertedIndexDirectoryMap> get_all_directories();
     // open file v2, init _stream
     int64_t get_inverted_file_size() const { return _stream == nullptr ? 0 : _stream->length(); }
-    friend InvertedIndexFileWriter;
+    friend IndexFileWriter;
 
 protected:
     Status _init_from(int32_t read_buffer_size, const io::IOContext* io_ctx);
