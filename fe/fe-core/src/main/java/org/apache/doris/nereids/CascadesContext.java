@@ -168,6 +168,7 @@ public class CascadesContext implements ScheduleContext {
         this.isLeadingDisableJoinReorder = isLeadingDisableJoinReorder;
     }
 
+    /** init a temporary context to rewrite expression */
     public static CascadesContext initTempContext() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
