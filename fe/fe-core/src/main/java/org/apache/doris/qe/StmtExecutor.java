@@ -734,7 +734,7 @@ public class StmtExecutor {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
-            profile.getSummaryProfile().setQueryPlanFinishTime();
+            profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
             handleQueryWithRetry(queryId);
         }
     }
