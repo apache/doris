@@ -45,6 +45,10 @@ namespace doris::vectorized {
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
+    if (!data->is_nullable()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "nested_column must be nullable, but got {}", data->get_name());
+    }
     data = data->convert_to_full_column_if_const();
     offsets = offsets->convert_to_full_column_if_const();
     const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
