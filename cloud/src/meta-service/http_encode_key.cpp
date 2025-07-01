@@ -338,8 +338,10 @@ std::string handle_kv_output(std::string_view key, std::string_view value,
                  << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
     std::string final_json_str = final_output.str();
     LOG(INFO) << final_json_str;
-    if (value.size() > 25000) {
+    if (final_json_str.size() > 25000) {
         std::string file_path = fmt::format("/tmp/{}.txt", hex(key));
+        LOG(INFO) << "write to file=" << file_path << ", key=" << hex(key)
+                  << " size=" << final_json_str.size();
         try {
             std::ofstream kv_file(file_path);
             if (kv_file.is_open()) {
