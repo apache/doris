@@ -1,4 +1,6 @@
 src:*/rapidjson/*
+src:*/gutil/*
+src:*/util/*
 src:*/olap/key_coder.h
 src:*/olap/types.h:
 src:*/olap/field.h
