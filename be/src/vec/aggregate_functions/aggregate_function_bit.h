@@ -27,8 +27,8 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
-#include "vec/io/io_helper.h"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
+#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

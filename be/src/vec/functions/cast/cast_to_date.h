@@ -44,7 +44,8 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
 
@@ -59,7 +60,8 @@ public:
             DCHECK(!to_type->is_nullable()) << "shouldn't be extra nullable here. if argument is "
                                                "null, should be processed in framework.";
             column_to = to_type->create_column();
-            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to, options));
+            RETURN_IF_ERROR(
+                    serde->from_string_strict_mode_batch(*col_from, *column_to, options, null_map));
         } else {
             auto to_nullable_type = make_nullable(to_type);
             column_to = to_nullable_type->create_column();
@@ -77,7 +79,8 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
 
@@ -133,7 +136,8 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
         constexpr bool Nullable = IsDateTimeV2Type<FromDataType> && IsDateTimeV2Type<ToDataType> &&
                                   CastMode == CastModeType::StrictMode;
 
@@ -370,8 +374,10 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
 
     return [cast_to_datelike](FunctionContext* context, Block& block,
                               const ColumnNumbers& arguments, const uint32_t result,
-                              size_t input_rows_count) {
-        return cast_to_datelike->execute_impl(context, block, arguments, result, input_rows_count);
+                              size_t input_rows_count,
+                              const NullMap::value_type* null_map = nullptr) {
+        return cast_to_datelike->execute_impl(context, block, arguments, result, input_rows_count,
+                                              null_map);
     };
 }
 

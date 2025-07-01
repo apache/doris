@@ -95,12 +95,16 @@ Status DataTypeTimeV2SerDe::from_string_batch(const ColumnString& col_str, Colum
 
 Status DataTypeTimeV2SerDe::from_string_strict_mode_batch(const ColumnString& col_str,
                                                           IColumn& col_res,
-                                                          const FormatOptions& options) const {
+                                                          const FormatOptions& options,
+                                                          const NullMap::value_type* null_map) const {
     size_t row = col_str.size();
     col_res.resize(row);
     auto& col_data = assert_cast<ColumnTimeV2&>(col_res);
 
     for (size_t i = 0; i < row; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         auto str = col_str.get_element(i);
         TimeValue::TimeType res;
         RETURN_IF_ERROR(_from_string_strict_mode(str, res));
@@ -166,7 +170,9 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
         StringParser::ParseResult success;
         hour = StringParser::string_to_int_internal<uint32_t, true>(start, (int)(ptr - start),
                                                                     &success);
-        DCHECK(success == StringParser::PARSE_SUCCESS);
+        RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                  "invalid hour part in time string '{}'",
+                                  std::string {start, ptr});
 
         // Check and consume colon
         RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
@@ -198,11 +204,9 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
                 if (length > 0) {
                     auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
                             ms_start, std::min<int>((int)length, 6), &success);
-                    if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
-                        return Status::InvalidArgument(
-                                "invalid fractional part in datetime string '{}'",
-                                std::string {start, ptr});
-                    }
+                    RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                              "invalid fractional part in time string '{}'",
+                                              std::string {start, ptr});
 
                     if (length > 6) {
                         // Round off to at most 6 digits
@@ -241,7 +245,8 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
         StringParser::ParseResult success;
         auto numeric_value = StringParser::string_to_int_internal<uint32_t, true>(
                 start, (int)(ptr - start), &success);
-        DCHECK(success == StringParser::PARSE_SUCCESS);
+        RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                  "invalid numeric time format '{}'", std::string {start, ptr});
 
         // Convert the number to HHMMSS format
         if (numeric_value < 10000) {
@@ -272,9 +277,11 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
             auto length = ptr - ms_start;
 
             if (length > 0) {
-                auto ms =
-                        StringParser::string_to_int_internal<uint32_t, true>(ms_start, 6, &success);
-                DCHECK(success == StringParser::PARSE_SUCCESS);
+                auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                        ms_start, std::min<int>((int)length, 6), &success);
+                RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                          "invalid fractional part in time string '{}'",
+                                          std::string {start, ptr});
 
                 if (length > 6) {
                     // Round off to at most 6 digits
@@ -372,7 +379,9 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
         StringParser::ParseResult success;
         hour = StringParser::string_to_int_internal<uint32_t, true>(start, (int)(ptr - start),
                                                                     &success);
-        DCHECK(success == StringParser::PARSE_SUCCESS);
+        RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                  "invalid hour part in time string '{}'",
+                                  std::string {start, ptr});
 
         // Check and consume colon
         RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
@@ -404,11 +413,9 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
                 if (length > 0) {
                     auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
                             ms_start, std::min<int>((int)length, 6), &success);
-                    if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
-                        return Status::InvalidArgument(
-                                "invalid fractional part in datetime string '{}'",
-                                std::string {start, ptr});
-                    }
+                    RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                              "invalid fractional part in time string '{}'",
+                                              std::string {start, ptr});
 
                     if (length > 6) {
                         // Round off to at most 6 digits
@@ -447,7 +454,8 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
         StringParser::ParseResult success;
         auto numeric_value = StringParser::string_to_int_internal<uint32_t, true>(
                 start, (int)(ptr - start), &success);
-        DCHECK(success == StringParser::PARSE_SUCCESS);
+        RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                  "invalid numeric time format '{}'", std::string {start, ptr});
 
         // Convert the number to HHMMSS format
         if (numeric_value < 10000) {
@@ -480,11 +488,9 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
             if (length > 0) {
                 auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
                         ms_start, std::min<int>((int)length, 6), &success);
-                if (success != StringParser::PARSE_SUCCESS) [[unlikely]] {
-                    return Status::InvalidArgument(
-                            "invalid fractional part in datetime string '{}'",
-                            std::string {start, ptr});
-                }
+                RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
+                                          "invalid fractional part in time string '{}'",
+                                          std::string {start, ptr});
 
                 if (length > 6) {
                     // Round off to at most 6 digits

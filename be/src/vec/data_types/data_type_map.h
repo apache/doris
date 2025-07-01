@@ -100,8 +100,7 @@ public:
     using SerDeType = DataTypeMapSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(key_type->get_serde(nesting_level + 1),
-                                          value_type->get_serde(nesting_level + 1),
-                                          nesting_level);
+                                           value_type->get_serde(nesting_level + 1), nesting_level);
     };
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         node->set_type(TTypeNodeType::MAP);

@@ -46,8 +46,7 @@ public:
                         "strict cast mode");
             }
             column_to = to_type->create_column();
-            RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, *column_to, {}));
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to, {}));
         } else {
             return Status::InternalError("Unsupported cast mode");
         }

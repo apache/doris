@@ -142,7 +142,8 @@ constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataTy
 template <typename DataType>
 constexpr bool IsDatelikeV2Types = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
 template <typename DataType>
-constexpr bool IsDatelikeTypes = IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType> || IsTimeV2Type<DataType>;
+constexpr bool IsDatelikeTypes =
+        IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType> || IsTimeV2Type<DataType>;
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

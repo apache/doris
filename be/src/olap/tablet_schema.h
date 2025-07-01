@@ -41,10 +41,10 @@
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "util/debug_points.h"
+#include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
-#include "util/string_parser.hpp"
 #include "vec/core/types.h"
 #include "vec/json/path_in_data.h"
 
