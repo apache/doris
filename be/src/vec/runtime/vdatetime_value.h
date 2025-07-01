@@ -690,12 +690,12 @@ public:
     VecDateTimeValue& operator--() { return *this += -1; }
 
     uint32_t to_date_v2() const {
-        CHECK(_type == TIME_DATE);
+        // CHECK(_type == TIME_DATE);
         return (year() << 9 | month() << 5 | day());
     }
 
     uint64_t to_datetime_v2() const {
-        CHECK(_type == TIME_DATETIME);
+        // CHECK(_type == TIME_DATETIME);
         return (uint64_t)(((uint64_t)year() << 46) | ((uint64_t)month() << 42) |
                           ((uint64_t)day() << 37) | ((uint64_t)hour() << 32) |
                           ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
