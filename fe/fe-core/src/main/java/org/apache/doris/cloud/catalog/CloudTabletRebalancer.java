@@ -285,6 +285,11 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private void performBalancing() {
+        // ATTN: In general, the order of `balance` should follow `partition`, `table`, and `global`.
+        // This is because performing `global` scheduling first and then `partition` scheduling may
+        // lead to ineffective scheduling. Specifically, `global` scheduling might place multiple tablets belonging
+        // to the same table or partition onto the same BE, while `partition` scheduling later requires these tablets
+        // to be dispersed across different BEs, resulting in unnecessary scheduling.
         if (Config.enable_cloud_partition_balance) {
             balanceAllPartitions();
         }
