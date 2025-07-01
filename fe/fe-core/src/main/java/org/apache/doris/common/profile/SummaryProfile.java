@@ -550,16 +550,16 @@ public class SummaryProfile {
         nereidsCollectTablePartitionTime += elapsed;
     }
 
-    public void setNereidsAnalysisTime(long analysisTime) {
-        this.nereidsAnalysisFinishTime = analysisTime;
+    public void setNereidsAnalysisTime(long analysisFinishTime) {
+        this.nereidsAnalysisFinishTime = analysisFinishTime;
     }
 
-    public void setNereidsRewriteTime(long rewriteTime) {
-        this.nereidsRewriteFinishTime = rewriteTime;
+    public void setNereidsRewriteTime(long rewriteFinishTime) {
+        this.nereidsRewriteFinishTime = rewriteFinishTime;
     }
 
-    public void setNereidsOptimizeTime(long optimizeTime) {
-        this.nereidsOptimizeFinishTime = optimizeTime;
+    public void setNereidsOptimizeTime(long optimizeFinishTime) {
+        this.nereidsOptimizeFinishTime = optimizeFinishTime;
     }
 
     public void setNereidsPreRewriteByMvFinishTime(long nereidsPreRewriteByMvFinishTime) {
