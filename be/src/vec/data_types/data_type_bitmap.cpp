@@ -88,7 +88,7 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         for (size_t i = 0; i < real_need_copy_num; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
             bitmap.write_to(data_ptr);
-            data_ptr += meta_ptr[i];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
         }
         return data_ptr;
     } else {
@@ -108,7 +108,7 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
             bitmap.write_to(data_ptr);
-            data_ptr += meta_ptr[i + 1];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i + 1]);
         }
         return data_ptr;
     }

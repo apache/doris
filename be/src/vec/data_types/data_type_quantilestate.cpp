@@ -85,7 +85,7 @@ char* DataTypeQuantileState::serialize(const IColumn& column, char* buf,
         for (size_t i = 0; i < real_need_copy_num; ++i) {
             auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
             quantile_state.serialize((uint8_t*)data_ptr);
-            data_ptr += meta_ptr[i];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
         }
         return data_ptr;
     } else {
@@ -105,7 +105,7 @@ char* DataTypeQuantileState::serialize(const IColumn& column, char* buf,
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
             auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
             quantile_state.serialize((uint8_t*)data_ptr);
-            data_ptr += meta_ptr[i + 1];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i + 1]);
         }
 
         return data_ptr;

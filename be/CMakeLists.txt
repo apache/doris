@@ -824,6 +824,7 @@ if(NOT BUILD_BENCHMARK)
         ${BASE_DIR}/../conf/odbcinst.ini
         ${BASE_DIR}/../conf/asan_suppr.conf
         ${BASE_DIR}/../conf/lsan_suppr.conf
+        ${BASE_DIR}/../conf/ubsan_suppr.conf
         DESTINATION ${OUTPUT_DIR}/conf)
 endif()
 
