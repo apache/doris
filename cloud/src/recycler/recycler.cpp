@@ -1649,8 +1649,21 @@ int InstanceRecycler::delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta
     int64_t num_segments = rs_meta_pb.num_segments();
     if (num_segments <= 0) return 0;
     if (!rs_meta_pb.has_tablet_schema()) {
-        return delete_rowset_data(rs_meta_pb.resource_id(), rs_meta_pb.tablet_id(),
-                                  rs_meta_pb.rowset_id_v2());
+        // directly delete rowset data by prefix
+        auto resource_id = rs_meta_pb.resource_id();
+        auto tablet_id = rs_meta_pb.tablet_id();
+        auto rowset_id = rs_meta_pb.rowset_id_v2();
+        auto it = accessor_map_.find(resource_id);
+        if (it == accessor_map_.end()) {
+            LOG_WARNING("instance has no such resource id")
+                    .tag("instance_id", instance_id_)
+                    .tag("resource_id", resource_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id);
+            return -1;
+        }
+        auto& accessor = it->second;
+        return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
     }
     auto it = accessor_map_.find(rs_meta_pb.resource_id());
     if (it == accessor_map_.end()) {
@@ -2381,23 +2394,31 @@ int InstanceRecycler::recycle_rowsets() {
             return 0;
         }
         if (!rowset.has_type()) {
-            if (!rowset.has_resource_id()) [[unlikely]] {
+            if (!rowset.has_resource_id() || rowset.resource_id().empty()) [[unlikely]] {
                 return 0;
             }
-            if (rowset.resource_id().empty()) [[unlikely]] {
-                return 0;
-            }
+            auto rowset_meta = rowset.rowset_meta();
+            metrics_context.total_need_recycle_data_size += rowset_meta.total_disk_size();
+            metrics_context.total_recycled_num++;
+            segment_metrics_context_.total_need_recycle_num += rowset_meta.num_segments();
+            segment_metrics_context_.total_need_recycle_data_size += rowset_meta.total_disk_size();
             return 0;
         }
-        auto* rowset_meta = rowset.mutable_rowset_meta();
-        if (!rowset_meta->has_resource_id()) [[unlikely]] {
+        auto rowset_meta = rowset.mutable_rowset_meta();
+        if (!rowset_meta->has_resource_id()) [[unlikely]] { // impossible
             if (rowset.type() == RecycleRowsetPB::PREPARE || rowset_meta->num_segments() != 0) {
                 return 0;
             }
         }
-        if (rowset.type() != RecycleRowsetPB::PREPARE) {
-            if (rowset_meta->num_segments() > 0) {
-                metrics_context.total_need_recycle_num++;
+
+        if (rowset.type() == RecycleRowsetPB::PREPARE) {
+            metrics_context.total_need_recycle_data_size += rowset.rowset_meta().total_disk_size();
+            metrics_context.total_recycled_num++;
+            segment_metrics_context_.total_need_recycle_num += rowset_meta->num_segments();
+            segment_metrics_context_.total_need_recycle_data_size += rowset_meta->total_disk_size();
+        } else {
+            if (rowset_meta->num_segments() > 0) { // Skip empty rowset
+                metrics_context.total_recycled_num++;
                 segment_metrics_context_.total_need_recycle_num += rowset_meta->num_segments();
                 segment_metrics_context_.total_need_recycle_data_size +=
                         rowset_meta->total_disk_size();
