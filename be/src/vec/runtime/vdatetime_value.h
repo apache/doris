@@ -425,7 +425,7 @@ public:
     [[nodiscard]] bool check_range_and_set_time(uint32_t year, uint32_t month, uint32_t day,
                                                 uint32_t hour, uint32_t minute, uint32_t second,
                                                 uint16_t type) {
-        if (check_range(year, month, day, hour, minute, second, type)) {
+        if (check_range(year, month, day, hour, minute, second, type)) [[unlikely]] {
             return false;
         }
         unchecked_set_time(year, month, day, hour, minute, second);
@@ -441,14 +441,15 @@ public:
             }
             _year = val;
         } else if constexpr (unit == TimeUnit::MONTH) {
-            if (val > MAX_MONTH) [[unlikely]] {
+            if (val > MAX_MONTH || !val) [[unlikely]] {
                 return false;
             }
             _month = val;
         } else if constexpr (unit == TimeUnit::DAY) {
             DCHECK(_month <= MAX_MONTH);
             DCHECK(_month != 0);
-            if (val > S_DAYS_IN_MONTH[_month] && (!is_leap(_year) || _month != 2 || val != 29)) {
+            if (!val ||
+                (val > S_DAYS_IN_MONTH[_month] && (!is_leap(_year) || _month != 2 || val != 29))) {
                 return false;
             }
             _day = val;
@@ -689,13 +690,9 @@ public:
 
     VecDateTimeValue& operator--() { return *this += -1; }
 
-    uint32_t to_date_v2() const {
-        // CHECK(_type == TIME_DATE);
-        return (year() << 9 | month() << 5 | day());
-    }
+    uint32_t to_date_v2() const { return (year() << 9 | month() << 5 | day()); }
 
     uint64_t to_datetime_v2() const {
-        // CHECK(_type == TIME_DATETIME);
         return (uint64_t)(((uint64_t)year() << 46) | ((uint64_t)month() << 42) |
                           ((uint64_t)day() << 37) | ((uint64_t)hour() << 32) |
                           ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
@@ -1296,6 +1293,7 @@ public:
 
     bool get_date_from_daynr(uint64_t);
 
+    // do check no matter `this` is date or datetime
     template <TimeUnit unit>
     [[nodiscard]] bool test_time_unit(uint32_t val) {
         // is uint so need check upper bound only
@@ -1304,47 +1302,32 @@ public:
                 return false;
             }
         } else if constexpr (unit == TimeUnit::MONTH) {
-            if (val > MAX_MONTH) [[unlikely]] {
+            if (val > MAX_MONTH || !val) [[unlikely]] {
                 return false;
             }
         } else if constexpr (unit == TimeUnit::DAY) {
             DCHECK(date_v2_value_.month_ <= MAX_MONTH);
             DCHECK(date_v2_value_.month_ != 0);
-            if (val > S_DAYS_IN_MONTH[date_v2_value_.month_] &&
-                !(is_leap(date_v2_value_.year_) && date_v2_value_.month_ == 2 && val == 29)) {
+            if (!val ||
+                (val > S_DAYS_IN_MONTH[date_v2_value_.month_] &&
+                 !(is_leap(date_v2_value_.year_) && date_v2_value_.month_ == 2 && val == 29))) {
                 return false;
             }
         } else if constexpr (unit == TimeUnit::HOUR) {
-            if constexpr (is_datetime) {
-                if (val > MAX_HOUR) [[unlikely]] {
-                    return false;
-                }
-            } else {
-                DCHECK(false) << "shouldn't set for date";
+            if (val > MAX_HOUR) [[unlikely]] {
+                return false;
             }
         } else if constexpr (unit == TimeUnit::MINUTE) {
-            if constexpr (is_datetime) {
-                if (val > MAX_MINUTE) [[unlikely]] {
-                    return false;
-                }
-            } else {
-                DCHECK(false) << "shouldn't set for date";
+            if (val > MAX_MINUTE) [[unlikely]] {
+                return false;
             }
         } else if constexpr (unit == TimeUnit::SECOND) {
-            if constexpr (is_datetime) {
-                if (val > MAX_SECOND) [[unlikely]] {
-                    return false;
-                }
-            } else {
-                DCHECK(false) << "shouldn't set for date";
+            if (val > MAX_SECOND) [[unlikely]] {
+                return false;
             }
         } else if constexpr (unit == TimeUnit::MICROSECOND) {
-            if constexpr (is_datetime) {
-                if (val > MAX_MICROSECOND) [[unlikely]] {
-                    return false;
-                }
-            } else {
-                DCHECK(false) << "shouldn't set for date";
+            if (val > MAX_MICROSECOND) [[unlikely]] {
+                return false;
             }
         }
         return true;
@@ -1359,15 +1342,16 @@ public:
             }
             date_v2_value_.year_ = val;
         } else if constexpr (unit == TimeUnit::MONTH) {
-            if (val > MAX_MONTH) [[unlikely]] {
+            if (val > MAX_MONTH || !val) [[unlikely]] {
                 return false;
             }
             date_v2_value_.month_ = val;
         } else if constexpr (unit == TimeUnit::DAY) {
             DCHECK(date_v2_value_.month_ <= MAX_MONTH);
             DCHECK(date_v2_value_.month_ != 0);
-            if (val > S_DAYS_IN_MONTH[date_v2_value_.month_] &&
-                !(is_leap(date_v2_value_.year_) && date_v2_value_.month_ == 2 && val == 29)) {
+            if (!val ||
+                (val > S_DAYS_IN_MONTH[date_v2_value_.month_] &&
+                 !(is_leap(date_v2_value_.year_) && date_v2_value_.month_ == 2 && val == 29))) {
                 return false;
             }
             date_v2_value_.day_ = val;

@@ -27,9 +27,8 @@ TEST_F(FunctionCastTest, strict_test_from_string_to_date) {
             // Valid ISO 8601 format with timezone
             {{std::string("2023-07-16T19:20:30.123+08:00")}, std::string("2023-07-16")},
             {{std::string("2023-07-16T19+08:00")}, std::string("2023-07-16")},
-            // keep its origin behaviour. timezone offset and time part could together impact date part.
-            // here 1920 is treated as 1,920 hours and carried over to the day.
-            {{std::string("2023-07-16T1920+08:00")}, std::string("2023-10-04")},
+            {{std::string("2023-07-16T1920+08:00")}, std::string("2023-07-16")},
+            {{std::string("2023-07-16T1920+00:00")}, std::string("2023-07-16")},
             {{std::string("70-1-1T00:00:00-0000")}, std::string("1970-01-01")},
             {{std::string("19991231T235960.5UTC")}, std::string("2000-01-01")},
 

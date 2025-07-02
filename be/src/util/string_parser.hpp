@@ -182,10 +182,13 @@ Status consume_digit(const char*& s, const char* end, T& out) {
     if constexpr (MAX_LEN > 0) {
         out = 0;
         for (int i = 0; i < MAX_LEN; ++i, ++s) {
-            if ((s == end || !is_numeric_ascii(*s)) && i < LEN) {
-                return Status::InvalidArgument(
-                        "StringParser: failed to consume ({}, {}) digits, got '{}'", LEN - i,
-                        MAX_LEN - i, std::string {s, end});
+            if ((s == end || !is_numeric_ascii(*s))) {
+                if (i < LEN) {
+                    return Status::InvalidArgument(
+                            "StringParser: got \"{}\" before get at least {} digit",
+                            std::string {s, end}, LEN - i);
+                }
+                break; // stop consuming if we have consumed enough digits.
             }
             out = out * 10 + (*s - '0');
         }
@@ -225,6 +228,18 @@ inline bool is_colon(char c) {
     return c == ':';
 }
 inline auto consume_one_colon = skip_qualified_char<1, is_colon>;
+
+inline std::string combine_tz_offset(char sign, uint32_t hour_offset, uint32_t minute_offset) {
+    std::string result(6, '0');
+    result[0] = sign;
+    result[1] = '0' + (hour_offset / 10);
+    result[2] = '0' + (hour_offset % 10);
+    result[3] = ':';
+    result[4] = '0' + (minute_offset / 10);
+    result[5] = '0' + (minute_offset % 10);
+    DCHECK_EQ(result.size(), 6);
+    return result;
+}
 
 // Utility functions for doing atoi/atof on non-null terminated strings.  On micro benchmarks,
 // this is significantly faster than libc (atoi/strtol and atof/strtod).

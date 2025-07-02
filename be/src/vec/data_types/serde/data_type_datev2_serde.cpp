@@ -358,14 +358,16 @@ Status DataTypeDateV2SerDe::_from_string(const std::string& str, DateV2Value<Dat
         cctz::time_zone parsed_tz {};
         if (*ptr == '+' || *ptr == '-') {
             // offset
-            const auto* start = ptr;
+            const char sign = *ptr;
             ++ptr;
             uint32_t hour_offset, minute_offset = 0;
             // hour
             RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, hour_offset)));
             RETURN_INVALID_ARG_IF_NOT(hour_offset <= 14, "invalid hour offset {}", hour_offset);
-            if (assert_within_bound(ptr, end, 0).ok() && *ptr == ':') {
-                ++ptr;
+            if (assert_within_bound(ptr, end, 0).ok()) {
+                if (*ptr == ':') {
+                    ++ptr;
+                }
                 // minute
                 RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, minute_offset)));
                 RETURN_INVALID_ARG_IF_NOT(
@@ -374,8 +376,10 @@ Status DataTypeDateV2SerDe::_from_string(const std::string& str, DateV2Value<Dat
             }
 
             RETURN_INVALID_ARG_IF_NOT(
-                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
-                    "invalid timezone offset '{}'", std::string {start, ptr});
+                    TimezoneUtils::find_cctz_time_zone(
+                            combine_tz_offset(sign, hour_offset, minute_offset), parsed_tz),
+                    "invalid timezone offset '{}'",
+                    combine_tz_offset(sign, hour_offset, minute_offset));
         } else {
             // timezone name
             const auto* start = ptr;
@@ -441,10 +445,10 @@ Status DataTypeDateV2SerDe::_from_string_strict_mode(const std::string& str,
         RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
         if (*ptr == '-') {
             // 2 digits year
-            ++ptr;
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+            ++ptr; // consume one bar
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
             RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
 
             RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::YEAR>(part[0]), "invalid year {}",
                                       part[0]);
@@ -526,22 +530,25 @@ Status DataTypeDateV2SerDe::_from_string_strict_mode(const std::string& str,
         cctz::time_zone parsed_tz {};
         if (*ptr == '+' || *ptr == '-') {
             // offset
-            const auto* start = ptr;
+            const char sign = *ptr;
             ++ptr;
             // hour
             RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
             RETURN_INVALID_ARG_IF_NOT(part[0] <= 14, "invalid hour offset {}", part[0]);
-            if (assert_within_bound(ptr, end, 0).ok() && *ptr == ':') {
-                ++ptr;
+            if (assert_within_bound(ptr, end, 0).ok()) {
+                if (*ptr == ':') {
+                    ++ptr;
+                }
                 // minute
                 RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
                 RETURN_INVALID_ARG_IF_NOT((part[1] == 0 || part[1] == 30 || part[1] == 45),
                                           "invalid minute offset {}", part[1]);
             }
 
-            RETURN_INVALID_ARG_IF_NOT(
-                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
-                    "invalid timezone offset '{}'", std::string {start, ptr});
+            RETURN_INVALID_ARG_IF_NOT(TimezoneUtils::find_cctz_time_zone(
+                                              combine_tz_offset(sign, part[0], part[1]), parsed_tz),
+                                      "invalid timezone offset '{}'",
+                                      combine_tz_offset(sign, part[0], part[1]));
         } else {
             // timezone name
             const auto* start = ptr;
@@ -604,32 +611,6 @@ static Status from_int(uint64_t uint_val, int length, DateV2Value<DateV2ValueTyp
         return Status::InvalidArgument("invalid digits for datev2: {}", uint_val);
     }
     return Status::OK();
-}
-
-static void add_microsecond(int64_t frac_part, uint32_t float_scale,
-                            DateV2Value<DateV2ValueType>& val) {
-    // normalize the fractional part to microseconds(6 digits)
-    if (float_scale > 0) {
-        if (float_scale > 6) {
-            int ms = int(frac_part / common::exp10_i64(float_scale - 6));
-            // if scale > 6, we need to round the fractional part
-            int digit7 = frac_part % common::exp10_i32(6) / common::exp10_i32(float_scale - 6);
-            if (digit7 >= 5) {
-                ms++;
-                DCHECK(ms <= 1000000);
-                if (ms == 1000000) {
-                    // overflow, round up to next second
-                    val.date_add_interval<TimeUnit::SECOND>(
-                            TimeInterval {TimeUnit::SECOND, 1, false});
-                    ms = 0;
-                }
-            }
-            val.unchecked_set_time_unit<TimeUnit::MICROSECOND>(ms);
-        } else { // scale <= 6
-            val.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
-                    (uint32_t)frac_part * common::exp10_i32(6 - (int)float_scale));
-        }
-    }
 }
 
 template <typename IntDataType>
@@ -701,9 +682,6 @@ Status DataTypeDateV2SerDe::from_float_batch(const FloatDataType::ColumnType& fl
 
         DateV2Value<DateV2ValueType> val;
         if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
-            int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-            add_microsecond(ms_part_7, 7, val);
-
             col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
             col_nullmap.get_data()[i] = false;
         } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
@@ -733,9 +711,6 @@ Status DataTypeDateV2SerDe::from_float_strict_mode_batch(const FloatDataType::Co
         DateV2Value<DateV2ValueType> val;
         RETURN_IF_ERROR(from_int(int_part, length, val));
 
-        int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-        add_microsecond(ms_part_7, 7, val);
-
         col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
     }
     return Status::OK();
@@ -759,9 +734,6 @@ Status DataTypeDateV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType
 
         DateV2Value<DateV2ValueType> val;
         if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
-            add_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(),
-                            val);
-
             col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
             col_nullmap.get_data()[i] = false;
         } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
@@ -789,7 +761,6 @@ Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
 
         DateV2Value<DateV2ValueType> val;
         RETURN_IF_ERROR(from_int(int_part, length, val));
-        add_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(), val);
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
     }

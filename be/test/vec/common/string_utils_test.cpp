@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/string_utils/string_utils.h"
-
 #include <gtest/gtest.h>
 
+#include "util/string_parser.hpp"
 #include "vec/functions/like.h"
 
 namespace doris::vectorized {
@@ -226,5 +225,4 @@ TEST_F(StringUtilsTest, replace_pattern_by_escape) {
     EXPECT_EQ(replace_pattern_by_escape(StringRef {"abc^^^_^ef"}, '^'), "abc^\\_^ef");
     EXPECT_EQ(replace_pattern_by_escape(StringRef {"\\abc^^^_^ef"}, '^'), "\\\\abc^\\_^ef");
 }
-
 } // namespace doris::vectorized

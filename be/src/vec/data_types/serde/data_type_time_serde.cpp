@@ -17,6 +17,7 @@
 
 #include "data_type_time_serde.h"
 
+#include "common/exception.h"
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -51,7 +52,7 @@ Status DataTypeTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
-    if (UNLIKELY(0 != result.push_timev2(data[col_index], scale))) {
+    if (UNLIKELY(0 != result.push_timev2(data[col_index], _scale))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
     if (_nesting_level >= 2 && options.wrapper_len > 0) {
@@ -201,18 +202,18 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
                 auto length = ptr - ms_start;
 
                 if (length > 0) {
-                    auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
-                            ms_start, std::min<int>((int)length, 6), &success);
+                    auto frac_literal = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                            ms_start, std::min<int>((int)length, _scale), &success);
                     RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
                                               "invalid fractional part in time string '{}'",
                                               std::string {start, ptr});
 
-                    if (length > 6) {
-                        // Round off to at most 6 digits
-                        if (auto remainder = *(ms_start + 6) - '0'; remainder >= 5) {
-                            ms++;
-                            DCHECK(ms <= 1000000);
-                            if (ms == 1000000) {
+                    if (length > _scale) { // _scale is up to 6
+                        // round off to at most `_scale` digits
+                        if (*(start + _scale) - '0' >= 5) {
+                            frac_literal++;
+                            DCHECK(frac_literal <= 1000000);
+                            if (frac_literal == common::exp10_i32(_scale)) {
                                 // overflow, round up to next second
                                 second++;
                                 if (second == 60) {
@@ -223,12 +224,12 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
                                         hour++;
                                     }
                                 }
-                                ms = 0;
+                                frac_literal = 0;
                             }
                         }
-                        microsecond = ms;
+                        microsecond = frac_literal * common::exp10_i32(6 - (int)_scale);
                     } else {
-                        microsecond = (uint32_t)ms * common::exp10_i32(6 - (int)length);
+                        microsecond = frac_literal * common::exp10_i32(6 - (int)length);
                     }
                 }
             }
@@ -276,18 +277,18 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
             auto length = ptr - ms_start;
 
             if (length > 0) {
-                auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
-                        ms_start, std::min<int>((int)length, 6), &success);
+                auto frac_literal = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                        ms_start, std::min<int>((int)length, _scale), &success);
                 RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
                                           "invalid fractional part in time string '{}'",
                                           std::string {start, ptr});
 
-                if (length > 6) {
-                    // Round off to at most 6 digits
-                    if (auto remainder = *(ms_start + 6) - '0'; remainder >= 5) {
-                        ms++;
-                        DCHECK(ms <= 1000000);
-                        if (ms == 1000000) {
+                if (length > _scale) { // _scale is up to 6
+                    // round off to at most `_scale` digits
+                    if (*(start + _scale) - '0' >= 5) {
+                        frac_literal++;
+                        DCHECK(frac_literal <= 1000000);
+                        if (frac_literal == common::exp10_i32(_scale)) {
                             // overflow, round up to next second
                             second++;
                             if (second == 60) {
@@ -298,12 +299,12 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
                                     hour++;
                                 }
                             }
-                            ms = 0;
+                            frac_literal = 0;
                         }
                     }
-                    microsecond = ms;
+                    microsecond = frac_literal * common::exp10_i32(6 - (int)_scale);
                 } else {
-                    microsecond = (uint32_t)ms * common::exp10_i32(6 - (int)length);
+                    microsecond = frac_literal * common::exp10_i32(6 - (int)length);
                 }
             }
         }
@@ -316,7 +317,8 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
                               std::string {ptr, end});
 
     // Convert to TimeValue's internal storage format (microseconds since 00:00:00)
-    res = (negative ? -1 : 1) * TimeValue::make_time(hour, minute, second, microsecond);
+    RETURN_IF_CATCH_EXCEPTION(
+            res = TimeValue::make_time<true>(hour, minute, second, microsecond, negative));
     RETURN_INVALID_ARG_IF_NOT(TimeValue::valid(res), "invalid time value: {}:{}:{}.{}", hour,
                               minute, second, microsecond);
     return Status::OK();
@@ -410,18 +412,18 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
                 auto length = ptr - ms_start;
 
                 if (length > 0) {
-                    auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
-                            ms_start, std::min<int>((int)length, 6), &success);
+                    auto frac_literal = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                            ms_start, std::min<int>((int)length, _scale), &success);
                     RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
                                               "invalid fractional part in time string '{}'",
                                               std::string {start, ptr});
 
-                    if (length > 6) {
-                        // Round off to at most 6 digits
-                        if (auto remainder = *(ms_start + 6) - '0'; remainder >= 5) {
-                            ms++;
-                            DCHECK(ms <= 1000000);
-                            if (ms == 1000000) {
+                    if (length > _scale) { // _scale is up to 6
+                        // round off to at most `_scale` digits
+                        if (*(start + _scale) - '0' >= 5) {
+                            frac_literal++;
+                            DCHECK(frac_literal <= 1000000);
+                            if (frac_literal == common::exp10_i32(_scale)) {
                                 // overflow, round up to next second
                                 second++;
                                 if (second == 60) {
@@ -432,12 +434,12 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
                                         hour++;
                                     }
                                 }
-                                ms = 0;
+                                frac_literal = 0;
                             }
                         }
-                        microsecond = ms;
+                        microsecond = frac_literal * common::exp10_i32(6 - (int)_scale);
                     } else {
-                        microsecond = (uint32_t)ms * common::exp10_i32(6 - (int)length);
+                        microsecond = frac_literal * common::exp10_i32(6 - (int)length);
                     }
                 }
             }
@@ -485,18 +487,18 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
             auto length = ptr - ms_start;
 
             if (length > 0) {
-                auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
-                        ms_start, std::min<int>((int)length, 6), &success);
+                auto frac_literal = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+                        ms_start, std::min<int>((int)length, _scale), &success);
                 RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
                                           "invalid fractional part in time string '{}'",
                                           std::string {start, ptr});
 
-                if (length > 6) {
-                    // Round off to at most 6 digits
-                    if (auto remainder = *(ms_start + 6) - '0'; remainder >= 5) {
-                        ms++;
-                        DCHECK(ms <= 1000000);
-                        if (ms == 1000000) {
+                if (length > _scale) { // _scale is up to 6
+                    // round off to at most `_scale` digits
+                    if (*(start + _scale) - '0' >= 5) {
+                        frac_literal++;
+                        DCHECK(frac_literal <= 1000000);
+                        if (frac_literal == common::exp10_i32(_scale)) {
                             // overflow, round up to next second
                             second++;
                             if (second == 60) {
@@ -507,12 +509,12 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
                                     hour++;
                                 }
                             }
-                            ms = 0;
+                            frac_literal = 0;
                         }
                     }
-                    microsecond = ms;
+                    microsecond = frac_literal * common::exp10_i32(6 - (int)_scale);
                 } else {
-                    microsecond = (uint32_t)ms * common::exp10_i32(6 - (int)length);
+                    microsecond = frac_literal * common::exp10_i32(6 - (int)length);
                 }
             }
         }
@@ -524,7 +526,8 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
                               std::string {ptr, end});
 
     // Convert to TimeValue's internal storage format (microseconds since 00:00:00)
-    res = (negative ? -1 : 1) * TimeValue::make_time(hour, minute, second, microsecond);
+    RETURN_IF_CATCH_EXCEPTION(
+            res = TimeValue::make_time<true>(hour, minute, second, microsecond, negative));
     RETURN_INVALID_ARG_IF_NOT(TimeValue::valid(res), "invalid time value: {}:{}:{}.{}", hour,
                               minute, second, microsecond);
     return Status::OK();
@@ -538,7 +541,8 @@ static Status from_int(int64_t int_val, int length, double& val) {
         int hour = int(uint_val / 10000);
         int minute = (uint_val / 100) % 100;
         int second = uint_val % 100;
-        val = (negative ? -1 : 1) * TimeValue::make_time(hour, minute, second);
+        RETURN_IF_CATCH_EXCEPTION(
+                val = TimeValue::make_time<true>(hour, minute, second, 0, negative));
         RETURN_INVALID_ARG_IF_NOT(TimeValue::valid(val), "invalid time value: {}:{}:{}", hour,
                                   minute, second);
     } else [[unlikely]] {
@@ -547,28 +551,33 @@ static Status from_int(int64_t int_val, int length, double& val) {
     return Status::OK();
 }
 
-static void init_microsecond(int64_t frac_part, uint32_t float_scale, double& val) {
+[[nodiscard]] static bool init_microsecond(int64_t frac_part, uint32_t float_scale, double& val) {
     // normalize the fractional part to microseconds(6 digits)
     if (float_scale > 0) {
         if (float_scale > 6) {
             int ms = int(frac_part / common::exp10_i64(float_scale - 6));
             // if scale > 6, we need to round the fractional part
-            int digit7 = frac_part % common::exp10_i32(6) / common::exp10_i32(float_scale - 6);
+            int digit7 = frac_part % common::exp10_i32(float_scale - 6) /
+                         common::exp10_i32(float_scale - 7);
             if (digit7 >= 5) {
                 ms++;
                 DCHECK(ms <= 1000000);
                 if (ms == 1000000) {
                     // overflow, round up to next second
                     val += TimeValue::ONE_SECOND_MICROSECONDS;
+                    if (val >= TimeValue::MAX_TIME) [[unlikely]] {
+                        return false; // overflow
+                    }
                     ms = 0;
                 }
             }
-            val = TimeValue::init_unsigned_microsecond(val, ms);
+            val = TimeValue::init_microsecond(val, ms);
         } else { // scale <= 6
-            val = TimeValue::init_unsigned_microsecond(
+            val = TimeValue::init_microsecond(
                     val, (uint32_t)frac_part * common::exp10_i32(6 - (int)float_scale));
         }
     }
+    return true;
 }
 
 template <typename IntDataType>
@@ -634,10 +643,12 @@ Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& fl
         double val;
         if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
             int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-            init_microsecond(ms_part_7, 7, val);
-
-            col_data.get_data()[i] = val;
-            col_nullmap.get_data()[i] = false;
+            if (init_microsecond(ms_part_7, 7, val)) [[likely]] {
+                col_data.get_data()[i] = val;
+                col_nullmap.get_data()[i] = false;
+            } else {
+                col_nullmap.get_data()[i] = true;
+            }
         } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
             col_nullmap.get_data()[i] = true;
         } else {
@@ -666,7 +677,10 @@ Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(const FloatDataType::Co
         RETURN_IF_ERROR(from_int(int_part, length, val));
 
         int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-        init_microsecond(ms_part_7, 7, val);
+        if (!init_microsecond(ms_part_7, 7, val)) [[unlikely]] {
+            return Status::InvalidArgument("time overflow after carry on microsecond {}",
+                                           ms_part_7);
+        }
 
         col_data.get_data()[i] = val;
     }
@@ -687,11 +701,13 @@ Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType
 
         double val;
         if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
-            init_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(),
-                             val);
-
-            col_data.get_data()[i] = val;
-            col_nullmap.get_data()[i] = false;
+            if (init_microsecond((int64_t)decimal_col.get_fractional_part(i),
+                                 decimal_col.get_scale(), val)) [[likely]] {
+                col_data.get_data()[i] = val;
+                col_nullmap.get_data()[i] = false;
+            } else {
+                col_nullmap.get_data()[i] = true;
+            }
         } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
             col_nullmap.get_data()[i] = true;
         } else {
@@ -713,7 +729,11 @@ Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
 
         double val;
         RETURN_IF_ERROR(from_int(int_part, length, val));
-        init_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(), val);
+        if (!init_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(),
+                              val)) [[unlikely]] {
+            return Status::InvalidArgument("time overflow after carry on microsecond {}",
+                                           decimal_col.get_fractional_part(i));
+        }
 
         col_data.get_data()[i] = val;
     }

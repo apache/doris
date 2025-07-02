@@ -116,6 +116,7 @@ int32_t time_to_buffer_from_double(double time, char* buffer) {
     return buffer - begin;
 }
 
+//FIXME: try to remove or refactor all those time input/output functions.
 int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     static int pow10[7] = {1, 10, 100, 1000, 10000, 100000, 1000000};
 
@@ -124,7 +125,7 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
         time = -time;
         *buffer++ = '-';
     }
-    auto m_time = TimeValue::limit_with_bound(time);
+    auto m_time = (int64_t)TimeValue::limit_with_bound(time);
     int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
     if (hour >= 100) {
         buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
@@ -188,7 +189,7 @@ std::string timev2_to_buffer_from_double(double time, int scale) {
         time = -time;
         fmt::format_to(buffer, "-");
     }
-    auto m_time = TimeValue::limit_with_bound(time);
+    auto m_time = (int64_t)TimeValue::limit_with_bound(time);
     // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
     int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
     if (hour >= 100) {

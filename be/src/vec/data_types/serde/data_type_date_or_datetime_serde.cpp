@@ -481,7 +481,7 @@ Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
                 RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
                                           "invalid fractional part in datetime string '{}'",
                                           std::string {start, ptr});
-
+                // differ to datetimev2, we only need to process carrying on which caused by carrying on to digit 6-th.
                 if (length > 6) {
                     // round off to at most 6 digits
                     if (auto remainder = *(start + 6) - '0'; remainder >= 5) {
@@ -507,14 +507,16 @@ Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
         cctz::time_zone parsed_tz {};
         if (*ptr == '+' || *ptr == '-') {
             // offset
-            const auto* start = ptr;
+            const char sign = *ptr;
             ++ptr;
             uint32_t hour_offset, minute_offset = 0;
             // hour
             RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, hour_offset)));
             RETURN_INVALID_ARG_IF_NOT(hour_offset <= 14, "invalid hour offset {}", hour_offset);
-            if (assert_within_bound(ptr, end, 0).ok() && *ptr == ':') {
-                ++ptr;
+            if (assert_within_bound(ptr, end, 0).ok()) {
+                if (*ptr == ':') {
+                    ++ptr;
+                }
                 // minute
                 RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, minute_offset)));
                 RETURN_INVALID_ARG_IF_NOT(
@@ -523,8 +525,10 @@ Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
             }
 
             RETURN_INVALID_ARG_IF_NOT(
-                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
-                    "invalid timezone offset '{}'", std::string {start, ptr});
+                    TimezoneUtils::find_cctz_time_zone(
+                            combine_tz_offset(sign, hour_offset, minute_offset), parsed_tz),
+                    "invalid timezone offset '{}'",
+                    combine_tz_offset(sign, hour_offset, minute_offset));
         } else {
             // timezone name
             const auto* start = ptr;
@@ -606,10 +610,10 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
         RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
         if (*ptr == '-') {
             // 2 digits year
-            ++ptr;
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+            ++ptr; // consume one bar
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
             RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
 
             RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(part[0]),
                                       "invalid year {}", part[0]);
@@ -700,7 +704,7 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
                 RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
                                           "invalid fractional part in datetime string '{}'",
                                           std::string {start, ptr});
-
+                // differ to datetimev2, we only need to process carrying on which caused by carrying on to digit 6-th.
                 if (length > 6) {
                     // round off to at most 6 digits
                     if (auto remainder = *(start + 6) - '0'; remainder >= 5) {
@@ -726,22 +730,25 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
         cctz::time_zone parsed_tz {};
         if (*ptr == '+' || *ptr == '-') {
             // offset
-            const auto* start = ptr;
+            const char sign = *ptr;
             ++ptr;
             // hour
             RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
             RETURN_INVALID_ARG_IF_NOT(part[0] <= 14, "invalid hour offset {}", part[0]);
-            if (assert_within_bound(ptr, end, 0).ok() && *ptr == ':') {
-                ++ptr;
+            if (assert_within_bound(ptr, end, 0).ok()) {
+                if (*ptr == ':') {
+                    ++ptr;
+                }
                 // minute
                 RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
                 RETURN_INVALID_ARG_IF_NOT((part[1] == 0 || part[1] == 30 || part[1] == 45),
                                           "invalid minute offset {}", part[1]);
             }
 
-            RETURN_INVALID_ARG_IF_NOT(
-                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
-                    "invalid timezone offset '{}'", std::string {start, ptr});
+            RETURN_INVALID_ARG_IF_NOT(TimezoneUtils::find_cctz_time_zone(
+                                              combine_tz_offset(sign, part[0], part[1]), parsed_tz),
+                                      "invalid timezone offset '{}'",
+                                      combine_tz_offset(sign, part[0], part[1]));
         } else {
             // timezone name
             const auto* start = ptr;
@@ -825,14 +832,16 @@ static Status from_int(uint64_t uint_val, int length, VecDateTimeValue& val) {
         RETURN_INVALID_ARG_IF_NOT(
                 val.set_time_unit<TimeUnit::DAY>((uint_val / common::exp10_i32(6)) % 100),
                 "invalid day {}", (uint_val / common::exp10_i32(6)) % 100);
-        RETURN_INVALID_ARG_IF_NOT(
-                val.set_time_unit<TimeUnit::HOUR>((uint_val / common::exp10_i32(4)) % 100),
-                "invalid hour {}", (uint_val / common::exp10_i32(4)) % 100);
-        RETURN_INVALID_ARG_IF_NOT(
-                val.set_time_unit<TimeUnit::MINUTE>((uint_val / common::exp10_i32(2)) % 100),
-                "invalid minute {}", (uint_val / common::exp10_i32(2)) % 100);
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::SECOND>(uint_val % 100),
-                                  "invalid second {}", uint_val % 100);
+        if (val.type() == TimeType::TIME_DATETIME) {
+            RETURN_INVALID_ARG_IF_NOT(
+                    val.set_time_unit<TimeUnit::HOUR>((uint_val / common::exp10_i32(4)) % 100),
+                    "invalid hour {}", (uint_val / common::exp10_i32(4)) % 100);
+            RETURN_INVALID_ARG_IF_NOT(
+                    val.set_time_unit<TimeUnit::MINUTE>((uint_val / common::exp10_i32(2)) % 100),
+                    "invalid minute {}", (uint_val / common::exp10_i32(2)) % 100);
+            RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::SECOND>(uint_val % 100),
+                                      "invalid second {}", uint_val % 100);
+        }
     } else [[unlikely]] {
         return Status::InvalidArgument("invalid digits for datetimev2: {}", uint_val);
     }
@@ -841,12 +850,17 @@ static Status from_int(uint64_t uint_val, int length, VecDateTimeValue& val) {
 }
 
 static void microsecond_carry_on(int64_t frac_part, uint32_t float_scale, VecDateTimeValue& val) {
+    if (val.type() == TimeType::TIME_DATE) {
+        // for date, we just ignore the fractional part
+        return;
+    }
     // normalize the fractional part to microseconds(6 digits)
     if (float_scale > 0) {
         if (float_scale > 6) {
             int ms = int(frac_part / common::exp10_i64(float_scale - 6));
             // if scale > 6, we need to round the fractional part
-            int digit7 = frac_part % common::exp10_i32(6) / common::exp10_i32(float_scale - 6);
+            int digit7 = frac_part % common::exp10_i32(float_scale - 6) /
+                         common::exp10_i32(float_scale - 7);
             if (digit7 >= 5) {
                 ms++;
                 DCHECK(ms <= 1000000);

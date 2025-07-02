@@ -48,25 +48,6 @@ TEST(TimeValueTest, round_time) {
               -TimeValue::make_time(1, 2, 3));
 }
 
-TEST(TimeValueTest, check_over_max_time) {
-    {
-        double time = 4020399LL * 1000 * 1000;
-        int64_t result = TimeValue::check_over_max_time(time);
-        EXPECT_EQ(result, 3020399LL * 1000 * 1000);
-    }
-
-    {
-        double time = -4020399LL * 1000 * 1000;
-        int64_t result = TimeValue::check_over_max_time(time);
-        EXPECT_EQ(result, -3020399LL * 1000 * 1000);
-    }
-    {
-        double time = 1L * 1000 * 1000;
-        int64_t result = TimeValue::check_over_max_time(time);
-        EXPECT_EQ(result, 1000000);
-    }
-}
-
 TEST(TimeValueTest, to_string) {
     TimeValue::TimeType time = 3723000000;
     int scale = 0;
@@ -114,10 +95,17 @@ TEST(TimeValueTest, second) {
     }
 }
 
-TEST(TimeValueTest, from_second) {
-    int64_t sec = 3723;
-    TimeValue::TimeType result = TimeValue::from_second(sec);
-    EXPECT_EQ(result, 3723000000);
+TEST(TimeValueTest, from_seconds_with_limit) {
+    {
+        int64_t sec = 3723;
+        TimeValue::TimeType result = TimeValue::from_seconds_with_limit(sec);
+        EXPECT_EQ(result, 3723000000);
+    }
+    {
+        int64_t sec = -3723;
+        TimeValue::TimeType result = TimeValue::from_seconds_with_limit(sec);
+        EXPECT_EQ(result, -3723000000);
+    }
 }
 
 TEST(TimeValueTest, try_parse_time_from_number) {

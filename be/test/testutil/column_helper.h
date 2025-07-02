@@ -25,6 +25,8 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 struct ColumnHelper {

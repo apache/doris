@@ -36,7 +36,7 @@ class Arena;
 class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2> {
 public:
     DataTypeDateTimeV2SerDe(int scale, int nesting_level = 1)
-            : DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2>(nesting_level), scale(scale) {};
+            : DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2>(nesting_level), _scale(scale) {};
 
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const final;
@@ -113,6 +113,6 @@ private:
     Status _from_string_strict_mode(const std::string& str, DateV2Value<DateTimeV2ValueType>& res,
                                     const cctz::time_zone* local_time_zone) const;
 
-    int scale;
+    int _scale;
 };
 } // namespace doris::vectorized
