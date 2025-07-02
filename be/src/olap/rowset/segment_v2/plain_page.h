@@ -151,7 +151,7 @@ public:
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed) << "Must call init() firstly(plan page) in read_by_rowids";
-        if (PREDICT_FALSE(*n == 0)) {
+        if (*n == 0) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -235,7 +235,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed) << "Must call init() firstly(plan page)";
-        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
+        if (*n == 0 || _cur_idx >= _num_elems) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
