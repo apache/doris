@@ -822,8 +822,26 @@ struct ConvertImplFromJsonb {
                                      type == PrimitiveType::TYPE_BIGINT ||
                                      type == PrimitiveType::TYPE_LARGEINT) {
                     // cast from json value to integer types
-                    if (value->isInt()) {
-                        res[i] = value->int_val();
+                    if (value->isInt8()) {
+                        // TYPE_TINYINT
+                        res[i] = static_cast<ColumnType::value_type>(
+                                value->unpack<JsonbInt8Val>()->val());
+                    } else if (value->isInt16()) {
+                        // TYPE_SMALLINT
+                        res[i] = static_cast<ColumnType::value_type>(
+                                value->unpack<JsonbInt16Val>()->val());
+                    } else if (value->isInt32()) {
+                        // TYPE_INT
+                        res[i] = static_cast<ColumnType::value_type>(
+                                value->unpack<JsonbInt32Val>()->val());
+                    } else if (value->isInt64()) {
+                        // TYPE_BIGINT
+                        res[i] = static_cast<ColumnType::value_type>(
+                                value->unpack<JsonbInt64Val>()->val());
+                    } else if (value->isInt128()) {
+                        // TYPE_LARGEINT
+                        res[i] = static_cast<ColumnType::value_type>(
+                                value->unpack<JsonbInt128Val>()->val());
                     } else if (value->isDouble()) {
                         res[i] = static_cast<ColumnType::value_type>(
                                 value->unpack<JsonbDoubleVal>()->val());

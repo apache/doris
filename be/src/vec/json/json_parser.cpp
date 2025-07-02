@@ -170,6 +170,11 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
         if (values[i].is_null()) {
             continue;
         }
+        if (values[i].get_type() == PrimitiveType::TYPE_ARRAY) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Nesting of array in array within variant subcolumns is "
+                                   "currently not supported.");
+        }
         UInt128 hash = PathInData::get_parts_hash(paths[i]);
         auto found = ctx.arrays_by_path.find(hash);
         if (found != ctx.arrays_by_path.end()) {

@@ -78,12 +78,6 @@ namespace doris::vectorized {
 namespace {
 
 DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable) {
-    if (type == ColumnVariant::MOST_COMMON_TYPE_ID) {
-        // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
-        // So we ignored num_dimensions.
-        return is_nullable ? make_nullable(std::make_shared<ColumnVariant::MostCommonType>())
-                           : std::make_shared<ColumnVariant::MostCommonType>();
-    }
     DataTypePtr result = type == PrimitiveType::INVALID_TYPE
                                  ? is_nullable ? make_nullable(std::make_shared<DataTypeNothing>())
                                                : std::dynamic_pointer_cast<IDataType>(
