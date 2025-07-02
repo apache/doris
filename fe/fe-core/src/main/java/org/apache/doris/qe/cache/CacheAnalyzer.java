@@ -25,7 +25,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InlineViewRef;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableRef;
@@ -350,50 +349,6 @@ public class CacheAnalyzer {
         return CacheMode.Partition;
     }
 
-    private CacheMode innerCheckCacheModeSetOperation(long now) {
-        // only sql cache
-        if (!enableSqlCache()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("sql cache is disabled. queryid {}", DebugUtil.printId(queryId));
-            }
-            return CacheMode.NoNeed;
-        }
-        if (!(parsedStmt instanceof SetOperationStmt) || scanNodes.size() == 0) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("not a set operation stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
-            }
-            return CacheMode.NoNeed;
-        }
-
-        //Check the last version time of the table
-        List<CacheTable> tblTimeList = buildCacheTableList();
-        if (CollectionUtils.isEmpty(tblTimeList)) {
-            return CacheMode.None;
-        }
-        latestTable = tblTimeList.get(0);
-        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
-        latestTable.debug();
-
-        addAllViewStmt((SetOperationStmt) parsedStmt);
-        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
-
-        if (now == 0) {
-            now = nowtime();
-        }
-        if (enableSqlCache()
-                && (now - latestTable.latestPartitionTime) >= Config.cache_last_version_interval_second * 1000L) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Query cache time:{},{},{}", now, latestTable.latestPartitionTime,
-                        Config.cache_last_version_interval_second * 1000);
-            }
-            cache = new SqlCache(this.queryId, parsedStmt.toSql());
-            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
-            MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
-            return CacheMode.Sql;
-        }
-        return CacheMode.None;
-    }
-
     private CacheMode innerCheckCacheModeForNereids(long now) {
         // only sql cache
         if (!enableSqlCache()) {
@@ -528,8 +483,6 @@ public class CacheAnalyzer {
                 cacheMode = innerCheckCacheModeForNereids(0);
             } else if (parsedStmt instanceof SelectStmt) {
                 cacheMode = innerCheckCacheMode(0);
-            } else if (parsedStmt instanceof SetOperationStmt) {
-                cacheMode = innerCheckCacheModeSetOperation(0);
             } else {
                 return null;
             }
@@ -759,10 +712,6 @@ public class CacheAnalyzer {
     private void addAllViewStmt(QueryStmt queryStmt) {
         if (queryStmt instanceof SelectStmt) {
             addAllViewStmt(((SelectStmt) queryStmt).getTableRefs());
-        } else if (queryStmt instanceof SetOperationStmt) {
-            for (SetOperationStmt.SetOperand operand : ((SetOperationStmt) queryStmt).getOperands()) {
-                addAllViewStmt(operand.getQueryStmt());
-            }
         }
     }
 

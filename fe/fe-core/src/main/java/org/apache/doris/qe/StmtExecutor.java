@@ -51,7 +51,6 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
@@ -1551,15 +1550,6 @@ public class StmtExecutor {
                 if (StmtRewriter.rewriteByPolicy(parsedStmt, analyzer)
                         || StmtRewriter.rewriteForRandomDistribution(parsedStmt, analyzer)) {
                     reAnalyze = true;
-                }
-            }
-            if (parsedStmt instanceof SetOperationStmt) {
-                List<SetOperationStmt.SetOperand> operands = ((SetOperationStmt) parsedStmt).getOperands();
-                for (SetOperationStmt.SetOperand operand : operands) {
-                    if (StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer)
-                            || StmtRewriter.rewriteForRandomDistribution(operand.getQueryStmt(), analyzer)) {
-                        reAnalyze = true;
-                    }
                 }
             }
             if (parsedStmt instanceof InsertStmt) {

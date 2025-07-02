@@ -31,9 +31,6 @@ import java.util.Map;
 
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.ColumnNullableType;
-import org.apache.doris.analysis.SetOperationStmt.Qualifier;
-import org.apache.doris.analysis.SetOperationStmt.Operation;
-import org.apache.doris.analysis.SetOperationStmt.SetOperand;
 import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
@@ -762,7 +759,6 @@ nonterminal QueryStmt set_operand;
 // List of select or set operation(union/intersect/except) blocks connected by  set operators or a single select block.
 nonterminal List<SetOperand> set_operand_list;
 // List of select blocks connected by set operators, with order by or limit.
-nonterminal QueryStmt set_operation_with_order_by_or_limit;
 nonterminal InsertStmt insert_stmt;
 nonterminal InsertTarget insert_target;
 nonterminal InsertSource insert_source;
@@ -4114,18 +4110,10 @@ query_stmt ::=
         QueryStmt queryStmt = null;
         if (operands.size() == 1) {
           queryStmt = operands.get(0).getQueryStmt();
-        } else {
-          queryStmt = new SetOperationStmt(operands, null, LimitElement.NO_LIMIT);
         }
         queryStmt.setWithClause(w);
         queryStmt.setOutFileClause(outfile);
         RESULT = queryStmt;
-    :}
-    | opt_with_clause:w set_operation_with_order_by_or_limit:set_operation opt_outfile:outfile
-    {:
-        set_operation.setWithClause(w);
-        set_operation.setOutFileClause(outfile);
-        RESULT = set_operation;
     :}
     ;
 
@@ -4172,86 +4160,6 @@ with_view_def_list ::=
         RESULT = list;
     :}
     ;
-
-// We must have a non-empty order by or limit for them to bind to the union.
-// We cannot reuse the existing order_by_clause or
-// limit_clause because they would introduce conflicts with EOF,
-// which, unfortunately, cannot be accessed in the parser as a nonterminal
-// making this issue unresolvable.
-// We rely on the left precedence of KW_ORDER, KW_BY, and KW_LIMIT,
-// to resolve the ambiguity with select_stmt in favor of select_stmt
-// (i.e., ORDER BY and LIMIT bind to the select_stmt by default, and not the set operation).
-// There must be at least two set operands for ORDER BY or LIMIT to bind to a set operation,
-// and we manually throw a parse error if we reach this production
-// with only a single operand.
-set_operation_with_order_by_or_limit ::=
-    set_operand_list:operands
-    KW_LIMIT INTEGER_LITERAL:limit
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
-    }
-    RESULT = new SetOperationStmt(operands, null, new LimitElement(limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_LIMIT INTEGER_LITERAL:offset COMMA INTEGER_LITERAL:limit
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
-    }
-    RESULT = new SetOperationStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_LIMIT INTEGER_LITERAL:limit KW_OFFSET INTEGER_LITERAL:offset
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
-    }
-    RESULT = new SetOperationStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_ORDER KW_BY order_by_elements:orderByClause
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
-    }
-    RESULT = new SetOperationStmt(operands, orderByClause, LimitElement.NO_LIMIT);
-  :}
-  |
-    set_operand_list:operands
-    KW_ORDER KW_BY order_by_elements:orderByClause
-    KW_LIMIT INTEGER_LITERAL:limit
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
-    }
-    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_ORDER KW_BY order_by_elements:orderByClause
-    KW_LIMIT INTEGER_LITERAL:offset COMMA INTEGER_LITERAL:limit
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
-    }
-    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_ORDER KW_BY order_by_elements:orderByClause
-    KW_LIMIT INTEGER_LITERAL:limit KW_OFFSET INTEGER_LITERAL:offset
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
-    }
-    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
-  :}
-  ;
-
 
 set_operand ::=
   select_stmt:select

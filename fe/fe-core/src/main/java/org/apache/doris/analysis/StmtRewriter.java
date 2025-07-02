@@ -86,13 +86,10 @@ public class StmtRewriter {
         Preconditions.checkNotNull(stmt);
         if (stmt instanceof SelectStmt) {
             return rewriteSelectStatement((SelectStmt) stmt, analyzer);
-        } else if (stmt instanceof SetOperationStmt) {
-            rewriteUnionStatement((SetOperationStmt) stmt, analyzer);
         } else {
             throw new AnalysisException("Subqueries not supported for "
                     + stmt.getClass().getSimpleName() + " statements");
         }
-        return stmt;
     }
 
     private static SelectStmt rewriteSelectStatement(SelectStmt stmt, Analyzer analyzer)
@@ -332,26 +329,6 @@ public class StmtRewriter {
             }
         }
         return result;
-    }
-
-    /**
-     * Rewrite all operands in a UNION. The conditions that apply to SelectStmt rewriting
-     * also apply here.
-     */
-    private static void rewriteUnionStatement(SetOperationStmt stmt, Analyzer analyzer)
-            throws AnalysisException {
-        for (SetOperationStmt.SetOperand operand : stmt.getOperands()) {
-            QueryStmt queryStmt = operand.getQueryStmt();
-            if (queryStmt instanceof SelectStmt) {
-                QueryStmt rewrittenQueryStmt = rewriteSelectStatement((SelectStmt) queryStmt, operand.getAnalyzer());
-                operand.setQueryStmt(rewrittenQueryStmt);
-            } else if (queryStmt instanceof SetOperationStmt) {
-                rewriteUnionStatement((SetOperationStmt) queryStmt, operand.getAnalyzer());
-            } else {
-                throw new IllegalStateException("Rewrite union statement failed. "
-                    + "Because QueryStmt is neither SelectStmt nor SetOperationStmt");
-            }
-        }
     }
 
     /**
