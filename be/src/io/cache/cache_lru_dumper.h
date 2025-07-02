@@ -33,16 +33,19 @@
 
 namespace doris::io {
 class LRUQueue;
+class LRUQueueRecorder;
 
 class CacheLRUDumper {
 public:
-    CacheLRUDumper(BlockFileCache* mgr) : _mgr(mgr) {};
-    void dump_queue(LRUQueue& queue, const std::string& queue_name);
+    CacheLRUDumper(BlockFileCache* mgr, LRUQueueRecorder* recorder)
+            : _mgr(mgr), _recorder(recorder) {};
+    void dump_queue(const std::string& queue_name);
     void restore_queue(LRUQueue& queue, const std::string& queue_name,
                        std::lock_guard<std::mutex>& cache_lock);
     void remove_lru_dump_files();
 
 private:
+    void do_dump_queue(LRUQueue& queue, const std::string& queue_name);
     Status check_ofstream_status(std::ofstream& out, std::string& filename);
     Status check_ifstream_status(std::ifstream& in, std::string& filename);
     Status dump_one_lru_entry(std::ofstream& out, std::string& filename, const UInt128Wrapper& hash,
@@ -61,6 +64,7 @@ private:
         char magic[3];
 
         std::string serialize_as_string() const;
+        bool deserialize_from_string(const std::string& data);
     } __attribute__((packed));
 
 private:
@@ -74,5 +78,6 @@ private:
     doris::io::cache::LRUDumpMetaPb _parse_meta;
 
     BlockFileCache* _mgr;
+    LRUQueueRecorder* _recorder;
 };
 } // namespace doris::io

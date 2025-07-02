@@ -19,6 +19,7 @@
 
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cache_lru_dumper.h"
+#include "io/cache/lru_queue_recorder.h"
 #include "util/crc32c.h"
 
 namespace doris::io {
@@ -229,12 +230,15 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
     out.close();
 
     // Rename tmp to formal file
-    if (std::rename(tmp_filename.c_str(), final_filename.c_str()) != 0) {
+    try {
+        std::rename(tmp_filename.c_str(), final_filename.c_str());
         std::remove(tmp_filename.c_str());
         file_size = std::filesystem::file_size(final_filename);
-    } else {
-        LOG(WARNING) << "failed to rename " << tmp_filename << " to " << final_filename;
+    } catch (const std::filesystem::filesystem_error& e) {
+        LOG(WARNING) << "failed to rename " << tmp_filename << " to " << final_filename
+                     << " err: " << e.what();
     }
+
     _dump_meta.Clear();
     _current_dump_group.Clear();
     _current_dump_group_count = 0;
@@ -242,13 +246,24 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
     return Status::OK();
 }
 
-void CacheLRUDumper::dump_queue(LRUQueue& queue, const std::string& queue_name) {
+void CacheLRUDumper::dump_queue(const std::string& queue_name) {
+    FileCacheType type = string_to_cache_type(queue_name);
+    LOG(INFO) << "OOXXOO1" << _recorder->get_lru_queue_update_cnt_from_last_dump(type);
+    if (_recorder->get_lru_queue_update_cnt_from_last_dump(type) >
+        config::file_cache_background_lru_dump_update_cnt_threshold) {
+        LRUQueue& queue = _recorder->get_shadow_queue(type);
+        do_dump_queue(queue, queue_name);
+        _recorder->reset_lru_queue_update_cnt_from_last_dump(type);
+    }
+}
+
+void CacheLRUDumper::do_dump_queue(LRUQueue& queue, const std::string& queue_name) {
     Status st;
     std::vector<std::tuple<UInt128Wrapper, size_t, size_t>> elements;
     elements.reserve(config::file_cache_background_lru_dump_tail_record_num);
 
     {
-        std::lock_guard<std::mutex> lru_log_lock(_mgr->_mutex_lru_log);
+        std::lock_guard<std::mutex> lru_log_lock(_recorder->_mutex_lru_log);
         size_t count = 0;
         for (const auto& [hash, offset, size] : queue) {
             if (count++ >= config::file_cache_background_lru_dump_tail_record_num) break;
@@ -262,12 +277,12 @@ void CacheLRUDumper::dump_queue(LRUQueue& queue, const std::string& queue_name) 
     {
         SCOPED_RAW_TIMER(&duration_ns);
         std::string tmp_filename =
-                fmt::format("{}/lru_dump_{}.bin.tmp", _mgr->_cache_base_path, queue_name);
+                fmt::format("{}/lru_dump_{}.tail.tmp", _mgr->_cache_base_path, queue_name);
         std::string final_filename =
-                fmt::format("{}/lru_dump_{}.bin", _mgr->_cache_base_path, queue_name);
+                fmt::format("{}/lru_dump_{}.tail", _mgr->_cache_base_path, queue_name);
         std::ofstream out(tmp_filename, std::ios::binary);
         if (out) {
-            LOG(INFO) << "begin dump " << queue_name << "with " << elements.size() << " elements";
+            LOG(INFO) << "begin dump " << queue_name << " with " << elements.size() << " elements";
             for (const auto& [hash, offset, size] : elements) {
                 RETURN_IF_STATUS_ERROR(st,
                                        dump_one_lru_entry(out, tmp_filename, hash, offset, size));
@@ -393,7 +408,7 @@ Status CacheLRUDumper::parse_one_lru_entry(std::ifstream& in, std::string& filen
 void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_name,
                                    std::lock_guard<std::mutex>& cache_lock) {
     Status st;
-    std::string filename = fmt::format("{}/lru_dump_{}.bin", _mgr->_cache_base_path, queue_name);
+    std::string filename = fmt::format("{}/lru_dump_{}.tail", _mgr->_cache_base_path, queue_name);
     std::ifstream in(filename, std::ios::binary);
     int64_t duration_ns = 0;
     if (in) {
@@ -443,7 +458,7 @@ void CacheLRUDumper::remove_lru_dump_files() {
     std::vector<std::string> queue_names = {"disposable", "index", "normal", "ttl"};
     for (const auto& queue_name : queue_names) {
         std::string filename =
-                fmt::format("{}/lru_dump_{}.bin", _mgr->_cache_base_path, queue_name);
+                fmt::format("{}/lru_dump_{}.tail", _mgr->_cache_base_path, queue_name);
         if (std::filesystem::exists(filename)) {
             std::filesystem::remove(filename);
         }

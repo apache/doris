@@ -55,7 +55,7 @@ suite('test_lru_persist', 'docker') {
     options.beConfigs += ['enable_file_cache=true', 'enable_java_support=false', 'file_cache_enter_disk_resource_limit_mode_percent=99',
                           'file_cache_background_lru_dump_interval_ms=2000', 'file_cache_background_lru_log_replay_interval_ms=500',
                           'disable_auto_compation=true', 'file_cache_enter_need_evict_cache_in_advance_percent=99',
-                          'file_cache_background_lru_dump_update_cnt_threshold=1'
+                          'file_cache_background_lru_dump_update_cnt_threshold=0'
                         ]
 
     // run another docker
@@ -74,33 +74,33 @@ suite('test_lru_persist', 'docker') {
         def beBasePath = be.getBasePath()
         def cachePath = beBasePath + "/storage/file_cache/"
 
-        sleep(5000);
+        sleep(10000);
         cluster.stopBackends(1)
 
         // check md5sum of each index
         
-        def disposableBefore = "md5sum ${cachePath}/lru_dump_disposable.bin".execute().text.trim().split()[0]
+        def disposableBefore = "md5sum ${cachePath}/lru_dump_disposable.tail".execute().text.trim().split()[0]
         logger.info("disposableBefore: ${disposableBefore}")
-        def indexBefore = "md5sum ${cachePath}/lru_dump_index.bin".execute().text.trim().split()[0]
+        def indexBefore = "md5sum ${cachePath}/lru_dump_index.tail".execute().text.trim().split()[0]
         logger.info("indexBefore: ${indexBefore}")
-        def normalBefore = "md5sum ${cachePath}/lru_dump_normal.bin".execute().text.trim().split()[0]
+        def normalBefore = "md5sum ${cachePath}/lru_dump_normal.tail".execute().text.trim().split()[0]
         logger.info("normalBefore: ${normalBefore}")
-        def ttlBefore = "md5sum ${cachePath}/lru_dump_ttl.bin".execute().text.trim().split()[0]
+        def ttlBefore = "md5sum ${cachePath}/lru_dump_ttl.tail".execute().text.trim().split()[0]
         logger.info("ttlBefore: ${ttlBefore}")
 
         cluster.startBackends(1)
-        sleep(5000);
+        sleep(10000);
 
         cluster.stopBackends(1)
 
         // check md5sum again after be restart
-        def disposableAfter = "md5sum ${cachePath}/lru_dump_disposable.bin".execute().text.trim().split()[0]
+        def disposableAfter = "md5sum ${cachePath}/lru_dump_disposable.tail".execute().text.trim().split()[0]
         logger.info("disposableAfter: ${disposableAfter}")
-        def indexAfter = "md5sum ${cachePath}/lru_dump_index.bin".execute().text.trim().split()[0]
+        def indexAfter = "md5sum ${cachePath}/lru_dump_index.tail".execute().text.trim().split()[0]
         logger.info("indexAfter: ${indexAfter}")
-        def normalAfter = "md5sum ${cachePath}/lru_dump_normal.bin".execute().text.trim().split()[0]
+        def normalAfter = "md5sum ${cachePath}/lru_dump_normal.tail".execute().text.trim().split()[0]
         logger.info("normalAfter: ${normalAfter}")
-        def ttlAfter = "md5sum ${cachePath}/lru_dump_ttl.bin".execute().text.trim().split()[0]
+        def ttlAfter = "md5sum ${cachePath}/lru_dump_ttl.tail".execute().text.trim().split()[0]
         logger.info("ttlAfter: ${ttlAfter}")
 
         assert disposableBefore == disposableAfter

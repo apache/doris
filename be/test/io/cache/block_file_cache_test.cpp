@@ -3400,10 +3400,10 @@ TEST_F(BlockFileCacheTest, state_to_string) {
     EXPECT_EQ(FileBlock::state_to_string(FileBlock::State::DOWNLOADED), "DOWNLOADED");
 }
 
-TEST_F(BlockFileCacheTest, string_to_cache_type) {
-    EXPECT_EQ(BlockFileCache::string_to_cache_type("idx"), FileCacheType::INDEX);
-    EXPECT_EQ(BlockFileCache::string_to_cache_type("disposable"), FileCacheType::DISPOSABLE);
-    EXPECT_EQ(BlockFileCache::string_to_cache_type("ttl"), FileCacheType::TTL);
+TEST_F(BlockFileCacheTest, surfix_to_cache_type) {
+    EXPECT_EQ(surfix_to_cache_type("idx"), FileCacheType::INDEX);
+    EXPECT_EQ(surfix_to_cache_type("disposable"), FileCacheType::DISPOSABLE);
+    EXPECT_EQ(surfix_to_cache_type("ttl"), FileCacheType::TTL);
 }
 
 TEST_F(BlockFileCacheTest, append_many_time) {
@@ -5900,9 +5900,8 @@ TEST_F(BlockFileCacheTest, seize_after_full) {
     };
 
     for (auto& args : args_vec) {
-        std::cout << "filled with " << io::BlockFileCache::cache_type_to_string(args.first_type)
-                  << " and seize with "
-                  << io::BlockFileCache::cache_type_to_string(args.second_type) << std::endl;
+        std::cout << "filled with " << io::cache_type_to_string(args.first_type)
+                  << " and seize with " << io::cache_type_to_string(args.second_type) << std::endl;
         if (fs::exists(cache_base_path)) {
             fs::remove_all(cache_base_path);
         }

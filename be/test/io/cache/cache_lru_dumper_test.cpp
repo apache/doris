@@ -60,7 +60,9 @@ protected:
 
     void SetUp() override {
         mock_cache = std::make_unique<NiceMock<MockBlockFileCache>>(&dst_queue);
-        dumper = std::make_unique<CacheLRUDumper>(mock_cache.get());
+        recorder = std::make_unique<LRUQueueRecorder>(mock_cache.get());
+
+        dumper = std::make_unique<CacheLRUDumper>(mock_cache.get(), recorder.get());
     }
 
     void TearDown() override {
@@ -70,6 +72,7 @@ protected:
 
     std::unique_ptr<NiceMock<MockBlockFileCache>> mock_cache;
     std::unique_ptr<CacheLRUDumper> dumper;
+    std::unique_ptr<LRUQueueRecorder> recorder;
 };
 
 TEST_F(CacheLRUDumperTest, test_finalize_dump_and_parse_dump_footer) {
@@ -98,7 +101,7 @@ TEST_F(CacheLRUDumperTest, test_remove_lru_dump_files) {
     // Create test files
     std::vector<std::string> queue_names = {"disposable", "index", "normal", "ttl"};
     for (const auto& name : queue_names) {
-        std::ofstream(fmt::format("lru_dump_{}.bin", name));
+        std::ofstream(fmt::format("lru_dump_{}.tail", name));
     }
 
     // Test remove
@@ -106,7 +109,7 @@ TEST_F(CacheLRUDumperTest, test_remove_lru_dump_files) {
 
     // Verify files are removed
     for (const auto& name : queue_names) {
-        EXPECT_FALSE(std::filesystem::exists(fmt::format("lru_dump_{}.bin", name)));
+        EXPECT_FALSE(std::filesystem::exists(fmt::format("lru_dump_{}.tail", name)));
     }
 }
 
@@ -122,7 +125,7 @@ TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
     src_queue.add(hash, offset, size, lock);
 
     // Test dump
-    dumper->dump_queue(src_queue, queue_name);
+    dumper->do_dump_queue(src_queue, queue_name);
 
     // Test restore
     std::lock_guard<std::mutex> cache_lock(mock_cache->mutex());
@@ -140,7 +143,7 @@ TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
     }
 
     // Clean up
-    std::remove(fmt::format("lru_dump_{}.bin", queue_name).c_str());
+    std::remove(fmt::format("lru_dump_{}.tail", queue_name).c_str());
 }
 
 } // namespace doris::io

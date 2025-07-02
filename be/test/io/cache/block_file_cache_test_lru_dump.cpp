@@ -26,7 +26,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     config::enable_evict_file_cache_in_advance = false;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     config::file_cache_background_lru_dump_interval_ms = 3000;
-    config::file_cache_background_lru_dump_update_cnt_threshold = 1;
+    config::file_cache_background_lru_dump_update_cnt_threshold = 0;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -55,7 +55,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
         if (cache.get_async_open_success()) {
             break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     ASSERT_TRUE(cache.get_async_open_success());
 
@@ -156,18 +156,18 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 500000);
 
     // all queue are filled, let's check the lru log records
-    ASSERT_EQ(cache._ttl_lru_log_queue.size(), 5);
-    ASSERT_EQ(cache._index_lru_log_queue.size(), 5);
-    ASSERT_EQ(cache._normal_lru_log_queue.size(), 5);
-    ASSERT_EQ(cache._disposable_lru_log_queue.size(), 5);
+    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size(), 5);
+    ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size(), 5);
+    ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size(), 5);
+    ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size(), 5);
 
     // then check the log replay
     std::this_thread::sleep_for(std::chrono::milliseconds(
             2 * config::file_cache_background_lru_log_replay_interval_ms));
-    ASSERT_EQ(cache._shadow_ttl_queue.get_elements_num_unsafe(), 5);
-    ASSERT_EQ(cache._shadow_index_queue.get_elements_num_unsafe(), 5);
-    ASSERT_EQ(cache._shadow_normal_queue.get_elements_num_unsafe(), 5);
-    ASSERT_EQ(cache._shadow_disposable_queue.get_elements_num_unsafe(), 5);
+    ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
+    ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 5);
+    ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
+    ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
 
     // ok, let do some MOVETOBACK & REMOVE
     {
@@ -175,21 +175,22 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
                                        context2); // move index queue 3rd element to the end
         cache.remove_if_cached(key3);             // remove all element from ttl queue
     }
-    ASSERT_EQ(cache._ttl_lru_log_queue.size(), 5);
-    ASSERT_EQ(cache._index_lru_log_queue.size(), 1);
-    ASSERT_EQ(cache._normal_lru_log_queue.size(), 0);
-    ASSERT_EQ(cache._disposable_lru_log_queue.size(), 0);
+    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size(), 5);
+    ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size(), 1);
+    ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size(), 0);
+    ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size(), 0);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(
             2 * config::file_cache_background_lru_log_replay_interval_ms));
-    ASSERT_EQ(cache._shadow_ttl_queue.get_elements_num_unsafe(), 0);
-    ASSERT_EQ(cache._shadow_index_queue.get_elements_num_unsafe(), 5);
-    ASSERT_EQ(cache._shadow_normal_queue.get_elements_num_unsafe(), 5);
-    ASSERT_EQ(cache._shadow_disposable_queue.get_elements_num_unsafe(), 5);
+    ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 0);
+    ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 5);
+    ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
+    ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
 
     // check the order
     std::vector<size_t> offsets;
-    for (auto it = cache._shadow_index_queue.begin(); it != cache._shadow_index_queue.end(); ++it) {
+    for (auto it = cache._lru_recorder->_shadow_index_queue.begin();
+         it != cache._lru_recorder->_shadow_index_queue.end(); ++it) {
         offsets.push_back(it->offset);
     }
     ASSERT_EQ(offsets.size(), 5);
@@ -206,7 +207,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     // Verify all 4 dump files
     // TODO(zhengyu): abstract those read/write into a function
     {
-        std::string filename = fmt::format("{}/lru_dump_{}.bin", cache_base_path, "ttl");
+        std::string filename = fmt::format("{}/lru_dump_{}.tail", cache_base_path, "ttl");
 
         struct stat file_stat;
         EXPECT_EQ(stat(filename.c_str(), &file_stat), 0) << "File " << filename << " not found";
@@ -227,7 +228,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     }
 
     {
-        std::string filename = fmt::format("{}/lru_dump_{}.bin", cache_base_path, "normal");
+        std::string filename = fmt::format("{}/lru_dump_{}.tail", cache_base_path, "normal");
 
         struct stat file_stat;
         EXPECT_EQ(stat(filename.c_str(), &file_stat), 0) << "File " << filename << " not found";
@@ -288,7 +289,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     }
 
     {
-        std::string filename = fmt::format("{}/lru_dump_{}.bin", cache_base_path, "index");
+        std::string filename = fmt::format("{}/lru_dump_{}.tail", cache_base_path, "index");
 
         struct stat file_stat;
         EXPECT_EQ(stat(filename.c_str(), &file_stat), 0) << "File " << filename << " not found";
