@@ -250,17 +250,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public boolean createTableImpl(CreateTableStmt stmt) throws UserException {
+    public String createTableImpl(CreateTableStmt stmt) throws UserException {
         try {
-            preExecutionAuthenticator.execute(() -> performCreateTable(stmt));
+            return preExecutionAuthenticator.execute(() -> performCreateTable(stmt));
         } catch (Exception e) {
             throw new DdlException(
                 "Failed to create table: " + stmt.getTableName() + ", error message is:" + e.getMessage(), e);
         }
-        return false;
     }
 
-    public boolean performCreateTable(CreateTableStmt stmt) throws UserException {
+    public String performCreateTable(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
@@ -270,7 +269,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (tableExist(db.getRemoteName(), tableName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
-                return true;
+                return null;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
@@ -287,7 +286,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
         catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
-        return false;
+        return tableName;
     }
 
     @Override

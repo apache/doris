@@ -87,18 +87,18 @@ public interface ExternalMetadataOps {
     /**
      *
      * @param stmt
-     * @return if isExists is true, return true if table exists, otherwise return false
+     * @return non-empty string as remote table name if the table is created successfully, otherwise null
      * @throws UserException
      */
-    default boolean createTable(CreateTableStmt stmt) throws UserException {
-        boolean res = createTableImpl(stmt);
-        if (!res) {
+    default String createTable(CreateTableStmt stmt) throws UserException {
+        String remoteTblName = createTableImpl(stmt);
+        if (remoteTblName != null) {
             afterCreateTable(stmt.getDbName(), stmt.getTableName());
         }
-        return res;
+        return remoteTblName;
     }
 
-    boolean createTableImpl(CreateTableStmt stmt) throws UserException;
+    String createTableImpl(CreateTableStmt stmt) throws UserException;
 
     default void afterCreateTable(String dbName, String tblName) {
     }

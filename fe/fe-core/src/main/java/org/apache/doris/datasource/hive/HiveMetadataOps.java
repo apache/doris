@@ -46,6 +46,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.Database;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -174,7 +175,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public boolean createTableImpl(CreateTableStmt stmt) throws UserException {
+    public String createTableImpl(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         String tblName = stmt.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
@@ -184,7 +185,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         if (tableExist(db.getRemoteName(), tblName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tblName);
-                return true;
+                return null;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tblName);
             }
@@ -282,10 +283,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                         comment);
             }
             client.createTable(hiveTableMeta, stmt.isSetIfNotExists());
+            // after create, get it again to get the real table name.
+            // because in hive, the table name is case insensible,
+            // so the table name in create table stmt maybe different from real table name.
+            Table hiveTbl = client.getTable(db.getRemoteName(), tblName);
+            return hiveTbl.getTableName();
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         }
-        return false;
     }
 
     @Override
