@@ -444,6 +444,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
      * @return
      */
     public Optional<T> getTableForReplay(long tableId) {
+        Preconditions.checkState(extCatalog.getUseMetaCache().isPresent(), extCatalog.getName() + "." + name);
         if (extCatalog.getUseMetaCache().get()) {
             if (!isInitialized()) {
                 return Optional.empty();
@@ -461,6 +462,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
      * @return
      */
     public Optional<T> getTableForReplay(String tblName) {
+        Preconditions.checkState(extCatalog.getUseMetaCache().isPresent(), extCatalog.getName() + "." + name);
         if (extCatalog.getUseMetaCache().get()) {
             if (!isInitialized()) {
                 return Optional.empty();

@@ -860,6 +860,7 @@ public abstract class ExternalCatalog
      * @return
      */
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(long dbId) {
+        Preconditions.checkState(useMetaCache.isPresent(), name);
         if (useMetaCache.get()) {
             if (!isInitialized()) {
                 return Optional.empty();
@@ -877,6 +878,7 @@ public abstract class ExternalCatalog
      * @return
      */
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(String dbName) {
+        Preconditions.checkState(useMetaCache.isPresent(), name);
         if (useMetaCache.get()) {
             if (!isInitialized()) {
                 return Optional.empty();
@@ -1035,6 +1037,10 @@ public abstract class ExternalCatalog
      */
     public void setInitializedForTest(boolean initialized) {
         this.initialized = initialized;
+        if (this.initialized) {
+            buildMetaCache();
+            this.useMetaCache = Optional.of(true);
+        }
     }
 
     @Override
