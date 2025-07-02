@@ -95,7 +95,8 @@ public class IcebergTransaction implements Transaction {
                 this.transaction = table.newTransaction();
             });
         } catch (Exception e) {
-            throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName(), e);
+            throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName()
+                    + "because: " + e.getMessage(), e);
         }
 
     }
