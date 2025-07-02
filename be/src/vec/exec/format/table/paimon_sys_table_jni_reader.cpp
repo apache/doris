@@ -39,7 +39,7 @@ PaimonSysTableJniReader::PaimonSysTableJniReader(
 
     std::map<std::string, std::string> params;
     params["db_name"] = _range_params.db_name;
-    params["tbl_name"] = _range_params.db_name;
+    params["tbl_name"] = _range_params.tbl_name;
     params["query_type"] = _range_params.query_type;
     params["ctl_id"] = std::to_string(_range_params.ctl_id);
     params["db_id"] = std::to_string(_range_params.db_id);
