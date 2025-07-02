@@ -22,6 +22,55 @@
 #include "util/crc32c.h"
 
 namespace doris::io {
+
+std::string CacheLRUDumper::Footer::serialize_as_string() const {
+    std::string result;
+    result.reserve(sizeof(Footer));
+
+    // Serialize meta_offset
+    const char* meta_offset_ptr = reinterpret_cast<const char*>(&meta_offset);
+    result.append(meta_offset_ptr, sizeof(meta_offset));
+
+    // Serialize checksum
+    const char* checksum_ptr = reinterpret_cast<const char*>(&checksum);
+    result.append(checksum_ptr, sizeof(checksum));
+
+    // Serialize version
+    const char* version_ptr = reinterpret_cast<const char*>(&version);
+    result.append(version_ptr, sizeof(version));
+
+    // Serialize magic
+    result.append(magic, sizeof(magic));
+
+    return result;
+}
+
+bool CacheLRUDumper::Footer::deserialize_from_string(const std::string& data) {
+    if (data.size() != sizeof(Footer)) {
+        return false;
+    }
+
+    const char* ptr = data.data();
+
+    // Deserialize meta_offset
+    std::memcpy(&meta_offset, ptr, sizeof(meta_offset));
+    meta_offset = le64toh(meta_offset); // Convert from little-endian
+    ptr += sizeof(meta_offset);
+
+    // Deserialize checksum
+    std::memcpy(&checksum, ptr, sizeof(checksum));
+    ptr += sizeof(checksum);
+
+    // Deserialize version
+    std::memcpy(&version, ptr, sizeof(version));
+    ptr += sizeof(version);
+
+    // Deserialize magic
+    std::memcpy(magic, ptr, sizeof(magic));
+
+    return true;
+}
+
 Status CacheLRUDumper::check_ofstream_status(std::ofstream& out, std::string& filename) {
     if (!out.good()) {
         std::ios::iostate state = out.rdstate();
@@ -173,7 +222,8 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
     footer.version = 1;
     std::memcpy(footer.magic, "DOR", 3);
 
-    out.write(reinterpret_cast<const char*>(&footer), sizeof(footer));
+    std::string footer_str = footer.serialize_as_string();
+    out.write(footer_str.data(), footer_str.size());
     RETURN_IF_ERROR(check_ofstream_status(out, tmp_filename));
 
     out.close();
@@ -249,8 +299,16 @@ Status CacheLRUDumper::parse_dump_footer(std::ifstream& in, std::string& filenam
     }
 
     in.seekg(-footer_size, std::ios::end);
-    in.read(reinterpret_cast<char*>(&footer), footer_size);
+    std::string footer_str(footer_size, '\0');
+    in.read(&footer_str[0], footer_size);
     RETURN_IF_ERROR(check_ifstream_status(in, filename));
+
+    if (!footer.deserialize_from_string(footer_str)) {
+        std::string warn_msg = std::string(
+                fmt::format("Failed to deserialize footer, file={}, skip restore", filename));
+        LOG(WARNING) << warn_msg;
+        return Status::InternalError<false>(warn_msg);
+    }
 
     // Convert from little-endian to host byte order
     footer.meta_offset = le64toh(footer.meta_offset);

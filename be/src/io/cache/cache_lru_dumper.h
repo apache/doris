@@ -59,7 +59,9 @@ private:
         uint32_t checksum;
         uint8_t version;
         char magic[3];
-    };
+
+        std::string serialize_as_string() const;
+    } __attribute__((packed));
 
 private:
     // For dumping
