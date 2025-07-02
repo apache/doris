@@ -531,7 +531,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
         if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId() || olapTable instanceof MTMV) {
             // mv is selected, return its estimated stats
-            Optional<Statistics> optStats = cascadesContext.getStatementContext()
+            Optional<Statistics> optStats = ConnectContext.get().getStatementContext()
                     .getStatistics(((Relation) olapScan).getRelationId());
             LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}, table name is {}",
                     optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
