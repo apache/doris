@@ -576,5 +576,5 @@ TEST_F(InvertedIndexFileWriterTest, CopyFileEmptyFileTest) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
 }
 
-} // namespace doris::segment_v2
-}
+} // namespace segment_v2
+} // namespace doris
