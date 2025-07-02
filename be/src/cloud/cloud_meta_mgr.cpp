@@ -695,7 +695,17 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         });
         {
             const auto& stats = resp.stats();
+            auto t1 = std::chrono::steady_clock::now();
             std::unique_lock wlock(tablet->get_header_lock());
+            auto t2 = std::chrono::steady_clock::now();
+            auto cost = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+            if (tablet->enable_unique_key_merge_on_write() &&
+                cost > config::sync_rowsets_hold_lock_threshold_ms) {
+                LOG_INFO("[verbose] sync_tablet_rowsets get meta_lock")
+                        .tag("tablet_id", tablet->tablet_id())
+                        .tag("cost_ms", cost)
+                        .tag("rowset_num", resp.rowset_meta().size());
+            }
 
             // ATTN: we are facing following data race
             //
@@ -1343,7 +1353,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     }
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
-                "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, initiator: "
+                "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, "
+                "initiator: "
                 "{}, error_msg: {}",
                 tablet.tablet_id(), lock_id, initiator, res.status().msg());
     }
