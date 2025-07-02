@@ -135,7 +135,7 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public Object getRealValue() {
+    public BigInteger getRealValue() {
         return this.value;
     }
 

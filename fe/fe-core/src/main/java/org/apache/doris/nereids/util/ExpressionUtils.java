@@ -848,8 +848,7 @@ public class ExpressionUtils {
                     || predicate.getOptions().size() > Config.max_distribution_pruner_recursion_depth) {
                 return Optional.empty();
             }
-            return Optional.ofNullable(predicate.getOptions().stream()
-                    .allMatch(Expression::isLiteral) ? expression : null);
+            return Optional.ofNullable(predicate.optionsAreLiterals() ? expression : null);
         } else if (expression instanceof ComparisonPredicate) {
             ComparisonPredicate predicate = ((ComparisonPredicate) expression);
             if (predicate.left() instanceof Literal) {
