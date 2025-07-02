@@ -24,6 +24,7 @@ import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.ResultSetMetaData
+import java.sql.Types;
 
 class JdbcUtils {
     static String replaceHostUrl(String originUri, String newHost) {
@@ -136,7 +137,11 @@ class JdbcUtils {
                 def row = new ArrayList<>()
                 for (int i = 1; i <= columnCount; ++i) {
                     try {
-                        row.add(resultSet.getObject(i))
+                        if (metaData.getColumnType(i) == Types.TIME) {
+                            row.add(resultSet.getTime(i))
+                        } else {
+                            row.add(resultSet.getObject(i))
+                        }
                     } catch (Throwable t) {
                         if(resultSet.getBytes(i) != null){
                             row.add(new String(resultSet.getBytes(i)))
