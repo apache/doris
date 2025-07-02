@@ -70,6 +70,14 @@ public:
         return name.substr(name.length() - suffix.length()) == suffix;
     }
 
+    static bool is_foreachv2(const std::string& name) {
+        constexpr std::string_view suffix = "_foreachv2";
+        if (name.length() < suffix.length()) {
+            return false;
+        }
+        return name.substr(name.length() - suffix.length()) == suffix;
+    }
+
     static bool result_nullable_by_foreach(DataTypePtr& data_type) {
         // The return value of the 'foreach' function is 'null' or 'array<type>'.
         // The internal function's nullable should depend on whether 'type' is nullable
