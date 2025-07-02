@@ -231,17 +231,15 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_check(
         size_t size) const {
-    if (MemoryAllocator::need_check_and_tracking_memory()) {
-        alloc_fault_probability();
-        sys_memory_check(size);
-        memory_tracker_check(size);
-    }
+    alloc_fault_probability();
+    sys_memory_check(size);
+    memory_tracker_check(size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
         size_t size) const {
-    if (MemoryAllocator::need_check_and_tracking_memory()) {
+    if (MemoryAllocator::need_tracking_memory()) {
         CONSUME_THREAD_MEM_TRACKER(size);
     }
 }
@@ -249,7 +247,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
-    if (MemoryAllocator::need_check_and_tracking_memory()) {
+    if (MemoryAllocator::need_tracking_memory()) {
         RELEASE_THREAD_MEM_TRACKER(size);
     }
 }
@@ -376,12 +374,13 @@ void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::reallo
         /// BTW, it's not possible to change alignment while doing realloc.
         return buf;
     }
-    memory_check(new_size);
+
     // Realloc can do 2 possible things:
     // - expand existing memory region
     // - allocate new memory block and free the old one
     // Because we don't know which option will be picked we need to make sure there is enough
     // memory for all options.
+    memory_check(new_size);
     consume_memory(new_size);
 
     if (!use_mmap ||

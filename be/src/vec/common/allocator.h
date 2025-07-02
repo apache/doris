@@ -113,12 +113,12 @@ public:
 #endif // defined(USE_JEMALLOC)
     }
 
-    static constexpr bool need_check_and_tracking_memory() { return true; }
+    static constexpr bool need_tracking_memory() { return true; }
 };
 
 class NoTrackingDefaultMemoryAllocator : public DefaultMemoryAllocator {
 public:
-    static constexpr bool need_check_and_tracking_memory() { return false; }
+    static constexpr bool need_tracking_memory() { return false; }
 };
 
 /** It would be better to put these Memory Allocators where they are used, such as in the orc memory pool and arrow memory pool.
@@ -147,7 +147,7 @@ public:
 
     static void release_unused() {}
 
-    static constexpr bool need_check_and_tracking_memory() { return true; }
+    static constexpr bool need_tracking_memory() { return true; }
 };
 
 class RecordSizeMemoryAllocator {
@@ -217,7 +217,7 @@ public:
 
     static void release_unused() {}
 
-    static constexpr bool need_check_and_tracking_memory() { return true; }
+    static constexpr bool need_tracking_memory() { return true; }
 
 private:
     static std::unordered_map<void*, size_t> _allocated_sizes;
@@ -255,9 +255,7 @@ public:
 
     bool memory_tracker_exceed(size_t size, std::string* err_msg) const;
 
-    static constexpr bool need_check_and_tracking_memory() {
-        return MemoryAllocator::need_check_and_tracking_memory();
-    }
+    static constexpr bool need_tracking_memory() { return MemoryAllocator::need_tracking_memory(); }
 
 protected:
     static constexpr size_t get_stack_threshold() { return 0; }
@@ -350,9 +348,7 @@ public:
         return Base::memory_tracker_exceed(size, err_msg);
     }
 
-    static constexpr bool need_check_and_tracking_memory() {
-        return Base::need_check_and_tracking_memory();
-    }
+    static constexpr bool need_tracking_memory() { return Base::need_tracking_memory(); }
 
 protected:
     static constexpr size_t get_stack_threshold() { return N; }
