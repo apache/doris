@@ -2960,10 +2960,10 @@ TEST_F(BlockFileCacheTest, ttl_gc) {
     }
     ASSERT_EQ(cache._time_to_key.size(), 12);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
-    ASSERT_GT(cache._time_to_key.size(), 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(3100));
+    ASSERT_EQ(cache._time_to_key.size(), 6);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(3100));
     ASSERT_EQ(cache._time_to_key.size(), 0);
 
     if (fs::exists(cache_base_path)) {

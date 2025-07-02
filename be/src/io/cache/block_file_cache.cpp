@@ -1851,7 +1851,7 @@ void BlockFileCache::run_background_ttl_gc() {
             SCOPED_RAW_TIMER(&duration_ns);
             while (!_time_to_key.empty()) {
                 auto begin = _time_to_key.begin();
-                if (cur_time < begin->first || count > batch_size) {
+                if (cur_time < begin->first || count >= batch_size) {
                     break;
                 }
                 remove_if_ttl_file_blocks(begin->second, false, cache_lock, false);
