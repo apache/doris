@@ -73,10 +73,6 @@ public class InitMaterializationContextHook implements PlannerHook {
         } else {
             MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(), cascadesContext);
         }
-        if (cascadesContext.getStatementContext().getConnectContext().getExecutor() != null) {
-            cascadesContext.getStatementContext().getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsCollectTablePartitionFinishTime();
-        }
         StatementContext statementContext = cascadesContext.getStatementContext();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
