@@ -301,8 +301,6 @@ private:
 
     static void convert_like_pattern(LikeSearchState* state, const std::string& pattern,
                                      std::string* re_pattern);
-
-    static void remove_escape_character(std::string* search_string);
 };
 
 class FunctionRegexpLike : public FunctionLikeBase {

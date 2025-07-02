@@ -89,7 +89,6 @@ struct VectorEqualSearchState : public VectorPatternSearchState {
     void like_pattern_match(const std::string& pattern_str) override {
         _search_string.clear();
         if (pattern_str.empty() || RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &_search_string)) {
-            FunctionLike::remove_escape_character(&_search_string);
             _search_strings->insert_data(_search_string.c_str(), _search_string.size());
         } else {
             _pattern_matched = false;
@@ -115,7 +114,6 @@ struct VectorSubStringSearchState : public VectorPatternSearchState {
     void like_pattern_match(const std::string& pattern_str) override {
         _search_string.clear();
         if (RE2::FullMatch(pattern_str, LIKE_SUBSTRING_RE, &_search_string)) {
-            FunctionLike::remove_escape_character(&_search_string);
             _search_strings->insert_data(_search_string.c_str(), _search_string.size());
         } else {
             _pattern_matched = false;
@@ -141,7 +139,6 @@ struct VectorStartsWithSearchState : public VectorPatternSearchState {
     void like_pattern_match(const std::string& pattern_str) override {
         _search_string.clear();
         if (RE2::FullMatch(pattern_str, LIKE_STARTS_WITH_RE, &_search_string)) {
-            FunctionLike::remove_escape_character(&_search_string);
             _search_strings->insert_data(_search_string.c_str(), _search_string.size());
         } else {
             _pattern_matched = false;
@@ -166,7 +163,6 @@ struct VectorEndsWithSearchState : public VectorPatternSearchState {
     void like_pattern_match(const std::string& pattern_str) override {
         _search_string.clear();
         if (RE2::FullMatch(pattern_str, LIKE_ENDS_WITH_RE, &_search_string)) {
-            FunctionLike::remove_escape_character(&_search_string);
             _search_strings->insert_data(_search_string.c_str(), _search_string.size());
         } else {
             _pattern_matched = false;
@@ -771,23 +767,6 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
     }
 }
 
-void FunctionLike::remove_escape_character(std::string* search_string) {
-    std::string tmp_search_string;
-    tmp_search_string.swap(*search_string);
-    int len = tmp_search_string.length();
-    for (int i = 0; i < len;) {
-        if (tmp_search_string[i] == '\\' && i + 1 < len &&
-            (tmp_search_string[i + 1] == '%' || tmp_search_string[i + 1] == '_' ||
-             tmp_search_string[i + 1] == '\\')) {
-            search_string->append(1, tmp_search_string[i + 1]);
-            i += 2;
-        } else {
-            search_string->append(1, tmp_search_string[i]);
-            i++;
-        }
-    }
-}
-
 bool re2_full_match(const std::string& str, const RE2& re, std::vector<std::string>& results) {
     if (!re.ok()) {
         return false;
@@ -841,7 +820,6 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
             verbose_log_match(pattern_str, "LIKE_EQUALS_RE", LIKE_EQUALS_RE);
             VLOG_DEBUG << "search_string : " << search_string << ", size: " << search_string.size();
         }
-        remove_escape_character(&search_string);
         if (VLOG_DEBUG_IS_ON) {
             VLOG_DEBUG << "search_string escape removed: " << search_string
                        << ", size: " << search_string.size();
@@ -854,7 +832,6 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
             verbose_log_match(pattern_str, "LIKE_STARTS_WITH_RE", LIKE_STARTS_WITH_RE);
             VLOG_DEBUG << "search_string : " << search_string << ", size: " << search_string.size();
         }
-        remove_escape_character(&search_string);
         if (VLOG_DEBUG_IS_ON) {
             VLOG_DEBUG << "search_string escape removed: " << search_string
                        << ", size: " << search_string.size();
@@ -867,7 +844,6 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
             verbose_log_match(pattern_str, "LIKE_ENDS_WITH_RE", LIKE_ENDS_WITH_RE);
             VLOG_DEBUG << "search_string : " << search_string << ", size: " << search_string.size();
         }
-        remove_escape_character(&search_string);
         if (VLOG_DEBUG_IS_ON) {
             VLOG_DEBUG << "search_string escape removed: " << search_string
                        << ", size: " << search_string.size();
@@ -880,7 +856,6 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
             verbose_log_match(pattern_str, "LIKE_SUBSTRING_RE", LIKE_SUBSTRING_RE);
             VLOG_DEBUG << "search_string : " << search_string << ", size: " << search_string.size();
         }
-        remove_escape_character(&search_string);
         if (VLOG_DEBUG_IS_ON) {
             VLOG_DEBUG << "search_string escape removed: " << search_string
                        << ", size: " << search_string.size();
