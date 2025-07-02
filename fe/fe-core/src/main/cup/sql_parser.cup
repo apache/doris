@@ -756,8 +756,6 @@ nonterminal UserDesc grant_user;
 nonterminal QueryStmt query_stmt;
 // Single select_stmt or parenthesized query_stmt.
 nonterminal QueryStmt set_operand;
-// List of select or set operation(union/intersect/except) blocks connected by  set operators or a single select block.
-nonterminal List<SetOperand> set_operand_list;
 // List of select blocks connected by set operators, with order by or limit.
 nonterminal InsertStmt insert_stmt;
 nonterminal InsertTarget insert_target;
@@ -850,8 +848,6 @@ nonterminal Map<String, String> query_hint_parameters;
 nonterminal Map.Entry<String, String> query_hint_parameter;
 nonterminal String query_hint_parameter_key;
 nonterminal Expr sign_chain_expr;
-nonterminal Qualifier opt_set_qualifier;
-nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
 nonterminal String opt_job_starts;
@@ -4086,37 +4082,6 @@ opt_using_clause ::=
     :}
     ;
 
-// Our parsing of UNION is slightly different from MySQL's:
-// http://dev.mysql.com/doc/refman/5.5/en/union.html
-//
-// Imo, MySQL's parsing of union is not very clear.
-// For example, MySQL cannot parse this query:
-// select 3 order by 1 limit 1 union all select 1;
-//
-// On the other hand, MySQL does parse this query, but associates
-// the order by and limit with the union, not the select:
-// select 3 as g union all select 1 order by 1 limit 2;
-//
-// MySQL also allows some combinations of select blocks
-// with and without parenthesis, but also disallows others.
-//
-// Our parsing:
-// Select blocks may or may not be in parenthesis,
-// even if the union has order by and limit.
-// ORDER BY and LIMIT bind to the preceding select statement by default.
-query_stmt ::=
-    opt_with_clause:w set_operand_list:operands opt_outfile:outfile
-    {:
-        QueryStmt queryStmt = null;
-        if (operands.size() == 1) {
-          queryStmt = operands.get(0).getQueryStmt();
-        }
-        queryStmt.setWithClause(w);
-        queryStmt.setOutFileClause(outfile);
-        RESULT = queryStmt;
-    :}
-    ;
-
 opt_outfile ::=
     {:
         RESULT = null;
@@ -4170,39 +4135,6 @@ set_operand ::=
   {:
     RESULT = query;
   :}
-  ;
-
-set_operand_list ::=
-  set_operand:operand
-  {:
-    List<SetOperand> operands = new ArrayList<SetOperand>();
-    operands.add(new SetOperand(operand, null, null));
-    RESULT = operands;
-  :}
-  | set_operand_list:operands set_op:op opt_set_qualifier:qualifier set_operand:operand
-  {:
-    operands.add(new SetOperand(operand, op, qualifier));
-    RESULT = operands;
-  :}
-  ;
-
-set_op ::=
-  KW_UNION
-  {: RESULT = Operation.UNION; :}
-  | KW_INTERSECT
-  {: RESULT = Operation.INTERSECT; :}
-  | KW_EXCEPT
-  {: RESULT = Operation.EXCEPT; :}
-  | KW_MINUS
-  {: RESULT = Operation.EXCEPT; :}
-  ;
-
-opt_set_qualifier ::=
-  {: RESULT = Qualifier.DISTINCT; :}
-  | KW_DISTINCT
-  {: RESULT = Qualifier.DISTINCT; :}
-  | KW_ALL
-  {: RESULT = Qualifier.ALL; :}
   ;
 
 // Change catalog
