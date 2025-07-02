@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -332,6 +333,18 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
         return childStats;
     }
 
+    /**
+     * used for ut
+     */
+    @Override
+    public Statistics visitLogicalRelation(LogicalRelation relation, DeriveContext context) {
+        StatisticsBuilder builder = new StatisticsBuilder();
+        builder.setRowCount(1);
+        relation.getOutput().forEach(slot -> builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN));
+        Statistics stats = builder.build();
+        relation.setStatistics(stats);
+        return stats;
+    }
 }
 
 
