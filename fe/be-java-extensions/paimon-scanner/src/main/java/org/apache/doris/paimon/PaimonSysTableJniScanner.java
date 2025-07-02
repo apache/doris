@@ -42,7 +42,7 @@ import java.util.Map.Entry;
 import java.util.stream.Collectors;
 
 /**
- * JniScanner to read Paimon SysTables
+ * JNI-based scanner for reading Apache Paimon system tables
  */
 public class PaimonSysTableJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonSysTableJniScanner.class);
@@ -70,6 +70,9 @@ public class PaimonSysTableJniScanner extends JniScanner {
     private final String tblName;
     private final String queryType;
 
+    /**
+     * Constructs a new PaimonSysTableJniScanner for reading Paimon system tables.
+     */
     public PaimonSysTableJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
         if (LOG.isDebugEnabled()) {
@@ -102,7 +105,6 @@ public class PaimonSysTableJniScanner extends JniScanner {
                                 Entry::getValue));
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
     }
-
 
     @Override
     public void open() {
@@ -140,7 +142,6 @@ public class PaimonSysTableJniScanner extends JniScanner {
             throw new RuntimeException(e);
         }
     }
-
 
     private void initTable() {
         PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
