@@ -69,19 +69,6 @@ suite("load_p2", "variant_type,p2"){
         """
     }
 
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-  
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-    set_be_config.call("string_type_length_soft_limit_bytes", "10485760")
- 
-
     // Configuration for the number of threads
     def numberOfThreads = 10 // Set this to your desired number of threads
 
@@ -90,7 +77,6 @@ suite("load_p2", "variant_type,p2"){
 
     try {
         def table_name = "github_events"
-        
         def s3load_paral_wait = {tbl, fmt, path, paral ->
             String ak = getS3AK()
             String sk = getS3SK()
@@ -178,6 +164,5 @@ suite("load_p2", "variant_type,p2"){
         qt_sql("select count() from github_events")
     } finally {
         // reset flags
-        
     }
 }
