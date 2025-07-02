@@ -83,10 +83,6 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Catalog " + paimonTableName.getCtl() + " is not an paimon catalog");
         }
 
-        if (paimonTableName.getDb().equals("sys")) {
-            throw new AnalysisException("Paimon global system table are only supported in Flink.");
-        }
-
         this.paimonTableName = paimonTableName;
         PaimonExternalCatalog paimonExternalCatalog = (PaimonExternalCatalog) dorisCatalog;
         this.hadoopProps = paimonExternalCatalog.getCatalogProperty().getHadoopProperties();
