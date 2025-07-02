@@ -179,10 +179,25 @@ protected:
             // - growth_step_len = std::max(integerRoundUp(capacity / TrackingGrowthRatio, TrackingGrowthMinSize), TrackingGrowthMinSize) = 103 MB;
             // - res_mem_growth = min(capacity, integerRoundUp(used_bytes, growth_step_len)) - last_tracking_res_memory = 309 - 103 = 206 MB;
             // - update tracking_res_memory = 103 + 206 = 309 MB;
+
+            // auto capacity = allocated_bytes();
+            // auto growth_step_len =
+            //         std::max(integerRoundUp(static_cast<size_t>(capacity / TrackingGrowthRatio),
+            //                                 TrackingGrowthMinSize),
+            //                  TrackingGrowthMinSize);
+            // int64_t res_mem_growth =
+            //         std::min(capacity, integerRoundUp(c_end_new - c_start, growth_step_len)) -
+            //         (c_res_mem - c_start);
+            // CONSUME_THREAD_MEM_TRACKER(res_mem_growth);
+            // c_res_mem = c_res_mem + res_mem_growth;
+
+            // int64_t new_res_mem =
+            //         std::min(allocated_bytes(),
+            //                  std::bit_ceil(static_cast<size_t>(c_end_new - c_start))); // power of 2
+            // CONSUME_THREAD_MEM_TRACKER(new_res_mem - (c_res_mem - c_start));
+
             int64_t new_res_mem =
-                    std::min(allocated_bytes(),
-                             std::bit_ceil(static_cast<size_t>(c_end_new - c_start))); // power of 2
-            CONSUME_THREAD_MEM_TRACKER(new_res_mem - (c_res_mem - c_start));
+                    std::min(allocated_bytes(), (c_end_new - c_start) * 2); // power of 2
             c_res_mem = new_res_mem + c_start;
         }
     }
