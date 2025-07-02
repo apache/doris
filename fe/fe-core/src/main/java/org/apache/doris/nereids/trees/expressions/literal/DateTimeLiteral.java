@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -229,20 +230,20 @@ public class DateTimeLiteral extends DateLiteral {
             }
         }
 
-        microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 1000L;
+        microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
         // Microseconds have 7 digits.
-        // long sevenDigit = microSecond % 10;
-        // microSecond = microSecond / 10;
-        // if (sevenDigit >= 5 && this instanceof DateTimeV2Literal) {
-        //     DateTimeV2Literal result = (DateTimeV2Literal) ((DateTimeV2Literal) this).plusMicroSeconds(1);
-        //     this.second = result.second;
-        //     this.minute = result.minute;
-        //     this.hour = result.hour;
-        //     this.day = result.day;
-        //     this.month = result.month;
-        //     this.year = result.year;
-        //     this.microSecond = result.microSecond;
-        // }
+        long sevenDigit = microSecond % 10;
+        microSecond = microSecond / 10;
+        if (sevenDigit >= 5 && this instanceof DateTimeV2Literal) {
+            DateTimeV2Literal result = (DateTimeV2Literal) ((DateTimeV2Literal) this).plusMicroSeconds(1);
+            this.second = result.second;
+            this.minute = result.minute;
+            this.hour = result.hour;
+            this.day = result.day;
+            this.month = result.month;
+            this.year = result.year;
+            this.microSecond = result.microSecond;
+        }
 
         if (checkRange(year, month, day) || checkDate(year, month, day)) {
             throw new AnalysisException("datetime literal [" + s + "] is out of range");
@@ -350,6 +351,12 @@ public class DateTimeLiteral extends DateLiteral {
             return new DateV2Literal(year, month, day);
         } else if (targetType.isDateType()) {
             return new DateLiteral(year, month, day);
+        } else if (targetType.isDateTimeV2Type()) {
+            try {
+                return new DateTimeV2Literal((DateTimeV2Type) targetType, getStringValue());
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
         } else if (targetType.isTimeType()) {
             return new TimeV2Literal((int) hour, (int) minute, (int) second, (int) microSecond,
                     ((TimeV2Type) targetType).getScale(), false);
