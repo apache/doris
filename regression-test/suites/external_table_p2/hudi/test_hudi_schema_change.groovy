@@ -63,7 +63,7 @@ suite("test_hudi_schema_change", "p2,external,hudi,external_remote,external_remo
 
 	
 	}
-	qt_orc_time_travel """ select * from hudi_sc_orc_cow FOR TIME AS OF "20250314162817433_0_0" order by id; """ //1-8
+	qt_orc_time_travel """ select * from hudi_sc_orc_cow FOR TIME AS OF "20250314162817433" order by id; """ //1-8
 	qt_parquet_time_travel """ select * from hudi_sc_parquet_cow   FOR TIME AS OF "20250314163425482"  order by id; """//1-6
 
 	qt_parquet_inc_1 """ SELECT * from hudi_sc_parquet_cow@incr('beginTime'='20250314163421827') order by id; """

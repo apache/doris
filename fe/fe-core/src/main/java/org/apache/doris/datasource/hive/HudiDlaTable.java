@@ -97,17 +97,22 @@ public class HudiDlaTable extends HMSDlaTable {
         return true;
     }
 
-    public HMSSchemaCacheValue getHudiSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
-        TablePartitionValues snapshotCacheValue = getOrFetchHudiSnapshotCacheValue(snapshot);
-        return getHudiSchemaCacheValue(snapshotCacheValue.getLastUpdateTimestamp());
-    }
-
     private TablePartitionValues getOrFetchHudiSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
         if (snapshot.isPresent()) {
             return ((HudiMvccSnapshot) snapshot.get()).getTablePartitionValues();
         } else {
             return HudiUtils.getPartitionValues(Optional.empty(), hmsTable);
         }
+    }
+
+    public HMSSchemaCacheValue getHudiSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        long timestamp = 0L;
+        if (snapshot.isPresent()) {
+            timestamp = ((HudiMvccSnapshot) snapshot.get()).getTimestamp();
+        } else {
+            timestamp = HudiUtils.getLastTimeStamp(hmsTable);
+        }
+        return getHudiSchemaCacheValue(timestamp);
     }
 
     private HMSSchemaCacheValue getHudiSchemaCacheValue(long timestamp) {
