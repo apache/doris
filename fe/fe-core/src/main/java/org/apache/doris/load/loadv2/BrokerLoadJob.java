@@ -260,7 +260,8 @@ public class BrokerLoadJob extends BulkLoadJob {
             BrokerPendingTaskAttachment attachment) throws UserException {
         LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
+                isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
+                transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                 getPriority(), isEnableMemtableOnSinkNode, batchSize);

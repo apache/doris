@@ -943,7 +943,7 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
     }
 
     DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
         }
@@ -1656,7 +1656,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.version_miss", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto miss = dp->param<bool>("version_miss", true);
             tablet_info->__set_version_miss(miss);
@@ -1706,7 +1706,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.used", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto used = dp->param<bool>("used", true);
             LOG_WARNING("Tablet.build_tablet_report_info.used")

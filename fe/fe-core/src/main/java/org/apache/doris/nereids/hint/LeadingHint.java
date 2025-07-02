@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -575,8 +576,12 @@ public class LeadingHint extends Hint {
         }
 
         LogicalJoin finalJoin = (LogicalJoin) stack.pop();
-        // we want all filters been remove
-        assert (filters.isEmpty());
+        // we want all filters been removed
+        if (Utils.enableAssert && !filters.isEmpty()) {
+            throw new IllegalStateException(
+                    "Leading hint process failed: filter should be empty, but meet: " + filters
+            );
+        }
         if (finalJoin != null) {
             this.setStatus(HintStatus.SUCCESS);
         }

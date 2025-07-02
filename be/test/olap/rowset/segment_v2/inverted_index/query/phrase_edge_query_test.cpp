@@ -23,9 +23,9 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_schema.h"
@@ -126,9 +126,9 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, *index_path_prefix, std::string {rowset_id}, seg_id, format,
-                std::move(file_writer));
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
+                                                  seg_id, format, std::move(file_writer));
 
         // Get c2 column Field
         const TabletColumn& column = tablet_schema->column(1);
@@ -156,7 +156,7 @@ public:
     // Create an IndexSearcher from the created index
     std::shared_ptr<lucene::search::IndexSearcher> create_searcher(
             const std::string& index_path_prefix, const TabletIndex& idx_meta) {
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         auto status = reader->init();
         EXPECT_EQ(status, Status::OK());
@@ -224,8 +224,8 @@ TEST_F(PhraseEdgeQueryTest, test_single_term_edge_query) {
     PhraseEdgeQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";         // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("app"); // Should match words containing "app"
+    query_info.field_name = L"1";                 // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("app", 0); // Should match words containing "app"
 
     query.add(query_info);
 
@@ -280,12 +280,12 @@ TEST_F(PhraseEdgeQueryTest, test_multi_term_edge_query) {
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // First term: suffix match (ends_with), Last term: prefix match (starts_with), Middle: exact
-    query_info.terms.emplace_back(
-            "ple"); // suffix match - should match "apple", "simple", "people", "triple"
-    query_info.terms.emplace_back(
-            "ban"); // middle exact match - should match "banana", "band", "bandage", "bandits"
-    query_info.terms.emplace_back(
-            "che"); // prefix match - should match "cherry", "checker", "achieved", "chest"
+    query_info.term_infos.emplace_back(
+            "ple", 0); // suffix match - should match "apple", "simple", "people", "triple"
+    query_info.term_infos.emplace_back(
+            "ban", 1); // middle exact match - should match "banana", "band", "bandage", "bandits"
+    query_info.term_infos.emplace_back(
+            "che", 2); // prefix match - should match "cherry", "checker", "achieved", "chest"
 
     query.add(query_info);
 
@@ -331,7 +331,7 @@ TEST_F(PhraseEdgeQueryTest, test_empty_terms_exception) {
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // terms is empty
 
-    EXPECT_THROW(query.add(query_info), CLuceneError);
+    EXPECT_THROW(query.add(query_info), Exception);
 }
 
 TEST_F(PhraseEdgeQueryTest, test_max_expansions_limit) {
@@ -373,9 +373,9 @@ TEST_F(PhraseEdgeQueryTest, test_max_expansions_limit) {
     PhraseEdgeQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";          // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("app");  // Should match many terms but limited to 2
-    query_info.terms.emplace_back("word"); // Some term
+    query_info.field_name = L"1";                  // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("app", 0);  // Should match many terms but limited to 2
+    query_info.term_infos.emplace_back("word", 1); // Some term
 
     query.add(query_info);
 
@@ -417,8 +417,8 @@ TEST_F(PhraseEdgeQueryTest, test_no_matches) {
     PhraseEdgeQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";         // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("xyz"); // Should not match any term
+    query_info.field_name = L"1";                 // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("xyz", 0); // Should not match any term
 
     query.add(query_info);
 

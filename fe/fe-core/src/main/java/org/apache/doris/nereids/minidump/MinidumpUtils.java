@@ -298,10 +298,11 @@ public class MinidumpUtils {
         return new JSONObject(colocatedTableIndexJson);
     }
 
-    private static ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+    private static ColumnStatistic getColumnStatistic(TableIf table, String colName, ConnectContext connectContext) {
         // TODO. Get index id for materialized view.
         return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-            table.getDatabase().getCatalog().getId(), table.getDatabase().getId(), table.getId(), -1, colName);
+            table.getDatabase().getCatalog().getId(), table.getDatabase().getId(),
+            table.getId(), -1, colName, connectContext);
     }
 
     private static Histogram getColumnHistogram(TableIf table, String colName) {
@@ -315,6 +316,7 @@ public class MinidumpUtils {
     private static void serializeStatsUsed(JSONObject jsonObj, Map<List<String>, TableIf> tables) {
         JSONArray columnStatistics = new JSONArray();
         JSONArray histograms = new JSONArray();
+        ConnectContext connectContext = ConnectContext.get();
         for (Map.Entry<List<String>, TableIf> tableEntry : tables.entrySet()) {
             TableIf table = tableEntry.getValue();
             if (table instanceof SchemaTable) {
@@ -324,8 +326,8 @@ public class MinidumpUtils {
             for (Column column : columns) {
                 String colName = column.getName();
                 ColumnStatistic cache =
-                        ConnectContext.get().getSessionVariable().enableStats
-                        ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+                        connectContext.getSessionVariable().enableStats
+                        ? getColumnStatistic(table, colName, connectContext) : ColumnStatistic.UNKNOWN;
                 if (cache.avgSizeByte <= 0) {
                     cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(column.getType().getSlotSize())

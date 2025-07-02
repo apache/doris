@@ -43,6 +43,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Objects;
+import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
@@ -135,7 +136,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return false;
     }
 
-    protected void makeSureInitialized() {
+    protected synchronized void makeSureInitialized() {
         try {
             // getDbOrAnalysisException will call makeSureInitialized in ExternalCatalog.
             ExternalDatabase db = catalog.getDbOrAnalysisException(dbName);
@@ -157,7 +158,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     public String getRemoteName() {
-        return remoteName;
+        return Strings.isNullOrEmpty(remoteName)  ? name : remoteName;
     }
 
     @Override
@@ -492,6 +493,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     public String getDbName() {
         return dbName;
     }
+
+    public String getRemoteDbName() {
+        return db.getRemoteName();
+    }
+
 
     public TableAttributes getTableAttributes() {
         return tableAttributes;

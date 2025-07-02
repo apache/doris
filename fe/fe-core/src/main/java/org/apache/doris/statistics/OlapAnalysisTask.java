@@ -256,6 +256,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("rowCount", String.valueOf(tableRowCount));
         params.put("type", col.getType().toString());
         params.put("limit", "");
+        params.put("subStringColName", getStringTypeColName(col));
 
         // For agg table and mor unique table, set PREAGGOPEN preAggHint.
         if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS)
@@ -269,6 +270,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("scaleFactor", "1");
             params.put("sampleHints", "");
             params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             scanFullTable = true;
             return;
         }
@@ -299,6 +301,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         // Set algorithm related params.
         if (useLinearAnalyzeTemplate()) {
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             // For single unique key, use count as ndv.
             if (isSingleUniqueKey()) {
                 params.put("ndvFunction", String.valueOf(tableRowCount));
@@ -308,7 +311,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         } else {
             params.put("ndvFunction", getNdvFunction(String.valueOf(tableRowCount)));
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
-            params.put("subStringColName", getStringTypeColName(col));
+            params.put("rowCount2", "(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)");
         }
     }
 

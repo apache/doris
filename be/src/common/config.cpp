@@ -261,6 +261,8 @@ DEFINE_mBool(enable_batch_download, "true");
 DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
 DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
+// the interval time(seconds) for agent report index policy to FE
+DEFINE_mInt32(report_index_policy_interval_seconds, "10");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -427,6 +429,7 @@ DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
 DEFINE_mInt64(base_compaction_max_compaction_score, "20");
+DEFINE_mInt64(mow_base_compaction_max_compaction_score, "200");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
@@ -1111,6 +1114,9 @@ DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
+
+DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
+DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1954,6 +1960,8 @@ Status set_fuzzy_configs() {
 
     // if have set enable_fuzzy_mode=true in be.conf, will fuzzy those field and values
     fuzzy_field_and_value["disable_storage_page_cache"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["disable_segment_cache"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_system_metrics"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";

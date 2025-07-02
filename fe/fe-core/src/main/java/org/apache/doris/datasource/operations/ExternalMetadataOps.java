@@ -24,6 +24,10 @@ import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
 import org.apache.iceberg.view.View;
 
@@ -130,6 +134,7 @@ public interface ExternalMetadataOps {
     }
 
     /**
+     * truncate table in external metastore
      *
      * @param dbName
      * @param tblName
@@ -144,6 +149,75 @@ public interface ExternalMetadataOps {
 
     default void afterTruncateTable(String dbName, String tblName) {
     }
+
+    /**
+     * create or replace branch in external metastore
+     *
+     * @param dbName
+     * @param tblName
+     * @param branchInfo
+     * @throws UserException
+     */
+    default void createOrReplaceBranch(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        createOrReplaceBranchImpl(dbName, tblName, branchInfo);
+        afterOperateOnBranchOrTag(dbName, tblName);
+    }
+
+    void createOrReplaceBranchImpl(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException;
+
+    default void afterOperateOnBranchOrTag(String dbName, String tblName) {
+    }
+
+    /**
+     * create or replace tag in external metastore
+     *
+     * @param dbName
+     * @param tblName
+     * @param tagInfo
+     * @throws UserException
+     */
+    default void createOrReplaceTag(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
+            throws UserException {
+        createOrReplaceTagImpl(dbName, tblName, tagInfo);
+        afterOperateOnBranchOrTag(dbName, tblName);
+    }
+
+    void createOrReplaceTagImpl(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
+            throws UserException;
+
+    /**
+     * drop tag in external metastore
+     *
+     * @param dbName
+     * @param tblName
+     * @param tagInfo
+     * @throws UserException
+     */
+    default void dropTag(String dbName, String tblName, DropTagInfo tagInfo)
+            throws UserException {
+        dropTagImpl(dbName, tblName, tagInfo);
+        afterOperateOnBranchOrTag(dbName, tblName);
+    }
+
+    void dropTagImpl(String dbName, String tblName, DropTagInfo tagInfo) throws UserException;
+
+    /**
+     * drop branch in external metastore
+     *
+     * @param dbName
+     * @param tblName
+     * @param branchInfo
+     * @throws UserException
+     */
+    default void dropBranch(String dbName, String tblName, DropBranchInfo branchInfo)
+            throws UserException {
+        dropBranchImpl(dbName, tblName, branchInfo);
+        afterOperateOnBranchOrTag(dbName, tblName);
+    }
+
+    void dropBranchImpl(String dbName, String tblName, DropBranchInfo branchInfo) throws UserException;
 
     /**
      *

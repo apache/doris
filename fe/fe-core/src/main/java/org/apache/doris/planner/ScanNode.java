@@ -62,7 +62,6 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -121,14 +120,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
         this.desc = desc;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        this.analyzer = analyzer;
-        // materialize conjuncts in where
-        analyzer.materializeSlots(conjuncts);
     }
 
     /**
@@ -650,45 +641,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 }
             }
             outputSmap.updateRhsExprs(newRhs);
-        }
-    }
-
-    @Override
-    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
-        if (outputTupleDesc != null && requiredSlotIdSet != null) {
-            Preconditions.checkNotNull(outputSmap);
-            ArrayList<SlotId> materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
-            Preconditions.checkState(projectList != null && projectList.size() <= materializedSlotIds.size(),
-                    "projectList's size should be less than materializedSlotIds's size");
-            boolean hasNewSlot = false;
-            if (projectList.size() < materializedSlotIds.size()) {
-                // need recreate projectList based on materializedSlotIds
-                hasNewSlot = true;
-            }
-
-            // find new project expr from outputSmap based on requiredSlotIdSet
-            ArrayList<SlotId> allSlots = outputTupleDesc.getAllSlotIds();
-            for (SlotId slotId : requiredSlotIdSet) {
-                if (!materializedSlotIds.contains(slotId) && allSlots.contains(slotId)) {
-                    SlotDescriptor slot = outputTupleDesc.getSlot(slotId.asInt());
-                    for (Expr expr : outputSmap.getRhs()) {
-                        if (expr instanceof SlotRef && ((SlotRef) expr).getSlotId() == slotId) {
-                            slot.setIsMaterialized(true);
-                            outputSlotToProjectExpr.put(slotId, expr.getSrcSlotRef());
-                            hasNewSlot = true;
-                        }
-                    }
-                }
-            }
-
-            if (hasNewSlot) {
-                // recreate the project list
-                projectList.clear();
-                materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
-                for (SlotId slotId : materializedSlotIds) {
-                    projectList.add(outputSlotToProjectExpr.get(slotId));
-                }
-            }
         }
     }
 

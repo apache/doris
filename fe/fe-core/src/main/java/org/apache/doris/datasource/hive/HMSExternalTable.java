@@ -37,7 +37,6 @@ import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
-import org.apache.doris.datasource.hudi.HudiMvccSnapshot;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
@@ -48,6 +47,7 @@ import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.systable.SupportedSysTables;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.fs.FileSystemDirectoryLister;
@@ -601,6 +601,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return catalog.getProperties();
     }
 
+    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+        return catalog.getCatalogProperty().getStoragePropertiesMap();
+    }
+
     public Map<String, String> getHadoopProperties() {
         return catalog.getCatalogProperty().getHadoopProperties();
     }
@@ -1120,13 +1124,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     getRemoteTable().getSd().getLocation(), null, Maps.newHashMap()));
         }
         // Get files for all partitions.
-        String bindBrokerName = catalog.bindBrokerName();
         if (LOG.isDebugEnabled()) {
             for (HivePartition partition : hivePartitions) {
                 LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
             }
         }
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName,
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions,
                 new FileSystemDirectoryLister(), null);
     }
 
@@ -1143,7 +1146,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
         if (getDlaType() == DLAType.HUDI) {
-            return new HudiMvccSnapshot(HudiUtils.getPartitionValues(tableSnapshot, this));
+            return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this);
         } else if (getDlaType() == DLAType.ICEBERG) {
             return new IcebergMvccSnapshot(
                 IcebergUtils.getIcebergSnapshotCacheValue(

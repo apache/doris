@@ -23,9 +23,10 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_schema.h"
@@ -126,9 +127,9 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, *index_path_prefix, std::string {rowset_id}, seg_id, format,
-                std::move(file_writer));
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
+                                                  seg_id, format, std::move(file_writer));
 
         // Get c2 column Field
         const TabletColumn& column = tablet_schema->column(1);
@@ -156,7 +157,7 @@ public:
     // Create an IndexSearcher from the created index
     std::shared_ptr<lucene::search::IndexSearcher> create_searcher(
             const std::string& index_path_prefix, const TabletIndex& idx_meta) {
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         auto status = reader->init();
         EXPECT_EQ(status, Status::OK());
@@ -224,8 +225,8 @@ TEST_F(PhraseQueryTest, test_exact_phrase_query) {
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("big");
-    query_info.terms.emplace_back("red");
+    query_info.term_infos.emplace_back("big", 0);
+    query_info.term_infos.emplace_back("red", 1);
     query_info.slop = 0; // exact phrase match
 
     query.add(query_info);
@@ -274,7 +275,7 @@ TEST_F(PhraseQueryTest, test_single_term_query) {
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";
-    query_info.terms.emplace_back("apple"); // single term
+    query_info.term_infos.emplace_back("apple", 0); // single term
 
     query.add(query_info);
 
@@ -323,8 +324,8 @@ TEST_F(PhraseQueryTest, test_sloppy_phrase_query) {
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";
-    query_info.terms.emplace_back("big");
-    query_info.terms.emplace_back("red");
+    query_info.term_infos.emplace_back("big", 0);
+    query_info.term_infos.emplace_back("red", 1);
     query_info.slop = 2;        // allow up to 2 words between "big" and "red"
     query_info.ordered = false; // allow reordering
 
@@ -374,8 +375,8 @@ TEST_F(PhraseQueryTest, test_ordered_sloppy_phrase_query) {
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";
-    query_info.terms.emplace_back("big");
-    query_info.terms.emplace_back("red");
+    query_info.term_infos.emplace_back("big", 0);
+    query_info.term_infos.emplace_back("red", 1);
     query_info.slop = 2;       // allow up to 2 words between "big" and "red"
     query_info.ordered = true; // require original order
 
@@ -417,13 +418,14 @@ TEST_F(PhraseQueryTest, test_multi_term_vector_add) {
 
     PhraseQuery query(searcher, query_options, &io_ctx);
 
-    // Test the vector<vector<wstring>> add method
-    std::vector<std::vector<std::wstring>> terms = {
-            {L"apple"},
-            {L"banana", L"orange"}, // multiple terms for one position
-            {L"cherry"}};
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"1";
+    query_info.term_infos.emplace_back("apple", 0);
+    std::vector<std::string> multi_terms = {"banana", "orange"};
+    query_info.term_infos.emplace_back(multi_terms, 1);
+    query_info.term_infos.emplace_back("cherry", 2);
 
-    query.add(L"1", terms);
+    query.add(query_info);
 
     roaring::Roaring result;
     EXPECT_NO_THROW(query.search(result));
@@ -465,11 +467,16 @@ TEST_F(PhraseQueryTest, test_empty_terms_exception) {
     query_info.field_name = L"1";
     // terms is empty
 
-    EXPECT_THROW(query.add(query_info), CLuceneError);
+    EXPECT_THROW(query.add(query_info), Exception);
 
     // Test vector add with empty terms
-    std::vector<std::vector<std::wstring>> empty_terms = {{}, {}};
-    EXPECT_THROW(query.add(L"1", empty_terms), CLuceneError);
+    InvertedIndexQueryInfo query_info1;
+    query_info1.field_name = L"1";
+    std::vector<std::string> empty_terms = {};
+    query_info1.term_infos.emplace_back(empty_terms, 0);
+    query_info1.term_infos.emplace_back(empty_terms, 1);
+    query_info1.slop = 2;
+    EXPECT_THROW(query.add(query_info1), Exception);
 }
 
 TEST_F(PhraseQueryTest, test_no_matches) {
@@ -503,8 +510,8 @@ TEST_F(PhraseQueryTest, test_no_matches) {
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";
-    query_info.terms.emplace_back("nonexistent");
-    query_info.terms.emplace_back("phrase");
+    query_info.term_infos.emplace_back("nonexistent", 0);
+    query_info.term_infos.emplace_back("phrase", 1);
 
     query.add(query_info);
 
@@ -521,21 +528,18 @@ TEST_F(PhraseQueryTest, test_parser_info) {
     properties.insert({"support_phrase", "true"});
     properties.insert({"lower_case", "true"});
 
-    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info,
-                                     bool sequential_opt) {
-        PhraseQuery::parser_info(search_str, "name", InvertedIndexQueryType::MATCH_REGEXP_QUERY,
-                                 properties, query_info, sequential_opt);
+    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info) {
+        PhraseQuery::parser_info(search_str, properties, query_info);
     };
 
     auto parser = [&parser_info](std::string search_str, std::string res1, size_t res2,
                                  int32_t res3, bool res4, size_t res5) {
         InvertedIndexQueryInfo query_info;
-        parser_info(search_str, query_info, true);
+        parser_info(search_str, query_info);
         EXPECT_EQ(search_str, res1);
-        EXPECT_EQ(query_info.terms.size(), res2);
+        EXPECT_EQ(query_info.term_infos.size(), res2);
         EXPECT_EQ(query_info.slop, res3);
         EXPECT_EQ(query_info.ordered, res4);
-        EXPECT_EQ(query_info.additional_terms.size(), res5);
     };
 
     // "english/history off.gif ~20+" sequential_opt = true
@@ -559,32 +563,28 @@ TEST_F(PhraseQueryTest, test_parser_info1) {
     properties.insert({"support_phrase", "true"});
     properties.insert({"lower_case", "true"});
 
-    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info,
-                                     bool sequential_opt) {
-        PhraseQuery::parser_info(search_str, "name", InvertedIndexQueryType::MATCH_REGEXP_QUERY,
-                                 properties, query_info, sequential_opt);
+    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info) {
+        PhraseQuery::parser_info(search_str, properties, query_info);
     };
 
     {
         InvertedIndexQueryInfo query_info;
         std::string search_str = "我在 北京 ~4+";
-        parser_info(search_str, query_info, true);
+        parser_info(search_str, query_info);
         EXPECT_EQ(search_str, "我在 北京");
         EXPECT_EQ(query_info.slop, 4);
         EXPECT_EQ(query_info.ordered, true);
-        EXPECT_EQ(query_info.terms.size(), 4);
-        EXPECT_EQ(query_info.additional_terms.size(), 2);
+        EXPECT_EQ(query_info.term_infos.size(), 4);
     }
 
     {
         InvertedIndexQueryInfo query_info;
         std::string search_str = "List of Pirates of the Caribbean characters ~4+";
-        parser_info(search_str, query_info, true);
+        parser_info(search_str, query_info);
         EXPECT_EQ(search_str, "List of Pirates of the Caribbean characters");
         EXPECT_EQ(query_info.slop, 4);
         EXPECT_EQ(query_info.ordered, true);
-        EXPECT_EQ(query_info.terms.size(), 4);
-        EXPECT_EQ(query_info.additional_terms.size(), 0);
+        EXPECT_EQ(query_info.term_infos.size(), 4);
     }
 }
 

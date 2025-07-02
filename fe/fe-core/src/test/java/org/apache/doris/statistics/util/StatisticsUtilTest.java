@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics.util;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -557,5 +558,48 @@ class StatisticsUtilTest {
         column = new Column("testColumn", Type.INT, true, null, null, "");
         Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
 
+    }
+
+    @Test
+    void testGetHotValues() {
+        String value1 = "1234 :0.33 ;222 :0.22";
+        Map<LiteralExpr, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
+        Assertions.assertEquals(2, hotValues.size());
+
+        int i = 0;
+        for (Map.Entry<LiteralExpr, Float> entry : hotValues.entrySet()) {
+            if (i == 0) {
+                Assertions.assertEquals(1234, entry.getKey().getLongValue());
+                Assertions.assertEquals("0.33", entry.getValue().toString());
+                i++;
+            } else {
+                Assertions.assertEquals(222, entry.getKey().getLongValue());
+                Assertions.assertEquals("0.22", entry.getValue().toString());
+            }
+        }
+
+        String value2 = "1234 :0.33";
+        hotValues = StatisticsUtil.getHotValues(value2, Type.INT);
+        Assertions.assertEquals(1, hotValues.size());
+
+        for (Map.Entry<LiteralExpr, Float> entry : hotValues.entrySet()) {
+            Assertions.assertEquals(1234, entry.getKey().getLongValue());
+            Assertions.assertEquals("0.33", entry.getValue().toString());
+        }
+
+        String value3 = "aabbcc\\:\\; :0.33 ; dd :0.22";
+        hotValues = StatisticsUtil.getHotValues(value3, Type.STRING);
+        Assertions.assertEquals(2, hotValues.size());
+        i = 0;
+        for (Map.Entry<LiteralExpr, Float> entry : hotValues.entrySet()) {
+            if (i == 0) {
+                Assertions.assertEquals("aabbcc:;", entry.getKey().getStringValue());
+                Assertions.assertEquals("0.33", entry.getValue().toString());
+                i++;
+            } else {
+                Assertions.assertEquals(" dd", entry.getKey().getStringValue());
+                Assertions.assertEquals("0.22", entry.getValue().toString());
+            }
+        }
     }
 }

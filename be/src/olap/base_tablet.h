@@ -86,7 +86,7 @@ public:
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() { return _tablet_meta; }
 
-    int32 max_version_config();
+    int32_t max_version_config();
 
     // FIXME(plat1ko): It is not appropriate to expose this lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }

@@ -19,7 +19,9 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -29,7 +31,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * CatalogProperty to store the properties for catalog.
@@ -43,6 +47,8 @@ public class CatalogProperty {
     private String resource;
     @SerializedName(value = "properties")
     private Map<String, String> properties;
+
+    private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
     private volatile Resource catalogResource = null;
 
@@ -92,12 +98,28 @@ public class CatalogProperty {
 
     public void modifyCatalogProps(Map<String, String> props) {
         properties.putAll(PropertyConverter.convertToMetaProperties(props));
+        this.storagePropertiesMap = null;
+    }
+
+    private void reInitCatalogStorageProperties() {
+        this.storagePropertiesMap = new HashMap<>();
+        List<StorageProperties> storageProperties;
+        try {
+            storageProperties = StorageProperties.createAll(this.properties);
+            this.storagePropertiesMap.putAll(storageProperties.stream()
+                    .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity())));
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {
         properties.clear();
         properties = new HashMap<>(props);
+        this.storagePropertiesMap = null;
     }
+
 
     public Map<String, String> getHadoopProperties() {
         Map<String, String> hadoopProperties = getProperties();
@@ -107,9 +129,22 @@ public class CatalogProperty {
 
     public void addProperty(String key, String val) {
         this.properties.put(key, val);
+        this.storagePropertiesMap = null; // reset storage properties map
     }
 
     public void deleteProperty(String key) {
         this.properties.remove(key);
+        this.storagePropertiesMap = null;
+    }
+
+    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+        if (storagePropertiesMap == null) {
+            synchronized (this) {
+                if (storagePropertiesMap == null) {
+                    reInitCatalogStorageProperties();
+                }
+            }
+        }
+        return storagePropertiesMap;
     }
 }

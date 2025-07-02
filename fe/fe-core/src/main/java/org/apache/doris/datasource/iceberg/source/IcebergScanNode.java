@@ -18,11 +18,9 @@
 package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -176,7 +174,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
-                LocationPath locationPath = new LocationPath(deleteFilePath, icebergSplit.getConfig());
+                LocationPath locationPath = LocationPath.of(deleteFilePath, icebergSplit.getConfig());
                 deleteFileDesc.setPath(locationPath.toStorageLocation().toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
@@ -317,7 +315,8 @@ public class IcebergScanNode extends FileQueryScanNode {
             partitionPathSet.add(structLike.toString());
         }
         String originalPath = fileScanTask.file().path().toString();
-        LocationPath locationPath = new LocationPath(originalPath, source.getCatalog().getProperties());
+        LocationPath locationPath = LocationPath.of(originalPath,
+                source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
         IcebergSplit split = new IcebergSplit(
                 locationPath,
                 fileScanTask.start(),
@@ -325,7 +324,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 fileScanTask.file().fileSizeInBytes(),
                 new String[0],
                 formatVersion,
-                source.getCatalog().getProperties(),
+                source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
                 new ArrayList<>(),
                 originalPath);
         if (!fileScanTask.deletes().isEmpty()) {
@@ -488,17 +487,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public Map<String, String> getLocationProperties() throws UserException {
         return source.getCatalog().getCatalogProperty().getHadoopProperties();
-    }
-
-    @Override
-    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
-        String aggFunctionName = aggExpr.getFnName().getFunction().toUpperCase();
-        return "COUNT".equals(aggFunctionName);
-    }
-
-    @Override
-    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
-        return !col.isAllowNull();
     }
 
     @VisibleForTesting
