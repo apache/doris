@@ -542,9 +542,15 @@ struct TIcebergMetadataParams {
 
 
 struct TPaimonMetadataParams {
-  1: optional string serialized_split
-  2: optional string serialized_table
-  3: optional map<string, string> hadoop_props
+  1: optional string db_name
+  2: optional string tbl_name
+  3: optional string query_type
+  4: optional i64 ctl_id
+  5: optional i64 db_id
+  6: optional i64 tbl_id
+  7: optional string serialized_split
+  8: optional map<string, string> hadoop_props
+  9: optional map<string, string> paimon_props
 }
 
 struct THudiMetadataParams {

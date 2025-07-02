@@ -24,6 +24,7 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 const std::string PaimonSysTableJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
+const std::string PaimonSysTableJniReader::PAIMON_OPTION_PREFIX = "paimon.";
 
 PaimonSysTableJniReader::PaimonSysTableJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
@@ -37,10 +38,19 @@ PaimonSysTableJniReader::PaimonSysTableJniReader(
     }
 
     std::map<std::string, std::string> params;
+    params["db_name"] = _range_params.db_name;
+    params["tbl_name"] = _range_params.db_name;
+    params["query_type"] = _range_params.query_type;
+    params["ctl_id"] = _range_params.ctl_id;
+    params["db_id"] = _range_params.db_id;
+    params["tbl_id"] = _range_params.tbl_id;
     params["serialized_split"] = _range_params.serialized_split;
-    params["serialized_table"] = _range_params.serialized_table;
     params["required_fields"] = join(required_fields, ",");
     params["required_types"] = join(required_types, "#");
+
+    for (const auto& kv : _range_params.paimon_props) {
+        params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+    }
 
     for (const auto& kv : _range_params.hadoop_props) {
         params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;

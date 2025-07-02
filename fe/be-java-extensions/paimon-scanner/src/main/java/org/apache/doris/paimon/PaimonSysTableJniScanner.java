@@ -21,6 +21,8 @@ import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
+import org.apache.doris.paimon.PaimonTableCache.PaimonTableCacheKey;
+import org.apache.doris.paimon.PaimonTableCache.TableExt;
 
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.reader.RecordReader;
@@ -44,22 +46,29 @@ import java.util.stream.Collectors;
  */
 public class PaimonSysTableJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonSysTableJniScanner.class);
-    @Deprecated
+
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
+    private static final String PAIMON_OPTION_PREFIX = "paimon.";
 
     private final Map<String, String> params;
-    @Deprecated
     private final Map<String, String> hadoopOptionParams;
+    private final Map<String, String> paimonOptionParams;
 
     private final ClassLoader classLoader;
     private final Split paimonSplit;
-    private final Table table;
+    private Table table;
     private RecordReader<InternalRow> reader;
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<DataType> paimonDataTypeList;
-    private final List<String> paimonAllFieldNames;
+    private List<String> paimonAllFieldNames;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
+    private final long ctlId;
+    private final long dbId;
+    private final long tblId;
+    private final String dbName;
+    private final String tblName;
+    private final String queryType;
 
     public PaimonSysTableJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
@@ -75,13 +84,23 @@ public class PaimonSysTableJniScanner extends JniScanner {
         }
         initTableInfo(columnTypes, requiredFields, batchSize);
         this.paimonSplit = PaimonUtils.deserialize(params.get("serialized_split"));
-        this.table = PaimonUtils.deserialize(params.get("serialized_table"));
+        this.ctlId = Long.parseLong(PaimonUtils.deserialize(params.get("ctl_id")));
+        this.dbId = Long.parseLong(PaimonUtils.deserialize(params.get("db_id")));
+        this.tblId = Long.parseLong(PaimonUtils.deserialize(params.get("tbl_id")));
+        this.dbName = PaimonUtils.deserialize(params.get("db_name"));
+        this.tblName = PaimonUtils.deserialize(params.get("tbl_name"));
+        this.queryType = PaimonUtils.deserialize(params.get("query_type"));
         this.hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
-                        .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), Entry::getValue));
+                        .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()),
+                                Entry::getValue));
+        this.paimonOptionParams = params.entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
+                .collect(Collectors
+                        .toMap(kv1 -> kv1.getKey().substring(PAIMON_OPTION_PREFIX.length()),
+                                Entry::getValue));
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
-        this.paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
     }
 
 
@@ -94,6 +113,7 @@ public class PaimonSysTableJniScanner extends JniScanner {
             // so we need to provide a classloader, otherwise it will cause NPE.
             Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
+                initTable();
                 initReader();
                 return null;
             });
@@ -121,6 +141,24 @@ public class PaimonSysTableJniScanner extends JniScanner {
         }
     }
 
+
+    private void initTable() {
+        PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
+                paimonOptionParams, hadoopOptionParams, dbName, tblName, queryType);
+        TableExt tableExt = PaimonTableCache.getTable(key);
+        Table paimonTable = tableExt.getTable();
+        if (paimonTable == null) {
+            throw new RuntimeException(
+                    String.format(
+                            "Failed to get Paimon system table  {%s}.{%s}${%s}. ",
+                            dbName, tblName, queryType));
+        }
+        this.table = paimonTable;
+        this.paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
+        }
+    }
 
     private void initReader() throws IOException {
         ReadBuilder readBuilder = table.newReadBuilder();
