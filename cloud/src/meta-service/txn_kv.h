@@ -53,13 +53,15 @@ class TxnKv;
  *     return err;
  * }
  */
-struct FullRangeGetIteratorOptions {
+struct FullRangeGetOptions {
     std::shared_ptr<TxnKv> txn_kv;
     // Trigger prefetch getting next batch kvs before access them
     bool prefetch = false;
     bool snapshot = false;
-    // If non-zero, indicates the maximum number of key-value pairs to return (not effective in memkv)
-    int limit = 0;
+    // If non-zero, indicates the exact number of key-value pairs to return.
+    int exact_limit = 0;
+    // If non-zero, indicates the maximum number of key-value pairs to in each batch (not effective in memkv)
+    int batch_limit = 0;
     // Reference. If not null, each inner range get is performed through this transaction; otherwise
     // perform each inner range get through a new transaction.
     Transaction* txn = nullptr;
@@ -67,7 +69,7 @@ struct FullRangeGetIteratorOptions {
     // object pool to collect the inner iterators that have completed iterated.
     std::vector<std::unique_ptr<RangeGetIterator>>* obj_pool = nullptr;
 
-    FullRangeGetIteratorOptions(std::shared_ptr<TxnKv> _txn_kv) : txn_kv(std::move(_txn_kv)) {}
+    FullRangeGetOptions(std::shared_ptr<TxnKv> _txn_kv) : txn_kv(std::move(_txn_kv)) {}
 };
 
 class FullRangeGetIterator {
@@ -76,11 +78,15 @@ public:
 
     virtual ~FullRangeGetIterator() = default;
 
-    virtual bool is_valid() = 0;
+    virtual bool is_valid() const = 0;
 
     virtual bool has_next() = 0;
 
+    virtual TxnErrorCode error_code() const = 0;
+
     virtual std::optional<std::pair<std::string_view, std::string_view>> next() = 0;
+
+    virtual std::optional<std::pair<std::string_view, std::string_view>> peek() = 0;
 };
 
 class TxnKv {
@@ -99,8 +105,8 @@ public:
 
     virtual int init() = 0;
 
-    virtual std::unique_ptr<FullRangeGetIterator> full_range_get(
-            std::string begin, std::string end, FullRangeGetIteratorOptions opts) = 0;
+    virtual std::unique_ptr<FullRangeGetIterator> full_range_get(std::string begin, std::string end,
+                                                                 FullRangeGetOptions opts) = 0;
 };
 
 class Transaction {
@@ -268,7 +274,7 @@ public:
     /**
      * Checks if we can call `next()` on this iterator.
      */
-    virtual bool has_next() = 0;
+    virtual bool has_next() const = 0;
 
     /**
      * Gets next element, this is usually called after a check of `has_next()` succeeds,
@@ -277,6 +283,14 @@ public:
      * @return a kv pair
      */
     virtual std::pair<std::string_view, std::string_view> next() = 0;
+
+    /**
+     * Gets next element but not advance the cursor, this is usually called after a check of `has_next()` succeeds,
+     * If `has_next()` is not checked, the return value may be undefined.
+     *
+     * @return a kv pair
+     */
+    virtual std::pair<std::string_view, std::string_view> peek() const = 0;
 
     /**
      * Repositions the offset to `pos`
@@ -289,15 +303,22 @@ public:
      *
      * @return if there are more kvs that this iterator cannot cover
      */
-    virtual bool more() = 0;
+    virtual bool more() const = 0;
 
     /**
-     * 
+     *
      * Gets size of the range, some kinds of iterators may not support this function.
      *
      * @return size
      */
-    virtual int size() = 0;
+    virtual int size() const = 0;
+
+    /**
+     * Get the remaining size of the range, some kinds of iterators may not support this function.
+     *
+     * @return size
+     */
+    virtual int remaining() const = 0;
 
     /**
      * Resets to initial state, some kinds of iterators may not support this function.
@@ -307,7 +328,7 @@ public:
     /**
      * Get the begin key of the next iterator if `more()` is true, otherwise returns empty string.
      */
-    virtual std::string next_begin_key() = 0;
+    virtual std::string next_begin_key() const = 0;
 
     RangeGetIterator(const RangeGetIterator&) = delete;
     RangeGetIterator& operator=(const RangeGetIterator&) = delete;
@@ -334,7 +355,7 @@ public:
     int init() override;
 
     std::unique_ptr<FullRangeGetIterator> full_range_get(std::string begin, std::string end,
-                                                         FullRangeGetIteratorOptions opts) override;
+                                                         FullRangeGetOptions opts) override;
 
     // Return the partition boundaries of the database.
     TxnErrorCode get_partition_boundaries(std::vector<std::string>* boundaries);
@@ -446,21 +467,32 @@ public:
         return {{(char*)kv.key, (size_t)kv.key_length}, {(char*)kv.value, (size_t)kv.value_length}};
     }
 
+    std::pair<std::string_view, std::string_view> peek() const override {
+        if (idx_ < 0 || idx_ >= kvs_size_) return {};
+        const auto& kv = kvs_[idx_];
+        return {{(char*)kv.key, (size_t)kv.key_length}, {(char*)kv.value, (size_t)kv.value_length}};
+    }
+
     void seek(size_t pos) override { idx_ = pos; }
 
-    bool has_next() override { return (idx_ < kvs_size_); }
+    bool has_next() const override { return (idx_ < kvs_size_); }
 
     /**
      * Check if there are more KVs to be get from the range, caller usually wants
      * to issue a nother `get` with the last key of this iteration.
      */
-    bool more() override { return more_; }
+    bool more() const override { return more_; }
 
-    int size() override { return kvs_size_; }
+    int size() const override { return kvs_size_; }
+
+    int remaining() const override {
+        if (idx_ < 0 || idx_ >= kvs_size_) return 0;
+        return kvs_size_ - idx_;
+    }
 
     void reset() override { idx_ = 0; }
 
-    std::string next_begin_key() override {
+    std::string next_begin_key() const override {
         std::string k;
         if (!more()) return k;
         const auto& kv = kvs_[kvs_size_ - 1];
@@ -597,15 +629,19 @@ private:
 
 class FullRangeGetIterator final : public cloud::FullRangeGetIterator {
 public:
-    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetIteratorOptions opts);
+    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetOptions opts);
 
     ~FullRangeGetIterator() override;
 
-    bool is_valid() override { return is_valid_; }
+    bool is_valid() const override { return code_ == TxnErrorCode::TXN_OK; }
 
     bool has_next() override;
 
+    TxnErrorCode error_code() const override { return code_; }
+
     std::optional<std::pair<std::string_view, std::string_view>> next() override;
+
+    std::optional<std::pair<std::string_view, std::string_view>> peek() override;
 
 private:
     // Set `is_valid_` to false if meet any error
@@ -621,9 +657,10 @@ private:
 
     bool prefetch();
 
-    FullRangeGetIteratorOptions opts_;
+    FullRangeGetOptions opts_;
 
-    bool is_valid_ = true;
+    TxnErrorCode code_ = TxnErrorCode::TXN_OK;
+    int num_consumed_ = 0;
     std::string begin_;
     std::string end_;
     std::unique_ptr<Transaction> txn_;
