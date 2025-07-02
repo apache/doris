@@ -196,7 +196,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new EliminateSortUnderSubqueryOrView(),
                                             // MergeProjects depends on this rule
                                             new LogicalSubQueryAliasToLogicalProject(),
-                                            new ExpressionNormalizationAndOptimization(),
+                                            ExpressionNormalizationAndOptimization.FULL_RULE_INSTANCE,
                                             new AvgDistinctToSumDivCount(),
                                             new CountDistinctRewrite(),
                                             new ExtractFilterFromCrossJoin()
@@ -270,8 +270,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new EliminateSemiJoin()
                                     )
                             ),
-                            // please note: this rule must run before NormalizeAggregate
-                            topDown(new AdjustAggregateNullableForEmptySet()),
                             // The rule modification needs to be done after the subquery is unnested,
                             // because for scalarSubQuery, the connection condition is stored in apply in
                             // the analyzer phase,
@@ -401,7 +399,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     topDown(new SplitLimit()),
                                     custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new),
                                     custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
-                                    custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
+                                    custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
+                            ),
+                            topic("add projection for join",
+                                    // this is for hint project join rewrite rule
+                                    custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
+                                    topDown(new MergeProjectable())
                             )
                     )
             );

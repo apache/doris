@@ -62,6 +62,7 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -650,11 +651,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
                     new ExpressionLineageReplacer.ExpressionReplaceContext(ImmutableList.of(expression));
             queryTopPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
-            if (!Sets.intersection(bottomAggregateFunctionExprIdSet, replaceContext.getUsedExprIdSet()).isEmpty()) {
+            if (Collections.disjoint(bottomAggregateFunctionExprIdSet, replaceContext.getUsedExprIdSet())) {
+                topGroupByExpressions.add(expression);
+            } else {
                 // if query top plan expression use any aggregate function, then consider it is aggregate function
                 topFunctionExpressions.add(expression);
-            } else {
-                topGroupByExpressions.add(expression);
+
             }
         });
         return Pair.of(topGroupByExpressions, topFunctionExpressions);

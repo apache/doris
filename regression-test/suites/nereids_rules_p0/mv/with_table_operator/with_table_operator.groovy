@@ -136,16 +136,16 @@ suite("with_table_operator") {
     select * from orders_partition;
     """, "(o_orderdate)")
 
-    // query rewrite with tablet mv should not part in
-    mv_all_not_part_in("""
+    // query rewrite with tablet should fail
+    mv_rewrite_all_fail("""
     select count(*),o_orderdate
     from orders TABLET(110)
     group by o_orderdate;
     """, ["complete_mv", "complete_agg_mv"])
 
-    mv_all_not_part_in("""select * from orders TABLET(110);""", ["complete_mv", "complete_agg_mv"])
+    mv_rewrite_all_fail("""select * from orders TABLET(110);""", ["complete_mv", "complete_agg_mv"])
 
-    // query rewrite with index should not part in
+    // query rewrite with index should fail
     createMV("""
     create materialized view query_index_test 
     as
@@ -153,27 +153,27 @@ suite("with_table_operator") {
     from orders
     group by o_orderdate;
     """)
-    mv_all_not_part_in("""
+    mv_rewrite_all_fail("""
     select * from orders index query_index_test;
     """, ["complete_mv", "complete_agg_mv"])
 
-    // query rewrite with sample should not part in
-    mv_all_not_part_in("""
+    // query rewrite with sample should fail
+    mv_rewrite_all_fail("""
     select count(*),o_orderdate
     from orders TABLESAMPLE(20 percent)
     group by o_orderdate;
     """, ["complete_mv", "complete_agg_mv"])
 
-    mv_all_not_part_in("""select * from orders TABLESAMPLE(20 percent);""", ["complete_mv", "complete_agg_mv"])
+    mv_rewrite_all_fail("""select * from orders TABLESAMPLE(20 percent);""", ["complete_mv", "complete_agg_mv"])
 
-    // query rewrite with partition should not part in
-    mv_all_not_part_in("""
+    // query rewrite with partition should fail
+    mv_rewrite_all_fail("""
     select count(*),o_orderdate
     from orders_partition PARTITION (day_2)
     group by o_orderdate;
     """, ["partition_mv", "partition_agg_mv"])
 
-    mv_all_not_part_in("""select * from orders_partition PARTITION (day_2);""", ["partition_mv", "partition_agg_mv"])
+    mv_rewrite_all_fail("""select * from orders_partition PARTITION (day_2);""", ["partition_mv", "partition_agg_mv"])
 
 
     sql """

@@ -66,16 +66,12 @@ public class InitMaterializationContextHook implements PlannerHook {
         // collect partitions table used, this is for query rewrite by materialized view,
         // these info are used by rewrite later
         // this is needed before init hook, because compare partition version in init hook would use this
-        if (cascadesContext.getStatementContext().isNeedPreRewrite()) {
+        if (cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
                 MaterializedViewUtils.collectTableUsedPartitions(plan, cascadesContext);
             }
         } else {
             MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(), cascadesContext);
-        }
-        if (cascadesContext.getStatementContext().getConnectContext().getExecutor() != null) {
-            cascadesContext.getStatementContext().getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsCollectTablePartitionFinishTime();
         }
         StatementContext statementContext = cascadesContext.getStatementContext();
         if (statementContext.getConnectContext().getExecutor() != null) {
@@ -197,13 +193,13 @@ public class InitMaterializationContextHook implements PlannerHook {
         try {
             availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
         } catch (Exception e) {
-            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current sqlHash is %s",
-                    cascadesContext.getConnectContext().getSqlHash()), e);
+            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current queryId is %s",
+                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
             return ImmutableList.of();
         }
         if (CollectionUtils.isEmpty(availableMTMVs)) {
-            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current sqlHash "
-                    + "is {}", cascadesContext.getConnectContext().getSqlHash());
+            LOG.info("Enable materialized view rewrite but availableMTMVs is empty, query id "
+                    + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
             return ImmutableList.of();
         }
         List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
@@ -217,12 +213,13 @@ public class InitMaterializationContextHook implements PlannerHook {
                 // For async materialization context, the cascades context when construct the struct info maybe
                 // different from the current cascadesContext
                 // so regenerate the struct info table bitset
-                if (!cascadesContext.getStatementContext().isNeedPreRewrite()) {
-                    asyncMaterializationContext.add(doCreateAsyncMaterializationContext(
-                            materializedView, mtmvCache, mtmvCache.getFinalPlanAndStructInfo(), cascadesContext
+                if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
+                    asyncMaterializationContext.add(doCreateAsyncMaterializationContext(materializedView,
+                            mtmvCache, mtmvCache.getAllRulesRewrittenPlanAndStructInfo(), cascadesContext
                     ));
                 } else {
-                    for (Pair<Plan, StructInfo> planAndStructInfo : mtmvCache.getTmpPlanAndStructInfos()) {
+                    for (Pair<Plan, StructInfo> planAndStructInfo
+                            : mtmvCache.getPartRulesRewrittenPlanAndStructInfos()) {
                         asyncMaterializationContext.add(doCreateAsyncMaterializationContext(materializedView,
                                 mtmvCache, planAndStructInfo, cascadesContext
                         ));
@@ -286,12 +283,14 @@ public class InitMaterializationContextHook implements PlannerHook {
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
                                 basicMvContext, true,
                                 false, cascadesContext.getConnectContext());
-                        if (!cascadesContext.getStatementContext().isNeedPreRewrite()) {
-                            contexts.add(new SyncMaterializationContext(mtmvCache.getFinalPlanAndStructInfo().key(),
+                        if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
+                            contexts.add(new SyncMaterializationContext(
+                                    mtmvCache.getAllRulesRewrittenPlanAndStructInfo().key(),
                                     mtmvCache.getOriginalFinalPlan(), olapTable, meta.getIndexId(), indexName,
                                     cascadesContext, mtmvCache.getStatistics()));
                         } else {
-                            for (Pair<Plan, StructInfo> planAndStructInfo : mtmvCache.getTmpPlanAndStructInfos()) {
+                            for (Pair<Plan, StructInfo> planAndStructInfo
+                                    : mtmvCache.getPartRulesRewrittenPlanAndStructInfos()) {
                                 contexts.add(new SyncMaterializationContext(planAndStructInfo.key(),
                                         planAndStructInfo.key(), olapTable, meta.getIndexId(), indexName,
                                         cascadesContext, mtmvCache.getStatistics()));

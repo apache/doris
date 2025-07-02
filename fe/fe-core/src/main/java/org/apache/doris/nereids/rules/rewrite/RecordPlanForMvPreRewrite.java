@@ -61,8 +61,8 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
                     }, plan, plan, false);
             statementContext.addTmpPlanForMvRewrite(finalPlan);
         } catch (Exception e) {
-            LOG.error("mv rewrite in rbo rewrite pre normalize fail, sql hash is {}",
-                    cascadesContext.getConnectContext().getSqlHash(), e);
+            LOG.error("mv rewrite in rbo rewrite pre normalize fail, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier(), e);
         }
         return plan;
     }

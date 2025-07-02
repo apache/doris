@@ -21,7 +21,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -82,9 +81,10 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         @Override
         public Expression visitNamedExpression(NamedExpression namedExpression,
                 Map<ExprId, Expression> exprIdExpressionMap) {
-            if (exprIdExpressionMap.containsKey(namedExpression.getExprId())) {
+            Expression childExpr = exprIdExpressionMap.get(namedExpression.getExprId());
+            if (childExpr != null) {
                 // remove alias
-                return visit(exprIdExpressionMap.get(namedExpression.getExprId()), exprIdExpressionMap);
+                return visit(childExpr, exprIdExpressionMap);
             }
             return visit(namedExpression, exprIdExpressionMap);
         }
@@ -121,12 +121,6 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         @Override
         public Void visitNamedExpression(NamedExpression namedExpression, ExpressionReplaceContext context) {
             context.getUsedExprIdSet().add(namedExpression.getExprId());
-            if (namedExpression instanceof Slot
-                    && context.getExprIdExpressionMap().containsKey(namedExpression.getExprId())) {
-                // if slot id is the same with exist alias, this happens loop, maybe because
-                // preAggForRandomDistribution alias id is the same as it's input
-                return null;
-            }
             return super.visitNamedExpression(namedExpression, context);
         }
 
@@ -146,6 +140,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
     public static class ExpressionReplaceContext {
         private final List<? extends Expression> targetExpressions;
         private final Set<ExprId> usedExprIdSet = new HashSet<>();
+        // The key is alias exprId, the value is alias child
         private final Map<ExprId, Expression> exprIdExpressionMap = new HashMap<>();
         private List<Expression> replacedExpressions;
 

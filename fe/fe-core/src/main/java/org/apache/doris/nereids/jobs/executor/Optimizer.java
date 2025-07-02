@@ -22,8 +22,8 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -64,6 +64,7 @@ public class Optimizer {
             cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
             return null;
         });
+    }
 
     /**
      * This method calc the result that if use dp hyper or not

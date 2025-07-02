@@ -608,8 +608,7 @@ suite("aggregate_without_roll_up") {
             l_suppkey
             """
     order_qt_query17_0_before "${query17_0}"
-    // todo should success, maybe need normalize output after output change
-    async_mv_rewrite_fail(db, mv17_0, query17_0, "mv17_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_success(db, mv17_0, query17_0, "mv17_0", [TRY_IN_RBO, FORCE_IN_RBO])
     async_mv_rewrite_fail(db, mv17_0, query17_0, "mv17_0", [NOT_IN_RBO])
     order_qt_query17_0_after "${query17_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17_0"""

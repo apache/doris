@@ -30,7 +30,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -42,6 +42,8 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -53,24 +55,26 @@ import java.util.Optional;
  */
 public class MTMVCache {
 
+    public static final Logger LOG = LogManager.getLogger(MTMVCache.class);
+
     // The materialized view plan which should be optimized by the same rules to query
     // and will remove top sink and unused sort
-    private final Pair<Plan, StructInfo> finalPlanAndStructInfo;
+    private final Pair<Plan, StructInfo> allRulesRewrittenPlanAndStructInfo;
     // The original rewritten plan of mv def sql
     private final Plan originalFinalPlan;
     private final Statistics statistics;
-    private final List<Pair<Plan, StructInfo>> tmpPlanAndStructInfos;
+    private final List<Pair<Plan, StructInfo>> partRulesRewrittenPlanAndStructInfos;
 
-    public MTMVCache(Pair<Plan, StructInfo> finalPlanAndStructInfo, Plan originalFinalPlan,
-            Statistics statistics, List<Pair<Plan, StructInfo>> tmpPlanAndStructInfos) {
-        this.finalPlanAndStructInfo = finalPlanAndStructInfo;
+    public MTMVCache(Pair<Plan, StructInfo> allRulesRewrittenPlanAndStructInfo, Plan originalFinalPlan,
+            Statistics statistics, List<Pair<Plan, StructInfo>> partRulesRewrittenPlanAndStructInfos) {
+        this.allRulesRewrittenPlanAndStructInfo = allRulesRewrittenPlanAndStructInfo;
         this.originalFinalPlan = originalFinalPlan;
         this.statistics = statistics;
-        this.tmpPlanAndStructInfos = tmpPlanAndStructInfos;
+        this.partRulesRewrittenPlanAndStructInfos = partRulesRewrittenPlanAndStructInfos;
     }
 
-    public Pair<Plan, StructInfo> getFinalPlanAndStructInfo() {
-        return finalPlanAndStructInfo;
+    public Pair<Plan, StructInfo> getAllRulesRewrittenPlanAndStructInfo() {
+        return allRulesRewrittenPlanAndStructInfo;
     }
 
     public Plan getOriginalFinalPlan() {
@@ -81,8 +85,8 @@ public class MTMVCache {
         return statistics;
     }
 
-    public List<Pair<Plan, StructInfo>> getTmpPlanAndStructInfos() {
-        return tmpPlanAndStructInfos;
+    public List<Pair<Plan, StructInfo>> getPartRulesRewrittenPlanAndStructInfos() {
+        return partRulesRewrittenPlanAndStructInfos;
     }
 
     /**
@@ -105,11 +109,12 @@ public class MTMVCache {
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
-        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
-        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
+        createCacheContext.getStatementContext().setForceRecordTmpPlan(true);
+        mvSqlStatementContext.setForceRecordTmpPlan(true);
         boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
         createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
-        createCacheContext.getStatementContext().setForceRecordTmpPlan(true);
+        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
+        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         try {
             // Can not convert to table sink, because use the same column from different table when self join
             // the out slot is wrong
@@ -131,6 +136,7 @@ public class MTMVCache {
                     ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite);
         } finally {
             createCacheContext.getStatementContext().setForceRecordTmpPlan(false);
+            mvSqlStatementContext.setForceRecordTmpPlan(false);
             createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
             if (currentContext != null) {
                 currentContext.setThreadLocalInfo();
@@ -153,7 +159,7 @@ public class MTMVCache {
         mvPlan = MaterializedViewUtils.rewriteByRules(cascadesContext, childContext -> {
             Rewriter.getCteChildrenRewriter(childContext, ImmutableList.of(
                     Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
-                    Rewriter.bottomUp(new MergeProjects()))).execute();
+                    Rewriter.bottomUp(new MergeProjectable()))).execute();
             return childContext.getRewritePlan();
         }, mvPlan, plan, false);
         // Construct structInfo once for use later
