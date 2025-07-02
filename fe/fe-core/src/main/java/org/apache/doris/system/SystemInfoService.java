@@ -373,9 +373,14 @@ public class SystemInfoService {
 
     public List<Long> getAllBackendByCurrentCluster(boolean needAlive) {
         try {
-            return getBackendsByCurrentCluster()
-                .values().stream().filter(be -> !needAlive || be.isAlive())
-                .map(Backend::getId).collect(Collectors.toList());
+            ImmutableMap<Long, Backend> bes = getBackendsByCurrentCluster();
+            List<Long> beIds = new ArrayList<>(bes.size());
+            for (Backend be : bes.values()) {
+                if (!needAlive || be.isAlive()) {
+                    beIds.add(be.getId());
+                }
+            }
+            return beIds;
         } catch (AnalysisException e) {
             LOG.warn("failed to get backends by Current Cluster", e);
             return Lists.newArrayList();

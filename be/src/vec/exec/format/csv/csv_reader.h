@@ -181,6 +181,7 @@ public:
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
+    Status init_schema_reader() override;
     // get schema of csv file from first one line or first two lines.
     // if file format is FORMAT_CSV_DEFLATE and if
     // 1. header_type is empty, get schema from first line.
@@ -230,9 +231,6 @@ private:
     void _init_system_properties();
     void _init_file_description();
 
-    // used for parse table schema of csv file.
-    // Currently, this feature is for table valued function.
-    Status _prepare_parse(size_t* read_line, bool* is_parse_name);
     Status _parse_col_nums(size_t* col_nums);
     Status _parse_col_names(std::vector<std::string>* col_names);
     // TODO(ftw): parse type
@@ -262,6 +260,9 @@ private:
     // True if this is a load task
     bool _is_load = false;
     bool _line_reader_eof;
+    // For schema reader
+    size_t _read_line = 0;
+    bool _is_parse_name = false;
     TFileFormatType::type _file_format_type;
     bool _is_proto_format;
     TFileCompressType::type _file_compress_type;

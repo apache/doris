@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AdminCopyTabletStmt;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.PartitionNames;
@@ -29,23 +28,19 @@ import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMTMVStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
+import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
@@ -62,13 +57,7 @@ import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.SnapshotTask;
-import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -87,7 +76,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -121,10 +109,10 @@ public class ShowExecutor {
             handleShowColumnStats();
         } else if (stmt instanceof DiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
+        } else if (stmt instanceof ShowIndexPolicyStmt) {
+            handleShowIndexPolicy();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
-        } else if (stmt instanceof AdminCopyTabletStmt) {
-            handleCopyTablet();
         } else if (stmt instanceof ShowAnalyzeTaskStatus) {
             handleShowAnalyzeTaskStatus();
         } else if (stmt instanceof ShowCloudWarmUpStmt) {
@@ -364,6 +352,7 @@ public class ShowExecutor {
     private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
             Set<String> columnNames, TableIf tableIf, boolean showCache)
             throws AnalysisException {
+        ConnectContext connectContext = ConnectContext.get();
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
             List<Long> indexIds = Lists.newArrayList();
@@ -386,7 +375,7 @@ public class ShowExecutor {
                 if (showCache) {
                     columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                         tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
+                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName, connectContext);
                 } else {
                     columnStatistic = StatisticsRepository.queryColumnStatisticsByName(
                         tableIf.getDatabase().getCatalog().getId(),
@@ -403,6 +392,7 @@ public class ShowExecutor {
         long catalogId = tableIf.getDatabase().getCatalog().getId();
         long dbId = tableIf.getDatabase().getId();
         long tableId = tableIf.getId();
+        ConnectContext ctx = ConnectContext.get();
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
             List<Long> indexIds = Lists.newArrayList();
@@ -422,7 +412,7 @@ public class ShowExecutor {
                 }
                 for (String partName : partitionNames) {
                     PartitionColumnStatistic partitionStatistics = Env.getCurrentEnv().getStatisticsCache()
-                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName);
+                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName, ctx);
                     ret.put(new PartitionColumnStatisticCacheKey(catalogId, dbId, tableId, indexId, partName, colName),
                             partitionStatistics);
                 }
@@ -436,6 +426,12 @@ public class ShowExecutor {
         List<List<String>> resultRowSet = Diagnoser.diagnoseTablet(showStmt.getTabletId());
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+
+    public void handleShowIndexPolicy() throws AnalysisException {
+        ShowIndexPolicyStmt showStmt = (ShowIndexPolicyStmt) stmt;
+        resultSet = Env.getCurrentEnv().getIndexPolicyMgr().showIndexPolicy(showStmt);
     }
 
     private void handleShowAnalyze() {
@@ -501,105 +497,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
     }
 
-    private void handleCopyTablet() throws AnalysisException {
-        AdminCopyTabletStmt copyStmt = (AdminCopyTabletStmt) stmt;
-        long tabletId = copyStmt.getTabletId();
-        long version = copyStmt.getVersion();
-        long backendId = copyStmt.getBackendId();
-
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-        if (tabletMeta == null) {
-            throw new AnalysisException("Unknown tablet: " + tabletId);
-        }
-
-        // 1. find replica
-        Replica replica = null;
-        if (backendId != -1) {
-            replica = invertedIndex.getReplica(tabletId, backendId);
-        } else {
-            List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
-            if (!replicas.isEmpty()) {
-                replica = replicas.get(0);
-            }
-        }
-        if (replica == null) {
-            throw new AnalysisException("Replica not found on backend: " + backendId);
-        }
-        backendId = replica.getBackendIdWithoutException();
-        Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
-        if (be == null || !be.isAlive()) {
-            throw new AnalysisException("Unavailable backend: " + backendId);
-        }
-
-        // 2. find version
-        if (version != -1 && replica.getVersion() < version) {
-            throw new AnalysisException("Version is larger than replica max version: " + replica.getVersion());
-        }
-        version = version == -1 ? replica.getVersion() : version;
-
-        // 3. get create table stmt
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tabletMeta.getDbId());
-        OlapTable tbl = (OlapTable) db.getTableNullable(tabletMeta.getTableId());
-        if (tbl == null) {
-            throw new AnalysisException("Failed to find table: " + tabletMeta.getTableId());
-        }
-
-        List<String> createTableStmt = Lists.newArrayList();
-        tbl.readLock();
-        try {
-            Env.getDdlStmt(tbl, createTableStmt, null, null, false, true /* hide password */, version);
-        } finally {
-            tbl.readUnlock();
-        }
-
-        // 4. create snapshot task
-        SnapshotTask task = new SnapshotTask(null, backendId, tabletId, -1, tabletMeta.getDbId(),
-                tabletMeta.getTableId(), tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, version, 0,
-                copyStmt.getExpirationMinutes() * 60 * 1000, false);
-        task.setIsCopyTabletTask(true);
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(1);
-        countDownLatch.addMark(backendId, tabletId);
-        task.setCountDownLatch(countDownLatch);
-
-        // 5. send task and wait
-        AgentBatchTask batchTask = new AgentBatchTask();
-        batchTask.addTask(task);
-        try {
-            AgentTaskQueue.addBatchTask(batchTask);
-            AgentTaskExecutor.submit(batchTask);
-
-            boolean ok = false;
-            try {
-                ok = countDownLatch.await(10, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                LOG.warn("InterruptedException: ", e);
-                ok = false;
-            }
-
-            if (!ok) {
-                throw new AnalysisException(
-                        "Failed to make snapshot for tablet " + tabletId + " on backend: " + backendId);
-            }
-
-            // send result
-            List<List<String>> resultRowSet = Lists.newArrayList();
-            List<String> row = Lists.newArrayList();
-            row.add(String.valueOf(tabletId));
-            row.add(String.valueOf(backendId));
-            row.add(be.getHost());
-            row.add(task.getResultSnapshotPath());
-            row.add(String.valueOf(copyStmt.getExpirationMinutes()));
-            row.add(createTableStmt.get(0));
-            resultRowSet.add(row);
-
-            ShowResultSetMetaData showMetaData = copyStmt.getMetaData();
-            resultSet = new ShowResultSet(showMetaData, resultRowSet);
-        } finally {
-            AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
-        }
-    }
-
     private void handleShowAnalyzeTaskStatus() {
         ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
         AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(showStmt.getJobId());
@@ -632,8 +529,7 @@ public class ShowExecutor {
             return;
         }
 
-        if (stmt instanceof DiagnoseTabletStmt
-                || stmt instanceof AdminCopyTabletStmt) {
+        if (stmt instanceof DiagnoseTabletStmt) {
             LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
             throw new AnalysisException("Unsupported operation");
         }

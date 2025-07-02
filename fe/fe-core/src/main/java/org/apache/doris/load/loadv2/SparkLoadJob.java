@@ -17,17 +17,13 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.load.EtlJobType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Map;
 
 @Deprecated
@@ -55,21 +51,6 @@ public class SparkLoadJob extends BulkLoadJob {
     // only for log replay
     public SparkLoadJob() {
         super(EtlJobType.SPARK);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        sparkResource = (SparkResource) Resource.read(in);
-        sparkLoadAppHandle = SparkLoadAppHandle.read(in);
-        etlStartTimestamp = in.readLong();
-        appId = Text.readString(in);
-        etlOutputPath = Text.readString(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String tabletMetaStr = Text.readString(in);
-            Pair<String, Long> fileInfo = Pair.of(Text.readString(in), in.readLong());
-            tabletMetaToFileInfo.put(tabletMetaStr, fileInfo);
-        }
     }
 
     /**

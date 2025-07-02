@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
@@ -227,11 +226,6 @@ public class View extends Table implements GsonPostProcessable {
     }
 
     public static View read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            View t = new View();
-            t.readFields(in);
-            return t;
-        }
         return GsonUtils.GSON.fromJson(Text.readString(in), View.class);
     }
 
@@ -250,14 +244,5 @@ public class View extends Table implements GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         originalViewDef = "";
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        // just do not want to modify the meta version, so leave originalViewDef here but set it as empty
-        originalViewDef = Text.readString(in);
-        originalViewDef = "";
-        inlineViewDef = Text.readString(in);
     }
 }

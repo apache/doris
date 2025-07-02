@@ -56,11 +56,13 @@ import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -215,9 +217,7 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .getFsViewProcessor(hmsTable.getCatalog())
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
-        if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
-            params.setHistorySchemaInfo(new ConcurrentHashMap<>());
-        }
+        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
     }
 
     @Override
@@ -272,13 +272,25 @@ public class HudiScanNode extends HiveScanNode {
             HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
             if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
                 long commitInstantTime = Long.parseLong(FSUtils.getCommitTime(
-                        new File(hudiSplit.getPath().get()).getName()));
+                        new File(hudiSplit.getPath().getNormalizedLocation()).getName()));
                 InternalSchema internalSchema = hudiSchemaCacheValue
                         .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
                 params.history_schema_info.computeIfAbsent(
                         internalSchema.schemaId(),
-                        k -> HudiUtils.getSchemaInfo(internalSchema));
-                fileDesc.setSchemaId(internalSchema.schemaId()); //for schema change. (native reader)
+                        k -> HudiUtils.getSchemaInfo(internalSchema)); //for schema change. (native reader)
+                fileDesc.setSchemaId(internalSchema.schemaId());
+            } else {
+                try {
+                    TableSchemaResolver schemaUtil = new TableSchemaResolver(hudiClient);
+                    InternalSchema internalSchema =
+                            AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
+                    params.history_schema_info.computeIfAbsent(
+                            internalSchema.schemaId(),
+                            k -> HudiUtils.getSchemaInfo(internalSchema)); // Handle column name case for BE.
+                    fileDesc.setSchemaId(internalSchema.schemaId());
+                } catch (Exception e) {
+                    throw new RuntimeException("Cannot get hudi table schema.", e);
+                }
             }
         }
         tableFormatFileDesc.setHudiParams(fileDesc);
@@ -356,7 +368,7 @@ public class HudiScanNode extends HiveScanNode {
 
                 long fileSize = baseFile.getFileSize();
                 // Need add hdfs host to location
-                LocationPath locationPath = new LocationPath(filePath, hmsTable.getCatalogProperties());
+                LocationPath locationPath = LocationPath.of(filePath, hmsTable.getStoragePropertiesMap());
                 HudiSplit hudiSplit = new HudiSplit(locationPath, 0, fileSize, fileSize,
                         new String[0], partition.getPartitionValues());
                 hudiSplit.setTableFormatType(TableFormatType.HUDI);
@@ -505,7 +517,8 @@ public class HudiScanNode extends HiveScanNode {
 
         // no base file, use log file to parse file type
         String agencyPath = filePath.isEmpty() ? logs.get(0) : filePath;
-        HudiSplit split = new HudiSplit(new LocationPath(agencyPath, hmsTable.getCatalogProperties()),
+        LocationPath locationPath = LocationPath.of(agencyPath, hmsTable.getStoragePropertiesMap());
+        HudiSplit split = new HudiSplit(locationPath,
                 0, fileSize, fileSize, new String[0], partitionValues);
         split.setTableFormatType(TableFormatType.HUDI);
         split.setDataFilePath(filePath);

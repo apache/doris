@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "io/fs/local_file_system.h"
 
 #ifdef __clang__
@@ -48,11 +49,11 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
@@ -97,14 +98,14 @@ public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     explicit InvertedIndexColumnWriterImpl(const std::string& field_name,
-                                           InvertedIndexFileWriter* index_file_writer,
+                                           IndexFileWriter* index_file_writer,
                                            const TabletIndex* index_meta,
                                            const bool single_field = true)
             : _single_field(single_field),
               _index_meta(index_meta),
               _index_file_writer(index_file_writer) {
-        _parser_type = get_inverted_index_parser_type_from_string(
-                get_parser_string_from_properties(_index_meta->properties()));
+        _should_analyzer =
+                inverted_index::InvertedIndexAnalyzer::should_analyzer(_index_meta->properties());
         _value_key_coder = get_key_coder(field_type);
         _field_name = StringUtil::string_to_wstring(field_name);
     }
@@ -211,9 +212,8 @@ public:
     Status create_field(lucene::document::Field** field) {
         int field_config = int(lucene::document::Field::STORE_NO) |
                            int(lucene::document::Field::INDEX_NONORMS);
-        field_config |= (_parser_type == InvertedIndexParserType::PARSER_NONE)
-                                ? int(lucene::document::Field::INDEX_UNTOKENIZED)
-                                : int(lucene::document::Field::INDEX_TOKENIZED);
+        field_config |= _should_analyzer ? int32_t(lucene::document::Field::INDEX_TOKENIZED)
+                                         : int32_t(lucene::document::Field::INDEX_UNTOKENIZED);
         *field = new lucene::document::Field(_field_name.c_str(), field_config);
         (*field)->setOmitTermFreqAndPositions(
                 !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
@@ -243,11 +243,14 @@ public:
         return Status::OK();
     }
 
-    Result<std::unique_ptr<lucene::analysis::Analyzer>> create_analyzer(
+    Result<std::shared_ptr<lucene::analysis::Analyzer>> create_analyzer(
             std::shared_ptr<InvertedIndexCtx>& inverted_index_ctx) {
         try {
             return inverted_index::InvertedIndexAnalyzer::create_analyzer(inverted_index_ctx.get());
         } catch (CLuceneError& e) {
+            return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "inverted index create analyzer failed: {}", e.what()));
+        } catch (Exception& e) {
             return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                     "inverted index create analyzer failed: {}", e.what()));
         }
@@ -255,9 +258,11 @@ public:
 
     Status init_fulltext_index() {
         _inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
+                get_custom_analyzer_string_from_properties(_index_meta->properties()),
                 get_inverted_index_parser_type_from_string(
                         get_parser_string_from_properties(_index_meta->properties())),
                 get_parser_mode_string_from_properties(_index_meta->properties()),
+                get_parser_phrase_support_string_from_properties(_index_meta->properties()),
                 get_parser_char_filter_map_from_properties(_index_meta->properties()),
                 get_parser_lowercase_from_properties<true>(_index_meta->properties()),
                 get_parser_stopwords_from_properties(_index_meta->properties()));
@@ -354,8 +359,7 @@ public:
 
     Status new_inverted_index_field(const char* field_value_data, size_t field_value_size) {
         try {
-            if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
-                _parser_type != InvertedIndexParserType::PARSER_NONE) {
+            if (_should_analyzer) {
                 new_char_token_stream(field_value_data, field_value_size, _field);
             } else {
                 new_field_char_value(field_value_data, field_value_size, _field);
@@ -405,9 +409,8 @@ public:
             auto* v = (Slice*)values;
             for (int i = 0; i < count; ++i) {
                 // only ignore_above UNTOKENIZED strings and empty strings not tokenized
-                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                     v->get_size() > _ignore_above) ||
-                    (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                if ((!_should_analyzer && v->get_size() > _ignore_above) ||
+                    (_should_analyzer && v->empty())) {
                     RETURN_IF_ERROR(add_null_document());
                 } else {
                     RETURN_IF_ERROR(new_inverted_index_field(v->get_data(), v->get_size()));
@@ -453,9 +456,8 @@ public:
                         continue;
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
-                    if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                         v->get_size() > _ignore_above) ||
-                        (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                    if ((!_should_analyzer && v->get_size() > _ignore_above) ||
+                        (_should_analyzer && v->empty())) {
                         // is here a null value?
                         // TODO. Maybe here has performance problem for large size string.
                         continue;
@@ -475,8 +477,7 @@ public:
                                        << " error:" << st;
                             return st;
                         }
-                        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
-                            _parser_type != InvertedIndexParserType::PARSER_NONE) {
+                        if (_should_analyzer) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
                             bool own_token_stream = true;
@@ -748,21 +749,21 @@ private:
     // _dir must destruct after _index_writer, so _dir must be defined before _index_writer.
     std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
-    std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
+    std::shared_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
     InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
-    InvertedIndexParserType _parser_type;
     std::wstring _field_name;
-    InvertedIndexFileWriter* _index_file_writer;
+    IndexFileWriter* _index_file_writer;
     uint32_t _ignore_above;
+    bool _should_analyzer = false;
 };
 
 Status InvertedIndexColumnWriter::create(const Field* field,
                                          std::unique_ptr<InvertedIndexColumnWriter>* res,
-                                         InvertedIndexFileWriter* index_file_writer,
+                                         IndexFileWriter* index_file_writer,
                                          const TabletIndex* index_meta) {
     const auto* typeinfo = field->type_info();
     FieldType type = typeinfo->type();

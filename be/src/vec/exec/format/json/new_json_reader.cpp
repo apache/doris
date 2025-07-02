@@ -257,18 +257,23 @@ Status NewJsonReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
     return Status::OK();
 }
 
-Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                        std::vector<DataTypePtr>* col_types) {
+// init decompressor, file reader and line reader for parsing schema
+Status NewJsonReader::init_schema_reader() {
     RETURN_IF_ERROR(_get_range_params());
-
+    // create decompressor.
+    // _decompressor may be nullptr if this is not a compressed file
+    RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
     RETURN_IF_ERROR(_open_file_reader(true));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
-
     // generate _parsed_jsonpaths and _parsed_json_root
     RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
+    return Status::OK();
+}
 
+Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                        std::vector<DataTypePtr>* col_types) {
     bool eof = false;
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
@@ -2113,6 +2118,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
             if (slot_desc->is_nullable()) {
                 nullable_column = assert_cast<ColumnNullable*>(column_ptr);
                 target_column_ptr = &nullable_column->get_nested_column();
+                nullable_column->get_null_map_data().push_back(0);
             }
             auto* column_string = assert_cast<ColumnString*>(target_column_ptr);
             column_string->insert_data(_simdjson_ondemand_padding_buffer.data(),

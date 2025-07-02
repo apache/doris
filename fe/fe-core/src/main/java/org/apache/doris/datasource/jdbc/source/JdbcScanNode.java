@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.jdbc.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
@@ -99,10 +98,6 @@ public class JdbcScanNode extends ExternalScanNode {
         tableName = tbl.getExternalTableName();
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-    }
 
     /**
      * Used for Nereids. Should NOT use this function in anywhere else.
@@ -252,14 +247,6 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        // Convert predicates to Jdbc columns and filters.
-        createJdbcColumns();
-        createJdbcFilters();
-        createScanRangeLocations();
-    }
-
-    @Override
     public void finalizeForNereids() throws UserException {
         createJdbcColumns();
         createJdbcFilters();
@@ -269,16 +256,6 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
-        numNodes = numNodes <= 0 ? 1 : numNodes;
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override

@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 
 namespace doris::cloud {
@@ -161,7 +162,7 @@ static bool get_hosts_v4(std::vector<InetAddress>* hosts) {
 
 std::string get_local_ip(const std::string& priority_networks) {
     std::string localhost_str = butil::my_ip_cstr();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&localhost_str](int*) {
+    DORIS_CLOUD_DEFER {
         // Check if ip eq 127.0.0.1, ms/recycler exit
         LOG(INFO) << "get the IP for ms is " << localhost_str;
         if (config::enable_loopback_address_for_ms || localhost_str != "127.0.0.1") return;
@@ -170,7 +171,7 @@ std::string get_local_ip(const std::string& priority_networks) {
                      << "please set priority_networks with a CIDR expression in doris_cloud.conf "
                      << "to choose a non-loopback address accordingly";
         exit(-1);
-    });
+    };
     if (priority_networks == "") {
         LOG(INFO) << "use butil::my_ip_cstr(), local host ip=" << localhost_str;
         return localhost_str;

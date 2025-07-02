@@ -50,6 +50,8 @@ public:
     IntCounter* fragment_requests_total = nullptr;
     IntCounter* fragment_request_duration_us = nullptr;
     IntCounter* query_scan_bytes = nullptr;
+    IntCounter* query_scan_bytes_from_local = nullptr;
+    IntCounter* query_scan_bytes_from_remote = nullptr;
     IntCounter* query_scan_rows = nullptr;
 
     IntCounter* push_requests_success_total = nullptr;
@@ -246,6 +248,7 @@ public:
     IntCounter* scanner_ctx_cnt = nullptr;
     IntCounter* scanner_cnt = nullptr;
     IntCounter* scanner_task_cnt = nullptr;
+    IntCounter* pipeline_task_queue_size = nullptr;
 
     IntGauge* runtime_filter_consumer_num = nullptr;
     IntGauge* runtime_filter_consumer_ready_num = nullptr;

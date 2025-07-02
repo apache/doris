@@ -46,6 +46,8 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.indexpolicy.DropIndexPolicyLog;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.bdbje.Timestamp;
@@ -118,6 +120,7 @@ import org.apache.doris.persist.SetReplicaVersionOperationLog;
 import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
+import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
@@ -969,6 +972,21 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DICTIONARY_DEC_VERSION: {
                 data = DictionaryDecreaseVersionInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_INDEX_POLICY: {
+                data = IndexPolicy.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_INDEX_POLICY: {
+                data = DropIndexPolicyLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BRANCH_OR_TAG: {
+                data = TableBranchOrTagInfo.read(in);
                 isRead = true;
                 break;
             }

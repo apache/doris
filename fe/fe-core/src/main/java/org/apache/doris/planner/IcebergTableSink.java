@@ -59,6 +59,9 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
 
     public IcebergTableSink(IcebergExternalTable targetTable) {
         super();
+        if (targetTable.isView()) {
+            throw new UnsupportedOperationException("Write data to iceberg view is not supported");
+        }
         this.targetTable = targetTable;
     }
 
@@ -132,7 +135,8 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setHadoopConfig(props);
 
         // location
-        LocationPath locationPath = new LocationPath(IcebergUtils.dataLocation(icebergTable), catalogProps);
+        LocationPath locationPath = LocationPath.of(IcebergUtils.dataLocation(icebergTable),
+                targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
         tSink.setOriginalOutputPath(locationPath.getPath().toString());
         TFileType fileType = locationPath.getTFileTypeForBE();

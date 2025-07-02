@@ -24,11 +24,9 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_writer.h"
 
 namespace doris {
 class PValues;
-class JsonbValue;
 #include "common/compile_check_begin.h"
 namespace vectorized {
 class IColumn;
@@ -37,6 +35,8 @@ class Arena;
 class DataTypeVariantSerDe : public DataTypeSerDe {
 public:
     DataTypeVariantSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+
+    std::string get_name() const override { return "Variant"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;

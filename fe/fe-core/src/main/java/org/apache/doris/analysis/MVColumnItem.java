@@ -86,7 +86,7 @@ public class MVColumnItem {
     }
 
     public MVColumnItem(Expr defineExpr) throws AnalysisException {
-        this.name = CreateMaterializedViewStmt.mvColumnBuilder(defineExpr.toSql());
+        this.name = CreateMaterializedViewStmt.mvColumnBuilder(defineExpr.toSqlWithoutTbl());
 
         if (this.name == null) {
             throw new AnalysisException("defineExpr.toSql() is null");

@@ -26,15 +26,8 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AdminCheckTabletsStmt;
-import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
-import org.apache.doris.analysis.AdminCleanTrashStmt;
-import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
-import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
-import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -42,9 +35,6 @@ import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
-import org.apache.doris.analysis.CancelAlterTableStmt;
-import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
@@ -72,10 +62,8 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
@@ -156,6 +144,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -289,7 +278,6 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.CleanTrashTask;
 import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -533,6 +521,8 @@ public class Env {
     private RefreshManager refreshManager;
 
     private PolicyMgr policyMgr;
+
+    private IndexPolicyMgr indexPolicyMgr;
 
     private AnalysisManager analysisManager;
 
@@ -824,6 +814,7 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
+        this.indexPolicyMgr = new IndexPolicyMgr();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr(isCheckpointCatalog);
         this.analysisManager = new AnalysisManager();
         this.hboPlanStatisticsManager = new HboPlanStatisticsManager();
@@ -2470,9 +2461,7 @@ public class Env {
     }
 
     public long loadSqlBlockRule(DataInputStream in, long checksum) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_104) {
-            sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
-        }
+        sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
         LOG.info("finished replay sqlBlockRule from image");
         return checksum;
     }
@@ -2481,10 +2470,14 @@ public class Env {
      * Load policy through file.
      **/
     public long loadPolicy(DataInputStream in, long checksum) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_109) {
-            policyMgr = PolicyMgr.read(in);
-        }
+        policyMgr = PolicyMgr.read(in);
         LOG.info("finished replay policy from image");
+        return checksum;
+    }
+
+    public long loadIndexPolicy(DataInputStream in, long checksum) throws IOException {
+        indexPolicyMgr = IndexPolicyMgr.read(in);
+        LOG.info("finished replay index policy from image");
         return checksum;
     }
 
@@ -2782,6 +2775,11 @@ public class Env {
 
     public long savePolicy(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getPolicyMgr().write(out);
+        return checksum;
+    }
+
+    public long saveIndexPolicy(CountingDataOutputStream out, long checksum) throws IOException {
+        Env.getCurrentEnv().getIndexPolicyMgr().write(out);
         return checksum;
     }
 
@@ -4248,10 +4246,10 @@ public class Env {
             sb.append("\n)");
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            org.apache.iceberg.Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
-            sb.append("\nLOCATION '").append(icebergTable.location()).append("'");
+            IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = icebergTable.properties().entrySet().iterator();
+            Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
             while (iterator.hasNext()) {
                 Entry<String, String> prop = iterator.next();
                 sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
@@ -4329,7 +4327,11 @@ public class Env {
     public void replayCreateTable(CreateTableInfo info) throws MetaNotFoundException {
         if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
                 .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            getInternalCatalog().replayCreateTable(info.getDbName(), info.getTable());
+            Table table = info.getTable();
+            getInternalCatalog().replayCreateTable(info.getDbName(), table);
+            if (table instanceof MTMV) {
+                ((MTMV) table).compatible(Env.getCurrentEnv().getCatalogMgr());
+            }
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
             if (externalCatalog != null) {
@@ -4794,6 +4796,10 @@ public class Env {
         return this.policyMgr;
     }
 
+    public IndexPolicyMgr getIndexPolicyMgr() {
+        return this.indexPolicyMgr;
+    }
+
     public void setMaster(MasterInfo info) {
         this.masterInfo = info;
         LOG.info("setMaster MasterInfo:{}", info);
@@ -4984,21 +4990,6 @@ public class Env {
     }
 
     /*
-     * used for handling CancelAlterStmt (for client is the CANCEL ALTER
-     * command). including SchemaChangeHandler and RollupHandler
-     */
-    public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
-        if (stmt.getAlterType() == AlterType.ROLLUP) {
-            this.getMaterializedViewHandler().cancel(stmt);
-        } else if (stmt.getAlterType() == AlterType.COLUMN
-                       || stmt.getAlterType() == AlterType.INDEX) {
-            this.getSchemaChangeHandler().cancel(stmt);
-        } else {
-            throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");
-        }
-    }
-
-    /*
      * used for handling backup opt
      */
     public void backup(BackupStmt stmt) throws DdlException {
@@ -5011,10 +5002,6 @@ public class Env {
 
     public void cancelBackup(CancelBackupCommand command) throws DdlException {
         getBackupHandler().cancel(command);
-    }
-
-    public void cancelBackup(CancelBackupStmt stmt) throws DdlException {
-        getBackupHandler().cancel(stmt);
     }
 
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
@@ -5851,10 +5838,6 @@ public class Env {
         this.analysisManager.createAnalyze(command, isProxy);
     }
 
-    public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {
-        this.alter.getSystemHandler().cancel(stmt);
-    }
-
     // Switch catalog of this session
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
         CatalogIf catalogIf = catalogMgr.getCatalog(catalogName);
@@ -6081,23 +6064,6 @@ public class Env {
 
         LOG.info("finished dumping image to {}", dumpFilePath);
         return dumpFilePath;
-    }
-
-    /*
-     * Truncate specified table or partitions.
-     * The main idea is:
-     *
-     * 1. using the same schema to create new table(partitions)
-     * 2. use the new created table(partitions) to replace the old ones.
-     *
-     * if no partition specified, it will truncate all partitions of this table, including all temp partitions,
-     * otherwise, it will only truncate those specified partitions.
-     *
-     */
-    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
-        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
-                catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.truncateTable(stmt);
     }
 
     /*
@@ -6516,24 +6482,6 @@ public class Env {
         }
     }
 
-    // entry of checking tablets operation
-    public void checkTablets(AdminCheckTabletsStmt stmt) {
-        CheckType type = stmt.getType();
-        switch (type) {
-            case CONSISTENCY:
-                consistencyChecker.addTabletsToCheck(stmt.getTabletIds());
-                break;
-            default:
-                break;
-        }
-    }
-
-    public void setTableStatus(AdminSetTableStatusStmt stmt) throws MetaNotFoundException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTblName();
-        setTableStatusInternal(dbName, tableName, stmt.getTableState(), false);
-    }
-
     public void replaySetTableStatus(SetTableStatusOperationLog log) throws MetaNotFoundException {
         setTableStatusInternal(log.getDbName(), log.getTblName(), log.getState(), true);
     }
@@ -6567,14 +6515,6 @@ public class Env {
         long tabletId = command.getTabletId();
         long backendId = command.getBackendId();
         ReplicaStatus status = command.getStatus();
-        long userDropTime = status == ReplicaStatus.DROP ? System.currentTimeMillis() : -1L;
-        setReplicaStatusInternal(tabletId, backendId, status, userDropTime, false);
-    }
-
-    public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) throws MetaNotFoundException {
-        long tabletId = stmt.getTabletId();
-        long backendId = stmt.getBackendId();
-        ReplicaStatus status = stmt.getStatus();
         long userDropTime = status == ReplicaStatus.DROP ? System.currentTimeMillis() : -1L;
         setReplicaStatusInternal(tabletId, backendId, status, userDropTime, false);
     }
@@ -6625,18 +6565,6 @@ public class Env {
         } catch (MetaNotFoundException e) {
             throw new MetaNotFoundException("set replica status failed, tabletId=" + tabletId, e);
         }
-    }
-
-    // Set specified replica's version. If replica does not exist, just ignore it.
-    public void setReplicaVersion(AdminSetReplicaVersionStmt stmt) throws MetaNotFoundException {
-        long tabletId = stmt.getTabletId();
-        long backendId = stmt.getBackendId();
-        Long version = stmt.getVersion();
-        Long lastSuccessVersion = stmt.getLastSuccessVersion();
-        Long lastFailedVersion = stmt.getLastFailedVersion();
-        long updateTime = System.currentTimeMillis();
-        setReplicaVersionInternal(tabletId, backendId, version, lastSuccessVersion, lastFailedVersion,
-                updateTime, false);
     }
 
     // Set specified replica's version. If replica does not exist, just ignore it.
@@ -6730,17 +6658,6 @@ public class Env {
         }
 
         getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
-    }
-
-    public void cleanTrash(AdminCleanTrashStmt stmt) {
-        List<Backend> backends = stmt.getBackends();
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (Backend backend : backends) {
-            CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
-            batchTask.addTask(cleanTrashTask);
-            LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
-        }
-        AgentTaskExecutor.submit(batchTask);
     }
 
     public void cleanUDFCacheTask(DropFunctionStmt stmt) throws UserException {
@@ -6920,14 +6837,6 @@ public class Env {
 
         result.setDbMeta(dbMeta);
         return result;
-    }
-
-    public void compactTable(AdminCompactTableStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTblName();
-        String type = stmt.getCompactionType();
-        List<String> partitionNames = stmt.getPartitions();
-        compactTable(dbName, tableName, type, partitionNames);
     }
 
     public void compactTable(String dbName, String tableName, String type, List<String> partitionNames)

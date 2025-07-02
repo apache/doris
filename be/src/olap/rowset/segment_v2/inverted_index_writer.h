@@ -42,13 +42,12 @@ class TabletIndex;
 class TabletColumn;
 
 namespace segment_v2 {
-class InvertedIndexFileWriter;
+class IndexFileWriter;
 
 class InvertedIndexColumnWriter {
 public:
     static Status create(const Field* field, std::unique_ptr<InvertedIndexColumnWriter>* res,
-                         InvertedIndexFileWriter* index_file_writer,
-                         const TabletIndex* inverted_index);
+                         IndexFileWriter* index_file_writer, const TabletIndex* inverted_index);
     virtual Status init() = 0;
 
     InvertedIndexColumnWriter() = default;

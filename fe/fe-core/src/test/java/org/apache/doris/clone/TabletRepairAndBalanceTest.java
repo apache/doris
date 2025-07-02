@@ -19,7 +19,6 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.BackendClause;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -48,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -548,11 +546,7 @@ public class TabletRepairAndBalanceTest {
         AlterSystemCommand command5 = new AlterSystemCommand(op1, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
         command5.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
-        String stmtStr5 = "cancel decommission backend \"" + be.getId() + "\"";
-        CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr5, connectContext);
-        DdlExecutor.execute(Env.getCurrentEnv(), cancelAlterSystemStmt);
-
-        Assert.assertFalse(be.isDecommissioned());
+        Assert.assertTrue(be.isDecommissioned());
 
     }
 

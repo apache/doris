@@ -17,8 +17,6 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.AlterPolicyStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -196,14 +194,6 @@ public class PolicyMgr implements Writable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Drop policy through stmt.
-     **/
-    public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
-        DropPolicyLog dropPolicyLog = DropPolicyLog.fromDropStmt(stmt);
-        dropPolicy(dropPolicyLog, stmt.isIfExists());
     }
 
     /**
@@ -695,13 +685,6 @@ public class PolicyMgr implements Writable {
         }
         AgentTaskExecutor.submit(batchTask);
         LOG.info("Alter storage policy success. policy: {}", storagePolicy);
-    }
-
-    /*
-     * Alter policy by stmt.
-     **/
-    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
-        alterPolicy(stmt.getPolicyName(), stmt.getProperties());
     }
 
     /**

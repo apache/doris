@@ -91,7 +91,7 @@ public class MTMVRefreshSnapshot {
                 + '}';
     }
 
-    public void compatible(MTMV mtmv) {
+    public void compatible(MTMV mtmv) throws Exception {
         if (MapUtils.isEmpty(partitionSnapshots)) {
             return;
         }

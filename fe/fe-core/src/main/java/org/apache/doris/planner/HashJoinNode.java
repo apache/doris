@@ -36,7 +36,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
@@ -299,12 +298,6 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     @Override
-    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
-        super.initOutputSlotIds(requiredSlotIdSet, analyzer);
-        initHashOutputSlotIds(outputSlotIds, analyzer);
-    }
-
-    @Override
     protected void computeOtherConjuncts(Analyzer analyzer, ExprSubstitutionMap originToIntermediateSmap) {
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
     }
@@ -319,29 +312,6 @@ public class HashJoinNode extends JoinNodeBase {
         Expr.getIds(otherJoinConjuncts, null, otherConjunctSlotIds);
         joinConjunctSlotIds.addAll(otherConjunctSlotIds);
         return joinConjunctSlotIds;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-
-        ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
-        List<Expr> newEqJoinConjuncts = Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
-        eqJoinConjuncts =
-                newEqJoinConjuncts.stream().map(entity -> {
-                            BinaryPredicate predicate = (BinaryPredicate) entity;
-                            if (predicate.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
-                                Preconditions.checkArgument(predicate.getChildren().size() == 2);
-                                if (!predicate.getChild(0).isNullable() || !predicate.getChild(1).isNullable()) {
-                                    predicate.setOp(BinaryPredicate.Operator.EQ);
-                                }
-                            }
-                            return predicate;
-                        }
-                ).collect(Collectors.toList());
-        otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
-
-        computeOutputTuple(analyzer);
     }
 
     @Override
@@ -541,15 +511,6 @@ public class HashJoinNode extends JoinNodeBase {
         return result;
     }
 
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats HashJoin:" + id + ", cardinality: " + cardinality);
-        }
-    }
-
     @Override
     protected void computeOldCardinality() {
         // For a join between child(0) and child(1), we look for join conditions "L.c = R.d"
@@ -739,19 +700,6 @@ public class HashJoinNode extends JoinNodeBase {
         return helper.toString();
     }
 
-    @Override
-    public void getMaterializedIds(Analyzer analyzer, List<SlotId> ids) {
-        super.getMaterializedIds(analyzer, ids);
-        // we also need to materialize everything referenced by eqJoinConjuncts
-        // and otherJoinConjuncts
-        for (Expr eqJoinPredicate : eqJoinConjuncts) {
-            eqJoinPredicate.getIds(null, ids);
-        }
-        for (Expr e : otherJoinConjuncts) {
-            e.getIds(null, ids);
-        }
-    }
-
     //nereids only
     public void addSlotIdToHashOutputSlotIds(SlotId slotId) {
         hashOutputSlotIds.add(slotId);
@@ -823,10 +771,6 @@ public class HashJoinNode extends JoinNodeBase {
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(
                     String.format("cardinality=%,d", cardinality)).append("\n");
-            if (!runtimeFilters.isEmpty()) {
-                output.append(detailPrefix).append("runtime filters: ");
-                output.append(getRuntimeFilterExplainString(true, true));
-            }
             return output.toString();
         }
 
@@ -844,10 +788,7 @@ public class HashJoinNode extends JoinNodeBase {
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
-        if (!runtimeFilters.isEmpty()) {
-            output.append(detailPrefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(true));
-        }
+
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         if (outputTupleDesc != null) {
             output.append(detailPrefix).append("vec output tuple id: ").append(outputTupleDesc.getId()).append("\n");

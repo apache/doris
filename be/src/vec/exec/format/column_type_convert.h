@@ -377,7 +377,7 @@ struct SafeCastString<TYPE_BOOLEAN, ORC> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnType::value_type* value) {
         std::string str_value(startptr, buffer_size);
-        int64 cast_to_long = 0;
+        int64_t cast_to_long = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_long);
         *value = cast_to_long == 0 ? 0 : 1;
         return can_cast;
@@ -388,10 +388,10 @@ template <>
 struct SafeCastString<TYPE_TINYINT> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_TINYINT>::ColumnType::value_type* value) {
-        int32 cast_to_int = 0;
+        int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_int);
-        if (can_cast && cast_to_int <= std::numeric_limits<int8>::max() &&
-            cast_to_int >= std::numeric_limits<int8>::min()) {
+        if (can_cast && cast_to_int <= std::numeric_limits<int8_t>::max() &&
+            cast_to_int >= std::numeric_limits<int8_t>::min()) {
             *value = static_cast<int8_t>(cast_to_int);
             return true;
         } else {
@@ -405,10 +405,10 @@ struct SafeCastString<TYPE_SMALLINT> {
     static bool safe_cast_string(
             const char* startptr, size_t buffer_size,
             PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnType::value_type* value) {
-        int32 cast_to_int = 0;
+        int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_int);
-        if (can_cast && cast_to_int <= std::numeric_limits<int16>::max() &&
-            cast_to_int >= std::numeric_limits<int16>::min()) {
+        if (can_cast && cast_to_int <= std::numeric_limits<int16_t>::max() &&
+            cast_to_int >= std::numeric_limits<int16_t>::min()) {
             *value = static_cast<int16_t>(cast_to_int);
             return true;
         } else {
@@ -421,7 +421,7 @@ template <>
 struct SafeCastString<TYPE_INT> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_INT>::ColumnType::value_type* value) {
-        int32 cast_to_int = 0;
+        int32_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_int);
         *value = cast_to_int;
         return can_cast;
@@ -432,7 +432,7 @@ template <>
 struct SafeCastString<TYPE_BIGINT> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType::value_type* value) {
-        int64 cast_to_int = 0;
+        int64_t cast_to_int = 0;
         bool can_cast = absl::SimpleAtoi({startptr, buffer_size}, &cast_to_int);
         *value = cast_to_int;
         return can_cast;
@@ -745,7 +745,7 @@ public:
         SrcNativeType scale_factor;
         if constexpr (sizeof(SrcNativeType) <= sizeof(int)) {
             scale_factor = common::exp10_i32(_scale);
-        } else if constexpr (sizeof(SrcNativeType) <= sizeof(int64)) {
+        } else if constexpr (sizeof(SrcNativeType) <= sizeof(int64_t)) {
             scale_factor = common::exp10_i64(_scale);
         } else if constexpr (sizeof(SrcNativeType) <= sizeof(__int128)) {
             scale_factor = common::exp10_i128(_scale);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
@@ -55,11 +54,6 @@ public class DataGenScanNode extends ExternalScanNode {
         this.tvf = tvf;
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-    }
-
     public DataGenTableValuedFunction getTvf() {
         return tvf;
     }
@@ -67,15 +61,6 @@ public class DataGenScanNode extends ExternalScanNode {
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return scanRangeLocations;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        if (isFinalized) {
-            return;
-        }
-        createScanRangeLocations();
-        isFinalized = true;
     }
 
     @Override

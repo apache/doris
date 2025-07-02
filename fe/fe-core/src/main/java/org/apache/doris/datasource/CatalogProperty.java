@@ -19,10 +19,9 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -31,24 +30,25 @@ import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * CatalogProperty to store the properties for catalog.
  * the properties in "properties" will overwrite properties in "resource"
  */
 @Data
-public class CatalogProperty implements Writable {
+public class CatalogProperty {
     private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
 
     @SerializedName(value = "resource")
     private String resource;
     @SerializedName(value = "properties")
     private Map<String, String> properties;
+
+    private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
     private volatile Resource catalogResource = null;
 
@@ -98,12 +98,28 @@ public class CatalogProperty implements Writable {
 
     public void modifyCatalogProps(Map<String, String> props) {
         properties.putAll(PropertyConverter.convertToMetaProperties(props));
+        this.storagePropertiesMap = null;
+    }
+
+    private void reInitCatalogStorageProperties() {
+        this.storagePropertiesMap = new HashMap<>();
+        List<StorageProperties> storageProperties;
+        try {
+            storageProperties = StorageProperties.createAll(this.properties);
+            this.storagePropertiesMap.putAll(storageProperties.stream()
+                    .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity())));
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {
         properties.clear();
         properties = new HashMap<>(props);
+        this.storagePropertiesMap = null;
     }
+
 
     public Map<String, String> getHadoopProperties() {
         Map<String, String> hadoopProperties = getProperties();
@@ -113,19 +129,22 @@ public class CatalogProperty implements Writable {
 
     public void addProperty(String key, String val) {
         this.properties.put(key, val);
+        this.storagePropertiesMap = null; // reset storage properties map
     }
 
     public void deleteProperty(String key) {
         this.properties.remove(key);
+        this.storagePropertiesMap = null;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static CatalogProperty read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CatalogProperty.class);
+    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+        if (storagePropertiesMap == null) {
+            synchronized (this) {
+                if (storagePropertiesMap == null) {
+                    reInitCatalogStorageProperties();
+                }
+            }
+        }
+        return storagePropertiesMap;
     }
 }

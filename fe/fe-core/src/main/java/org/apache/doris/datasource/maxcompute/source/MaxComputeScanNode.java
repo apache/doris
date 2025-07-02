@@ -62,7 +62,6 @@ import com.aliyun.odps.table.read.TableBatchReadSession;
 import com.aliyun.odps.table.read.TableReadSessionBuilder;
 import com.aliyun.odps.table.read.split.InputSplitAssigner;
 import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
-import com.google.common.collect.Maps;
 import jline.internal.Log;
 import lombok.Setter;
 
@@ -103,8 +102,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     @Setter
     private SelectedPartitions selectedPartitions = null;
 
-    private static final LocationPath ROW_OFFSET_PATH = new LocationPath("/row_offset", Maps.newHashMap());
-    private static final LocationPath BYTE_SIZE_PATH = new LocationPath("/byte_size", Maps.newHashMap());
+    private static final LocationPath ROW_OFFSET_PATH = LocationPath.of("/row_offset");
+    private static final LocationPath BYTE_SIZE_PATH = LocationPath.of("/byte_size");
 
 
     // For new planner

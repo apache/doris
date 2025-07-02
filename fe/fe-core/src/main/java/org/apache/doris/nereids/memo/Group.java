@@ -44,7 +44,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -421,7 +420,7 @@ public class Group {
         return false;
     }
 
-    public StructInfoMap getstructInfoMap() {
+    public StructInfoMap getStructInfoMap() {
         return structInfoMap;
     }
 
@@ -443,7 +442,7 @@ public class Group {
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupId);
+        return 31 * groupId.asInt();
     }
 
     @Override

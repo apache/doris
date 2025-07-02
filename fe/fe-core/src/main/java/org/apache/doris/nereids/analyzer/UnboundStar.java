@@ -19,7 +19,9 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -35,7 +37,7 @@ import java.util.stream.Collectors;
 /**
  * Star expression.
  */
-public class UnboundStar extends NamedExpression implements LeafExpression, Unbound, PropagateNullable {
+public class UnboundStar extends Slot implements LeafExpression, Unbound, PropagateNullable {
     private final List<String> qualifier;
     // the start and end position of the sql substring(e.g. "*", "table.*")
     private final Optional<Pair<Integer, Integer>> indexInSqlString;
@@ -45,7 +47,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     private final List<NamedExpression> replacedAlias;
 
     public UnboundStar(List<String> qualifier) {
-        super(ImmutableList.of());
+        super(Optional.empty());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = Optional.empty();
         this.exceptedSlots = ImmutableList.of();
@@ -53,7 +55,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     }
 
     public UnboundStar(List<String> qualifier, Optional<Pair<Integer, Integer>> indexInSqlString) {
-        super(ImmutableList.of());
+        super(Optional.empty());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = indexInSqlString;
         this.exceptedSlots = ImmutableList.of();
@@ -69,7 +71,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
      */
     public UnboundStar(List<String> qualifier, List<NamedExpression> exceptedSlots,
             List<NamedExpression> replacedAlias) {
-        super(ImmutableList.of());
+        super(Optional.empty());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = Optional.empty();
         this.exceptedSlots = Objects.requireNonNull(ImmutableList.copyOf(exceptedSlots),
@@ -88,13 +90,43 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
      */
     public UnboundStar(List<String> qualifier, List<NamedExpression> exceptedSlots, List<NamedExpression> replacedAlias,
             Optional<Pair<Integer, Integer>> indexInSqlString) {
-        super(ImmutableList.of());
+        super(Optional.empty());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = indexInSqlString;
         this.exceptedSlots = Objects.requireNonNull(ImmutableList.copyOf(exceptedSlots),
                 "except columns can not be null");
         this.replacedAlias = Objects.requireNonNull(ImmutableList.copyOf(replacedAlias),
                 "replace columns can not be null");
+    }
+
+    @Override
+    public Slot toSlot() {
+        return this;
+    }
+
+    @Override
+    public String getName() {
+        return "*";
+    }
+
+    @Override
+    public ExprId getExprId() throws UnboundException {
+        return new ExprId(-1);
+    }
+
+    @Override
+    public Slot withQualifier(List<String> qualifier) {
+        return this;
+    }
+
+    @Override
+    public Slot withName(String name) {
+        return this;
+    }
+
+    @Override
+    public Slot withExprId(ExprId exprId) {
+        return this;
     }
 
     @Override

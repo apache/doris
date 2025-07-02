@@ -67,11 +67,11 @@ fi
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
-if [[ "${target_branch}" == "master" ]]; then
+if [[ "${target_branch}" == "master" || "${target_branch}" == "branch-3.1" || "${target_branch}" == "branch-3.0" ]]; then
     echo "INFO: PR target branch ${target_branch}"
     install_java
 else
-    echo "WARNING: PR target branch ${target_branch} is NOT in (master), skip pipeline."
+    echo "WARNING: PR target branch ${target_branch} is NOT in (master, branch-3.1, branch-3.0), skip pipeline."
     bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
     exit 0
 fi

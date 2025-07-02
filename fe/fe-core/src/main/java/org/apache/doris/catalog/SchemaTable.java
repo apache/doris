@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -524,22 +523,24 @@ public class SchemaTable extends Table {
                                     .column("IS_MUTABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .build()))
             .put("processlist",
+                    // ATTN, the column name should be compatible with MySQL
+                    // See: https://dev.mysql.com/doc/refman/8.4/en/show-processlist.html
                     new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
-                            builder().column("CURRENT_CONNECTED", ScalarType.createVarchar(16))
-                                    .column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
-                                    .column("USER", ScalarType.createVarchar(32))
-                                    .column("HOST", ScalarType.createVarchar(261))
-                                    .column("LOGIN_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
-                                    .column("CATALOG", ScalarType.createVarchar(64))
-                                    .column("DB", ScalarType.createVarchar(64))
-                                    .column("COMMAND", ScalarType.createVarchar(16))
-                                    .column("TIME", ScalarType.createType(PrimitiveType.INT))
-                                    .column("STATE", ScalarType.createVarchar(64))
-                                    .column("QUERY_ID", ScalarType.createVarchar(256))
-                                    .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
-                                    .column("FE",
-                                            ScalarType.createVarchar(64))
-                                    .column("CLOUD_CLUSTER", ScalarType.createVarchar(64)).build(), true))
+                            builder().column("CurrentConnected", ScalarType.createVarchar(16))
+                                    .column("Id", ScalarType.createType(PrimitiveType.LARGEINT))
+                                    .column("User", ScalarType.createVarchar(32))
+                                    .column("Host", ScalarType.createVarchar(261))
+                                    .column("LoginTime", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("Catalog", ScalarType.createVarchar(64))
+                                    .column("Db", ScalarType.createVarchar(64))
+                                    .column("Command", ScalarType.createVarchar(16))
+                                    .column("Time", ScalarType.createType(PrimitiveType.INT))
+                                    .column("State", ScalarType.createVarchar(64))
+                                    .column("QueryId", ScalarType.createVarchar(256))
+                                    .column("TraceId", ScalarType.createVarchar(256))
+                                    .column("Info", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
+                                    .column("FE", ScalarType.createVarchar(64))
+                                    .column("CloudCluster", ScalarType.createVarchar(64)).build(), true))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -667,6 +668,17 @@ public class SchemaTable extends Table {
                             .column("IS_OVERLAP", ScalarType.createType(PrimitiveType.BOOLEAN))
                             .build())
             )
+            .put("view_dependency",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "view_dependency", TableType.SCHEMA,
+                        builder().column("VIEW_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("VIEW_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("VIEW_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("VIEW_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .build()))
             .build();
 
     private boolean fetchAllFe = false;
@@ -683,10 +695,6 @@ public class SchemaTable extends Table {
     @Override
     public void write(DataOutput out) throws IOException {
         throw new UnsupportedOperationException("Do not allow to write SchemaTable to image.");
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        throw new UnsupportedOperationException("Do not allow read SchemaTable from image.");
     }
 
     public static Builder builder() {

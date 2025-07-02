@@ -19,11 +19,13 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
-import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
 
@@ -53,29 +55,67 @@ import java.util.List;
  * <ul> R - (S - T) = (R - S) U T </ul>
  * <ul> ...... and so on </ul>
  */
-public class MergeSetOperations extends OneRewriteRuleFactory {
+public class MergeSetOperations implements RewriteRuleFactory {
+
     @Override
-    public Rule build() {
-        return logicalSetOperation(any(), any())
-                .whenNot(LogicalExcept.class::isInstance)
-                .when(MergeSetOperations::canMerge)
-                .then(parentSetOperation -> {
-                    ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
-                    ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
-                    for (int i = 0; i < parentSetOperation.arity(); i++) {
-                        Plan child = parentSetOperation.child(i);
-                        if (canMerge(parentSetOperation, child)) {
-                            LogicalSetOperation logicalSetOperation = (LogicalSetOperation) child;
-                            newChildren.addAll(logicalSetOperation.children());
-                            newChildrenOutputs.addAll(logicalSetOperation.getRegularChildrenOutputs());
-                        } else {
-                            newChildren.add(child);
-                            newChildrenOutputs.add(parentSetOperation.getRegularChildOutput(i));
-                        }
-                    }
-                    return parentSetOperation.withChildrenAndTheirOutputs(
-                            newChildren.build(), newChildrenOutputs.build());
-                }).toRule(RuleType.MERGE_SET_OPERATION);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                RuleType.MERGE_SET_OPERATION.build(
+                        logicalIntersect(any(), any())
+                            .when(MergeSetOperations::canMerge)
+                            .then(MergeSetOperations::mergeIntersect)
+                ),
+                RuleType.MERGE_SET_OPERATION.build(
+                        logicalUnion().then(MergeSetOperations::mergeUnion)
+                )
+        );
+    }
+
+    private static Plan mergeUnion(LogicalUnion parentUnion) {
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
+        ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
+
+        ImmutableList.Builder<List<NamedExpression>> constantList = ImmutableList.builder();
+
+        boolean needMerge = false;
+        for (int i = 0; i < parentUnion.arity(); i++) {
+            Plan child = parentUnion.child(i);
+            if (canMerge(parentUnion, child) && child.getOutput().size() == parentUnion.getOutput().size()) {
+                LogicalUnion childUnion = (LogicalUnion) child;
+                newChildren.addAll(childUnion.children());
+                newChildrenOutputs.addAll(childUnion.getRegularChildrenOutputs());
+                constantList.addAll(childUnion.getConstantExprsList());
+                needMerge = true;
+            } else {
+                newChildren.add(child);
+                newChildrenOutputs.add(parentUnion.getRegularChildOutput(i));
+            }
+        }
+        if (!needMerge) {
+            return parentUnion;
+        }
+        constantList.addAll(parentUnion.getConstantExprsList());
+        return parentUnion.withChildrenAndConstExprsList(
+                newChildren.build(), newChildrenOutputs.build(), constantList.build()
+        );
+    }
+
+    private static Plan mergeIntersect(LogicalIntersect parentSetIntersect) {
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
+        ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
+        for (int i = 0; i < parentSetIntersect.arity(); i++) {
+            Plan child = parentSetIntersect.child(i);
+            if (canMerge(parentSetIntersect, child)) {
+                LogicalIntersect childIntersect = (LogicalIntersect) child;
+                newChildren.addAll(childIntersect.children());
+                newChildrenOutputs.addAll(childIntersect.getRegularChildrenOutputs());
+            } else {
+                newChildren.add(child);
+                newChildrenOutputs.add(parentSetIntersect.getRegularChildOutput(i));
+            }
+        }
+        return parentSetIntersect.withChildrenAndTheirOutputs(
+                newChildren.build(), newChildrenOutputs.build());
     }
 
     /** canMerge */

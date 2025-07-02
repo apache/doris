@@ -32,6 +32,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/memcmp_small.h"
@@ -40,14 +41,12 @@
 #include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
 
@@ -235,6 +234,11 @@ public:
         }
     }
 
+    void sort_column(const ColumnArray& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        _sort_by_default(column, flags, perms, range, last_column);
+    }
+
     void sort_column(const ColumnString64& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
         if (!_should_inline_value(perms)) {
@@ -361,7 +365,8 @@ private:
         int new_limit = _limit;
         auto comparator = [&](const size_t a, const size_t b) {
             if constexpr (!std::is_same_v<ColumnType, ColumnString> &&
-                          !std::is_same_v<ColumnType, ColumnString64>) {
+                          !std::is_same_v<ColumnType, ColumnString64> &&
+                          !std::is_same_v<ColumnType, ColumnArray>) {
                 auto value_a = column.get_data()[a];
                 auto value_b = column.get_data()[b];
                 return value_a > value_b ? 1 : (value_a < value_b ? -1 : 0);

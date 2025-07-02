@@ -56,7 +56,6 @@
 #include "vec/exprs/vmatch_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
-#include "vec/exprs/vtuple_is_null_predicate.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -327,10 +326,6 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::INFO_FUNC: {
             expr = VInfoFunc::create_shared(expr_node);
-            break;
-        }
-        case TExprNodeType::TUPLE_IS_NULL_PRED: {
-            expr = VTupleIsNullPredicate::create_shared(expr_node);
             break;
         }
         default:
@@ -628,7 +623,7 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
     // Pre-allocate vectors based on an estimated or known size
-    std::vector<segment_v2::InvertedIndexIterator*> iterators;
+    std::vector<segment_v2::IndexIterator*> iterators;
     std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName arguments;

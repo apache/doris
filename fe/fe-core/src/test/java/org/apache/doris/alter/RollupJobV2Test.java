@@ -23,12 +23,6 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.MVColumnItem;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Column;
@@ -51,7 +45,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentTask;
@@ -62,10 +55,8 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -308,7 +299,7 @@ public class RollupJobV2Test {
 
 
     @Test
-    public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt)
+    public void testSerializeOfRollupJob()
             throws IOException, AnalysisException {
         // prepare file
         File file = new File(fileName);
@@ -333,20 +324,6 @@ public class RollupJobV2Test {
         out.flush();
         out.close();
 
-        List<Expr> params = Lists.newArrayList();
-        SlotRef param1 = new SlotRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "test"), "c1");
-        params.add(param1);
-        MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName, Type.BITMAP);
-        mvColumnItem.setDefineExpr(new FunctionCallExpr(new FunctionName("to_bitmap"), params));
-        List<MVColumnItem> mvColumnItemList = Lists.newArrayList();
-        mvColumnItemList.add(mvColumnItem);
-        new Expectations() {
-            {
-                stmt.getMVColumnItemList();
-                result =  mvColumnItemList;
-            }
-        };
-
         // read objects from file
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
@@ -360,10 +337,6 @@ public class RollupJobV2Test {
         Column resultColumn1 = resultColumns.get(0);
         Assert.assertEquals(mvColumnName,
                 resultColumn1.getName());
-        Assert.assertTrue(resultColumn1.getDefineExpr() instanceof FunctionCallExpr);
-        FunctionCallExpr resultFunctionCall = (FunctionCallExpr) resultColumn1.getDefineExpr();
-        Assert.assertEquals("to_bitmap", resultFunctionCall.getFnName().getFunction());
-
     }
 
     @Test

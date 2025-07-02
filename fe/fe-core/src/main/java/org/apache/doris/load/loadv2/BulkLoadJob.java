@@ -33,11 +33,9 @@ import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.annotation.LogException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -64,7 +62,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
@@ -324,30 +321,6 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_117) {
-            userInfo.setIsAnalyzed();
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        brokerDesc = BrokerDesc.read(in);
-        originStmt = OriginStatement.read(in);
-        // The origin stmt does not be analyzed in here.
-        // The reason is that it will throw MetaNotFoundException when the tableId could not be found by tableName.
-        // The origin stmt will be analyzed after the replay is completed.
-
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_117) {
-            userInfo = UserIdentity.read(in);
-            // must set is as analyzed, because when write the user info to meta image, it will be checked.
-            userInfo.setIsAnalyzed();
-        }
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            sessionVariables.put(key, value);
-        }
     }
 
     public UserIdentity getUserInfo() {

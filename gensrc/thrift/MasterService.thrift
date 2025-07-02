@@ -120,6 +120,7 @@ struct TReportRequest {
     13: optional map<Types.TPartitionId, Types.TVersion> partitions_version
     // tablet num in be, in cloud num_tablets may not eq tablet_list.size()
     14: optional i64 num_tablets
+    15: optional list<AgentService.TIndexPolicy> index_policy
 }
 
 struct TMasterResult {
@@ -129,16 +130,16 @@ struct TMasterResult {
 
 // Deprecated
 enum TResourceType {
-    TRESOURCE_CPU_SHARE
-    TRESOURCE_IO_SHARE
-    TRESOURCE_SSD_READ_IOPS
-    TRESOURCE_SSD_WRITE_IOPS
-    TRESOURCE_SSD_READ_MBPS
-    TRESOURCE_SSD_WRITE_MBPS
-    TRESOURCE_HDD_READ_IOPS
-    TRESOURCE_HDD_WRITE_IOPS
-    TRESOURCE_HDD_READ_MBPS
-    TRESOURCE_HDD_WRITE_MBPS
+    TRESOURCE_CPU_SHARE = 0,
+    TRESOURCE_IO_SHARE = 1,
+    TRESOURCE_SSD_READ_IOPS = 2,
+    TRESOURCE_SSD_WRITE_IOPS = 3,
+    TRESOURCE_SSD_READ_MBPS = 4,
+    TRESOURCE_SSD_WRITE_MBPS = 5,
+    TRESOURCE_HDD_READ_IOPS = 6,
+    TRESOURCE_HDD_WRITE_IOPS = 7,
+    TRESOURCE_HDD_READ_MBPS = 8,
+    TRESOURCE_HDD_WRITE_MBPS = 9
 }
 
 // Deprecated

@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
@@ -88,22 +87,6 @@ public class SchemaScanNode extends ScanNode {
     protected String debugString() {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         return helper.addValue(super.debugString()).toString();
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        // Convert predicates to MySQL columns and filters.
-        schemaCatalog = analyzer.getSchemaCatalog();
-        schemaDb = analyzer.getSchemaDb();
-        schemaTable = analyzer.getSchemaTable();
-        if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
-                && tableName.equalsIgnoreCase("tables")) {
-            frontendIP = Env.getCurrentEnv().getMasterHost();
-            frontendPort = Env.getCurrentEnv().getMasterRpcPort();
-        } else {
-            frontendIP = FrontendOptions.getLocalHostAddress();
-            frontendPort = Config.rpc_port;
-        }
     }
 
     @Override
@@ -196,7 +179,7 @@ public class SchemaScanNode extends ScanNode {
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(false));
+            output.append(getRuntimeFilterExplainString());
         }
         output.append(prefix).append(String.format("cardinality=%s", cardinality))
                 .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));

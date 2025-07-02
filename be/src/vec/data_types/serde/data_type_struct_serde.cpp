@@ -20,6 +20,7 @@
 #include "arrow/array/builder_nested.h"
 #include "common/status.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_struct.h"
@@ -40,6 +41,23 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
         }
     }
     return std::nullopt;
+}
+
+std::string DataTypeStructSerDe::get_name() const {
+    size_t size = elem_names.size();
+    std::stringstream s;
+
+    s << "Struct(";
+    for (size_t i = 0; i < size; ++i) {
+        if (i != 0) {
+            s << ", ";
+        }
+        s << elem_names[i] << ":";
+        s << elem_serdes_ptrs[i]->get_name();
+    }
+    s << ")";
+
+    return s.str();
 }
 
 Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -318,7 +336,7 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
 }
 
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 

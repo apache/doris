@@ -26,8 +26,6 @@
 
 #include "olap/hll.h"
 #include "runtime/primitive_type.h"
-#include "util/bitmap_value.h"
-#include "util/quantile_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -216,7 +214,7 @@ public:
 
     size_t filter(const IColumn::Filter& filter) override;
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     Container& get_data() { return data; }
 
@@ -261,7 +259,11 @@ MutableColumnPtr ColumnComplexType<T>::clone_resized(size_t size) const {
 
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
-        new_col.data = this->data;
+        size_t count = std::min(size, data.size());
+        new_col.insert_range_from(*this, 0, count);
+        if (size > count) {
+            new_col.insert_many_defaults(size - count);
+        }
     }
 
     return res;
@@ -330,7 +332,8 @@ size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
 }
 
 template <PrimitiveType T>
-ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm,
+                                               size_t limit) const {
     size_t size = data.size();
 
     limit = limit ? std::min(size, limit) : size;
