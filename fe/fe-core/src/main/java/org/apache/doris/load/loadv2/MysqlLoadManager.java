@@ -449,6 +449,16 @@ public class MysqlLoadManager {
         httpPut.addHeader("Content-Type", "text/plain");
         httpPut.addHeader("token", token);
 
+        UserIdentity uid = ConnectContext.get().getCurrentUserIdentity();
+        if (uid == null || StringUtils.isEmpty(uid.getQualifiedUser())) {
+            throw new LoadException("user is null");
+        }
+        // NOTE: set pass word empty here because password is only used when login from mysql client.
+        // All authentication actions after login in do not require a password
+        String auth = String.format("%s:%s", uid.getQualifiedUser(), "");
+        String authEncoding = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
+        httpPut.addHeader("Authorization", "Basic " + authEncoding);
+
         Map<String, String> props = desc.getProperties();
         FileFormatProperties fileFormatProperties = desc.getFileFormatProperties();
 
