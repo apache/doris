@@ -712,26 +712,26 @@ public:
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
 
         // >= min ip
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_type, &min_ip, query_param));
         segment_v2::InvertedIndexParam res_param;
         res_param.column_name = data_type_with_name.first;
         res_param.query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
         res_param.query_value = query_param->get_value();
         res_param.num_rows = num_rows;
         res_param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &min_ip, query_param));
         RETURN_IF_ERROR(iter->read_from_index(&res_param));
 
         // <= max ip
-        segment_v2::InvertedIndexParam max_param;
-        res_param.column_name = data_type_with_name.first;
-        res_param.query_type = segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY;
-        res_param.query_value = query_param->get_value();
-        res_param.num_rows = num_rows;
-        res_param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &max_ip, query_param));
-        RETURN_IF_ERROR(iter->read_from_index(&res_param));
+        segment_v2::InvertedIndexParam max_param;
+        max_param.column_name = data_type_with_name.first;
+        max_param.query_type = segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY;
+        max_param.query_value = query_param->get_value();
+        max_param.num_rows = num_rows;
+        max_param.roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iter->read_from_index(&max_param));
 
         DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
