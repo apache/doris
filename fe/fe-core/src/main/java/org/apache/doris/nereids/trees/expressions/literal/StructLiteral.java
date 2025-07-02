@@ -81,7 +81,7 @@ public class StructLiteral extends Literal {
                 try {
                     newLiterals.add((Literal) fields.get(i)
                             .uncheckedCastTo(((StructType) targetType).getFields().get(i).getDataType()));
-                } catch (AnalysisException a) {
+                } catch (Exception ignored) {
                     newLiterals.add((Literal) fields.get(i)
                             .deprecatingUncheckedCastTo(((StructType) targetType).getFields().get(i).getDataType()));
                 }

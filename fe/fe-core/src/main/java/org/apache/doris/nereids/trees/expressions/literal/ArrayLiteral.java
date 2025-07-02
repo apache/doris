@@ -113,7 +113,7 @@ public class ArrayLiteral extends Literal implements ComparableLiteral {
                     .map(i -> {
                         try {
                             return i.uncheckedCastTo(((ArrayType) targetType).getItemType());
-                        } catch (AnalysisException a) {
+                        } catch (Exception ignored) {
                             return i.deprecatingUncheckedCastTo(((ArrayType) targetType).getItemType());
                         }
                     })

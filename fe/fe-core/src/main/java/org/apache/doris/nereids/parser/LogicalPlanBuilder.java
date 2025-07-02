@@ -3232,7 +3232,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(item -> {
                     try {
                         return item.checkedCastTo(dataType);
-                    } catch (AnalysisException ignored) {
+                    } catch (Exception ignored) {
                         return item.deprecatingCheckedCastTo(dataType);
                     }
                 })

@@ -77,7 +77,7 @@ public class MapLiteral extends Literal {
                             .map(k -> {
                                 try {
                                     return k.uncheckedCastTo(((MapType) targetType).getKeyType());
-                                } catch (AnalysisException a) {
+                                } catch (Exception ignored) {
                                     return k.deprecatingUncheckedCastTo(((MapType) targetType).getKeyType());
                                 }
                             })
@@ -87,7 +87,7 @@ public class MapLiteral extends Literal {
                             .map(v -> {
                                 try {
                                     return v.uncheckedCastTo(((MapType) targetType).getValueType());
-                                } catch (AnalysisException a) {
+                                } catch (Exception ignored) {
                                     return v.deprecatingUncheckedCastTo(((MapType) targetType).getValueType());
                                 }
                             })

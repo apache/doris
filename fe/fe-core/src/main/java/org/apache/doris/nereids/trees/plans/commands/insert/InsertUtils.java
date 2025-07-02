@@ -599,7 +599,7 @@ public class InsertUtils {
                     return new Alias(Literal.of(column.getDefaultValue())
                             .checkedCastTo(DataType.fromCatalogType(column.getType())),
                             column.getName());
-                } catch (AnalysisException a) {
+                } catch (Exception ignored) {
                     return new Alias(Literal.of(column.getDefaultValue())
                             .deprecatingCheckedCastTo(DataType.fromCatalogType(column.getType())),
                             column.getName());

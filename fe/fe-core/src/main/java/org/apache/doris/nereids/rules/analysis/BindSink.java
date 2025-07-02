@@ -427,7 +427,7 @@ public class BindSink implements AnalysisRuleFactory {
                                         new Alias(Literal.of(column.getDefaultValue())
                                                 .checkedCastTo(DataType.fromCatalogType(column.getType())),
                                                 column.getName()));
-                            } catch (AnalysisException a) {
+                            } catch (Exception ignored) {
                                 columnToOutput.put(column.getName(),
                                         new Alias(Literal.of(column.getDefaultValue())
                                                 .deprecatingCheckedCastTo(DataType.fromCatalogType(column.getType())),
