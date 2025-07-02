@@ -47,7 +47,7 @@ suite("test_hive_database", "p0,external,hive,external_docker,external_docker_hi
 
         test {
             sql """ create database ${prefix}_dB1 """
-            exception "database exists"
+            exception "Database test_hive_database_dB1 already exists"
         }
         // sql """ drop database if exists ${prefix}_db1 """
     }
