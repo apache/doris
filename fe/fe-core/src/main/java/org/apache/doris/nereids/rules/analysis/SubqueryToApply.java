@@ -422,35 +422,40 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 // but COUNT function is always not nullable.
                 // so wrap COUNT with Nvl to ensure its result is 0 instead of null to get the correct result
                 if (conjunct.isPresent()) {
-                    NamedExpression agg = ScalarSubquery.getTopLevelScalarAggFunction(
-                            subquery.getQueryPlan(), subquery.getCorrelateSlots()).get();
-                    if (agg instanceof Alias) {
-                        Map<Expression, Expression> replaceMap = new HashMap<>();
-                        if (((Alias) agg).child() instanceof NotNullableAggregateFunction) {
+                    List<NamedExpression> aggFunctions = ScalarSubquery.getTopLevelScalarAggFunctions(
+                            subquery.getQueryPlan(), subquery.getCorrelateSlots());
+                    Map<Expression, Expression> replaceMapForSubqueryProject = new HashMap<>();
+                    Map<Expression, Expression> replaceMapForSubqueryOutput = new HashMap<>();
+                    for (NamedExpression agg : aggFunctions) {
+                        if (agg instanceof Alias && ((Alias) agg).child() instanceof NotNullableAggregateFunction) {
                             NotNullableAggregateFunction notNullableAggFunc =
                                     (NotNullableAggregateFunction) ((Alias) agg).child();
                             if (subquery.getQueryPlan() instanceof LogicalProject) {
-                                LogicalProject logicalProject =
-                                        (LogicalProject) subquery.getQueryPlan();
-                                Preconditions.checkState(logicalProject.getOutputs().size() == 1,
-                                        "Scalar subuqery's should only output 1 column");
                                 Slot aggSlot = agg.toSlot();
-                                replaceMap.put(aggSlot, new Alias(new Nvl(aggSlot,
+                                replaceMapForSubqueryProject.put(aggSlot, new Alias(new Nvl(aggSlot,
                                         notNullableAggFunc.resultForEmptyInput())));
-                                NamedExpression newOutput = (NamedExpression) ExpressionUtils
-                                        .replace((NamedExpression) logicalProject.getProjects().get(0), replaceMap);
-                                replaceMap.clear();
-                                replaceMap.put(oldSubqueryOutput, newOutput.toSlot());
-                                oldSubqueryOutput = newOutput;
-                                subquery = subquery.withSubquery((LogicalPlan) logicalProject.child());
                             } else {
-                                replaceMap.put(oldSubqueryOutput, new Nvl(oldSubqueryOutput,
+                                replaceMapForSubqueryOutput.put(oldSubqueryOutput, new Nvl(oldSubqueryOutput,
                                         notNullableAggFunc.resultForEmptyInput()));
                             }
-                            if (!replaceMap.isEmpty()) {
-                                newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
-                            }
                         }
+                    }
+                    if (!replaceMapForSubqueryProject.isEmpty()) {
+                        Preconditions.checkState(subquery.getQueryPlan() instanceof LogicalProject,
+                                "Scalar subquery's top plan node should be LogicalProject");
+                        LogicalProject logicalProject =
+                                (LogicalProject) subquery.getQueryPlan();
+                        Preconditions.checkState(logicalProject.getOutputs().size() == 1,
+                                "Scalar subuqery's should only output 1 column");
+                        NamedExpression newOutput = (NamedExpression) ExpressionUtils
+                                .replace((NamedExpression) logicalProject.getProjects().get(0),
+                                        replaceMapForSubqueryProject);
+                        replaceMapForSubqueryOutput.put(oldSubqueryOutput, newOutput.toSlot());
+                        oldSubqueryOutput = newOutput;
+                        subquery = subquery.withSubquery((LogicalPlan) logicalProject.child());
+                    }
+                    if (!replaceMapForSubqueryOutput.isEmpty()) {
+                        newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMapForSubqueryOutput));
                     }
                 }
             } else {

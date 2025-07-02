@@ -34,6 +34,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -79,18 +80,15 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     }
 
     /**
-    * getTopLevelScalarAggFunction
-    */
-    public static Optional<NamedExpression> getTopLevelScalarAggFunction(Plan queryPlan,
+     * get Top Level ScalarAgg Functions
+     */
+    public static List<NamedExpression> getTopLevelScalarAggFunctions(Plan queryPlan,
             List<Slot> correlateSlots) {
         LogicalAggregate<?> aggregate = findTopLevelScalarAgg(queryPlan, ImmutableSet.copyOf(correlateSlots));
         if (aggregate != null) {
-            Preconditions.checkState(aggregate.getAggregateFunctions().size() == 1,
-                    "in scalar subquery, should only return 1 column 1 row, "
-                            + "but we found multiple columns ", aggregate.getOutputExpressions());
-            return Optional.of((NamedExpression) aggregate.getOutputExpressions().get(0));
+            return aggregate.getOutputExpressions();
         } else {
-            return Optional.empty();
+            return new ArrayList<>();
         }
     }
 
@@ -148,9 +146,9 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     public static Slot getScalarQueryOutputAdjustNullable(Plan queryPlan, List<Slot> correlateSlots) {
         Slot output = queryPlan.getOutput().get(0);
         boolean nullable = true;
-        Optional<NamedExpression> aggOpt = getTopLevelScalarAggFunction(queryPlan, correlateSlots);
-        if (aggOpt.isPresent()) {
-            NamedExpression agg = aggOpt.get();
+        List<NamedExpression> aggOpts = getTopLevelScalarAggFunctions(queryPlan, correlateSlots);
+        if (aggOpts.size() == 1) {
+            NamedExpression agg = aggOpts.get(0);
             if (agg.getExprId().equals(output.getExprId())
                     && agg instanceof Alias
                     && ((Alias) agg).child() instanceof NotNullableAggregateFunction) {

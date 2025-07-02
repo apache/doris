@@ -115,3 +115,26 @@
 1
 1
 
+-- !select_agg_project1 --
+3
+4
+
+-- !select_agg_project2 --
+2
+2
+
+-- !select_2_aggs --
+3
+3
+4
+4
+5
+
+-- !select_3_aggs --
+1
+2
+2
+3
+4
+5
+
