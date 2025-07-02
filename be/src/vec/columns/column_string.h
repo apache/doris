@@ -165,6 +165,8 @@ public:
         check_chars_length(new_size, old_size + 1);
 
         chars.resize(new_size);
+        DCHECK(s.data != nullptr);
+        DCHECK(chars.data() != nullptr);
         memcpy(chars.data() + old_size, s.data, size_to_append);
         offsets.push_back(new_size);
         sanity_check_simple();
