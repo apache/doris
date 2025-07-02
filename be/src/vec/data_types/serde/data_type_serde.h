@@ -85,7 +85,6 @@ struct ColumnVectorBatch;
     bufferRef.data = ptr;                                                            \
     bufferRef.size = BUFFER_UNIT_SIZE;                                               \
     size_t offset = 0;                                                               \
-    buffer_list.clear();                                                             \
     buffer_list.emplace_back(bufferRef);
 
 #define REALLOC_MEMORY_FOR_ORC_WRITER()                                                  \
@@ -99,7 +98,6 @@ struct ColumnVectorBatch;
         free(const_cast<char*>(bufferRef.data));                                         \
         bufferRef.data = new_ptr;                                                        \
         bufferRef.size = bufferRef.size + BUFFER_UNIT_SIZE;                              \
-        buffer_list.back() = bufferRef;                                                  \
     }
 
 namespace doris {
