@@ -59,6 +59,22 @@ suite("test_backup_restore_mv_write", "backup_restore") {
             vin
     """
 
+    def alter_finished = false
+    for (int i = 0; i < 60 && !alter_finished; i++) {
+        def result = sql_return_maparray "SHOW ALTER TABLE MATERIALIZED VIEW FROM ${dbName}"
+        logger.info("result: ${result}")
+        for (int j = 0; j < result.size(); j++) {
+            if (result[j]['TableName'] == "${tableNamePrefix}" &&
+                result[j]['RollupIndexName'] == "${viewName}" &&
+                result[j]['State'] == 'FINISHED') {
+                alter_finished = true
+                break
+            }
+        }
+        Thread.sleep(3000)
+    }
+    assertTrue(alter_finished);
+
     sql """
         BACKUP SNAPSHOT ${snapshotName}
         TO `${repoName}`
@@ -105,14 +121,14 @@ suite("test_backup_restore_mv_write", "backup_restore") {
     // DefineExpr: date_format(hours_add(`k2`, 1), '%Y-%m-%d %H:00:00')
     // WhereClause: (`k1` > '2025-06-12 00:00:00')
 
-    assertTrue(res0.toString() == res.toString())
+    assertEquals(res0.toString(), res.toString())
 
     sql "insert into ${tableNamePrefix} values (1, '2025-06-12 01:00:00', '2025-06-12 02:00:00', 'test_vin_0')"
     sql "insert into ${tableNamePrefix} values (2, '2025-06-13 02:00:00', '2025-06-13 03:00:00', 'test_vin_1')"
     sql "insert into ${tableNamePrefix} values (3, '2025-06-14 03:00:00', '2025-06-14 04:00:00', 'test_vin_2')"
 
     def select_res = sql "select * from ${tableNamePrefix}"
-    assertTrue(select_res.size() == 3)
+    assertEquals(select_res.size(), 3)
 
     sql "DROP REPOSITORY `${repoName}`"
 }
