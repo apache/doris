@@ -699,6 +699,7 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
@@ -5773,7 +5774,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
-            tableAlias = ctx.tableAlias().getText();
+            tableAlias = ctx.tableAlias().strictIdentifier().getText();
         }
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         List<String> hints = visitRelationHintContext(ctx.relationHint());
@@ -8244,6 +8245,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         Map<String, String> properties = visitPropertyClause(ctx.properties);
         return new BackupCommand(labelNameInfo, repoName, tableRefInfos, properties, isExclude);
+    }
+
+    @Override
+    public LogicalPlan visitRestore(DorisParser.RestoreContext ctx) {
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String snapshotName;
+        String dbName = null;
+        if (labelParts.size() == 1) {
+            snapshotName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            snapshotName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db_name>.]<snapshot_name>", ctx.label);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, snapshotName);
+        String repoName = ctx.repo.getText();
+        boolean isExclude = ctx.EXCLUDE() != null;
+        List<TableRefInfo> tableRefInfos = new ArrayList<>();
+        for (BaseTableRefContext baseTableRefContext : ctx.baseTableRef()) {
+            tableRefInfos.add(visitBaseTableRefContext(baseTableRefContext));
+        }
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+        return new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, isExclude);
     }
 
     @Override

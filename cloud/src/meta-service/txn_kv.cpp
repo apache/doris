@@ -96,7 +96,7 @@ TxnErrorCode FdbTxnKv::create_txn_with_system_access(std::unique_ptr<Transaction
 }
 
 std::unique_ptr<FullRangeGetIterator> FdbTxnKv::full_range_get(std::string begin, std::string end,
-                                                               FullRangeGetIteratorOptions opts) {
+                                                               FullRangeGetOptions opts) {
     return std::make_unique<fdb::FullRangeGetIterator>(std::move(begin), std::move(end),
                                                        std::move(opts));
 }
@@ -675,7 +675,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
 }
 
 FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
-                                           FullRangeGetIteratorOptions opts)
+                                           FullRangeGetOptions opts)
         : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {
     DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
     DCHECK(!opts_.txn || dynamic_cast<fdb::Transaction*>(opts_.txn)) << opts_.txn;
@@ -689,14 +689,18 @@ FullRangeGetIterator::~FullRangeGetIterator() {
 }
 
 bool FullRangeGetIterator::has_next() {
-    if (!is_valid_) {
+    if (!is_valid()) {
+        return false;
+    }
+
+    if (opts_.exact_limit > 0 && num_consumed_ >= opts_.exact_limit) {
         return false;
     }
 
     if (!inner_iter_) {
         // The first call
         init();
-        if (!is_valid_) {
+        if (!is_valid()) {
             return false;
         }
 
@@ -717,13 +721,13 @@ bool FullRangeGetIterator::has_next() {
 
     if (!fut_) {
         async_inner_get(inner_iter_->next_begin_key());
-        if (!is_valid_) {
+        if (!is_valid()) {
             return false;
         }
     }
 
     await_future();
-    return is_valid_ ? inner_iter_->has_next() : false;
+    return is_valid() ? inner_iter_->has_next() : false;
 }
 
 std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::next() {
@@ -731,19 +735,28 @@ std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterato
         return std::nullopt;
     }
 
+    num_consumed_++;
     return inner_iter_->next();
+}
+
+std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::peek() {
+    if (!has_next()) {
+        return std::nullopt;
+    }
+
+    return inner_iter_->peek();
 }
 
 void FullRangeGetIterator::await_future() {
     auto ret = fdb::await_future(fut_);
     if (ret != TxnErrorCode::TXN_OK) {
-        is_valid_ = false;
+        code_ = ret;
         return;
     }
 
     auto err = fdb_future_get_error(fut_);
     if (err) {
-        is_valid_ = false;
+        code_ = cast_as_txn_code(err);
         LOG(WARNING) << fdb_get_error(err);
         return;
     }
@@ -753,15 +766,12 @@ void FullRangeGetIterator::await_future() {
     }
     inner_iter_ = std::make_unique<RangeGetIterator>(fut_);
     fut_ = nullptr;
-
-    if (inner_iter_->init() != TxnErrorCode::TXN_OK) {
-        is_valid_ = false;
-    }
+    code_ = inner_iter_->init();
 }
 
 void FullRangeGetIterator::init() {
     async_inner_get(begin_);
-    if (!is_valid_) {
+    if (!is_valid()) {
         return;
     }
 
@@ -769,7 +779,8 @@ void FullRangeGetIterator::init() {
 }
 
 bool FullRangeGetIterator::prefetch() {
-    return opts_.prefetch && is_valid_ && !fut_ && inner_iter_->more();
+    return opts_.prefetch && is_valid() && !fut_ && inner_iter_->more() &&
+           (opts_.exact_limit <= 0 || num_consumed_ + inner_iter_->remaining() < opts_.exact_limit);
 }
 
 void FullRangeGetIterator::async_inner_get(std::string_view begin) {
@@ -782,7 +793,7 @@ void FullRangeGetIterator::async_inner_get(std::string_view begin) {
         // TODO(plat1ko): Async create txn
         TxnErrorCode err = opts_.txn_kv->create_txn(&txn1);
         if (err != TxnErrorCode::TXN_OK) {
-            is_valid_ = false;
+            code_ = err;
             return;
         }
 
@@ -791,9 +802,15 @@ void FullRangeGetIterator::async_inner_get(std::string_view begin) {
     }
 
     // TODO(plat1ko): Support `Transaction::async_get` api
+    int limit = std::max(opts_.batch_limit, 0);
+    if (opts_.exact_limit > 0) {
+        // If we have consumed some keys, we need to adjust the remaining limit.
+        int consumed = num_consumed_ + (inner_iter_ ? inner_iter_->remaining() : 0);
+        limit = std::min(limit, std::max(0, opts_.exact_limit - consumed));
+    }
     fut_ = fdb_transaction_get_range(
             txn->txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)begin.data(), begin.size()),
-            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end_.data(), end_.size()), opts_.limit,
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end_.data(), end_.size()), limit,
             0 /*target_bytes, unlimited*/, FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
             //       FDBStreamingMode::FDB_STREAMING_MODE_ITERATOR,
             0 /*iteration*/, opts_.snapshot, false /*reverse*/);

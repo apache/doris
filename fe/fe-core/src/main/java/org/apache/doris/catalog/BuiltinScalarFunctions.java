@@ -439,6 +439,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Time;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeToSec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
@@ -455,6 +456,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
@@ -948,6 +950,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SubstringIndex.class, "substring_index"),
             scalar(Tan.class, "tan"),
             scalar(Tanh.class, "tanh"),
+            scalar(Time.class, "time"),
             scalar(TimeDiff.class, "timediff"),
             scalar(TimeToSec.class, "time_to_sec"),
             scalar(Timestamp.class, "timestamp"),
@@ -965,6 +968,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToIpv6OrNull.class, "to_ipv6_or_null"),
             scalar(ToIso8601.class, "to_iso8601"),
             scalar(Tokenize.class, "tokenize"),
+            scalar(ToJson.class, "to_json"),
             scalar(ToMonday.class, "to_monday"),
             scalar(TopLevelDomain.class, "top_level_domain"),
             scalar(ToQuantileState.class, "to_quantile_state"),

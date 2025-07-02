@@ -60,7 +60,7 @@ public class FileSplit implements Split {
         this.modificationTime = modificationTime < 0 ? 0 : modificationTime;
         this.hosts = hosts == null ? new String[0] : hosts;
         this.partitionValues = partitionValues;
-        this.locationType = path.isBindBroker() ?  TFileType.FILE_BROKER : path.getTFileTypeForBE();
+        this.locationType = path.getTFileTypeForBE();
     }
 
     public String[] getHosts() {
@@ -78,7 +78,7 @@ public class FileSplit implements Split {
 
     @Override
     public String getPathString() {
-        return path.toString();
+        return path.getNormalizedLocation();
     }
 
     public static class FileSplitCreator implements SplitCreator {

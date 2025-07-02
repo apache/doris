@@ -1979,7 +1979,8 @@ TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
     std::stringstream final_json;
     final_json << "original_value_hex=" << hex(initial_rowset_meta.SerializeAsString()) << "\n"
                << "key_hex=" << hex(initial_key) << "\n"
-               << "original_value_json=" << proto_to_json(initial_rowset_meta) << "\n";
+               << "original_value_json=" << proto_to_json(initial_rowset_meta) << "\n"
+               << "changed_value_hex=" << hex(new_rowset_meta.SerializeAsString()) << "\n";
     // std::cout << "xxx " << final_json.str() << std::endl;
     EXPECT_EQ(response.body, final_json.str());
 

@@ -39,7 +39,6 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -64,7 +63,6 @@ import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
@@ -163,7 +161,6 @@ import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -555,11 +552,6 @@ public class Env {
 
     private QueryCancelWorker queryCancelWorker;
 
-    /**
-     * TODO(tsy): to be removed after load refactor
-     */
-    private final LoadManagerAdapter loadManagerAdapter;
-
     private StatisticsAutoCollector statisticsAutoCollector;
 
     private StatisticsJobAppender statisticsJobAppender;
@@ -829,7 +821,6 @@ public class Env {
         this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
-        this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
         this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
@@ -3492,10 +3483,6 @@ public class Env {
         return catalogIf.createTable(stmt);
     }
 
-    public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
-        getInternalCatalog().createTableAsSelect(stmt);
-    }
-
     /**
      * Adds a partition to a table
      *
@@ -6078,23 +6065,6 @@ public class Env {
      * otherwise, it will only truncate those specified partitions.
      *
      */
-    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
-        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
-                catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.truncateTable(stmt);
-    }
-
-    /*
-     * Truncate specified table or partitions.
-     * The main idea is:
-     *
-     * 1. using the same schema to create new table(partitions)
-     * 2. use the new created table(partitions) to replace the old ones.
-     *
-     * if no partition specified, it will truncate all partitions of this table, including all temp partitions,
-     * otherwise, it will only truncate those specified partitions.
-     *
-     */
     public void truncateTable(TruncateTableCommand command) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(command.getTableNameInfo().getCtl(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
@@ -6922,10 +6892,6 @@ public class Env {
 
     public StatisticsCleaner getStatisticsCleaner() {
         return statisticsCleaner;
-    }
-
-    public LoadManagerAdapter getLoadManagerAdapter() {
-        return loadManagerAdapter;
     }
 
     public QueryStats getQueryStats() {

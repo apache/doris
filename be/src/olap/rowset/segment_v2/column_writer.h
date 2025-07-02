@@ -67,7 +67,7 @@ struct ColumnWriterOptions {
     BloomFilterOptions bf_options;
     std::vector<const TabletIndex*> indexes; // unused
     const TabletIndex* inverted_index = nullptr;
-    InvertedIndexFileWriter* inverted_index_file_writer;
+    IndexFileWriter* index_file_writer = nullptr;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()

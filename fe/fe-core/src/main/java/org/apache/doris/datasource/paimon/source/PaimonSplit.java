@@ -22,7 +22,6 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.TableFormatType;
 
-import com.google.common.collect.Maps;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
@@ -32,7 +31,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class PaimonSplit extends FileSplit {
-    private static final LocationPath DUMMY_PATH = new LocationPath("/dummyPath", Maps.newHashMap());
+    private static final LocationPath DUMMY_PATH = LocationPath.of("/dummyPath");
     private DataSplit split;
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile = Optional.empty();
@@ -45,7 +44,7 @@ public class PaimonSplit extends FileSplit {
         this.tableFormatType = TableFormatType.PAIMON;
 
         List<DataFileMeta> dataFileMetas = split.dataFiles();
-        this.path = new LocationPath("/" + dataFileMetas.get(0).fileName());
+        this.path = LocationPath.of("/" + dataFileMetas.get(0).fileName());
         this.selfSplitWeight = dataFileMetas.stream().mapToLong(DataFileMeta::fileSize).sum();
 
     }

@@ -23,9 +23,9 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_schema.h"
@@ -126,9 +126,9 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, *index_path_prefix, std::string {rowset_id}, seg_id, format,
-                std::move(file_writer));
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
+                                                  seg_id, format, std::move(file_writer));
 
         // Get c2 column Field
         const TabletColumn& column = tablet_schema->column(1);
@@ -156,7 +156,7 @@ public:
     // Create an IndexSearcher from the created index
     std::shared_ptr<lucene::search::IndexSearcher> create_searcher(
             const std::string& index_path_prefix, const TabletIndex& idx_meta) {
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         auto status = reader->init();
         EXPECT_EQ(status, Status::OK());

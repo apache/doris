@@ -18,9 +18,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.NativeInsertStmt;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -169,27 +166,6 @@ public class GroupCommitPlanner {
 
     public long getBackendId() {
         return backendId;
-    }
-
-    public List<InternalService.PDataRow> getRows(NativeInsertStmt stmt) throws UserException {
-        List<InternalService.PDataRow> rows = new ArrayList<>();
-        SelectStmt selectStmt = (SelectStmt) (stmt.getQueryStmt());
-        if (selectStmt.getValueList() != null) {
-            for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                rows.add(getOneRow(row));
-            }
-        } else {
-            List<Expr> exprList = new ArrayList<>();
-            for (Expr resultExpr : selectStmt.getResultExprs()) {
-                if (resultExpr instanceof SlotRef) {
-                    exprList.add(((SlotRef) resultExpr).getDesc().getSourceExprs().get(0));
-                } else {
-                    exprList.add(resultExpr);
-                }
-            }
-            rows.add(getOneRow(exprList));
-        }
-        return rows;
     }
 
     private static InternalService.PDataRow getOneRow(List<Expr> row) throws UserException {
