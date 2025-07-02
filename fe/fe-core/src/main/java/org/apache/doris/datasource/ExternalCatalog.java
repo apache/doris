@@ -21,8 +21,6 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -1204,31 +1202,6 @@ public abstract class ExternalCatalog
             ret = true;
         }
         return ret;
-    }
-
-    @Override
-    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
-        makeSureInitialized();
-        if (metadataOps == null) {
-            throw new DdlException("Truncate table is not supported for catalog: " + getName());
-        }
-        try {
-            TableRef tableRef = stmt.getTblRef();
-            TableName tableName = tableRef.getName();
-            // delete all table data if null
-            List<String> partitions = null;
-            if (tableRef.getPartitionNames() != null) {
-                partitions = tableRef.getPartitionNames().getPartitionNames();
-            }
-            metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
-            TruncateTableInfo info = new TruncateTableInfo(getName(), tableName.getDb(), tableName.getTbl(),
-                    partitions);
-            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
-        } catch (Exception e) {
-            LOG.warn("Failed to truncate table {}.{} in catalog {}", stmt.getTblRef().getName().getDb(),
-                    stmt.getTblRef().getName().getTbl(), getName(), e);
-            throw e;
-        }
     }
 
     @Override
