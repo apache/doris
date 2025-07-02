@@ -293,7 +293,7 @@ suite("test_hive_statistic", "p0,external,hive,external_docker,external_docker_h
         def data_size_in_bytes = result[0][12]
         def update_time = result[0][13]
 
-        sql """insert into internal.__internal_schema.column_statistics values ('$id', '$catalog_id', '$db_id', '$tbl_id', '$idx_id', '$col_id', NULL, $count, $ndv, $null_count, '', '', '$data_size_in_bytes', '$update_time')"""
+        sql """insert into internal.__internal_schema.column_statistics values ('$id', '$catalog_id', '$db_id', '$tbl_id', '$idx_id', '$col_id', NULL, $count, $ndv, $null_count, '', '', '$data_size_in_bytes', '$update_time', null)"""
 
         result = sql """show column stats logs1_parquet (log_time)"""
         assertEquals(result.size(), 1)

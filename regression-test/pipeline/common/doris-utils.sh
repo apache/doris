@@ -295,7 +295,7 @@ deploy_doris_sql_converter() {
     fi
 }
 
-function restart_doris() {
+function _restart_doris() {
     if stop_doris; then echo; fi
     if ! start_doris_fe; then return 1; fi
     if ! start_doris_be; then return 1; fi
@@ -313,6 +313,11 @@ function restart_doris() {
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
     sleep 10s
+}
+
+function restart_doris() {
+    # restart BE may block on JVM_MonitorWait() for a long time, here try twice
+    _restart_doris || _restart_doris
 }
 
 function check_tpch_table_rows() {

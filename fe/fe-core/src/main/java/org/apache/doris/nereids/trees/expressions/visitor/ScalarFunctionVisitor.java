@@ -438,6 +438,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Time;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
@@ -453,6 +454,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
@@ -1504,6 +1506,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonbExtractString, context);
     }
 
+    default R visitToJson(ToJson toJson, C context) {
+        return visitScalarFunction(toJson, context);
+    }
+
     default R visitJsonbParse(JsonbParse jsonbParse, C context) {
         return visitScalarFunction(jsonbParse, context);
     }
@@ -2138,6 +2144,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTanh(Tanh tanh, C context) {
         return visitScalarFunction(tanh, context);
+    }
+
+    default R visitTime(Time time, C context) {
+        return visitScalarFunction(time, context);
     }
 
     default R visitTimeDiff(TimeDiff timeDiff, C context) {

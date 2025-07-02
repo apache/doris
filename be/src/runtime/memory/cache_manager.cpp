@@ -82,5 +82,12 @@ int64_t CacheManager::for_each_cache_refresh_capacity(double adjust_weighted,
     return freed_size;
 }
 
+void CacheManager::for_each_cache_reset_initial_capacity(double adjust_weighted) {
+    std::lock_guard<std::mutex> l(_caches_lock);
+    for (const auto& pair : _caches) {
+        pair.second->reset_initial_capacity(adjust_weighted);
+    }
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris

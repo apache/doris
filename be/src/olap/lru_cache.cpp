@@ -180,6 +180,10 @@ PrunedInfo LRUCache::set_capacity(size_t capacity) {
     LRUHandle* last_ref_list = nullptr;
     {
         std::lock_guard l(_mutex);
+        if (capacity > _capacity) {
+            _capacity = capacity;
+            return {0, 0};
+        }
         _capacity = capacity;
         _evict_from_lru(0, &last_ref_list);
     }

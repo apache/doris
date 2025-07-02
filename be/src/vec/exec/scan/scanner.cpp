@@ -101,10 +101,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
         }
     }
 
-#ifndef BE_TEST
-    int64_t old_scan_rows = _num_rows_read;
-    int64_t old_scan_bytes = _num_byte_read;
-#endif
     {
         do {
             // if step 2 filter all rows of block, and block will be reused to get next rows,
@@ -135,13 +131,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
         } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
-
-#ifndef BE_TEST
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(_num_rows_read -
-                                                                            old_scan_rows);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(_num_byte_read -
-                                                                             old_scan_bytes);
-#endif
 
     if (state->is_cancelled()) {
         // TODO: Should return the specific ErrorStatus instead of just Cancelled.
