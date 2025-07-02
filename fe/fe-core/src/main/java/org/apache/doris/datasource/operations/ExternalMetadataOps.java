@@ -44,23 +44,21 @@ public interface ExternalMetadataOps {
      * @throws DdlException
      */
     default void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
-        String localDbName = createDbImpl(dbName, ifNotExists, properties);
-        if (localDbName != null) {
-            afterCreateDb(localDbName);
-        }
+        createDbImpl(dbName, ifNotExists, properties);
+        afterCreateDb();
     }
 
     /**
      * create db in external metastore for nereids
+     *
      * @param dbName the remote name that will be created in remote metastore
      * @param ifNotExists
      * @param properties
-     * @return the local db name created, or null if not created(already exists)
      * @throws DdlException
      */
-    String createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException;
+    void createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException;
 
-    default void afterCreateDb(String dbName) {
+    default void afterCreateDb() {
     }
 
 
@@ -84,7 +82,7 @@ public interface ExternalMetadataOps {
     /**
      *
      * @param stmt
-     * @return if set isExists is true, return true if table exists, otherwise return false
+     * @return if isExists is true, return true if table exists, otherwise return false
      * @throws UserException
      */
     default boolean createTable(CreateTableStmt stmt) throws UserException {

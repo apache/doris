@@ -1051,7 +1051,12 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.createDb(dbName, ifNotExists, properties);
-            CreateDbInfo info = new CreateDbInfo(getName(), dbName, null);
+            DatabaseIf db = getDbNullable(dbName);
+            if (db == null) {
+                throw new DdlException("Failed to create database " + dbName + ", database not found after created");
+            }
+            // we should get the db stored in Doris, and use local name in edit log.
+            CreateDbInfo info = new CreateDbInfo(getName(), db.getFullName(), null);
             Env.getCurrentEnv().getEditLog().logCreateDb(info);
         } catch (Exception e) {
             LOG.warn("Failed to create database {} in catalog {}.", dbName, getName(), e);
@@ -1061,7 +1066,7 @@ public abstract class ExternalCatalog
 
     public void replayCreateDb(String dbName) {
         if (metadataOps != null) {
-            metadataOps.afterCreateDb(dbName);
+            metadataOps.afterCreateDb();
         }
     }
 
@@ -1097,7 +1102,10 @@ public abstract class ExternalCatalog
             boolean res = metadataOps.createTable(stmt);
             if (!res) {
                 // res == false means the table does not exist before, and we create it.
-                CreateTableInfo info = new CreateTableInfo(getName(), stmt.getDbName(), stmt.getTableName());
+                // we should get the table stored in Doris, and use local name in edit log.
+                ExternalTable tbl = getDbOrDdlException(stmt.getDbName()).getTableOrAnalysisException(
+                        stmt.getTableName());
+                CreateTableInfo info = new CreateTableInfo(getName(), tbl.getDbName(), tbl.getName());
                 Env.getCurrentEnv().getEditLog().logCreateTable(info);
             }
             return res;

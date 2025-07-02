@@ -94,12 +94,12 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public String createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
+    public void createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
         long dbId = Env.getCurrentEnv().getNextId();
         if (databaseExist(dbName)) {
             if (ifNotExists) {
                 LOG.info("create database[{}] which already exists", dbName);
-                return null;
+                return;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
             }
@@ -119,12 +119,10 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             throw new RuntimeException(e.getMessage(), e);
         }
         LOG.info("createDb dbName = " + dbName + ", id = " + dbId);
-        ExternalDatabase dorisDb = catalog.getDbOrDdlException(dbName);
-        return dorisDb.getFullName();
     }
 
     @Override
-    public void afterCreateDb(String dbName) {
+    public void afterCreateDb() {
         catalog.onRefreshCache(true);
     }
 

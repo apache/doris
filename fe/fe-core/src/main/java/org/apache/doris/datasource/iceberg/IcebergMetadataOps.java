@@ -134,7 +134,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
-
     @Override
     public List<String> listTableNames(String dbName) {
         try {
@@ -165,9 +164,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public String createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
+    public void createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
         try {
-            return preExecutionAuthenticator.execute(() -> performCreateDb(dbName, ifNotExists, properties));
+            preExecutionAuthenticator.execute(() -> {
+                performCreateDb(dbName, ifNotExists, properties);
+                return null;
+            });
         } catch (Exception e) {
             throw new DdlException("Failed to create database: "
                     + dbName + ": " + Util.getRootCauseMessage(e), e);
@@ -175,17 +177,17 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void afterCreateDb(String dbName) {
+    public void afterCreateDb() {
         dorisCatalog.onRefreshCache(true);
     }
 
-    private String performCreateDb(String dbName, boolean ifNotExists, Map<String, String> properties)
+    private void performCreateDb(String dbName, boolean ifNotExists, Map<String, String> properties)
             throws DdlException {
         SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         if (databaseExist(dbName)) {
             if (ifNotExists) {
                 LOG.info("create database[{}] which already exists", dbName);
-                return null;
+                return;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
             }
@@ -198,8 +200,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         nsCatalog.createNamespace(getNamespace(dbName), properties);
-        ExternalDatabase dorisDb = dorisCatalog.getDbOrDdlException(dbName);
-        return dorisDb.getFullName();
     }
 
     @Override
