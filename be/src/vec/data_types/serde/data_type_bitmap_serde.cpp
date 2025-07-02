@@ -219,6 +219,10 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
         if (cur_batch->notNull[row_id] == 1) {
             auto bitmap_value = const_cast<BitmapValue&>(col_data.get_element(row_id));
             size_t len = bitmap_value.getSizeInBytes();
+            if (offset > total_size) {
+                return Status::InternalError(
+                        "offset exceeds total size when write variant column data to orc file.");
+            }
             bitmap_value.write_to(const_cast<char*>(bufferRef.data) + offset);
             cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
             cur_batch->length[row_id] = len;

@@ -214,6 +214,10 @@ Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const 
         if (cur_batch->notNull[row_id] == 1) {
             auto hll_value = const_cast<HyperLogLog&>(col_data.get_element(row_id));
             size_t len = hll_value.max_serialized_size();
+            if (offset > total_size) {
+                return Status::InternalError(
+                        "offset exceeds total size when write variant column data to orc file.");
+            }
             hll_value.serialize((uint8_t*)(bufferRef.data) + offset);
             cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
             cur_batch->length[row_id] = len;

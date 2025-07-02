@@ -166,6 +166,11 @@ public:
             if (cur_batch->notNull[row_id] == 1) {
                 auto quantilestate_value = const_cast<QuantileState&>(col_data.get_element(row_id));
                 size_t len = quantilestate_value.get_serialized_size();
+                if (offset > total_size) {
+                    return Status::InternalError(
+                            "offset exceeds total size when write variant column data to orc "
+                            "file.");
+                }
                 quantilestate_value.serialize((uint8_t*)(bufferRef.data) + offset);
                 cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
                 cur_batch->length[row_id] = len;

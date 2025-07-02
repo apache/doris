@@ -316,6 +316,9 @@ Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
         const auto& serialized_value = serialized_values[i];
         size_t row_id = valid_row_indices[i];
         size_t len = serialized_value.length();
+        if (offset + len > total_size) {
+            return Status::InternalError("Buffer overflow when writing column data to ORC file.");
+        }
         memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
         cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
         cur_batch->length[row_id] = len;

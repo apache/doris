@@ -449,6 +449,11 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
             if (cur_batch->notNull[row_id] == 1) {
                 std::string value_str = fmt::format("{}", col_data[row_id]);
                 size_t len = value_str.size();
+                if (offset > total_size) {
+                    return Status::InternalError(
+                            "offset exceeds total size when write variant column data to orc "
+                            "file.");
+                }
                 strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
                 cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
                 cur_batch->length[row_id] = len;
