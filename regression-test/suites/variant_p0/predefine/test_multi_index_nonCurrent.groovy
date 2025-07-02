@@ -212,9 +212,10 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
             }
         }
     }
-
     tableName = "test_variant_predefine_types_with_multi_indexes"
     sql "DROP TABLE IF EXISTS ${tableName}"
+    def max_subcolumns_count = new Random().nextInt(10) + 1
+    sql "set global_variant_max_subcolumns_count = ${max_subcolumns_count}"
     sql """
         CREATE TABLE ${tableName} (
         `id` bigint NOT NULL AUTO_INCREMENT,
