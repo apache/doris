@@ -726,12 +726,9 @@ public class DateLiteral extends LiteralExpr {
         if (type.isDatetimeV2()) {
             int scale = ((ScalarType) type).getScalarScale();
             long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
-
-            if (scaledMicroseconds != 0) {
-                dateTimeChars[19] = '.';
-                fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
-                return new String(dateTimeChars, 0, 20 + scale);
-            }
+            dateTimeChars[19] = '.';
+            fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+            return new String(dateTimeChars, 0, 20 + scale);
         }
 
         return new String(dateTimeChars, 0, 19);

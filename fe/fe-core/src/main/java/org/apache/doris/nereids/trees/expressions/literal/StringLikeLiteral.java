@@ -286,9 +286,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         hour = hour == null ? "00" : hour;
         minute = minute == null ? "00" : minute;
         second = second == null ? "00" : second;
-        int scale = ((DateTimeV2Type) targetType).getScale();
-        fraction = fraction == null || fraction.equals(".")
-                ? "" : fraction.substring(0, Math.min(fraction.length(), scale + 1));
+        fraction = fraction == null || fraction.equals(".") ? "" : fraction;
         if (fraction.endsWith(".")) {
             fraction = fraction.substring(0, fraction.length() - 1);
         }
