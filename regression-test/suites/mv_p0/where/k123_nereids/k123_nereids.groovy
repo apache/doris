@@ -16,10 +16,11 @@
 // under the License.
 
 suite ("k123p_nereids") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS d_table; """
     sql """set enable_nereids_planner=true"""
-    // Virtual column will make mv rewrite fail, so we disable the rule
-    sql "set disable_nereids_rules='CONSTANT_PROPAGATION,PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN'"
+
     sql """
             create table d_table(
                 k1 int null,

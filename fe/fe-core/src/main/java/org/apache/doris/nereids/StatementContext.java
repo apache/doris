@@ -26,7 +26,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
@@ -200,7 +199,7 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
     // collected async mvs
     private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
-    // collected synv mvs
+    // collected sync mvs
     private final Set<MaterializedIndexMeta> candidateMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
@@ -216,7 +215,7 @@ public class StatementContext implements Closeable {
             = new TreeMap<>(new Pair.PairComparator<>());
     // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
     // the value is the auto-increment id in the cascades context
-    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
+    private final Map<List<String>, TableId> tableIdMapping = new LinkedHashMap<>();
     // Record the materialization statistics by id which is used for cost estimation.
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
@@ -268,9 +267,9 @@ public class StatementContext implements Closeable {
     // would be written in RBO phase
     private final BitSet needPreMvRewriteRuleMasks = new BitSet(RuleType.SENTINEL.ordinal());
     // if needed to rewrite in RBO phase, this would be set true
-    private boolean needPreRewrite = false;
+    private boolean needPreMvRewrite = false;
     // mark is rewritten in RBO phase, if rewritten in RBO phase should set true
-    private boolean preRewritten = false;
+    private boolean preMvRewritten = false;
 
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
@@ -841,13 +840,12 @@ public class StatementContext implements Closeable {
 
     /** Get table id with lazy */
     public TableId getTableId(TableIf tableIf) {
-        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
-        TableId tableId = this.tableIdMapping.get(tableIdentifier);
+        TableId tableId = this.tableIdMapping.get(tableIf.getFullQualifiers());
         if (tableId != null) {
             return tableId;
         }
         tableId = StatementScopeIdGenerator.newTableId();
-        this.tableIdMapping.put(tableIdentifier, tableId);
+        this.tableIdMapping.put(tableIf.getFullQualifiers(), tableId);
         return tableId;
     }
 
@@ -932,20 +930,20 @@ public class StatementContext implements Closeable {
         return needPreMvRewriteRuleMasks;
     }
 
-    public boolean isNeedPreRewrite() {
-        return needPreRewrite;
+    public boolean isNeedPreMvRewrite() {
+        return needPreMvRewrite;
     }
 
-    public void setNeedPreRewrite(boolean needPreRewrite) {
-        this.needPreRewrite = needPreRewrite;
+    public void setNeedPreMvRewrite(boolean needPreMvRewrite) {
+        this.needPreMvRewrite = needPreMvRewrite;
     }
 
-    public boolean isPreRewritten() {
-        return preRewritten;
+    public boolean isPreMvRewritten() {
+        return preMvRewritten;
     }
 
-    public void setPreRewritten(boolean preRewritten) {
-        this.preRewritten = preRewritten;
+    public void setPreMvRewritten(boolean preMvRewritten) {
+        this.preMvRewritten = preMvRewritten;
     }
 
     public Set<List<String>> getMaterializationRewrittenSuccessSet() {

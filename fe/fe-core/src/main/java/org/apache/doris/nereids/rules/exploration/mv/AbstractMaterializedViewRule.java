@@ -282,7 +282,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
-            // This is needed whenever by pre tbo mv rewrite or final cbo rewrite, because the following optimize
+            // This is needed whenever by pre rbo mv rewrite or final cbo rewrite, because the following optimize
             // has the partition prune, this is important for the baseTableNeedUnionPartitionNameSet.addAll code
             // in method calcInvalidPartitions, such as mv has 17, 18, 19 three partitions, 18 is invalid as insert data
             // get mv valid partitions is only 18(query only used 18), 17 and 19 should not be added on base table

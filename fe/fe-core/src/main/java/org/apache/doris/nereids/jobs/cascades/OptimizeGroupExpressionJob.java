@@ -70,10 +70,11 @@ public class OptimizeGroupExpressionJob extends Job {
 
     private List<Rule> getExplorationRules(CascadesContext cascadesContext) {
         Builder<Rule> ruleBuilder = ImmutableList.<Rule>builder().addAll(getJoinRules());
-        if (!MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
+        if (!MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())
+                || cascadesContext.getStatementContext().isPreMvRewritten()) {
             return ruleBuilder.build();
         }
-        if (cascadesContext.getStatementContext().isNeedPreRewrite()) {
+        if (cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             ruleBuilder.addAll(RuleSet.MATERIALIZED_VIEW_IN_RBO_RULES);
         } else {
             ruleBuilder.addAll(RuleSet.MATERIALIZED_VIEW_IN_CBO_RULES);

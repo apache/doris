@@ -23,8 +23,6 @@ suite("single_table_without_aggregate") {
     sql "set enable_materialized_view_rewrite=true"
     // TODO remove this variable after mv rewrite support defer materialized nodes
     sql 'set enable_two_phase_read_opt = false'
-    // Virtual column will make mv rewrite fail, so we disable the rule
-    sql """set disable_nereids_rules='PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN';"""
 
 
     sql """
