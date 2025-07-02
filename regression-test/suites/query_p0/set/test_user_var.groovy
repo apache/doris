@@ -32,4 +32,57 @@ suite("test_user_var") {
     qt_select6 'select @a1'
     sql "SET @a1 = 1"
     qt_select7 'select @A1'
+
+    sql """drop table if exists orders"""
+
+    sql """
+    CREATE TABLE IF NOT EXISTS orders  (
+      o_orderkey       INTEGER NOT NULL,
+      o_custkey        INTEGER NOT NULL,
+      o_orderstatus    CHAR(1) NOT NULL,
+      o_totalprice     DECIMALV3(15,2) NOT NULL,
+      o_orderdate      DATE NOT NULL,
+      o_orderpriority  CHAR(15) NOT NULL,  
+      o_clerk          CHAR(15) NOT NULL, 
+      o_shippriority   INTEGER NOT NULL,
+      O_COMMENT        VARCHAR(79) NOT NULL
+    )
+    DUPLICATE KEY(o_orderkey, o_custkey)
+    DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
+    PROPERTIES (
+      "replication_num" = "1"
+    );
+    """
+
+    sql """
+    insert into orders values
+    (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
+    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
+    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
+    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
+    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
+    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
+    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 33.5, '2023-12-10', 'a', 'b', 1, 'yy'),
+    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
+    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
+    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
+    (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi'); 
+    """
+
+    sql """set @ship_no = 1; """
+
+    // o_shippriority AND @ship_no type should be int, should not add cast to type coercion
+    explain {
+        sql """select * from orders where o_shippriority = @ship_no;"""
+        notContains "cast"
+        notContains "CAST"
+    }
+
 }

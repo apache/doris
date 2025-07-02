@@ -575,7 +575,9 @@ public class ConnectContext {
             if (literalExpr instanceof BoolLiteral) {
                 return Literal.of(((BoolLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof IntLiteral) {
-                return Literal.of(((IntLiteral) literalExpr).getValue());
+                // the value in the IntLiteral should be int, but now is long in old planner literalExpr
+                // so type coercion to generate right new planner int Literal
+                return Literal.of((int)((IntLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof FloatLiteral) {
                 return Literal.of(((FloatLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof DecimalLiteral) {
