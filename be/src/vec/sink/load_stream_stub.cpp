@@ -342,6 +342,8 @@ Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) 
         return _status;
     }
     if (state->get_query_ctx()->is_cancelled()) {
+        LOG(WARNING) << "stream " << _stream_id << " is cancelled, load_id=" << print_id(_load_id)
+                     << ", cancel_reason: " << state->get_query_ctx()->cancel_reason();
         return state->get_query_ctx()->exec_status();
     }
     if (_is_closed.load()) {

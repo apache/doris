@@ -738,11 +738,20 @@ Status VTabletWriterV2::_close_wait(
     auto streams_for_node = _load_stream_map->get_streams_for_node();
     while (true) {
         RETURN_IF_ERROR(_check_timeout());
-        RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, _state, streams_for_node));
+        RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
         if (!status.ok() || unfinished_streams.empty()) {
             LOG(INFO) << "is all unfinished: " << unfinished_streams.empty()
                       << ", status: " << status << ", txn_id: " << _txn_id
                       << ", load_id: " << print_id(_load_id);
+            break;
+        }
+        if (_timeout_watch.elapsed_time() / 1000 / 1000 > 1000 * 60) {
+            LOG(WARNING) << "close_wait timeout, load_id=" << print_id(_load_id)
+                         << ", txn_id=" << _txn_id
+                         << ", unfinished_streams: " << unfinished_streams.size()
+                         << ", status: " << status
+                         << ", is_cancelled: " << _state->get_query_ctx()->is_cancelled()
+                         << ", cancel_reason: " << _state->get_query_ctx()->cancel_reason();
             break;
         }
         bthread_usleep(1000 * 10);
