@@ -71,7 +71,8 @@ int main(int argc, char** argv) {
             doris::TabletSchemaCache::create_global_schema_cache(
                     doris::config::tablet_schema_cache_capacity));
     doris::ExecEnv::GetInstance()->set_delete_bitmap_agg_cache(
-            doris::DeleteBitmapAggCache::create_instance());
+            doris::DeleteBitmapAggCache::create_instance(
+                    doris::config::delete_bitmap_agg_cache_capacity));
     doris::ExecEnv::GetInstance()->set_tablet_column_object_pool(
             doris::TabletColumnObjectPool::create_global_column_cache(
                     doris::config::tablet_schema_cache_capacity));

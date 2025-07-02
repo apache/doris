@@ -370,7 +370,7 @@ public:
 
     static DeleteBitmapAggCache* instance();
 
-    static DeleteBitmapAggCache* create_instance();
+    static DeleteBitmapAggCache* create_instance(size_t capacity);
 
     class Value : public LRUCacheValueBase {
     public:

@@ -335,7 +335,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     _tablet_schema_cache =
             TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
-    _delete_bitmap_agg_cache = DeleteBitmapAggCache::create_instance();
 
     _tablet_column_object_pool = TabletColumnObjectPool::create_global_column_cache(
             config::tablet_schema_cache_capacity);
@@ -585,6 +584,16 @@ Status ExecEnv::_init_mem_env() {
 
     _query_cache = QueryCache::create_global_cache(config::query_cache_size * 1024L * 1024L);
     LOG(INFO) << "query cache memory limit: " << config::query_cache_size << "MB";
+
+    // The default delete bitmap cache is set to 100MB,
+    // which can be insufficient and cause performance issues when the amount of user data is large.
+    // To mitigate the problem of an inadequate cache,
+    // we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _delete_bitmap_agg_cache = DeleteBitmapAggCache::create_instance(std::max(
+            delete_bitmap_agg_cache_cache_limit, config::delete_bitmap_agg_cache_capacity));
 
     return Status::OK();
 }

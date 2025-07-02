@@ -1095,17 +1095,8 @@ DeleteBitmapAggCache* DeleteBitmapAggCache::instance() {
     return ExecEnv::GetInstance()->delete_bitmap_agg_cache();
 }
 
-DeleteBitmapAggCache* DeleteBitmapAggCache::create_instance() {
-    // The default delete bitmap cache is set to 100MB,
-    // which can be insufficient and cause performance issues when the amount of user data is large.
-    // To mitigate the problem of an inadequate cache,
-    // we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
-    bool is_percent = false;
-    int64_t delete_bitmap_agg_cache_cache_limit =
-            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
-                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
-    return new DeleteBitmapAggCache(std::max(delete_bitmap_agg_cache_cache_limit,
-                                             config::delete_bitmap_agg_cache_capacity));
+DeleteBitmapAggCache* DeleteBitmapAggCache::create_instance(size_t capacity) {
+    return new DeleteBitmapAggCache(capacity);
 }
 
 DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {}
