@@ -26,6 +26,7 @@
 #include "olap/page_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_column_object_pool.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
