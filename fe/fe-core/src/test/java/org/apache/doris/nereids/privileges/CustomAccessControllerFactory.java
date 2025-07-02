@@ -15,19 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.privilege;
+package org.apache.doris.nereids.privileges;
+
+import org.apache.doris.mysql.privilege.AccessControllerFactory;
+import org.apache.doris.mysql.privilege.CatalogAccessController;
 
 import java.util.Map;
 
-public interface AccessControllerFactory {
-    /**
-     * Returns the identifier for the factory, such as "range-doris".
-     *
-     * @return the factory identifier
-     */
-    default String factoryIdentifier() {
-        return this.getClass().getSimpleName();
+public class CustomAccessControllerFactory implements AccessControllerFactory {
+    @Override
+    public String factoryIdentifier() {
+        return "CustomAccess";
     }
 
-    CatalogAccessController createAccessController(Map<String, String> prop);
+    @Override
+    public CatalogAccessController createAccessController(Map<String, String> prop) {
+        return new TestCheckPrivileges.SimpleCatalogAccessController();
+    }
 }

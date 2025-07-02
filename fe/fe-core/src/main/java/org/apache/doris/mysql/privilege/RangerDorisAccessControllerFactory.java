@@ -17,17 +17,18 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
+
 import java.util.Map;
 
-public interface AccessControllerFactory {
-    /**
-     * Returns the identifier for the factory, such as "range-doris".
-     *
-     * @return the factory identifier
-     */
-    default String factoryIdentifier() {
-        return this.getClass().getSimpleName();
+public class RangerDorisAccessControllerFactory implements AccessControllerFactory {
+    @Override
+    public String factoryIdentifier() {
+        return "ranger-doris";
     }
 
-    CatalogAccessController createAccessController(Map<String, String> prop);
+    @Override
+    public RangerDorisAccessController createAccessController(Map<String, String> prop) {
+        return new RangerDorisAccessController("doris");
+    }
 }
