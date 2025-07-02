@@ -184,7 +184,6 @@ struct VectorEndsWithSearchState : public VectorPatternSearchState {
 };
 
 Status LikeSearchState::clone(LikeSearchState& cloned) {
-    cloned.escape_char = escape_char;
     cloned.set_search_string(search_string);
 
     std::string re_pattern;
@@ -728,40 +727,25 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
         re_pattern->append("^");
     }
 
-    bool is_escaped = false;
-    // expect % and _, all chars should keep it literal means.
-    for (char i : pattern) {
-        if (is_escaped) { // last is \, this should be escape
+    // expect % and _, all chars should keep it literal mean.
+    for (size_t i = 0; i < pattern.size(); i++) {
+        if (pattern[i] == LikeSearchState::escape_char && i + 1 < pattern.size() &&
+            (pattern[i + 1] == '%' || pattern[i + 1] == '_')) {
+            // convert "\%" and "\_" to literal "%" and "_"
+            re_pattern->append(1, pattern[i + 1]);
+            i++;
+        } else if (pattern[i] == '%') {
+            re_pattern->append(".*");
+        } else if (pattern[i] == '_') {
+            re_pattern->append(".");
+        } else {
+            // special for hyperscan: [, ], (, ), {, }, -, *, +, \, |, /, :, ^, ., $, ?
             if (i == '[' || i == ']' || i == '(' || i == ')' || i == '{' || i == '}' || i == '-' ||
                 i == '*' || i == '+' || i == '\\' || i == '|' || i == '/' || i == ':' || i == '^' ||
                 i == '.' || i == '$' || i == '?') {
                 re_pattern->append(1, '\\');
-            } else if (i != '%' && i != '_') {
-                re_pattern->append(2, '\\');
             }
             re_pattern->append(1, i);
-            is_escaped = false;
-        } else {
-            switch (i) {
-            case '%':
-                re_pattern->append(".*");
-                break;
-            case '_':
-                re_pattern->append(".");
-                break;
-            default:
-                is_escaped = i == state->escape_char;
-                if (!is_escaped) {
-                    // special for hyperscan: [, ], (, ), {, }, -, *, +, \, |, /, :, ^, ., $, ?
-                    if (i == '[' || i == ']' || i == '(' || i == ')' || i == '{' || i == '}' ||
-                        i == '-' || i == '*' || i == '+' || i == '\\' || i == '|' || i == '/' ||
-                        i == ':' || i == '^' || i == '.' || i == '$' || i == '?') {
-                        re_pattern->append(1, '\\');
-                    }
-                    re_pattern->append(1, i);
-                }
-                break;
-            }
         }
     }
 
@@ -775,6 +759,8 @@ void FunctionLike::remove_escape_character(std::string* search_string) {
     std::string tmp_search_string;
     tmp_search_string.swap(*search_string);
     int len = tmp_search_string.length();
+    // sometime 'like' may allowed converted to 'equals/start_with/end_with/sub_with'
+    // so we need to remove escape from pattern to construct search string and use to do 'equals/start_with/end_with/sub_with'
     for (int i = 0; i < len;) {
         if (tmp_search_string[i] == '\\' && i + 1 < len &&
             (tmp_search_string[i + 1] == '%' || tmp_search_string[i + 1] == '_' ||
