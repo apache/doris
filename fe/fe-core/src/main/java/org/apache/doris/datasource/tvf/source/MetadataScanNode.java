@@ -99,9 +99,4 @@ public class MetadataScanNode extends ExternalScanNode {
         }
         return scanRangeLocations;
     }
-
-    @Override
-    public boolean needToCheckColumnPriv() {
-        return false;
-    }
 }

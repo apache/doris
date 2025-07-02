@@ -68,21 +68,12 @@ public abstract class ExternalScanNode extends ScanNode {
         numNodes = backendPolicy.numBackends();
     }
 
-    public FederationBackendPolicy getBackendPolicy() {
-        return backendPolicy;
-    }
-
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
         }
         return scanRangeLocations;
-    }
-
-    @Override
-    public boolean needToCheckColumnPriv() {
-        return this.needCheckColumnPriv;
     }
 
     @Override

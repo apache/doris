@@ -157,6 +157,7 @@ public:
 
     CacheType type() { return _type; }
     size_t initial_capacity() const { return _initial_capacity; }
+    virtual int64_t reset_initial_capacity(double adjust_weighted) = 0;
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 

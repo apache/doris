@@ -23,8 +23,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprId;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -57,7 +55,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -251,21 +248,12 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return id;
     }
 
-    public void setId(PlanNodeId id) {
-        Preconditions.checkState(this.id == null);
-        this.id = id;
-    }
-
     public PlanFragmentId getFragmentId() {
         return fragment.getFragmentId();
     }
 
     public int getFragmentSeqenceNum() {
         return fragment.getFragmentSequenceNum();
-    }
-
-    public void setFragmentId(PlanFragmentId id) {
-        fragmentId = id;
     }
 
     public void setFragment(PlanFragment fragment) {
@@ -348,10 +336,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public ArrayList<TupleId> getTblRefIds() {
-        return tblRefIds;
-    }
-
-    public ArrayList<TupleId> getOutputTblRefIds() {
         return tblRefIds;
     }
 
@@ -650,35 +634,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
     }
 
-    /**
-     * This function will calculate the cardinality when the old join reorder algorithm is enabled.
-     * This value is used to determine the distributed way(broadcast of shuffle) of join in the distributed planning.
-     *
-     * If the new join reorder and the old join reorder have the same cardinality calculation method,
-     *   also the calculation is completed in the init(),
-     *   there is no need to override this function.
-     */
-    protected void computeOldCardinality() {
-    }
-
     protected void capCardinalityAtLimit() {
         if (hasLimit()) {
             cardinality = cardinality == -1 ? limit : Math.min(cardinality, limit);
         }
-    }
-
-    protected ExprSubstitutionMap outputSmap;
-
-    // global state of planning wrt conjunct assignment; used by planner as a shortcut
-    // to avoid having to pass assigned conjuncts back and forth
-    // (the planner uses this to save and reset the global state in between join tree
-    // alternatives)
-    protected Set<ExprId> assignedConjuncts;
-
-    protected ExprSubstitutionMap withoutTupleIsNullOutputSmap;
-
-    public ExprSubstitutionMap getOutputSmap() {
-        return outputSmap;
     }
 
     public void init() throws UserException {}
@@ -817,67 +776,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     /**
-     * Returns the estimated combined selectivity of all conjuncts. Uses heuristics to
-     * address the following estimation challenges:
-     * 1. The individual selectivities of conjuncts may be unknown.
-     * 2. Two selectivities, whether known or unknown, could be correlated. Assuming
-     * independence can lead to significant underestimation.
-     * <p>
-     * The first issue is addressed by using a single default selectivity that is
-     * representative of all conjuncts with unknown selectivities.
-     * The second issue is addressed by an exponential backoff when multiplying each
-     * additional selectivity into the final result.
-     */
-    protected static double computeCombinedSelectivity(List<Expr> conjuncts) {
-        // Collect all estimated selectivities.
-        List<Double> selectivities = new ArrayList<>();
-        for (Expr e : conjuncts) {
-            if (e.hasSelectivity()) {
-                selectivities.add(e.getSelectivity());
-            }
-        }
-        if (selectivities.size() != conjuncts.size()) {
-            // Some conjuncts have no estimated selectivity. Use a single default
-            // representative selectivity for all those conjuncts.
-            selectivities.add(Expr.DEFAULT_SELECTIVITY);
-        }
-        // Sort the selectivities to get a consistent estimate, regardless of the original
-        // conjunct order. Sort in ascending order such that the most selective conjunct
-        // is fully applied.
-        Collections.sort(selectivities);
-        double result = 1.0;
-        // selectivity = 1 * (s1)^(1/1) * (s2)^(1/2) * ... * (sn-1)^(1/(n-1)) * (sn)^(1/n)
-        for (int i = 0; i < selectivities.size(); ++i) {
-            // Exponential backoff for each selectivity multiplied into the final result.
-            result *= Math.pow(selectivities.get(i), 1.0 / (double) (i + 1));
-        }
-        // Bound result in [0, 1]
-        return Math.max(0.0, Math.min(1.0, result));
-    }
-
-    protected double computeSelectivity() {
-        for (Expr expr : conjuncts) {
-            expr.setSelectivity();
-        }
-        return computeCombinedSelectivity(conjuncts);
-    }
-
-    /**
-     * Compute the product of the selectivity of all conjuncts.
-     * This function is used for old cardinality in finalize()
-     */
-    protected double computeOldSelectivity() {
-        double prod = 1.0;
-        for (Expr e : conjuncts) {
-            if (e.getSelectivity() < 0) {
-                return -1.0;
-            }
-            prod *= e.getSelectivity();
-        }
-        return prod;
-    }
-
-    /**
      * find planNode recursively based on the planNodeId
      */
     public static PlanNode findPlanNodeFromPlanNodeId(PlanNode root, PlanNodeId id) {
@@ -957,10 +855,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public List<Expr> getProjectList() {
         return projectList;
-    }
-
-    public void setConjuncts(Set<Expr> exprs) {
-        conjuncts = new ArrayList<>(exprs);
     }
 
     public void setCardinalityAfterFilter(long cardinalityAfterFilter) {

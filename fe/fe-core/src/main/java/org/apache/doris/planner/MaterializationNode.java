@@ -179,30 +179,6 @@ public class MaterializationNode extends PlanNode {
         isTopMaterializeNode = topMaterializeNode;
     }
 
-    public TupleDescriptor getMaterializeTupleDescriptor() {
-        return materializeTupleDescriptor;
-    }
-
-    public List<Expr> getRowIds() {
-        return rowIds;
-    }
-
-    public List<List<Column>> getLazyColumns() {
-        return lazyColumns;
-    }
-
-    public List<List<Integer>> getLocations() {
-        return locations;
-    }
-
-    public List<Boolean> getRowStoreFlags() {
-        return rowStoreFlags;
-    }
-
-    public boolean isTopMaterializeNode() {
-        return isTopMaterializeNode;
-    }
-
     @Override
     public boolean isSerialOperator() {
         return true;

@@ -15,12 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <memory>
+
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_variant.h"
 #include "vec/columns/common_column_test.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris::vectorized {
@@ -60,6 +66,59 @@ TEST_F(ColumnObjectTest, permute) {
     assert_column_vector_permute(columns, 1);
     assert_column_vector_permute(columns, column_variant->size());
     assert_column_vector_permute(columns, UINT64_MAX);
+}
+
+// test ColumnVariant with ColumnNothing using update_hash_with_value
+TEST_F(ColumnObjectTest, updateHashValueWithColumnNothingTest) {
+    // Create a subcolumn with ColumnNothing type
+    auto type = std::make_shared<DataTypeNothing>();
+    auto column = type->create_column();
+    column->insert_many_defaults(3);
+    // Create a ColumnVariant with a subcolumn that contains ColumnNothing
+    auto variant = ColumnVariant::create(true, type, std::move(column));
+
+    // Finalize the variant column to ensure proper structure
+    EXPECT_EQ(variant->size(), 3);
+
+    // Test update_hash_with_value with ColumnNothing
+    SipHash hash1, hash2, hash3;
+
+    // Test that update_hash_with_value doesn't crash with ColumnNothing
+    EXPECT_NO_THROW(variant->update_hash_with_value(0, hash1));
+    EXPECT_NO_THROW(variant->update_hash_with_value(1, hash2));
+    EXPECT_NO_THROW(variant->update_hash_with_value(2, hash3));
+
+    // For ColumnNothing, the hash should be consistent since it doesn't contain actual data
+    // However, the hash might include structural information, so we just verify it doesn't crash
+    // and produces some hash value
+    EXPECT_NE(hash1.get64(), 0);
+    EXPECT_NE(hash2.get64(), 0);
+    EXPECT_NE(hash3.get64(), 0);
+
+    // Test update_hashes_with_value with ColumnNothing
+    std::vector<uint64_t> hashes(3, 0);
+    EXPECT_NO_THROW(variant->update_hashes_with_value(hashes.data()));
+
+    // Test update_xxHash_with_value with ColumnNothing
+    uint64_t xxhash = 0;
+    EXPECT_NO_THROW(variant->update_xxHash_with_value(0, 3, xxhash, nullptr));
+
+    // Test update_crc_with_value with ColumnNothing
+    uint32_t crc_hash = 0;
+    EXPECT_NO_THROW(variant->update_crc_with_value(0, 3, crc_hash, nullptr));
+
+    // Test with null map
+    std::vector<uint8_t> null_map(3, 0);
+    null_map[1] = 1; // Mark second row as null
+
+    std::vector<uint64_t> hashes_with_null(3, 0);
+    EXPECT_NO_THROW(variant->update_hashes_with_value(hashes_with_null.data(), null_map.data()));
+
+    uint64_t xxhash_with_null = 0;
+    EXPECT_NO_THROW(variant->update_xxHash_with_value(0, 3, xxhash_with_null, null_map.data()));
+
+    uint32_t crc_hash_with_null = 0;
+    EXPECT_NO_THROW(variant->update_crc_with_value(0, 3, crc_hash_with_null, null_map.data()));
 }
 
 // TEST

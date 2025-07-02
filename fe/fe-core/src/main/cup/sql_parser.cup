@@ -6707,13 +6707,6 @@ admin_stmt ::=
     :}
     ;
 
-truncate_stmt ::=
-    KW_TRUNCATE KW_TABLE base_table_ref:tblRef opt_force:force
-    {:
-        RESULT = new TruncateTableStmt(tblRef, force);
-    :}
-    ;
-
 transaction_label ::=
     /* empty */
     {:
