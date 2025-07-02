@@ -391,6 +391,7 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
         }
     }
 }
+
 /*TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
     auto mock_dir = std::make_shared<MockDorisFSDirectoryOpenInput>();
     std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
