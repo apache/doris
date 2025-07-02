@@ -658,3 +658,4 @@ TEST_F(InvertedIndexFileWriterTest, CopyFileEmptyFileTest) {
 }
 
 } // namespace doris::segment_v2
+}
