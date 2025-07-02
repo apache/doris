@@ -217,9 +217,7 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .getFsViewProcessor(hmsTable.getCatalog())
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
-        if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
-            params.setHistorySchemaInfo(new ConcurrentHashMap<>());
-        }
+        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
     }
 
     @Override

@@ -63,7 +63,6 @@ import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
@@ -6053,23 +6052,6 @@ public class Env {
 
         LOG.info("finished dumping image to {}", dumpFilePath);
         return dumpFilePath;
-    }
-
-    /*
-     * Truncate specified table or partitions.
-     * The main idea is:
-     *
-     * 1. using the same schema to create new table(partitions)
-     * 2. use the new created table(partitions) to replace the old ones.
-     *
-     * if no partition specified, it will truncate all partitions of this table, including all temp partitions,
-     * otherwise, it will only truncate those specified partitions.
-     *
-     */
-    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
-        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
-                catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.truncateTable(stmt);
     }
 
     /*

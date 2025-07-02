@@ -80,7 +80,6 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
@@ -209,8 +208,6 @@ public class DdlExecutor {
             env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
-        } else if (ddlStmt instanceof TruncateTableStmt) {
-            env.truncateTable((TruncateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             env.setConfig((AdminSetConfigStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {
