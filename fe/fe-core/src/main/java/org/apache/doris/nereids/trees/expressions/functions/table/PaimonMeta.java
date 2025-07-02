@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * paimon meta
+ * Table-valued function for accessing Paimon metadata tables.
  */
 public class PaimonMeta extends TableValuedFunction {
 

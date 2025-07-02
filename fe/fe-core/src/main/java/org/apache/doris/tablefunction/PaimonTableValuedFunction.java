@@ -45,6 +45,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * Table-valued function for querying Paimon system tables metadata.
+ */
 public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
     public static final String NAME = "paimon_meta";
     public static final String TABLE = "table";
@@ -63,6 +66,13 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
     private final long dbId;
     private final long tblId;
 
+    /**
+     * Creates a new Paimon table-valued function instance.
+     *
+     * @param paimonTableName the target Paimon table name
+     * @param queryType the type of metadata query to perform
+     * @throws AnalysisException if table validation or initialization fails
+     */
     public PaimonTableValuedFunction(TableName paimonTableName, String queryType) throws AnalysisException {
         this.queryType = queryType;
         CatalogIf<?> dorisCatalog = Env.getCurrentEnv()
