@@ -608,6 +608,43 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     }
 
     {
+        // Peek
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 11;
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        ASSERT_TRUE(it->is_valid());
+
+        // 1. Peek the first element without next
+        auto&& kvp = it->peek();
+        ASSERT_TRUE(kvp.has_value());
+        auto [k, v] = *kvp;
+        std::string expected(prefix);
+        encode_int64(0, &expected);
+        EXPECT_EQ(k, expected);
+        EXPECT_EQ(v, "0");
+
+        int cnt = 0;
+        for (auto kvp = it->peek(); kvp.has_value(); kvp = it->peek()) {
+            auto [k, v] = *kvp;
+            EXPECT_EQ(v, std::to_string(cnt));
+
+            // 2. Peek the next element is equal to the peeked element
+            auto&& kvp2 = it->next();
+            ASSERT_TRUE(kvp2.has_value());
+            auto [k2, v2] = *kvp2;
+            EXPECT_EQ(k2, k);
+            EXPECT_EQ(v2, v);
+
+            ++cnt;
+            // Total cost: 100ms * 100 = 10s > fdb txn timeout 5s, however we create a new transaction
+            // in each inner range get
+            std::this_thread::sleep_for(100ms);
+        }
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 100);
+    }
+
+    {
         // With limitation
         FullRangeGetOptions opts(txn_kv);
         opts.batch_limit = 110;
