@@ -36,11 +36,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 public class PaimonTableCache {
-    private static final Logger LOG = LoggerFactory.getLogger(PaimonTableCache.class);
     // Max cache num of paimon table
     public static final long max_external_schema_cache_num = 50;
     // The expiration time of a cache object after last access of it.
     public static final long external_cache_expire_time_minutes_after_access = 100;
+
+    private static final Logger LOG = LoggerFactory.getLogger(PaimonTableCache.class);
 
     private static LoadingCache<PaimonTableCacheKey, TableExt> tableCache = CacheBuilder.newBuilder()
             .maximumSize(max_external_schema_cache_num)
@@ -204,16 +205,16 @@ public class PaimonTableCache {
 
         @Override
         public String toString() {
-            return "PaimonTableCacheKey{" +
-                    "ctlId=" + ctlId +
-                    ", dbId=" + dbId +
-                    ", tblId=" + tblId +
-                    ", paimonOptionParams=" + paimonOptionParams +
-                    ", hadoopOptionParams=" + hadoopOptionParams +
-                    ", dbName='" + dbName + '\'' +
-                    ", tblName='" + tblName + '\'' +
-                    ", queryType='" + queryType + '\'' +
-                    '}';
+            return "PaimonTableCacheKey{"
+                    + "ctlId=" + ctlId
+                    + ", dbId=" + dbId
+                    + ", tblId=" + tblId
+                    + ", paimonOptionParams=" + paimonOptionParams
+                    + ", hadoopOptionParams=" + hadoopOptionParams
+                    + ", dbName='" + dbName + '\''
+                    + ", tblName='" + tblName + '\''
+                    + ", queryType='" + queryType + '\''
+                    + '}';
         }
     }
 
