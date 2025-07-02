@@ -288,7 +288,7 @@ public class CacheAnalyzer {
 
     private List<CacheTable> buildCacheTableList() {
         try {
-            //Check the last version time of the table
+            // Check the last version time of the table
             MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
             long olapScanNodeSize = 0;
             long hiveScanNodeSize = 0;
@@ -317,16 +317,6 @@ public class CacheAnalyzer {
             List<CacheTable> tblTimeList = Lists.newArrayList();
             for (int i = 0; i < scanNodes.size(); i++) {
                 ScanNode node = scanNodes.get(i);
-                if (enablePartitionCache()
-                        && (node instanceof OlapScanNode)
-                        && ((OlapScanNode) node).getSelectedPartitionNum() > 1) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("more than one partition scanned when qeury has agg, "
-                                        + "partition cache cannot use, queryid {}",
-                                DebugUtil.printId(queryId));
-                    }
-                    return Collections.emptyList();
-                }
                 CacheTable cTable = node instanceof OlapScanNode
                         ? buildCacheTableForOlapScanNode((OlapScanNode) node)
                         : buildCacheTableForHiveScanNode((HiveScanNode) node);
