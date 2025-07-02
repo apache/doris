@@ -25,7 +25,7 @@
 #include <thread>
 
 #include "common/logging.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/txn_kv.h"
 
 namespace doris::cloud {
 

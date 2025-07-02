@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "meta-service/keys.h"
+#include "meta-store/keys.h"
 
 #include <bthread/bthread.h>
 #include <bthread/countdown_event.h>

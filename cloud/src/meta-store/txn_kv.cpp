@@ -39,7 +39,7 @@
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/txn_kv_error.h"
 
 // =============================================================================
 //  FoundationDB implementation of TxnKv

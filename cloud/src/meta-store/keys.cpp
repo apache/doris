@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "keys.h"
+#include "meta-store/keys.h"
 
-#include "codec.h"
+#include "meta-store/codec.h"
 
 namespace doris::cloud {
 
