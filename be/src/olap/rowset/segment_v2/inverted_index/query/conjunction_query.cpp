@@ -46,7 +46,7 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
             throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
         }
 
-        auto iter = TermIterator::create(_context._io_ctx, _searcher->getReader(),
+        auto iter = TermIterator::create(_context->io_ctx, _searcher->getReader(),
                                          query_info.field_name, term_info.get_single_term());
         _iterators.emplace_back(std::move(iter));
     }
@@ -83,11 +83,12 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
 }
 
 void ConjunctionQuery::pre_search(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.empty()) {
+    if (query_info.term_infos.empty()) {
         return;
     }
 
-    QueryHelper::query_statistics(_context, _searcher, query_info.field_name, query_info.terms);
+    QueryHelper::query_statistics(_context, _searcher, query_info.field_name,
+                                  query_info.term_infos);
 }
 
 void ConjunctionQuery::search(roaring::Roaring& roaring) {

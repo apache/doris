@@ -665,13 +665,27 @@ Status ColumnReader::_load_index_index(const std::shared_ptr<IndexFileReader>& i
         if (is_string_type(type)) {
             if (should_analyzer) {
                 try {
-                    _index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
+                    _index_reader =
+                            FullTextIndexReader::create_shared(index_meta, index_file_reader);
                 } catch (const CLuceneError& e) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                            "create BkdIndexReader error: {}", e.what());
+                            "create FullTextIndexReader error: {}", e.what());
                 }
             } else {
-                _index_reader.reset();
+                try {
+                    _index_reader = StringTypeInvertedIndexReader::create_shared(index_meta,
+                                                                                 index_file_reader);
+                } catch (const CLuceneError& e) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "create StringTypeInvertedIndexReader error: {}", e.what());
+                }
+            }
+        } else if (is_numeric_type(type)) {
+            try {
+                _index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
+            } catch (const CLuceneError& e) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "create BkdIndexReader error: {}", e.what());
             }
         }
     } else if (index_meta->index_type() == IndexType::ANN) {

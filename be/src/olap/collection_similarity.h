@@ -30,7 +30,8 @@ public:
     ~CollectionSimilarity() = default;
 
     void collect(segment_v2::rowid_t row_id, float score);
-    const ScoreMap& get_bm25_scores() const { return _bm25_scores; }
+    void get_bm25_scores(vectorized::IColumn::MutablePtr& scores,
+                         std::unique_ptr<std::vector<uint64_t>>& row_ids) const;
 
 private:
     ScoreMap _bm25_scores;

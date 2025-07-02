@@ -208,11 +208,10 @@ public:
     [[nodiscard]] bool has_null() const { return _has_null; }
     void set_has_null(bool has_null) { _has_null = has_null; }
 
-    virtual Status handle_query_cache(const IndexQueryContextPtr& context,
-                                      InvertedIndexQueryCache* cache,
-                                      const InvertedIndexQueryCache::CacheKey& cache_key,
-                                      InvertedIndexQueryCacheHandle* cache_handler,
-                                      std::shared_ptr<roaring::Roaring>& bit_map);
+    bool handle_query_cache(const IndexQueryContextPtr& context, InvertedIndexQueryCache* cache,
+                            const InvertedIndexQueryCache::CacheKey& cache_key,
+                            InvertedIndexQueryCacheHandle* cache_handler,
+                            std::shared_ptr<roaring::Roaring>& bit_map);
 
     virtual Status handle_searcher_cache(const IndexQueryContextPtr& context,
                                          InvertedIndexCacheHandle* inverted_index_cache_handle);

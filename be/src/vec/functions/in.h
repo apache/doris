@@ -139,6 +139,10 @@ public:
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result,
             bool is_pre_evaluate) const override {
+        if (is_pre_evaluate) {
+            return Status::OK();
+        }
+
         DCHECK(data_type_with_names.size() == 1);
         DCHECK(iterators.size() == 1);
         auto* iter = iterators[0];

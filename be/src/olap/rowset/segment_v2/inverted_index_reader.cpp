@@ -164,27 +164,39 @@ Status InvertedIndexReader::read_null_bitmap(const IndexQueryContextPtr& context
     return Status::OK();
 }
 
-Status InvertedIndexReader::handle_query_cache(const IndexQueryContextPtr& context,
-                                               InvertedIndexQueryCache* cache,
-                                               const InvertedIndexQueryCache::CacheKey& cache_key,
-                                               InvertedIndexQueryCacheHandle* cache_handler,
-                                               std::shared_ptr<roaring::Roaring>& bit_map) {
+bool InvertedIndexReader::handle_query_cache(const IndexQueryContextPtr& context,
+                                             InvertedIndexQueryCache* cache,
+                                             const InvertedIndexQueryCache::CacheKey& cache_key,
+                                             InvertedIndexQueryCacheHandle* cache_handler,
+                                             std::shared_ptr<roaring::Roaring>& bit_map) {
     const auto& query_options = context->runtime_state->query_options();
-    if (query_options.enable_inverted_index_query_cache &&
-        cache->lookup(cache_key, cache_handler)) {
+    if (!query_options.enable_inverted_index_query_cache) {
+        return false;
+    }
+
+    if (context->collection_similarity &&
+        (cache_key.query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+         cache_key.query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+         cache_key.query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
+         cache_key.query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY)) {
+        return false;
+    }
+
+    if (cache->lookup(cache_key, cache_handler)) {
         DBUG_EXECUTE_IF("InvertedIndexReader.handle_query_cache_hit", {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("handle query cache hit");
         });
         context->stats->inverted_index_query_cache_hit++;
         SCOPED_RAW_TIMER(&context->stats->inverted_index_query_bitmap_copy_timer);
         bit_map = cache_handler->get_bitmap();
-        return Status::OK();
+        return true;
     }
+
     DBUG_EXECUTE_IF("InvertedIndexReader.handle_query_cache_miss", {
         return Status::Error<ErrorCode::INTERNAL_ERROR>("handle query cache miss");
     });
     context->stats->inverted_index_query_cache_miss++;
-    return Status::Error<ErrorCode::KEY_NOT_FOUND>("cache miss");
+    return false;
 }
 
 Status InvertedIndexReader::handle_searcher_cache(
@@ -344,22 +356,20 @@ Status FullTextIndexReader::pre_query(const IndexQueryContextPtr& context,
     VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
                << search_str << "]";
 
-    const auto& queryOptions = context->runtime_state->query_options();
     try {
         InvertedIndexQueryInfo query_info;
         query_info.field_name = StringUtil::string_to_wstring(column_name);
 
         // terms
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
-            query_info.terms.emplace_back(search_str);
+            query_info.term_infos.emplace_back(search_str, 0);
         } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-            PhraseQuery::parser_info(search_str, column_name, query_type, _index_meta.properties(),
-                                     query_info, queryOptions.enable_phrase_query_sequential_opt);
+            PhraseQuery::parser_info(search_str, _index_meta.properties(), query_info);
         } else {
-            query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    search_str, column_name, query_type, _index_meta.properties());
+            query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    search_str, _index_meta.properties());
         }
-        if (query_info.terms.empty()) {
+        if (query_info.term_infos.empty()) {
             return Status::OK();
         }
 
@@ -436,8 +446,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         InvertedIndexQueryCacheHandle cache_handler;
 
         std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
-        auto cache_status = handle_query_cache(context, cache, cache_key, &cache_handler, bit_map);
-        if (cache_status.ok()) {
+        if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
             return Status::OK();
         }
 
@@ -473,7 +482,8 @@ Status StringTypeInvertedIndexReader::pre_query(const IndexQueryContextPtr& cont
                                                 const std::string& column_name,
                                                 const void* query_value,
                                                 InvertedIndexQueryType query_type) {
-    return Status::OK();
+    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                    "StringTypeInvertedIndexReader::pre_query Not implemented yet.");
 }
 
 Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
@@ -505,8 +515,7 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                                      search_str};
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
-        auto cache_status = handle_query_cache(context, cache, cache_key, &cache_handler, bit_map);
-        if (cache_status.ok()) {
+        if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
             return Status::OK();
         }
 
@@ -753,8 +762,7 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
         std::shared_ptr<roaring::Roaring> bit_map;
-        auto cache_status = handle_query_cache(context, cache, cache_key, &cache_handler, bit_map);
-        if (cache_status.ok()) {
+        if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
             *count = bit_map->cardinality();
             return Status::OK();
         }
@@ -772,7 +780,8 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
 Status BkdIndexReader::pre_query(const IndexQueryContextPtr& context,
                                  const std::string& column_name, const void* query_value,
                                  InvertedIndexQueryType query_type) {
-    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemented yet.");
+    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                    "BkdIndexReader::pre_query Not implemented yet.");
 }
 
 Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::string& column_name,
@@ -797,8 +806,7 @@ Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::str
                                                      query_str};
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
-        auto cache_status = handle_query_cache(context, cache, cache_key, &cache_handler, bit_map);
-        if (cache_status.ok()) {
+        if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
             return Status::OK();
         }
 

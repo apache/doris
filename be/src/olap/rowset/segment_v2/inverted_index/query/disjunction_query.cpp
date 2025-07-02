@@ -36,6 +36,7 @@ void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 
     _field_name = query_info.field_name;
+    _iterators.resize(query_info.term_infos.size());
     for (size_t i = 0; i < query_info.term_infos.size(); i++) {
         const auto& term_info = query_info.term_infos[i];
         if (term_info.is_single_term()) {
@@ -52,9 +53,13 @@ void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 
     if (_is_similarity && _context->collection_similarity) {
-        for (const auto& iter : _iterators) {
+        for (const auto& iters : _iterators) {
+            if (iters.size() > 1) {
+                throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                "Scoring is not supported for this query.");
+            }
             auto similarity = std::make_unique<BM25Similarity>();
-            similarity->for_one_term(_context, _field_name, iter->term());
+            similarity->for_one_term(_context, _field_name, iters[0]->term());
             _similarities.emplace_back(std::move(similarity));
         }
     }
@@ -65,7 +70,8 @@ void DisjunctionQuery::pre_search(const InvertedIndexQueryInfo& query_info) {
         return;
     }
 
-    QueryHelper::query_statistics(_context, _searcher, query_info.field_name, query_info.terms);
+    QueryHelper::query_statistics(_context, _searcher, query_info.field_name,
+                                  query_info.term_infos);
 }
 
 void DisjunctionQuery::search(roaring::Roaring& roaring) {

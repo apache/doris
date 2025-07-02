@@ -26,8 +26,8 @@ void QueryHelper::collect_many(const IndexQueryContextPtr& context, const Simila
         rowid_t row_id = (*doc_range.doc_many)[j];
         if (first || roaring.contains(row_id)) {
             auto freq = (*doc_range.freq_many)[j];
-            auto doc_length = (*doc_range.norm_many)[j];
-            auto score = similarity->score(freq, doc_length);
+            auto norm = (*doc_range.norm_many)[j];
+            auto score = similarity->score(freq, norm);
             context->collection_similarity->collect(row_id, score);
         }
     }
@@ -41,8 +41,8 @@ void QueryHelper::collect_range(const IndexQueryContextPtr& context,
         segment_v2::rowid_t row_id = doc_range.doc_range.first + j;
         if (first || roaring.contains(row_id)) {
             auto freq = (*doc_range.freq_many)[j];
-            auto doc_length = (*doc_range.norm_many)[j];
-            auto score = similarity->score(freq, doc_length);
+            auto norm = (*doc_range.norm_many)[j];
+            auto score = similarity->score(freq, norm);
             context->collection_similarity->collect(row_id, score);
         }
     }
@@ -50,7 +50,7 @@ void QueryHelper::collect_range(const IndexQueryContextPtr& context,
 
 void QueryHelper::query_statistics(const IndexQueryContextPtr& context, const SearcherPtr& searcher,
                                    const std::wstring& field_name,
-                                   const std::span<const std::string>& terms) {
+                                   const std::span<const TermInfo>& term_infos) {
     if (!context->collection_statistics) {
         throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "collection_statistics is null");
     }
@@ -60,8 +60,9 @@ void QueryHelper::query_statistics(const IndexQueryContextPtr& context, const Se
     stats.lucene_col_name = &field_name;
     stats.total_term_cnt += searcher->sumTotalTermFreq(field_name.c_str()).value_or(0);
 
-    for (const auto& term : terms) {
-        auto iter = TermIterator::create(context->io_ctx, searcher->getReader(), field_name, term);
+    for (const auto& term_info : term_infos) {
+        auto iter = TermIterator::create(context->io_ctx, searcher->getReader(), field_name,
+                                         term_info.get_single_term());
         stats.term_doc_freqs[iter->term()] += iter->doc_freq();
     }
 

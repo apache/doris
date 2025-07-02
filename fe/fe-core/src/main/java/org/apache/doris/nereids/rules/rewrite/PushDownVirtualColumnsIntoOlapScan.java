@@ -66,15 +66,15 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
     private Plan pushDown(LogicalFilter<LogicalOlapScan> filter, LogicalOlapScan logicalOlapScan,
             Optional<LogicalProject<?>> optionalProject) {
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        ImmutableList.Builder<NamedExpression> virtualColumnsBuilder = ImmutableList.builder();
         // 1. extract filter l2_distance
         // 2. generate virtual column from l2_distance and add them to scan
         // 3. replace filter
         // 4. replace project
-        Map<Expression, Expression> replaceMap = Maps.newHashMap();
-        ImmutableList.Builder<NamedExpression> virtualColumnsBuilder = ImmutableList.builder();
         for (Expression conjunct : filter.getConjuncts()) {
             Set<Expression> needPushDownFunctions = conjunct.collect(e -> e instanceof L2DistanceApproximate
-                            || e instanceof InnerProductApproximate || e instanceof Score);
+                            || e instanceof InnerProductApproximate);
             for (Expression needPushDownFunction : needPushDownFunctions) {
                 if (replaceMap.containsKey(needPushDownFunction)) {
                     continue;
@@ -84,6 +84,22 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
                 virtualColumnsBuilder.add(alias);
             }
         }
+
+        if (optionalProject.isPresent()) {
+            LogicalProject<?> project = optionalProject.get();
+            for (NamedExpression namedExpr : project.getProjects()) {
+                Set<Expression> scoreFunctions = namedExpr.collect(e -> e instanceof Score);
+                for (Expression scoreFunc : scoreFunctions) {
+                    if (replaceMap.containsKey(scoreFunc)) {
+                        continue;
+                    }
+                    Alias alias = new Alias(scoreFunc);
+                    replaceMap.put(scoreFunc, alias.toSlot());
+                    virtualColumnsBuilder.add(alias);
+                }
+            }
+        }
+
         if (replaceMap.isEmpty()) {
             return null;
         }

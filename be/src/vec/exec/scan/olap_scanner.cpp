@@ -92,6 +92,7 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .key_group_cluster_key_idxes {},
                                  .virtual_column_exprs {},
                                  .ann_topn_runtime {},
+                                 .score_runtime {},
                                  .vir_cid_to_idx_in_block {},
                                  .vir_col_idx_to_type {},
                                  .collection_statistics {}}) {
@@ -147,6 +148,7 @@ Status OlapScanner::init() {
     _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
     _slot_id_to_col_type = local_state->_slot_id_to_col_type;
     _ann_topn_runtime = local_state->_ann_topn_runtime;
+    _score_runtime = local_state->_score_runtime;
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
@@ -310,6 +312,7 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
+    _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.output_column_unique_ids =

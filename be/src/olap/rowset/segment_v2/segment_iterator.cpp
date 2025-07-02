@@ -317,6 +317,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
 
     _virtual_column_exprs = _opts.virtual_column_exprs;
     _ann_topn_runtime = _opts.ann_topn_runtime;
+    _score_runtime = _opts.score_runtime;
     _vir_cid_to_idx_in_block = _opts.vir_cid_to_idx_in_block;
 
     if (opts.output_columns != nullptr) {
@@ -418,6 +419,20 @@ Status SegmentIterator::_lazy_init() {
 
     if (!_opts.row_ranges.is_empty()) {
         _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
+    }
+
+    {
+        if (_index_query_context->collection_similarity) {
+            vectorized::IColumn::MutablePtr result_column;
+            auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
+            _index_query_context->collection_similarity->get_bm25_scores(result_column,
+                                                                         result_row_ids);
+            const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
+            auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
+            auto* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
+            virtual_column_iter->prepare_materialization(std::move(result_column),
+                                                         std::move(result_row_ids));
+        }
     }
 
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
@@ -1280,17 +1295,21 @@ Status SegmentIterator::_init_index_iterators() {
     _index_query_context->io_ctx = &_opts.io_ctx;
     _index_query_context->stats = _opts.stats;
     _index_query_context->runtime_state = _opts.runtime_state;
-    _index_query_context->collection_statistics = _opts.collection_statistics;
 
-    SegmentStats segment_stats;
-    segment_stats.row_cnt = _segment->num_rows();
-    _index_query_context->collection_statistics->collect(segment_stats);
+    if (_score_runtime) {
+        _index_query_context->collection_statistics = _opts.collection_statistics;
 
-    auto full_segment_id = std::make_shared<FullSegmentId>(_segment->rowset_id(), _segment->id());
-    _index_query_context->full_segment_id = full_segment_id;
+        SegmentStats segment_stats;
+        segment_stats.row_cnt = _segment->num_rows();
+        _index_query_context->collection_statistics->collect(segment_stats);
 
-    auto collection_similarity = std::make_shared<CollectionSimilarity>();
-    _index_query_context->collection_similarity = collection_similarity;
+        auto full_segment_id =
+                std::make_shared<FullSegmentId>(_segment->rowset_id(), _segment->id());
+        _index_query_context->full_segment_id = full_segment_id;
+
+        auto collection_similarity = std::make_shared<CollectionSimilarity>();
+        _index_query_context->collection_similarity = collection_similarity;
+    }
 
     {
         // Inverted index iterators
@@ -1314,8 +1333,10 @@ Status SegmentIterator::_init_index_iterators() {
             }
         }
 
-        for (auto expr_ctx : _common_expr_ctxs_push_down) {
-            RETURN_IF_ERROR(expr_ctx->evaluate_inverted_index(num_rows(), true));
+        if (_index_query_context->collection_similarity) {
+            for (auto expr_ctx : _common_expr_ctxs_push_down) {
+                RETURN_IF_ERROR(expr_ctx->evaluate_inverted_index(num_rows(), true));
+            }
         }
     }
 

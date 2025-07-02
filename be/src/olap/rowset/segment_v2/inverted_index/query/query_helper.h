@@ -34,7 +34,7 @@ public:
 
     static void query_statistics(const IndexQueryContextPtr& context, const SearcherPtr& searcher,
                                  const std::wstring& field_name,
-                                 const std::span<const std::string>& terms);
+                                 const std::span<const TermInfo>& term_infos);
 };
 
 } // namespace doris::segment_v2

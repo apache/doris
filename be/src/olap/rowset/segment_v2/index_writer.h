@@ -48,6 +48,7 @@ class IndexColumnWriter {
 public:
     static Status create(const Field* field, std::unique_ptr<IndexColumnWriter>* res,
                          IndexFileWriter* index_file_writer, const TabletIndex* inverted_index);
+
     // check if the column is valid for inverted index, some columns
     // are generated from variant, but not all of them are supported
     static bool check_support_inverted_index(const TabletColumn& column);

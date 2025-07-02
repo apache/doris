@@ -130,6 +130,10 @@ public:
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result,
             bool is_pre_evaluate) const override {
+        if (is_pre_evaluate) {
+            return Status::OK();
+        }
+
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
         DCHECK(iterators.size() == 1);
@@ -171,7 +175,6 @@ public:
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        ;
         RETURN_IF_ERROR(iter->read_from_index(&param));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {

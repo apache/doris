@@ -68,7 +68,6 @@ Status FunctionMatchBase::evaluate_inverted_index(
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
-    param.is_pre_evaluate = is_pre_evaluate;
     if (is_string_type(param_type)) {
         if (is_pre_evaluate) {
             RETURN_IF_ERROR(iter->pre_read_from_index(&param));

@@ -70,11 +70,12 @@ void PhrasePrefixQuery::add(const InvertedIndexQueryInfo& query_info) {
 }
 
 void PhrasePrefixQuery::pre_search(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.size() < 2) {
+    if (query_info.term_infos.size() < 2) {
         return;
     }
 
-    auto span = std::span<const std::string>(query_info.terms.begin(), query_info.terms.end() - 1);
+    auto span = std::span<const TermInfo>(query_info.term_infos.begin(),
+                                          query_info.term_infos.end() - 1);
     QueryHelper::query_statistics(_context, _searcher, query_info.field_name, span);
 }
 

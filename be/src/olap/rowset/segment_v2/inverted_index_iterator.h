@@ -29,7 +29,6 @@ struct InvertedIndexParam {
     uint32_t num_rows;
     std::shared_ptr<roaring::Roaring> roaring;
     bool skip_try = false;
-    bool is_pre_evaluate = false;
 };
 
 class InvertedIndexIterator : public IndexIterator {

@@ -160,7 +160,8 @@ void PhraseQuery::pre_search(const InvertedIndexQueryInfo& query_info) {
         return;
     }
 
-    QueryHelper::query_statistics(_context, _searcher, query_info.field_name, query_info.terms);
+    QueryHelper::query_statistics(_context, _searcher, query_info.field_name,
+                                  query_info.term_infos);
 }
 
 void PhraseQuery::search(roaring::Roaring& roaring) {
@@ -186,8 +187,8 @@ void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
                 if (std::holds_alternative<TermPositionsIterPtr>(iter)) {
                     const auto& term_iter = std::get<TermPositionsIterPtr>(iter);
                     auto freq = term_iter->freq();
-                    auto doc_length = term_iter->norm();
-                    auto score = _similarities[i]->score(freq, doc_length);
+                    auto norm = term_iter->norm();
+                    auto score = _similarities[i]->score(freq, norm);
                     _context->collection_similarity->collect(doc, score);
                 }
             }
