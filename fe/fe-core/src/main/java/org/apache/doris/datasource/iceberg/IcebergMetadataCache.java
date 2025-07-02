@@ -179,7 +179,7 @@ public class IcebergMetadataCache {
         String tblName = dorisTable.getName();
         snapshotListCache.asMap().keySet().stream()
                 .filter(key -> key.nameMapping.getCtlId() == catalogId
-                        && key.nameMapping.getLocalTblName().equals(dbName)
+                        && key.nameMapping.getLocalDbName().equals(dbName)
                         && key.nameMapping.getLocalTblName().equals(tblName))
                 .forEach(snapshotListCache::invalidate);
 
@@ -187,7 +187,7 @@ public class IcebergMetadataCache {
                 .filter(entry -> {
                     IcebergMetadataCacheKey key = entry.getKey();
                     return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalTblName().equals(dbName)
+                            && key.nameMapping.getLocalDbName().equals(dbName)
                             && key.nameMapping.getLocalTblName().equals(tblName);
                 })
                 .forEach(entry -> {
@@ -197,14 +197,14 @@ public class IcebergMetadataCache {
 
         snapshotCache.asMap().keySet().stream()
                 .filter(key -> key.nameMapping.getCtlId() == catalogId
-                        && key.nameMapping.getLocalTblName().equals(dbName)
+                        && key.nameMapping.getLocalDbName().equals(dbName)
                         && key.nameMapping.getLocalTblName().equals(tblName))
                 .forEach(snapshotCache::invalidate);
         viewCache.asMap().entrySet().stream()
                 .filter(entry -> {
                     IcebergMetadataCacheKey key = entry.getKey();
                     return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalTblName().equals(dbName)
+                            && key.nameMapping.getLocalDbName().equals(dbName)
                             && key.nameMapping.getLocalTblName().equals(tblName);
                 })
                 .forEach(entry -> viewCache.invalidate(entry.getKey()));
@@ -213,14 +213,14 @@ public class IcebergMetadataCache {
     public void invalidateDbCache(long catalogId, String dbName) {
         snapshotListCache.asMap().keySet().stream()
                 .filter(key -> key.nameMapping.getCtlId() == catalogId
-                        && key.nameMapping.getLocalTblName().equals(dbName))
+                        && key.nameMapping.getLocalDbName().equals(dbName))
                 .forEach(snapshotListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> {
                     IcebergMetadataCacheKey key = entry.getKey();
                     return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalTblName().equals(dbName);
+                            && key.nameMapping.getLocalDbName().equals(dbName);
                 })
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
@@ -229,13 +229,13 @@ public class IcebergMetadataCache {
 
         snapshotCache.asMap().keySet().stream()
                 .filter(key -> key.nameMapping.getCtlId() == catalogId
-                        && key.nameMapping.getLocalTblName().equals(dbName))
+                        && key.nameMapping.getLocalDbName().equals(dbName))
                 .forEach(snapshotCache::invalidate);
         viewCache.asMap().entrySet().stream()
                 .filter(entry -> {
                     IcebergMetadataCacheKey key = entry.getKey();
                     return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalTblName().equals(dbName);
+                            && key.nameMapping.getLocalDbName().equals(dbName);
                 })
                 .forEach(entry -> viewCache.invalidate(entry.getKey()));
     }
