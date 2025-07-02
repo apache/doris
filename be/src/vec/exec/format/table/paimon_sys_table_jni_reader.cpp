@@ -41,9 +41,9 @@ PaimonSysTableJniReader::PaimonSysTableJniReader(
     params["db_name"] = _range_params.db_name;
     params["tbl_name"] = _range_params.db_name;
     params["query_type"] = _range_params.query_type;
-    params["ctl_id"] = _range_params.ctl_id;
-    params["db_id"] = _range_params.db_id;
-    params["tbl_id"] = _range_params.tbl_id;
+    params["ctl_id"] = std::to_string(_range_params.ctl_id);
+    params["db_id"] = std::to_string(_range_params.db_id);
+    params["tbl_id"] = std::to_string(_range_params.tbl_id);
     params["serialized_split"] = _range_params.serialized_split;
     params["required_fields"] = join(required_fields, ",");
     params["required_types"] = join(required_types, "#");
