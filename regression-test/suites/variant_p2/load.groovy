@@ -154,7 +154,7 @@ suite("load_p2", "variant_type,p2"){
             futures.each { future ->
                 future.get()
             }
-        } catch (ExecutionException e) {
+        } catch (Exception e) {
             throw e.cause // throw original exception
         } finally {
             // Shutdown executor service and wait for all tasks to complete
