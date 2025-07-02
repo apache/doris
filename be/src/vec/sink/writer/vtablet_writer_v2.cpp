@@ -738,7 +738,7 @@ Status VTabletWriterV2::_close_wait(
     auto streams_for_node = _load_stream_map->get_streams_for_node();
     while (true) {
         RETURN_IF_ERROR(_check_timeout());
-        RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
+        RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, _state, streams_for_node));
         if (!status.ok() || unfinished_streams.empty()) {
             LOG(INFO) << "is all unfinished: " << unfinished_streams.empty()
                       << ", status: " << status << ", txn_id: " << _txn_id
