@@ -588,7 +588,7 @@ public class ComputeGroupTest {
                 ConnectContext ctx = UtFrameUtils.createDefaultCtx();
                 RoutineLoadJob job = new KafkaRoutineLoadJob();
                 job.setComputeGroup();
-                Assert.assertTrue(ConnectContext.get().getComputeGroupSafely() instanceof AllBackendComputeGroup);
+                Assert.assertTrue(ctx.getComputeGroupSafely() instanceof AllBackendComputeGroup);
             }
 
 
