@@ -128,6 +128,7 @@ class WalManager;
 class DNSCache;
 class IndexPolicyMgr;
 struct SyncRowsetStats;
+class DeleteBitmapAggCache;
 
 inline bool k_doris_exit = false;
 
@@ -372,6 +373,8 @@ public:
     void set_stream_mgr(vectorized::VDataStreamMgr* vstream_mgr) { _vstream_mgr = vstream_mgr; }
     void clear_stream_mgr();
 
+    DeleteBitmapAggCache* delete_bitmap_agg_cache() { return _delete_bitmap_agg_cache; }
+
 private:
     ExecEnv();
 
@@ -499,6 +502,7 @@ private:
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     QueryCache* _query_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
+    DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
     vectorized::DictionaryFactory* _dict_factory = nullptr;

@@ -57,6 +57,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_column_object_pool.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
@@ -334,6 +335,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     _tablet_schema_cache =
             TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
+    _delete_bitmap_agg_cache = DeleteBitmapAggCache::create_instance();
 
     _tablet_column_object_pool = TabletColumnObjectPool::create_global_column_cache(
             config::tablet_schema_cache_capacity);
@@ -753,6 +755,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
     SAFE_DELETE(_query_cache);
+    SAFE_DELETE(_delete_bitmap_agg_cache);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
