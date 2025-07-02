@@ -77,10 +77,10 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
 
         const auto& data_column = assert_cast<const ColumnBitmap&>(*bitmap_column);
         // serialize the bitmap size array
-        size_t* meta_ptr = (size_t*)buf;
+        auto* meta_ptr = reinterpret_cast<size_t*>(buf);
         for (size_t i = 0; i < real_need_copy_num; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-            meta_ptr[i] = bitmap.getSizeInBytes();
+            unaligned_store<size_t>(&meta_ptr[i], bitmap.getSizeInBytes());
         }
 
         // serialize each bitmap
@@ -88,7 +88,7 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         for (size_t i = 0; i < real_need_copy_num; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
             bitmap.write_to(data_ptr);
-            data_ptr += meta_ptr[i];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
         }
         return data_ptr;
     } else {
@@ -96,11 +96,11 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         const auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
 
         // serialize the bitmap size array, row num saves at index 0
-        size_t* meta_ptr = (size_t*)buf;
+        auto* meta_ptr = reinterpret_cast<size_t*>(buf);
         meta_ptr[0] = column.size();
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-            meta_ptr[i + 1] = bitmap.getSizeInBytes();
+            unaligned_store<size_t>(&meta_ptr[i + 1], bitmap.getSizeInBytes());
         }
 
         // serialize each bitmap
@@ -108,7 +108,7 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
             bitmap.write_to(data_ptr);
-            data_ptr += meta_ptr[i + 1];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i + 1]);
         }
         return data_ptr;
     }
@@ -130,7 +130,7 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
         const char* data_ptr = buf + sizeof(size_t) * real_have_saved_num;
         for (size_t i = 0; i < real_have_saved_num; ++i) {
             data[i].deserialize(data_ptr);
-            data_ptr += meta_ptr[i];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
         }
         return data_ptr;
     } else {
@@ -145,7 +145,7 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
         const char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
             data[i].deserialize(data_ptr);
-            data_ptr += meta_ptr[i + 1];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i + 1]);
         }
 
         return data_ptr;
