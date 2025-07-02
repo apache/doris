@@ -28,4 +28,63 @@ suite("test_json_extract") {
         sql """ SELECT JSON_EXTRACT_STRING('{"id": 123, "name": "doris"}', '\$.'); """
         exception "Invalid Json Path for value: \$."
     }
+
+    qt_empty """
+        select JSONB_EXTRACT('{}', '\$.*');
+    """
+
+    qt_empty2 """
+        select JSONB_EXTRACT('{}', '\$[*]');
+    """
+
+    qt_empty3 """
+        select JSONB_EXTRACT('[]', '\$.*');
+    """
+
+    qt_empty4 """
+        select JSONB_EXTRACT('[]', '\$[*]');
+    """
+
+    qt_wild_card """
+        select JSONB_EXTRACT('[{"key1": "v1", "key2": "v2"}, {"key1": "v3", "key2": "v4"}]', '\$[*].*');
+    """
+
+    qt_wild_card2 """
+        select JSONB_EXTRACT('[[123, 345, 456], [456, 678]]', '\$[*].*');
+    """
+
+    qt_wild_card3 """
+        select JSONB_EXTRACT('[[123, 345, 456], [456, 678]]', '\$[*][*]');
+    """
+
+    qt_wild_card4 """
+        select JSONB_EXTRACT('[[123, 345, 456], [], {"key": "value"}, {}]', '\$[*][*]');
+    """
+
+    qt_wild_card5 """
+        select JSONB_EXTRACT('[[123, 345, 456], [], {"key": "value", "key2": {"key3": 123}}, {}, {"key4": {"key5": ["a", "b", "c"]}}]', '\$[*].*');
+    """
+
+    qt_wild_card6 """
+        select JSONB_EXTRACT('{"key1": "v1", "key2": {"key3": "v3"}, "key3": {"key4": "v4", "key5": 5}}', '\$.*.*');
+    """
+
+    qt_array_last """
+        select JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[-1]') v1, JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[last]') v2;
+    """
+
+    qt_array_last2 """
+        select JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[-2]') v1, JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[last-1]') v2;
+    """
+
+    qt_array_last3 """
+        select JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[-2]') v1, JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[last -    1]') v2;
+    """
+
+    test {
+        sql """
+            select JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[last abc-1]') v;
+        """
+        exception "Invalid Json Path for value: \$[last abc-1]"
+    }
 }

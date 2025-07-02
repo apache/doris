@@ -20,3 +20,42 @@ v31
 -- !sql_string7 --
 \N
 
+-- !empty --
+\N
+
+-- !empty2 --
+\N
+
+-- !empty3 --
+\N
+
+-- !empty4 --
+\N
+
+-- !wild_card --
+["v1","v2","v3","v4"]
+
+-- !wild_card2 --
+\N
+
+-- !wild_card3 --
+[123,345,456,456,678]
+
+-- !wild_card4 --
+[123,345,456]
+
+-- !wild_card5 --
+["value",{"key3":123},{"key5":["a","b","c"]}]
+
+-- !wild_card6 --
+["v3","v4",5]
+
+-- !array_last --
+5	5
+
+-- !array_last2 --
+4	4
+
+-- !array_last3 --
+4	4
+
