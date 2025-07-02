@@ -64,17 +64,10 @@ public class StmtRewriter {
             QueryStmt analyzedStmt = (QueryStmt) parsedStmt;
             Preconditions.checkNotNull(analyzedStmt.analyzer);
             return rewriteQueryStatement(analyzedStmt, analyzer);
-        } else if (parsedStmt instanceof InsertStmt) {
-            final InsertStmt insertStmt = (InsertStmt) parsedStmt;
-            final QueryStmt analyzedStmt = (QueryStmt) insertStmt.getQueryStmt();
-            Preconditions.checkNotNull(analyzedStmt.analyzer);
-            QueryStmt rewrittenQueryStmt = rewriteQueryStatement(analyzedStmt, analyzer);
-            insertStmt.setQueryStmt(rewrittenQueryStmt);
         } else {
             throw new AnalysisException("Unsupported statement containing subqueries: "
                     + parsedStmt.toSql());
         }
-        return parsedStmt;
     }
 
     /**
