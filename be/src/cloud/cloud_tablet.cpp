@@ -440,50 +440,54 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     std::vector<std::pair<Version, std::vector<RowsetSharedPtr>>> deleted_stale_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
-    {
-        std::unique_lock wlock(_meta_lock);
 
-        std::vector<int64_t> path_ids;
+    std::vector<int64_t> path_ids;
+    {
+        std::shared_lock wlock(_meta_lock);
         // capture the path version to delete
         _timestamped_version_tracker.capture_expired_paths(expired_stale_sweep_endtime, &path_ids);
+    }
+    if (path_ids.empty()) {
+        return 0;
+    }
 
-        if (path_ids.empty()) {
-            return 0;
-        }
+    for (int64_t path_id : path_ids) {
+        int64_t start_version = -1;
+        int64_t end_version = -1;
+        std::vector<RowsetSharedPtr> stale_rowsets;
 
-        for (int64_t path_id : path_ids) {
-            int64_t start_version = -1;
-            int64_t end_version = -1;
-            std::vector<RowsetSharedPtr> stale_rowsets;
-            // delete stale versions in version graph
-            auto version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(path_id);
-            for (auto& v_ts : version_path->timestamped_versions()) {
-                auto rs_it = _stale_rs_version_map.find(v_ts->version());
-                if (rs_it != _stale_rs_version_map.end()) {
-                    expired_rowsets.push_back(rs_it->second);
-                    stale_rowsets.push_back(rs_it->second);
-                    LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
-                              << " rowset_id=" << rs_it->second->rowset_id().to_string()
-                              << " version=" << rs_it->first.to_string();
-                    _stale_rs_version_map.erase(rs_it);
-                } else {
-                    LOG(WARNING) << "cannot find stale rowset " << v_ts->version() << " in tablet "
-                                 << tablet_id();
-                    // clang-format off
+        std::unique_lock wlock(_meta_lock);
+        // delete stale versions in version graph
+        auto version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(path_id);
+        for (auto& v_ts : version_path->timestamped_versions()) {
+            auto rs_it = _stale_rs_version_map.find(v_ts->version());
+            if (rs_it != _stale_rs_version_map.end()) {
+                expired_rowsets.push_back(rs_it->second);
+                stale_rowsets.push_back(rs_it->second);
+                LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
+                          << " rowset_id=" << rs_it->second->rowset_id().to_string()
+                          << " version=" << rs_it->first.to_string();
+                _stale_rs_version_map.erase(rs_it);
+            } else {
+                LOG(WARNING) << "cannot find stale rowset " << v_ts->version() << " in tablet "
+                             << tablet_id();
+                // clang-format off
                     DCHECK(false) << [this, &wlock]() { wlock.unlock(); std::string json; get_compaction_status(&json); return json; }();
-                    // clang-format on
-                }
-                if (start_version < 0) {
-                    start_version = v_ts->version().first;
-                }
-                end_version = v_ts->version().second;
-                _tablet_meta->delete_stale_rs_meta_by_version(v_ts->version());
+                // clang-format on
             }
-            Version version(start_version, end_version);
-            if (!stale_rowsets.empty()) {
-                deleted_stale_rowsets.emplace_back(version, std::move(stale_rowsets));
+            if (start_version < 0) {
+                start_version = v_ts->version().first;
             }
+            end_version = v_ts->version().second;
+            _tablet_meta->delete_stale_rs_meta_by_version(v_ts->version());
         }
+        Version version(start_version, end_version);
+        if (!stale_rowsets.empty()) {
+            deleted_stale_rowsets.emplace_back(version, std::move(stale_rowsets));
+        }
+    }
+    {
+        std::unique_lock wlock(_meta_lock);
         _reconstruct_version_tracker_if_necessary();
     }
 
