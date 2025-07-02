@@ -21,6 +21,7 @@ suite("test_grant_priv") {
     def user1 = 'test_grant_priv_user1'
     def user2 = 'test_grant_priv_user2'
     def role1 = 'test_grant_priv_role1'
+    def role2 = 'test_grant_priv_role2'
     def pwd = '123456'
     def dbName = 'test_grant_priv_db'
     def tokens = context.config.jdbcUrl.split('/')
@@ -29,6 +30,7 @@ suite("test_grant_priv") {
     sql """drop user if exists ${user1}"""
     sql """drop user if exists ${user2}"""
     sql """drop role if exists ${role1}"""
+    sql """drop role if exists ${role2}"""
     sql """DROP DATABASE IF EXISTS ${dbName}"""
 
     sql """CREATE DATABASE ${dbName}"""
@@ -82,5 +84,41 @@ suite("test_grant_priv") {
     sql """drop user if exists ${user1}"""
     sql """drop user if exists ${user2}"""
     sql """drop role if exists ${role1}"""
+    sql """drop role if exists ${role2}"""
+
+    sql """CREATE ROLE ${role1}"""
+    sql """CREATE ROLE ${role2}"""
+    sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
+     // for login
+    sql """grant select_priv on ${dbName}.* to ${user1}"""
+    sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
+    sql """grant grant_priv on *.*.* to role ${role1}"""
+    sql """grant select_priv on *.*.* to role ${role2}"""
+    sql """grant '${role1}' to ${user1}"""
+    // test only have role1 can not grant
+    connect(user1, "${pwd}", url) {
+        test {
+                 sql """grant select_priv on *.*.* to ${user2}"""
+                  exception "denied"
+              }
+    }
+    sql """revoke '${role1}' from ${user1}"""
+    sql """grant '${role2}' to ${user1}"""
+    // test only have role2 can not grant
+    connect(user1, "${pwd}", url) {
+        test {
+                  sql """grant select_priv on *.*.* to ${user2}"""
+                  exception "denied"
+              }
+    }
+    // test both have role1 and role2 can grant to other
+    sql """grant '${role1}' to ${user1}"""
+    connect(user1, "${pwd}", url) {
+            sql """grant select_priv on *.*.* to ${user2}"""
+        }
+    sql """drop user if exists ${user1}"""
+    sql """drop user if exists ${user2}"""
+    sql """drop role if exists ${role1}"""
+    sql """drop role if exists ${role2}"""
     sql """DROP DATABASE IF EXISTS ${dbName}"""
 }
