@@ -46,6 +46,7 @@ class PaimonSysTableJniReader : public JniReader {
 
 public:
     static const std::string HADOOP_OPTION_PREFIX;
+    static const std::string PAIMON_OPTION_PREFIX;
     PaimonSysTableJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                             RuntimeState* state, RuntimeProfile* profile,
                             const TPaimonMetadataParams& range_params);
