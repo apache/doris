@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.util.NodeType
 
-suite("test_cloud_version_already_merged") {
+suite("test_cloud_version_already_merged", "nonConcurrent") {
     if (!isCloudMode()) {
         return
     }
