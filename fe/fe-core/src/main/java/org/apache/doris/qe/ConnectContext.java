@@ -636,10 +636,7 @@ public class ConnectContext {
     }
 
     public String getQualifiedUser() {
-        if (currentUserIdentity == null) {
-            throw new RuntimeException("currentUserIdentity should not be null");
-        }
-        return currentUserIdentity.getQualifiedUser();
+        return currentUserIdentity == null ? null : currentUserIdentity.getQualifiedUser();
     }
 
     public boolean getIsTempUser() {
