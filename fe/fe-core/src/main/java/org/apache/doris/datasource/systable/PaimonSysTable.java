@@ -33,6 +33,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * System table implementation for Paimon metadata tables.
+ */
 public class PaimonSysTable extends SysTable {
     private static final Logger LOG = LogManager.getLogger(PaimonSysTable.class);
 
@@ -43,6 +46,11 @@ public class PaimonSysTable extends SysTable {
 
     private final String tableName;
 
+    /**
+     * Creates a new Paimon system table instance.
+     *
+     * @param tableName the name of the system table
+     */
     protected PaimonSysTable(String tableName) {
         super(tableName, "paimon_meta");
         this.tableName = tableName;

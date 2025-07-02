@@ -87,12 +87,12 @@ public class PaimonSysTableJniScanner extends JniScanner {
         }
         initTableInfo(columnTypes, requiredFields, batchSize);
         this.paimonSplit = PaimonUtils.deserialize(params.get("serialized_split"));
-        this.ctlId = Long.parseLong(PaimonUtils.deserialize(params.get("ctl_id")));
-        this.dbId = Long.parseLong(PaimonUtils.deserialize(params.get("db_id")));
-        this.tblId = Long.parseLong(PaimonUtils.deserialize(params.get("tbl_id")));
-        this.dbName = PaimonUtils.deserialize(params.get("db_name"));
-        this.tblName = PaimonUtils.deserialize(params.get("tbl_name"));
-        this.queryType = PaimonUtils.deserialize(params.get("query_type"));
+        this.ctlId = Long.parseLong(params.get("ctl_id"));
+        this.dbId = Long.parseLong(params.get("db_id"));
+        this.tblId = Long.parseLong(params.get("tbl_id"));
+        this.dbName = params.get("db_name");
+        this.tblName = params.get("tbl_name");
+        this.queryType = params.get("query_type");
         this.hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
