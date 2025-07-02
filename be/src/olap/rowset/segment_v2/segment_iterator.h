@@ -311,7 +311,8 @@ private:
     Status _construct_compound_expr_context();
 
     // todo(wb) remove this method after RowCursor is removed
-    void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
+    void NO_SANITIZE_UNDEFINED _convert_rowcursor_to_short_key(const RowCursor& key,
+                                                               size_t num_keys) {
         if (_short_key.size() == 0) {
             _short_key.resize(num_keys);
             for (auto cid = 0; cid < num_keys; cid++) {
