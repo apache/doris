@@ -243,7 +243,6 @@ public class CacheHotspotManagerUtils {
         connectContext.setQueryId(queryId);
         connectContext.setStartTime();
         connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
-        connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
         connectContext.setUserInsertTimeout(getCacheHotSpotInsertTimeoutInSecTimeout());
         return new AutoCloseConnectContext(connectContext);
     }

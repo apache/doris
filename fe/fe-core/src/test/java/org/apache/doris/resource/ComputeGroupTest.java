@@ -586,7 +586,6 @@ public class ComputeGroupTest {
             // 1 ctx's user is empty, return all backend
             {
                 ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-                ctx.setQualifiedUser(null);
                 RoutineLoadJob job = new KafkaRoutineLoadJob();
                 job.setComputeGroup();
                 Assert.assertTrue(ConnectContext.get().getComputeGroupSafely() instanceof AllBackendComputeGroup);
@@ -595,7 +594,7 @@ public class ComputeGroupTest {
 
             // 2 set an invalid user, get an invalid compute group, then return all backends
             {
-                ConnectContext.get().setQualifiedUser("xxxx");
+                ConnectContext.get().setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("xxxx", "%"));
                 RoutineLoadJob job = new KafkaRoutineLoadJob();
                 job.setComputeGroup();
                 Assert.assertTrue(ConnectContext.get().getComputeGroupSafely() instanceof AllBackendComputeGroup);
@@ -603,7 +602,7 @@ public class ComputeGroupTest {
 
             // 3 get a valid compute group
             {
-                ConnectContext.get().setQualifiedUser("root");
+                ConnectContext.get().setCurrentUserIdentity(UserIdentity.ROOT);
                 String setPropStr = "set property for 'root' 'resource_tags.location' = 'tag_rg_1';";
                 ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr));
                 RoutineLoadJob job = new KafkaRoutineLoadJob();

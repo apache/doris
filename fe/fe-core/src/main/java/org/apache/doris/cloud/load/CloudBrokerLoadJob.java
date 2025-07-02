@@ -127,7 +127,6 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
             ConnectContext connectContext = new ConnectContext();
             connectContext.setCloudCluster(clusterName);
             connectContext.setCurrentUserIdentity(this.userInfo);
-            connectContext.setQualifiedUser(this.userInfo.getQualifiedUser());
             if (connectContext.getEnv() == null) {
                 connectContext.setEnv(Env.getCurrentEnv());
             }
@@ -135,7 +134,6 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         } else {
             ConnectContext.get().setCloudCluster(clusterName);
             ConnectContext.get().setCurrentUserIdentity(this.userInfo);
-            ConnectContext.get().setQualifiedUser(this.userInfo.getQualifiedUser());
             if (ConnectContext.get().getEnv() == null) {
                 ConnectContext.get().setEnv(Env.getCurrentEnv());
             }

@@ -42,7 +42,6 @@ import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.loadv2.IngestionLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -586,7 +585,6 @@ public class LoadAction extends RestBaseController {
             ctx.setThreadLocalInfo();
             ctx.setRemoteIP(request.getRemoteAddr());
             // set user to ADMIN_USER, so that we can get the proper resource tag
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
             // cloud need
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.setThreadLocalInfo();
@@ -672,7 +670,7 @@ public class LoadAction extends RestBaseController {
         ctx.setRemoteIP(req.getRemoteAddr());
         // We set this variable to fulfill required field 'user' in
         // TMasterOpRequest(FrontendService.thrift)
-        ctx.setQualifiedUser(Auth.ADMIN_USER);
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.setThreadLocalInfo();
         if (Config.isCloudMode()) {
             ctx.setCloudCluster(clusterName);

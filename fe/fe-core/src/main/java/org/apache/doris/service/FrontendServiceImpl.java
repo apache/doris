@@ -2835,7 +2835,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (syncJournal) {
                 ConnectContext ctx = new ConnectContext(null);
                 ctx.setDatabase(request.getDb());
-                ctx.setQualifiedUser(request.getUser());
+                ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
                 ctx.setEnv(Env.getCurrentEnv());
                 MasterOpExecutor executor = new MasterOpExecutor(ctx);
                 executor.syncJournal();
@@ -3202,7 +3202,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
         try {
             ConnectContext ctx = new ConnectContext();
-            ctx.setQualifiedUser(request.getUser());
             String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(fullUserName, "%"));
             ctx.setThreadLocalInfo();

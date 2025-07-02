@@ -71,12 +71,10 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
             ConnectContext connectContext = new ConnectContext();
             connectContext.setCloudCluster(clusterName);
             connectContext.setCurrentUserIdentity(this.userInfo);
-            connectContext.setQualifiedUser(this.userInfo.getQualifiedUser());
             return new AutoCloseConnectContext(connectContext);
         } else {
             ConnectContext.get().setCloudCluster(clusterName);
             ConnectContext.get().setCurrentUserIdentity(this.userInfo);
-            ConnectContext.get().setQualifiedUser(this.userInfo.getQualifiedUser());
             return null;
         }
     }

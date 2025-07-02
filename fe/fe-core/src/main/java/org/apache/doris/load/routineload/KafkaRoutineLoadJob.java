@@ -721,7 +721,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 tmpCtx.setCloudCluster(this.getCloudCluster());
             }
             tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
             tmpCtx.getSessionVariable().setWorkloadGroup(wgName);
             List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroup(tmpCtx);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -388,7 +389,7 @@ public class GroupCommitManager {
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
             // set user to ADMIN_USER, so that we can get the proper resource tag
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.setThreadLocalInfo();
             try {
                 new MasterOpExecutor(ctx).updateLoadData(tableId, receiveData);

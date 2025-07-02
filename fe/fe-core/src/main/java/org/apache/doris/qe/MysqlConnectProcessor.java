@@ -350,7 +350,6 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
         ctx.setCurrentUserIdentity(currentUserIdentity.get(0));
-        ctx.setQualifiedUser(userName);
 
         // Change default db if set.
         if (Strings.isNullOrEmpty(db)) {
