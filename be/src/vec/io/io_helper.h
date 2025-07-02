@@ -30,6 +30,7 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/io/var_int.h"
@@ -126,7 +127,7 @@ inline void write_string_binary(const char* s, BufferWritable& buf) {
     write_string_binary(StringRef {std::string(s)}, buf);
 }
 
-inline void write_json_binary(JsonbField s, BufferWritable& buf) {
+inline void write_json_binary(const JsonbField& s, BufferWritable& buf) {
     write_string_binary(StringRef {s.get_value(), s.get_size()}, buf);
 }
 
@@ -200,13 +201,14 @@ inline StringRef read_string_binary_into(Arena& arena, BufferReadable& buf) {
     char* data = arena.alloc(size);
     buf.read(data, size);
 
-    return StringRef(data, size);
+    return {data, size};
 }
 
-inline void read_json_binary(JsonbField val, BufferReadable& buf,
+inline void read_json_binary(JsonbField& val, BufferReadable& buf,
                              size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
-    StringRef jrf = StringRef {val.get_value(), val.get_size()};
-    read_string_binary(jrf, buf);
+    StringRef result;
+    read_string_binary(result, buf);
+    val = JsonbField(result.data, result.size);
 }
 
 template <typename Type>
