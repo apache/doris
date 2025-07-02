@@ -36,8 +36,10 @@ import java.util.stream.Collectors;
 public class PaimonSysTable extends SysTable {
     private static final Logger LOG = LogManager.getLogger(PaimonSysTable.class);
 
-    private static final List<PaimonSysTable> SUPPORTED_PAIMON_SYS_TABLES = SystemTableLoader.SYSTEM_TABLES.stream()
-            .map(PaimonSysTable::new).collect(Collectors.toList());
+    private static final List<PaimonSysTable> SUPPORTED_PAIMON_SYS_TABLES = SystemTableLoader.SYSTEM_TABLES
+            .stream()
+            .map(PaimonSysTable::new)
+            .collect(Collectors.toList());
 
     private final String tableName;
 

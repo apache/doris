@@ -56,7 +56,13 @@ public class PaimonTableCache {
         try {
             LOG.warn("load table:{}", key);
             Catalog catalog = createCatalog(key.getPaimonOptionParams(), key.getHadoopOptionParams());
-            Table table = catalog.getTable(Identifier.create(key.getDbName(), key.getTblName()));
+            Table table;
+            if (key.getQueryType() != null) {
+                table = catalog.getTable(new Identifier(key.getDbName(), key.getTblName(),
+                        null, key.getQueryType()));
+            } else {
+                table = catalog.getTable(Identifier.create(key.getDbName(), key.getTblName()));
+            }
             return new TableExt(table, System.currentTimeMillis());
         } catch (Catalog.TableNotExistException e) {
             LOG.warn("failed to create paimon table ", e);
@@ -107,15 +113,16 @@ public class PaimonTableCache {
 
     public static class PaimonTableCacheKey {
         // in key
-        private long ctlId;
-        private long dbId;
-        private long tblId;
+        private final long ctlId;
+        private final long dbId;
+        private final long tblId;
 
         // not in key
         private Map<String, String> paimonOptionParams;
         private Map<String, String> hadoopOptionParams;
         private String dbName;
         private String tblName;
+        private String queryType;
 
         public PaimonTableCacheKey(long ctlId, long dbId, long tblId,
                 Map<String, String> paimonOptionParams,
@@ -128,6 +135,20 @@ public class PaimonTableCache {
             this.hadoopOptionParams = hadoopOptionParams;
             this.dbName = dbName;
             this.tblName = tblName;
+        }
+
+        public PaimonTableCacheKey(long ctlId, long dbId, long tblId,
+                Map<String, String> paimonOptionParams,
+                Map<String, String> hadoopOptionParams,
+                String dbName, String tblName, String queryType) {
+            this.ctlId = ctlId;
+            this.dbId = dbId;
+            this.tblId = tblId;
+            this.paimonOptionParams = paimonOptionParams;
+            this.hadoopOptionParams = hadoopOptionParams;
+            this.dbName = dbName;
+            this.tblName = tblName;
+            this.queryType = queryType;
         }
 
         public long getCtlId() {
@@ -158,6 +179,10 @@ public class PaimonTableCache {
             return tblName;
         }
 
+        public String getQueryType() {
+            return queryType;
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) {
@@ -167,9 +192,9 @@ public class PaimonTableCache {
                 return false;
             }
             PaimonTableCacheKey that = (PaimonTableCacheKey) o;
-            return ctlId == that.ctlId
-                    && dbId == that.dbId
-                    && tblId == that.tblId;
+            return ctlId == that.ctlId && dbId == that.dbId && tblId == that.tblId && Objects.equal(
+                    queryType,
+                    that.queryType);
         }
 
         @Override
@@ -179,15 +204,16 @@ public class PaimonTableCache {
 
         @Override
         public String toString() {
-            return "PaimonTableCacheKey{"
-                    + "ctlId=" + ctlId
-                    + ", dbId=" + dbId
-                    + ", tblId=" + tblId
-                    + ", paimonOptionParams=" + paimonOptionParams
-                    + ", hadoopOptionParams=" + hadoopOptionParams
-                    + ", dbName='" + dbName + '\''
-                    + ", tblName='" + tblName + '\''
-                    + '}';
+            return "PaimonTableCacheKey{" +
+                    "ctlId=" + ctlId +
+                    ", dbId=" + dbId +
+                    ", tblId=" + tblId +
+                    ", paimonOptionParams=" + paimonOptionParams +
+                    ", hadoopOptionParams=" + hadoopOptionParams +
+                    ", dbName='" + dbName + '\'' +
+                    ", tblName='" + tblName + '\'' +
+                    ", queryType='" + queryType + '\'' +
+                    '}';
         }
     }
 
