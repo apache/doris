@@ -26,14 +26,13 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/date_func.h"
-#include "util/faststring.h"
 #include "util/string_parser.hpp"
-#include "vec/data_types/data_type_time.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
 /// TODO:  Due to the "Time type is not supported for OLAP table" issue, a lot of basic content is missing.It will be supplemented later.
+// now we do check only when print.
 class TimeValue {
 public:
     constexpr static int64_t ONE_SECOND_MICROSECONDS = 1000000;
@@ -42,10 +41,10 @@ public:
     constexpr static int64_t ONE_MINUTE_SECONDS = 60;
     constexpr static int64_t ONE_HOUR_SECONDS = 60 * ONE_MINUTE_SECONDS;
     constexpr static uint32_t MICROS_SCALE = 6;
-    constexpr static int64_t MAX_TIME = 3020399LL * 1000 * 1000;
+    constexpr static int64_t MAX_TIME = 3020399LL * ONE_SECOND_MICROSECONDS;
 
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType; // double
-    using ColumnTimeV2 = vectorized::DataTypeTimeV2::ColumnType;
+    using ColumnTimeV2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnType;
 
     static int64_t round_time(TimeType value, uint32_t scale) {
         int64_t time = value;
@@ -58,11 +57,24 @@ public:
 
     // Construct time based on hour/minute/second/microsecond, ignoring the sign
     /// TODO: Maybe we need to ensure that this function always receives positive numbers
+    /// TODO: argument could be int32_t
     static TimeType make_time(int64_t hour, int64_t minute, int64_t second,
                               int64_t microsecond = 0) {
         int64_t value = (hour * ONE_HOUR_MICROSECONDS) + (minute * ONE_MINUTE_MICROSECONDS) +
                         (second * ONE_SECOND_MICROSECONDS) + microsecond;
         return static_cast<TimeType>(value);
+    }
+
+    static TimeType init_unsigned_microsecond(TimeType time, uint32_t microsecond) {
+        if (microsecond < 0 || microsecond >= 1000000) [[unlikely]] {
+            throw std::invalid_argument("Microsecond must be in the range [0, 999999]");
+        }
+
+        if (time >= 0) {
+            return static_cast<TimeType>(time + microsecond);
+        } else {
+            return static_cast<TimeType>(time - microsecond);
+        }
     }
 
     static std::string to_string(TimeType time, int scale) {
@@ -75,18 +87,24 @@ public:
         select hour(cast(-121314 as time)),minute(cast(-121314 as time)),second(cast(-121314 as time)); -> 12	13	14 
     */
     static int32_t hour(TimeType time) {
-        return std::abs(static_cast<int32_t>(check_over_max_time(time) / ONE_HOUR_MICROSECONDS));
+        return std::abs(static_cast<int32_t>(limit_with_bound(time) / ONE_HOUR_MICROSECONDS));
     }
 
     static int32_t minute(TimeType time) {
-        return std::abs(static_cast<int32_t>((check_over_max_time(time) % ONE_HOUR_MICROSECONDS) /
+        return std::abs(static_cast<int32_t>((limit_with_bound(time) % ONE_HOUR_MICROSECONDS) /
                                              ONE_MINUTE_MICROSECONDS));
     }
 
     static int32_t second(TimeType time) {
-        return std::abs(static_cast<int32_t>((check_over_max_time(time) / ONE_SECOND_MICROSECONDS) %
+        return std::abs(static_cast<int32_t>((limit_with_bound(time) / ONE_SECOND_MICROSECONDS) %
                                              ONE_MINUTE_SECONDS));
     }
+
+    static int32_t microsecond(TimeType time) {
+        return std::abs(static_cast<int32_t>(limit_with_bound(time) % ONE_SECOND_MICROSECONDS));
+    }
+
+    static int8_t sign(TimeType time) { return (time < 0) ? -1 : 1; }
 
     // Construct time based on seconds
     static TimeType from_second(int64_t sec) {
@@ -167,7 +185,7 @@ public:
             microsecond = 0;
         }
         v = make_time(hour, minute, second, microsecond);
-        return check_over_max_time(v);
+        return limit_with_bound(v);
     }
 
     // Cast from string
@@ -290,11 +308,10 @@ public:
         return true;
     }
 
-private:
     // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
     // the time value between '-838:59:59' and '838:59:59'
     /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
-    static int64_t check_over_max_time(double time) {
+    static int64_t limit_with_bound(double time) {
         // cast(-4562632 as time)
         // -456:26:32
         // hour(cast(-4562632 as time))
@@ -310,6 +327,9 @@ private:
         return static_cast<int64_t>(time);
     }
 
+    static bool valid(double time) { return time <= MAX_TIME && time >= -MAX_TIME; }
+
+private:
     static TimeType make_time_with_negative(bool negative, int64_t hour, int64_t minute,
                                             int64_t second, int64_t microsecond = 0) {
         return (negative ? -1 : 1) *
