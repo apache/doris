@@ -59,7 +59,8 @@ public:
     std::string update_cluster(
             const std::string& instance_id, const ClusterInfo& cluster,
             std::function<bool(const ClusterPB&)> filter,
-            std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action,
+            std::function<std::string(ClusterPB&, std::vector<ClusterPB>& clusters_in_instance)>
+                    action,
             bool replace_if_existing_empty_target_cluster) override {
         return "";
     }
