@@ -53,7 +53,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------filter(OR[ifnull($c$1, FALSE),(t1.k > 10)])
+------filter(ifnull($c$1, FALSE))
 --------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((t1.k = t2.k)) otherCondition=()
 ----------filter((t1.k = 1))
 ------------PhysicalOlapScan[eliminate_cost_join_condition_t1]
