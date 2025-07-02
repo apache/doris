@@ -64,6 +64,9 @@ public class PreMaterializedViewRewriter {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.ELIMINATE_CONST_JOIN_CONDITION.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.MERGE_PERCENTILE_TO_ARRAY.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SUM_LITERAL_REWRITE.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SPLIT_MULTI_DISTINCT.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.CONSTANT_PROPAGATION.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN.ordinal());
     }
 
     /**
@@ -71,7 +74,7 @@ public class PreMaterializedViewRewriter {
      */
     public static Plan rewrite(CascadesContext cascadesContext) {
         if (cascadesContext.getMaterializationContexts().isEmpty()
-                || !cascadesContext.getStatementContext().isNeedPreRewrite()) {
+                || !cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             return null;
         }
         // Do optimize
@@ -110,11 +113,11 @@ public class PreMaterializedViewRewriter {
         StatementContext statementContext = cascadesContext.getStatementContext();
         PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
                 cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
-        if (PreRewriteStrategy.NOT_IN_RBO.equals(preRewriteStrategy)) {
-            return false;
-        }
         if (statementContext.isForceRecordTmpPlan()) {
             return true;
+        }
+        if (PreRewriteStrategy.NOT_IN_RBO.equals(preRewriteStrategy)) {
+            return false;
         }
         if (!MaterializedViewUtils.containMaterializedViewHook(statementContext)) {
             // current statement context doesn't have hook, doesn't use pre RBO materialized view rewrite
@@ -128,14 +131,25 @@ public class PreMaterializedViewRewriter {
      */
     public static boolean needPreRewrite(CascadesContext cascadesContext) {
         StatementContext statementContext = cascadesContext.getStatementContext();
+        if (!needRecordTmpPlanForRewrite(cascadesContext)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("needPreRewrite found not need record tmp plan, query id is {}",
+                        cascadesContext.getConnectContext().getQueryIdentifier());
+            }
+            return false;
+        }
         if (statementContext.getTmpPlanForMvRewrite().isEmpty()) {
-            LOG.debug("does not need pre rewrite, because TmpPlanForMvRewrite is empty, query id is {}",
-                    cascadesContext.getConnectContext().getQueryIdentifier());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("does not need pre rewrite, because TmpPlanForMvRewrite is empty, query id is {}",
+                        cascadesContext.getConnectContext().getQueryIdentifier());
+            }
             return false;
         }
         if (!MaterializedViewUtils.containMaterializedViewHook(statementContext)) {
-            LOG.debug("does not need pre rewrite, because no hook exists, query id is {}",
-                    cascadesContext.getConnectContext().getQueryIdentifier());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("does not need pre rewrite, because no hook exists, query id is {}",
+                        cascadesContext.getConnectContext().getQueryIdentifier());
+            }
             return false;
         }
         boolean outputAnyEquals = false;
@@ -148,14 +162,18 @@ public class PreMaterializedViewRewriter {
         }
         if (!outputAnyEquals) {
             // if tmp plan has no same logical properties to the finalRewritePlan, should not be written in rbo
-            LOG.debug("does not need pre rewrite, because outputAnyEquals is false, query id is {}",
-                    cascadesContext.getConnectContext().getQueryIdentifier());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("does not need pre rewrite, because outputAnyEquals is false, query id is {}",
+                        cascadesContext.getConnectContext().getQueryIdentifier());
+            }
             return false;
         }
         if (Optimizer.isDpHyp(cascadesContext)) {
             // dp hyper only support one group expression in each group when init
-            LOG.debug("does not need pre rewrite, because is dp hyper optimize, query id is {}",
-                    cascadesContext.getConnectContext().getQueryIdentifier());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("does not need pre rewrite, because is dp hyper optimize, query id is {}",
+                        cascadesContext.getConnectContext().getQueryIdentifier());
+            }
             return false;
         }
         // if rewrite success rule not in NeedPreRewriteRule, should not be written in rbo
@@ -166,7 +184,7 @@ public class PreMaterializedViewRewriter {
                 statementContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
         boolean shouldPreRewrite = !needPreRewriteRuleSet.isEmpty()
                 || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy);
-        if (!shouldPreRewrite) {
+        if (!shouldPreRewrite && LOG.isDebugEnabled()) {
             LOG.debug("does not need pre rewrite, because needPreRewriteRuleSet is empty or "
                             + "preRewriteStrategy is not FORCE_IN_RBO, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());

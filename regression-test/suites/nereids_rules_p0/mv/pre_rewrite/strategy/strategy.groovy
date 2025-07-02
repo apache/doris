@@ -212,11 +212,11 @@ suite("pre_write_strategy") {
             l_suppkey
             """
     order_qt_query0_1_before "${query0_1}"
-    // materizlized view handle the eliminate group by key internally
+    // materialized view handle the eliminate group by key internally
     async_mv_rewrite_success(db, mv0_1, query0_1, "mv0_1")
     explain {
         sql("${query0_1}")
-        contains("CBO.")
+        contains("RBO.")
     }
     order_qt_query0_1_after "${query0_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv0_1"""
@@ -387,10 +387,10 @@ suite("pre_write_strategy") {
             l_suppkey;
             """
     order_qt_query1_2_before "${query_1_2}"
-    async_mv_rewrite_fail(db, mv_1_2, query_1_2, "mv_1_2")
+    async_mv_rewrite_success(db, mv_1_2, query_1_2, "mv_1_2")
     explain {
         sql("${query_1_2}")
-        contains("CBO.")
+        contains("RBO.")
     }
     order_qt_query1_2_after "${query_1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_1_2"""

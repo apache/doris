@@ -2948,6 +2948,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableReserveMemory = randomInt % 5 != 0;
 
         // random pre materialized view rewrite strategy
+        randomInt = random.nextInt(3);
         switch (randomInt % 3) {
             case 0:
                 this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.NOT_IN_RBO.name();

@@ -166,7 +166,6 @@ suite("inner_join") {
             "from lineitem " +
             "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
     order_qt_query1_2_before "${query1_2}"
-    // join direction is not same, should not match
     async_mv_rewrite_success(db, mv1_2, query1_2, "mv1_2")
     order_qt_query1_2_after "${query1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
