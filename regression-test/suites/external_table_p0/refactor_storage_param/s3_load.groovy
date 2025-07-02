@@ -111,7 +111,8 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
            show load where label = '${label}'
            """
             if (loadResult.get(0).get(2) == 'CANCELLED' || loadResult.get(0).get(2) == 'FAILED') {
-                throw new RuntimeException("load failed")
+                println("load failed: " + loadResult.get(0))
+                throw new RuntimeException("load failed"+ loadResult.get(0))
             }
             return loadResult.get(0).get(2) == 'FINISHED'
         })
