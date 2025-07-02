@@ -39,7 +39,6 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -162,7 +161,6 @@ import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -554,11 +552,6 @@ public class Env {
 
     private QueryCancelWorker queryCancelWorker;
 
-    /**
-     * TODO(tsy): to be removed after load refactor
-     */
-    private final LoadManagerAdapter loadManagerAdapter;
-
     private StatisticsAutoCollector statisticsAutoCollector;
 
     private StatisticsJobAppender statisticsJobAppender;
@@ -828,7 +821,6 @@ public class Env {
         this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
-        this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
         this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
@@ -3489,10 +3481,6 @@ public class Env {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         return catalogIf.createTable(stmt);
-    }
-
-    public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
-        getInternalCatalog().createTableAsSelect(stmt);
     }
 
     /**
@@ -6904,10 +6892,6 @@ public class Env {
 
     public StatisticsCleaner getStatisticsCleaner() {
         return statisticsCleaner;
-    }
-
-    public LoadManagerAdapter getLoadManagerAdapter() {
-        return loadManagerAdapter;
     }
 
     public QueryStats getQueryStats() {
