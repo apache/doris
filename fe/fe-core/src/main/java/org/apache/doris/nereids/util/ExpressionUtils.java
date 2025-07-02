@@ -428,6 +428,17 @@ public class ExpressionUtils {
     }
 
     /**
+     * Replace expression node with predicate in the expression tree by `replaceMap` in top-down manner.
+     */
+    public static Expression replaceIf(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
+            Predicate<Expression> predicate) {
+        return expr.rewriteDownShortCircuitDown(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            return replacedExpr == null ? e : replacedExpr;
+        }, predicate);
+    }
+
+    /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
      * <pre>
@@ -726,6 +737,12 @@ public class ExpressionUtils {
             }
         }
         return newPredicates.build();
+    }
+
+    public static boolean isGeneratedNotNull(Expression expression) {
+        return expression instanceof Not
+                && ((Not) expression).isGeneratedIsNotNull()
+                && ((Not) expression).child() instanceof IsNull;
     }
 
     /** flatExpressions */

@@ -60,6 +60,10 @@ public class Alias extends NamedExpression implements UnaryExpression {
                 Suppliers.memoize(child::toSql), ImmutableList.of(), true);
     }
 
+    public Alias(ExprId exprId, Expression child) {
+        this(exprId, ImmutableList.of(child), Suppliers.memoize(child::toSql), ImmutableList.of(), true);
+    }
+
     public Alias(ExprId exprId, Expression child, String name) {
         this(exprId, ImmutableList.of(child), name, ImmutableList.of(), false);
     }

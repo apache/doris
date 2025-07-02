@@ -81,7 +81,6 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -94,7 +93,6 @@ import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -144,13 +142,6 @@ public abstract class TestWithFeService {
     protected boolean enableAdvanceNextId = Config.enable_advance_next_id;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "";
-
-    private static final MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
-        @Mock
-        public Set<Integer> getEnableNereidsRules() {
-            return ImmutableSet.of();
-        }
-    };
 
     @BeforeAll
     public final void beforeAll() throws Exception {

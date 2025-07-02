@@ -349,7 +349,7 @@ PhysicalResultSink
 -- !predicate_to_empty_relation --
 PhysicalResultSink
 --hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t3.a)) otherCondition=()
-----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+----NestedLoopJoin[LEFT_OUTER_JOIN]
 ------filter((t1.a = 2))
 --------PhysicalOlapScan[extend_infer_t3]
 ------PhysicalEmptyRelation
