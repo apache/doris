@@ -42,8 +42,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -52,7 +50,6 @@ import java.util.stream.Collectors;
  * Aggregation computation.
  */
 public class AggregationNode extends PlanNode {
-    private static final Logger LOG = LogManager.getLogger(AggregationNode.class);
     private final AggregateInfo aggInfo;
 
     // Set to true if this aggregation node needs to run the Finalize step. This
@@ -77,15 +74,6 @@ public class AggregationNode extends PlanNode {
         updateplanNodeName();
     }
 
-    /**
-     * Copy c'tor used in clone().
-     */
-    private AggregationNode(PlanNodeId id, AggregationNode src) {
-        super(id, src, "AGGREGATE", StatisticalType.AGG_NODE);
-        aggInfo = src.aggInfo;
-        needsFinalize = src.needsFinalize;
-    }
-
     public AggregateInfo getAggInfo() {
         return aggInfo;
     }
@@ -96,21 +84,6 @@ public class AggregationNode extends PlanNode {
         Preconditions.checkState(needsFinalize);
         needsFinalize = false;
         updateplanNodeName();
-    }
-
-    /**
-     * Sets this node as a preaggregation. Only valid to call this if it is not marked
-     * as a preaggregation
-     */
-    public void setIsPreagg(PlannerContext ctx) {
-        useStreamingPreagg =  ctx.getQueryOptions().isSetDisableStreamPreaggregations()
-                && !ctx.getQueryOptions().disable_stream_preaggregations
-                && aggInfo.getGroupingExprs().size() > 0;
-    }
-
-    // Used by new optimizer
-    public void setNeedsFinalize(boolean needsFinalize) {
-        this.needsFinalize = needsFinalize;
     }
 
     // Used by new optimizer
@@ -132,43 +105,6 @@ public class AggregationNode extends PlanNode {
         Preconditions.checkState(tupleIds.get(0).equals(aggInfo.getOutputTupleId()));
         tupleIds.clear();
         tupleIds.add(aggInfo.getIntermediateTupleId());
-    }
-
-    @Override
-    protected void computeOldCardinality() {
-        List<Expr> groupingExprs = aggInfo.getGroupingExprs();
-        cardinality = 1;
-        // cardinality: product of # of distinct values produced by grouping exprs
-        for (Expr groupingExpr : groupingExprs) {
-            long numDistinct = groupingExpr.getNumDistinctValues();
-            // TODO: remove these before 1.0
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
-                        numDistinct));
-            }
-            if (numDistinct == -1) {
-                cardinality = -1;
-                break;
-            }
-            cardinality *= numDistinct;
-        }
-        // take HAVING predicate into account
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Agg: cardinality=" + Long.toString(cardinality));
-        }
-        if (cardinality > 0) {
-            cardinality = Math.round((double) cardinality * computeOldSelectivity());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("sel=" + Double.toString(computeOldSelectivity()));
-            }
-        }
-        // if we ended up with an overflow, the estimate is certain to be wrong
-        if (cardinality < 0) {
-            cardinality = -1;
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Agg: cardinality=" + Long.toString(cardinality));
-        }
     }
 
     private void updateplanNodeName() {
@@ -353,11 +289,6 @@ public class AggregationNode extends PlanNode {
 
     public void setColocate(boolean colocate) {
         isColocate = colocate;
-    }
-
-
-    public boolean isSortByGroupKey() {
-        return sortByGroupKey != null;
     }
 
     public void setSortByGroupKey(SortInfo sortByGroupKey) {
