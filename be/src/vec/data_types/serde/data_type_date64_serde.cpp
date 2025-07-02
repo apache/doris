@@ -304,7 +304,7 @@ Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
     char* ptr = (char*)malloc(total_size);
     if (!ptr) {
         return Status::InternalError(
-                "malloc memory error when write variant column data to orc file.");
+                "malloc memory {} error when write variant column data to orc file.", total_size);
     }
     StringRef bufferRef;
     bufferRef.data = ptr;
@@ -317,7 +317,10 @@ Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
         size_t row_id = valid_row_indices[i];
         size_t len = serialized_value.length();
         if (offset + len > total_size) {
-            return Status::InternalError("Buffer overflow when writing column data to ORC file.");
+            return Status::InternalError(
+                    "Buffer overflow when writing column data to ORC file. from {} to {} for total "
+                    "size {}. ",
+                    offset, len, total_size);
         }
         memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
         cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;

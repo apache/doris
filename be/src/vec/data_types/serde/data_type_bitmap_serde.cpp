@@ -207,7 +207,7 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
     char* ptr = (char*)malloc(total_size);
     if (!ptr) {
         return Status::InternalError(
-                "malloc memory error when write variant column data to orc file.");
+                "malloc memory {} error when write variant column data to orc file.", total_size);
     }
     StringRef bufferRef;
     bufferRef.data = ptr;
@@ -219,9 +219,11 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
         if (cur_batch->notNull[row_id] == 1) {
             auto bitmap_value = const_cast<BitmapValue&>(col_data.get_element(row_id));
             size_t len = bitmap_value.getSizeInBytes();
-            if (offset > total_size) {
+            if (offset + len > total_size) {
                 return Status::InternalError(
-                        "offset exceeds total size when write variant column data to orc file.");
+                        "Buffer overflow when writing column data to ORC file. from {} to {} for "
+                        "total size {}. ",
+                        offset, len, total_size);
             }
             bitmap_value.write_to(const_cast<char*>(bufferRef.data) + offset);
             cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
