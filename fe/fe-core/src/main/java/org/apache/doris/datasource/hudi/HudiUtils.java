@@ -259,7 +259,7 @@ public class HudiUtils {
             HMSExternalTable hmsTable) {
         long timestamp = 0L;
         if (tableSnapshot.isPresent()) {
-            String queryInstant = tableSnapshot.get().getValue().replaceAll("[-: ]", "");
+            String queryInstant = tableSnapshot.get().getTime().replaceAll("[-: ]", "");
             timestamp = Long.parseLong(queryInstant);
         } else {
             timestamp = getLastTimeStamp(hmsTable);
