@@ -1853,10 +1853,6 @@ create_stmt ::=
     {:
         RESULT = new CreateViewStmt(ifNotExists, orReplace, viewName, columns, comment, view_def);
     :}
-    | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH storage_backend:storage
-    {:
-        RESULT = new CreateRepositoryStmt(isReadOnly, repoName, storage);
-    :}
     | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role opt_comment:comment
     {:
         RESULT = new CreateRoleStmt(ifNotExists, role, comment);
@@ -6856,13 +6852,6 @@ admin_stmt ::=
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
-    ;
-
-truncate_stmt ::=
-    KW_TRUNCATE KW_TABLE base_table_ref:tblRef opt_force:force
-    {:
-        RESULT = new TruncateTableStmt(tblRef, force);
     :}
     ;
 

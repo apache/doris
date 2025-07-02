@@ -73,8 +73,8 @@ public class HiveMetaStoreCacheTest {
             LoadingCache<HiveMetaStoreCache.PartitionCacheKey, HivePartition> partitionCache,
             LoadingCache<HiveMetaStoreCache.PartitionValueCacheKey, HiveMetaStoreCache.HivePartitionValues> partitionValuesCache,
             String dbName, String tbName) {
-        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(dbName, tbName, tbName, "", new ArrayList<>(), null);
-        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(dbName, tbName, tbName, "", null);
+        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(dbName, tbName, tbName, "", new ArrayList<>());
+        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(dbName, tbName, tbName, "");
         fileCache.put(fileCacheKey1, new HiveMetaStoreCache.FileCacheValue());
         fileCache.put(fileCacheKey2, new HiveMetaStoreCache.FileCacheValue());
 

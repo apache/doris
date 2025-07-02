@@ -86,6 +86,8 @@ public:
     int64_t for_each_cache_refresh_capacity(double adjust_weighted,
                                             RuntimeProfile* profile = nullptr);
 
+    void for_each_cache_reset_initial_capacity(double adjust_weighted);
+
 private:
     std::mutex _caches_lock;
     std::unordered_map<CachePolicy::CacheType, CachePolicy*> _caches;
