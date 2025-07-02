@@ -45,6 +45,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -94,12 +95,12 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
-        long dbId = Env.getCurrentEnv().getNextId();
-        if (databaseExist(dbName)) {
+    public String createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
+        ExternalDatabase dorisDb = catalog.getDbNullable(dbName);
+        if (dorisDb != null) {
             if (ifNotExists) {
                 LOG.info("create database[{}] which already exists", dbName);
-                return;
+                return null;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
             }
@@ -115,10 +116,15 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             catalogDatabase.setProperties(properties);
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));
             client.createDatabase(catalogDatabase);
+            // after create, get it again to get the real database name.
+            // because in hive, the db name is case insensible,
+            // so the db name in create db stmt maybe different from real db name.
+            Database hiveDb = client.getDatabase(dbName);
+            LOG.info("successfully create hive database: {}", dbName);
+            return hiveDb.getName();
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
-        LOG.info("createDb dbName = " + dbName + ", id = " + dbId);
     }
 
     @Override

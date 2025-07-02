@@ -164,12 +164,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
+    public String createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
         try {
-            preExecutionAuthenticator.execute(() -> {
-                performCreateDb(dbName, ifNotExists, properties);
-                return null;
-            });
+            return preExecutionAuthenticator.execute(() -> performCreateDb(dbName, ifNotExists, properties));
         } catch (Exception e) {
             throw new DdlException("Failed to create database: "
                     + dbName + ": " + Util.getRootCauseMessage(e), e);
@@ -181,13 +178,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         dorisCatalog.onRefreshCache(true);
     }
 
-    private void performCreateDb(String dbName, boolean ifNotExists, Map<String, String> properties)
+    private String performCreateDb(String dbName, boolean ifNotExists, Map<String, String> properties)
             throws DdlException {
         SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         if (databaseExist(dbName)) {
             if (ifNotExists) {
                 LOG.info("create database[{}] which already exists", dbName);
-                return;
+                return null;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
             }
@@ -200,6 +197,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         nsCatalog.createNamespace(getNamespace(dbName), properties);
+        return dbName;
     }
 
     @Override

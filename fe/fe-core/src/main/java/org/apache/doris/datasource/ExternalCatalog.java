@@ -1050,14 +1050,17 @@ public abstract class ExternalCatalog
             throw new DdlException("Create database is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.createDb(dbName, ifNotExists, properties);
-            DatabaseIf db = getDbNullable(dbName);
-            if (db == null) {
-                throw new DdlException("Failed to create database " + dbName + ", database not found after created");
+            String remoteDbName = metadataOps.createDb(dbName, ifNotExists, properties);
+            if (remoteDbName != null) {
+                DatabaseIf db = getDbNullable(remoteDbName);
+                if (db == null) {
+                    throw new DdlException(
+                            "Failed to create database " + dbName + ", database not found after created");
+                }
+                // we should get the db stored in Doris, and use local name in edit log.
+                CreateDbInfo info = new CreateDbInfo(getName(), db.getFullName(), null);
+                Env.getCurrentEnv().getEditLog().logCreateDb(info);
             }
-            // we should get the db stored in Doris, and use local name in edit log.
-            CreateDbInfo info = new CreateDbInfo(getName(), db.getFullName(), null);
-            Env.getCurrentEnv().getEditLog().logCreateDb(info);
         } catch (Exception e) {
             LOG.warn("Failed to create database {} in catalog {}.", dbName, getName(), e);
             throw e;

@@ -41,11 +41,15 @@ public interface ExternalMetadataOps {
      * create db in external metastore
      * @param dbName
      * @param properties
+     * @return remote db name from remote meta service.
      * @throws DdlException
      */
-    default void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
-        createDbImpl(dbName, ifNotExists, properties);
-        afterCreateDb();
+    default String createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
+        String remoteDbName = createDbImpl(dbName, ifNotExists, properties);
+        if (remoteDbName != null) {
+            afterCreateDb();
+        }
+        return remoteDbName;
     }
 
     /**
@@ -54,9 +58,10 @@ public interface ExternalMetadataOps {
      * @param dbName the remote name that will be created in remote metastore
      * @param ifNotExists
      * @param properties
+     * @return remote db name from remote meta service.
      * @throws DdlException
      */
-    void createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException;
+    String createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException;
 
     default void afterCreateDb() {
     }
