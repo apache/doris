@@ -70,6 +70,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
@@ -233,6 +234,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     private TUniqueId loadId;
     private long dbId;
     private TUniqueKeyUpdateMode uniquekeyUpdateMode;
+    private TPartialUpdateNewRowPolicy uniquekeyUpdateNewRowPolicy;
     private HashSet<String> partialUpdateInputColumns;
     private Map<String, Expression> exprMap;
 
@@ -245,7 +247,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
      * NereidsLoadPlanTranslator
      */
     public NereidsLoadPlanInfoCollector(OlapTable destTable, NereidsLoadTaskInfo taskInfo, TUniqueId loadId, long dbId,
-            TUniqueKeyUpdateMode uniquekeyUpdateMode,
+            TUniqueKeyUpdateMode uniquekeyUpdateMode, TPartialUpdateNewRowPolicy uniquekeyUpdateNewRowPolicy,
             HashSet<String> partialUpdateInputColumns,
             Map<String, Expression> exprMap) {
         loadPlanInfo = new LoadPlanInfo();
@@ -254,6 +256,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         this.loadId = loadId;
         this.dbId = dbId;
         this.uniquekeyUpdateMode = uniquekeyUpdateMode;
+        this.uniquekeyUpdateNewRowPolicy = uniquekeyUpdateNewRowPolicy;
         this.partialUpdateInputColumns = partialUpdateInputColumns;
         this.exprMap = exprMap;
     }
@@ -322,7 +325,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             loadPlanInfo.olapTableSink.init(loadId, taskInfo.getTxnId(), dbId, timeout,
                     taskInfo.getSendBatchParallelism(),
                     taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), timeout, uniquekeyUpdateMode,
-                    partialUpdateInputColumns);
+                    uniquekeyUpdateNewRowPolicy, partialUpdateInputColumns);
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }

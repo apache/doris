@@ -117,50 +117,6 @@ public class UtFrameUtils {
         return statementBase;
     }
 
-    // for analyzing multi statements
-    public static List<StatementBase> parseAndAnalyzeStmts(String originStmt, ConnectContext ctx) throws Exception {
-        System.out.println("begin to parse stmts: " + originStmt);
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-        List<StatementBase> statementBases = null;
-        try {
-            statementBases = SqlParserUtils.getMultiStmts(parser);
-        } catch (AnalysisException e) {
-            String errorMessage = parser.getErrorMsg(originStmt);
-            System.err.println("parse failed: " + errorMessage);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        }
-        for (StatementBase stmt : statementBases) {
-            stmt.analyze(analyzer);
-        }
-        return statementBases;
-    }
-
-    public static StatementBase onlyParse(String originStmt, ConnectContext ctx) throws Exception {
-        System.out.println("begin to parse stmt: " + originStmt);
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        StatementBase statementBase = null;
-        try {
-            statementBase = SqlParserUtils.getFirstStmt(parser);
-        } catch (AnalysisException e) {
-            String errorMessage = parser.getErrorMsg(originStmt);
-            System.err.println("parse failed: " + errorMessage);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        }
-        statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
-        return statementBase;
-    }
-
     public static String generateRandomFeRunningDir(Class testSuiteClass) {
         return generateRandomFeRunningDir(testSuiteClass.getSimpleName());
     }

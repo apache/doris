@@ -34,6 +34,8 @@ public:
     DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
             : DataTypeSerDe(nesting_level), nested_serde(_nested_serde) {}
 
+    std::string get_name() const override { return "Nullable(" + nested_serde->get_name() + ")"; }
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
@@ -91,6 +93,9 @@ public:
         DataTypeSerDe::set_return_object_as_string(value);
         nested_serde->set_return_object_as_string(value);
     }
+
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
 
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,

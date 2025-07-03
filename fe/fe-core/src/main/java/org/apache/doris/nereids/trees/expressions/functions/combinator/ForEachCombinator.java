@@ -109,7 +109,7 @@ public class ForEachCombinator extends NullableAggregateFunction
 
     @Override
     public DataType getDataType() {
-        return ArrayType.of(nested.getDataType(), nested.nullable());
+        return ArrayType.of(nested.getDataType(), true);
     }
 
     @Override

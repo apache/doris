@@ -136,7 +136,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(data_type_with_names.size() == 1);
         DCHECK(iterators.size() == 1);
@@ -148,8 +148,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+        if (iter->get_reader()->is_fulltext_index()) {
             //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
@@ -175,10 +174,15 @@ public:
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     param_type, &param_value, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, query_param->get_value(),
-                                                           query_type, num_rows, index));
-            *roaring |= *index;
+            segment_v2::InvertedIndexParam param;
+            param.column_name = column_name;
+            param.query_value = query_param->get_value();
+            param.query_type = query_type;
+            param.num_rows = num_rows;
+            param.roaring = std::make_shared<roaring::Roaring>();
+            ;
+            RETURN_IF_ERROR(iter->read_from_index(&param));
+            *roaring |= *param.roaring;
         }
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
         bitmap_result = result;

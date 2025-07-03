@@ -24,11 +24,13 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -51,7 +53,23 @@ public class CreateMap extends ScalarFunction
     @Override
     public DataType getDataType() {
         if (arity() >= 2) {
-            return MapType.of(child(0).getDataType(), child(1).getDataType());
+            // use Array function to get the common key and value type
+            // first collect all key types in odd position, and value types in even position
+            // then get the common type of key and value
+            List<Expression> keyExpressions = new ArrayList<>();
+            List<Expression> valueExpressions = new ArrayList<>();
+            for (int i = 0; i < children.size(); i++) {
+                if (i % 2 == 0) {
+                    keyExpressions.add(children.get(i));
+                } else {
+                    valueExpressions.add(children.get(i));
+                }
+            }
+            Array keyArr = new Array().withChildren(keyExpressions);
+            DataType keyType = ((ArrayType) keyArr.getDataType()).getItemType();
+            Array valueArr = new Array().withChildren(valueExpressions);
+            DataType valueType = ((ArrayType) valueArr.getDataType()).getItemType();
+            return MapType.of(keyType, valueType);
         }
         return MapType.SYSTEM_DEFAULT;
     }

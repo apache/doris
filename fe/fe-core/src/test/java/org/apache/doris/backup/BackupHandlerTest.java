@@ -19,7 +19,6 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.RestoreStmt;
@@ -42,6 +41,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -243,8 +243,9 @@ public class BackupHandlerTest {
         handler = new BackupHandler(env);
         StorageBackend storageBackend = new StorageBackend("broker", "bos://location",
                 StorageBackend.StorageType.BROKER, Maps.newHashMap());
-        CreateRepositoryStmt stmt = new CreateRepositoryStmt(false, "repo", storageBackend);
-        handler.createRepository(stmt);
+
+        CreateRepositoryCommand command = new CreateRepositoryCommand(false, "repo", storageBackend);
+        handler.createRepository(command);
 
         // process backup
         List<TableRef> tblRefs = Lists.newArrayList();

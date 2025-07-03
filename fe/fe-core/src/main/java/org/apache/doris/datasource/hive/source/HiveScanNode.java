@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive.source;
 
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -151,12 +150,11 @@ public class HiveScanNode extends FileQueryScanNode {
                 partitionValuesList.add(
                         ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
             }
-            resPartitions = cache.getAllPartitionsWithCache(hmsTable.getDbName(), hmsTable.getName(),
-                    partitionValuesList);
+            resPartitions = cache.getAllPartitionsWithCache(hmsTable, partitionValuesList);
         } else {
             // non partitioned table, create a dummy partition to save location and inputformat,
             // so that we can unify the interface.
-            HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
+            HivePartition dummyPartition = new HivePartition(hmsTable.getOrBuildNameMapping(), true,
                     hmsTable.getRemoteTable().getSd().getInputFormat(),
                     hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
             this.totalPartitionNum = 1;
@@ -285,7 +283,7 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName,
+            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
                     directoryLister, hmsTable);
         }
         if (tableSample != null) {
@@ -540,18 +538,6 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         return fileAttributes;
-    }
-
-    @Override
-    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
-
-        String aggFunctionName = aggExpr.getFnName().getFunction();
-        return aggFunctionName.equalsIgnoreCase("COUNT");
-    }
-
-    @Override
-    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
-        return !col.isAllowNull();
     }
 
     @Override

@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "common/defer.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/mem_txn_kv.h"
@@ -63,7 +64,8 @@ int main(int argc, char** argv) {
 }
 
 namespace doris::cloud {
-void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id);
+void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                             KVStats* stats);
 } // namespace doris::cloud
 
 TEST(MetaServerTest, FQDNRefreshInstance) {
@@ -137,7 +139,7 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
 
     // Refresh instance with FQDN endpoint.
     config::hostname = "";
-    notify_refresh_instance(txn_kv, "fqdn_instance_id");
+    notify_refresh_instance(txn_kv, "fqdn_instance_id", nullptr);
 
     bool refreshed = false;
     for (size_t i = 0; i < 100; ++i) {

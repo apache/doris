@@ -284,14 +284,13 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
-        new_col.data.resize(size);
-
         size_t count = std::min(this->size(), size);
+        new_col.data.resize(count);
         memcpy(new_col.data.data(), data.data(), count * sizeof(data[0]));
 
-        if (size > count)
-            memset(static_cast<void*>(&new_col.data[count]), static_cast<int>(value_type()),
-                   (size - count) * sizeof(value_type));
+        if (size > count) {
+            new_col.insert_many_defaults(size - count);
+        }
     }
 
     return res;
@@ -498,7 +497,7 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
         return;
     }
     for (size_t i = 0; i < s; ++i) {
-        data[i] = null_map[i] ? value_type() : data[i];
+        data[i] = null_map[i] ? default_value() : data[i];
     }
 }
 

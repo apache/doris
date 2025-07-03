@@ -63,9 +63,6 @@ public:
 
     void stop();
 
-    std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
-                                                                 int max_concurrency);
-
     int remote_thread_pool_max_thread_num() const { return _remote_thread_pool_max_thread_num; }
 
     static int get_remote_scan_thread_num();
@@ -75,9 +72,6 @@ public:
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
-
-    // _limited_scan_thread_pool is a special pool for queries with resource limit
-    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};

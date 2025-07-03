@@ -55,6 +55,8 @@ public:
 
     DataTypeNumberSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
+    std::string get_name() const override { return type_to_string(T); }
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
@@ -70,6 +72,11 @@ public:
                                               uint64_t* num_deserialized,
                                               const FormatOptions& options) const override;
 
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnString& to_column) const override;
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,

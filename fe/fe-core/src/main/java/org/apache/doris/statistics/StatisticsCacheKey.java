@@ -19,7 +19,6 @@ package org.apache.doris.statistics;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.util.Objects;
 import java.util.StringJoiner;
 
 public class StatisticsCacheKey {
@@ -51,7 +50,7 @@ public class StatisticsCacheKey {
 
     @Override
     public int hashCode() {
-        return Objects.hash(catalogId, dbId, tableId, idxId, colName);
+        return (int) (32 * tableId + colName.hashCode());
     }
 
     @Override

@@ -203,12 +203,11 @@ public class RefreshManager {
         refreshTableInternal(catalog, db, table, updateTime);
     }
 
-    private void refreshTableInternal(CatalogIf catalog, DatabaseIf db, TableIf table, long updateTime) {
+    public void refreshTableInternal(CatalogIf catalog, DatabaseIf db, TableIf table, long updateTime) {
         if (table instanceof ExternalTable) {
             ((ExternalTable) table).unsetObjectCreated();
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr()
-                .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
         if (table instanceof HMSExternalTable && updateTime > 0) {
             ((HMSExternalTable) table).setEventUpdateTime(updateTime);
         }
@@ -245,8 +244,7 @@ public class RefreshManager {
             return;
         }
 
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidatePartitionsCache(
-                catalog.getId(), db.getFullName(), table.getName(), partitionNames);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidatePartitionsCache((ExternalTable) table, partitionNames);
         ((HMSExternalTable) table).setEventUpdateTime(updateTime);
     }
 

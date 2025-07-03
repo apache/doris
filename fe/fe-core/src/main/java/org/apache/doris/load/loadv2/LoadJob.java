@@ -53,6 +53,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TEtlState;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -334,6 +335,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, 0.0);
         jobProperties.put(LoadStmt.STRICT_MODE, false);
         jobProperties.put(LoadStmt.PARTIAL_COLUMNS, false);
+        jobProperties.put(LoadStmt.PARTIAL_UPDATE_NEW_KEY_POLICY, TPartialUpdateNewRowPolicy.APPEND);
         jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
         jobProperties.put(LoadStmt.LOAD_PARALLELISM, Config.default_load_parallelism);
         jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, 1);
@@ -1087,6 +1089,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     protected boolean isPartialUpdate() {
         return (boolean) jobProperties.get(LoadStmt.PARTIAL_COLUMNS);
+    }
+
+    protected TPartialUpdateNewRowPolicy getPartialUpdateNewKeyPolicy() {
+        return (TPartialUpdateNewRowPolicy) jobProperties.get(LoadStmt.PARTIAL_UPDATE_NEW_KEY_POLICY);
     }
 
     protected String getTimeZone() {

@@ -265,6 +265,70 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 }
 
 template <PrimitiveType T>
+constexpr bool can_write_to_jsonb_from_number() {
+    return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+           T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE;
+}
+
+template <PrimitiveType T>
+bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer) {
+    if constexpr (T == TYPE_BOOLEAN) {
+        return writer.writeBool(data);
+    } else if constexpr (T == TYPE_TINYINT) {
+        return writer.writeInt8(data);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        return writer.writeInt16(data);
+    } else if constexpr (T == TYPE_INT) {
+        return writer.writeInt32(data);
+    } else if constexpr (T == TYPE_BIGINT) {
+        return writer.writeInt64(data);
+    } else if constexpr (T == TYPE_LARGEINT) {
+        return writer.writeInt128(data);
+    } else if constexpr (T == TYPE_FLOAT) {
+        return writer.writeFloat(data);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        return writer.writeDouble(data);
+    } else {
+        return false;
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                         int64_t row_num,
+                                                         JsonbWriter& writer) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    }
+    const auto& data = assert_cast<const ColumnType&>(from_column).get_element(row_num);
+    if (!write_to_jsonb_from_number<T>(data, writer)) {
+        return Status::InvalidArgument("DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed");
+    }
+
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                ColumnString& to_column) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    }
+    const auto size = from_column.size();
+    JsonbWriter writer;
+    const auto& data = assert_cast<const ColumnType&>(from_column).get_data();
+    for (int i = 0; i < size; i++) {
+        writer.reset();
+        if (!write_to_jsonb_from_number<T>(data[i], writer)) {
+            return Status::InvalidArgument(
+                    "DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed for row {}", i);
+        }
+        to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
                                                                      uint64_t times) const {
     if (times < 1) [[unlikely]] {

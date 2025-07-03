@@ -21,7 +21,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
@@ -83,7 +83,7 @@ TEST_F(EmptyIndexFileTest, test_empty_index_file) {
     std::string index_path = "/tmp/empty_index_file_test";
     std::string rowset_id = "1234567890";
     int64_t seg_id = 1234567890;
-    auto index_file_writer = std::make_unique<segment_v2::InvertedIndexFileWriter>(
+    auto index_file_writer = std::make_unique<segment_v2::IndexFileWriter>(
             fs, index_path, rowset_id, seg_id, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer), false);
     EXPECT_TRUE(index_file_writer->close().ok());

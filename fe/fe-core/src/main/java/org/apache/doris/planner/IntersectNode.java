@@ -17,21 +17,13 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
-import java.util.List;
-
 public class IntersectNode extends SetOperationNode {
     public IntersectNode(PlanNodeId id, TupleId tupleId) {
         super(id, tupleId, "INTERSECT");
-    }
-
-    protected IntersectNode(PlanNodeId id, TupleId tupleId,
-                            List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "INTERSECT", setOpResultExprs, isInSubplan);
     }
 
     @Override
