@@ -64,6 +64,7 @@ public class PreMaterializedViewRewriter {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.ELIMINATE_CONST_JOIN_CONDITION.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.MERGE_PERCENTILE_TO_ARRAY.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SUM_LITERAL_REWRITE.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SPLIT_MULTI_DISTINCT.ordinal());
     }
 
     /**
