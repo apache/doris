@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.IntersectReorder;
-import org.apache.doris.nereids.rules.exploration.MaterializedViewOnlyJoinRule;
 import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoinProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
@@ -267,7 +266,6 @@ public class RuleSet {
 
     public static final List<Rule> MATERIALIZED_VIEW_IN_RBO_RULES = planRuleFactories()
             .addAll(MATERIALIZED_VIEW_IN_CBO_RULES)
-            .add(MaterializedViewOnlyJoinRule.INSTANCE)
             .add(MaterializedViewProjectFilterProjectJoinRule.INSTANCE)
             .build();
 
