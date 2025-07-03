@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute;
 
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 
@@ -67,5 +68,14 @@ public class FragmentIdMapping<T> extends TreeMap<PlanFragmentId, T> {
             idToFragments.put(fragment.getFragmentId(), fragment);
         }
         return idToFragments;
+    }
+
+    public <S extends T> List<S> valueList() {
+        return (List<S>) Utils.fastToImmutableList(values());
+    }
+
+    public T last() {
+        List<T> valueList = valueList();
+        return valueList.get(valueList.size() - 1);
     }
 }

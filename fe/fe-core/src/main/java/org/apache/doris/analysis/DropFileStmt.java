@@ -31,7 +31,7 @@ import com.google.common.base.Strings;
 import java.util.Map;
 import java.util.Optional;
 
-public class DropFileStmt extends DdlStmt {
+public class DropFileStmt extends DdlStmt implements NotFallbackInParser {
     public static final String PROP_CATALOG = "catalog";
 
     private String fileName;
@@ -108,5 +108,10 @@ public class DropFileStmt extends DdlStmt {
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
     }
 }

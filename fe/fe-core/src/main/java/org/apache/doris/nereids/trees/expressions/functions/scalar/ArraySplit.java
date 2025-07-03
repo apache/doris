@@ -41,10 +41,6 @@ public class ArraySplit extends ScalarFunction implements PropagateNullable, Hig
                     ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
                     ArrayType.of(BooleanType.INSTANCE)));
 
-    private ArraySplit(List<Expression> expressions) {
-        super("array_split", expressions);
-    }
-
     /**
      * constructor with arguments.
      */
@@ -57,7 +53,7 @@ public class ArraySplit extends ScalarFunction implements PropagateNullable, Hig
      * array_split(lambda, a1, ...) = array_split(a1, array_map(lambda, a1, ...))
      */
     public ArraySplit(Expression arg) {
-        super("array_split", arg.child(1).child(0), new ArrayMap(arg));
+        super("array_split", arg instanceof Lambda ? arg.child(1).child(0) : arg, new ArrayMap(arg));
         if (!(arg instanceof Lambda)) {
             throw new AnalysisException(
                     String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));

@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 
+import java.math.BigDecimal;
+
 /**
  * Double literal
  */
@@ -33,6 +35,11 @@ public class DoubleLiteral extends FractionalLiteral {
     public DoubleLiteral(double value) {
         super(DoubleType.INSTANCE);
         this.value = value;
+    }
+
+    @Override
+    public BigDecimal getBigDecimalValue() {
+        return new BigDecimal(String.valueOf(value));
     }
 
     @Override
@@ -48,5 +55,35 @@ public class DoubleLiteral extends FractionalLiteral {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new FloatLiteral(value, Type.DOUBLE);
+    }
+
+    @Override
+    public String getStringValue() {
+        Double num = getValue();
+        if (Double.isNaN(num)) {
+            return "nan";
+        } else if (Double.isInfinite(num)) {
+            return num > 0 ? "inf" : "-inf";
+        }
+
+        // Use %.17g to format the result，replace 'E' with 'e'
+        String formatted = String.format("%.17g", num).replace('E', 'e');
+
+        // Remove trailing .0 in scientific notation.
+        if (formatted.contains("e")) {
+            String[] parts = formatted.split("e");
+            String mantissa = parts[0];
+            String exponent = parts.length > 1 ? "e" + parts[1] : "";
+            mantissa = mantissa.replaceAll("\\.?0+$", "");
+            if (mantissa.isEmpty()) {
+                mantissa = "0";
+            }
+            formatted = mantissa + exponent;
+        } else if (formatted.contains(".")) {
+            // remove trailing .0 in fixed-point representation
+            formatted = formatted.replaceAll("\\.?0+$", "");
+        }
+
+        return formatted;
     }
 }

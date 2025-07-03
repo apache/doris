@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h" // for Status
 #include "io/fs/file_reader_writer_fwd.h"
@@ -36,6 +37,7 @@
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -73,16 +75,19 @@ class BitmapIndexIterator;
 class BitmapIndexReader;
 class InvertedIndexIterator;
 class InvertedIndexReader;
-class InvertedIndexFileReader;
+class IndexFileReader;
 class PageDecoder;
 class RowRanges;
 class ZoneMapIndexReader;
+class IndexIterator;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
     bool verify_checksum = true;
     // for in memory olap table, use DURABLE CachePriority in page cache
     bool kept_in_memory = false;
+
+    int be_exec_version = -1;
 };
 
 struct ColumnIteratorOptions {
@@ -91,7 +96,7 @@ struct ColumnIteratorOptions {
     // for page cache allocation
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
-    PageTypePB type;
+    PageTypePB type = PageTypePB::UNKNOWN_PAGE_TYPE;
     io::FileReader* file_reader = nullptr; // Ref
     // reader statistics
     OlapReaderStatistics* stats = nullptr; // Ref
@@ -107,7 +112,7 @@ struct ColumnIteratorOptions {
 // we should do our best to reduce resource usage through share
 // same information, such as OrdinalPageIndex and Page data.
 // This will cache data shared by all reader
-class ColumnReader {
+class ColumnReader : public MetadataAdder<ColumnReader> {
 public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
@@ -131,22 +136,20 @@ public:
     virtual ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
-    Status new_iterator(ColumnIterator** iterator);
-    Status new_array_iterator(ColumnIterator** iterator);
-    Status new_struct_iterator(ColumnIterator** iterator);
-    Status new_map_iterator(ColumnIterator** iterator);
+    Status new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_array_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_struct_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_map_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_inverted_index_iterator(std::shared_ptr<InvertedIndexFileReader> index_file_reader,
-                                       const TabletIndex* index_meta,
-                                       const StorageReadOptions& read_options,
-                                       std::unique_ptr<InvertedIndexIterator>* iterator);
+    Status new_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
+                              const TabletIndex* index_meta, const StorageReadOptions& read_options,
+                              std::unique_ptr<IndexIterator>* iterator);
 
-    // Seek to the first entry in the column.
-    Status seek_to_first(OrdinalPageIndexIterator* iter);
-    Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter);
+    Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
+                             const ColumnIteratorOptions& iter_opts);
 
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
@@ -172,11 +175,13 @@ public:
     // - delete_condition is a delete predicate of one version
     Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
                                       const std::vector<const ColumnPredicate*>* delete_predicates,
-                                      RowRanges* row_ranges);
+                                      RowRanges* row_ranges,
+                                      const ColumnIteratorOptions& iter_opts);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
-                                          RowRanges* row_ranges);
+                                          RowRanges* row_ranges,
+                                          const ColumnIteratorOptions& iter_opts);
 
     PagePointer get_dict_page_pointer() const { return _meta_dict_page; }
 
@@ -204,25 +209,27 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 io::FileReaderSPtr file_reader, vectorized::DataTypePtr agg_state_ptr = nullptr);
+                 io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
-    // Read column inverted indexes into memory
+    // Read column indexes into memory
     // May be called multiple times, subsequent calls will no op.
-    Status _ensure_inverted_index_loaded(std::shared_ptr<InvertedIndexFileReader> index_file_reader,
-                                         const TabletIndex* index_meta) {
+    Status _ensure_index_loaded(std::shared_ptr<IndexFileReader> index_file_reader,
+                                const TabletIndex* index_meta) {
         // load inverted index only if not loaded or index_id is changed
-        RETURN_IF_ERROR(_load_inverted_index_index(index_file_reader, index_meta));
+        RETURN_IF_ERROR(_load_index(index_file_reader, index_meta));
         return Status::OK();
     }
 
-    [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
-    [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
+    [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
+                                              const ColumnIteratorOptions& iter_opts);
+    [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
+                                             const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
-    [[nodiscard]] Status _load_inverted_index_index(
-            std::shared_ptr<InvertedIndexFileReader> index_file_reader,
-            const TabletIndex* index_meta);
-    [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
+    [[nodiscard]] Status _load_index(std::shared_ptr<IndexFileReader> index_file_reader,
+                                     const TabletIndex* index_meta);
+    [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
+                                                  const ColumnIteratorOptions& iter_opts);
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                    WrapperField* max_value_container,
@@ -236,9 +243,13 @@ private:
 
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
                                const std::vector<const ColumnPredicate*>* delete_predicates,
-                               std::vector<uint32_t>* page_indexes);
+                               std::vector<uint32_t>* page_indexes,
+                               const ColumnIteratorOptions& iter_opts);
 
-    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
+    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
+                                 const ColumnIteratorOptions& iter_opts);
+
+    int64_t get_metadata_size() const override;
 
 private:
     int64_t _meta_length;
@@ -246,6 +257,7 @@ private:
     FieldType _meta_children_column_type;
     bool _meta_is_nullable;
     bool _use_index_page_cache;
+    int _be_exec_version = -1;
 
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
@@ -269,12 +281,11 @@ private:
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
-    std::shared_ptr<InvertedIndexReader> _inverted_index;
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
-    std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
+    IndexReaderPtr _index_reader;
 
-    vectorized::DataTypePtr _agg_state_ptr;
+    std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 
     DorisCallOnce<Status> _set_dict_encoding_type_once;
 };
@@ -289,9 +300,6 @@ public:
         _opts = opts;
         return Status::OK();
     }
-
-    // Seek to the first entry in the column.
-    virtual Status seek_to_first() = 0;
 
     // Seek to the given ordinal entry in the column.
     // Entry 0 is the first entry written to the column.
@@ -350,8 +358,6 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status seek_to_first() override;
-
     Status seek_to_ordinal(ordinal_t ord) override;
 
     Status seek_to_page_start();
@@ -385,7 +391,7 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
 private:
-    void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
+    Status _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
@@ -420,7 +426,6 @@ private:
 
 class EmptyFileColumnIterator final : public ColumnIterator {
 public:
-    Status seek_to_first() override { return Status::OK(); }
     Status seek_to_ordinal(ordinal_t ord) override { return Status::OK(); }
     ordinal_t get_current_ordinal() const override { return 0; }
 };
@@ -442,11 +447,6 @@ public:
     }
     Status seek_to_ordinal(ordinal_t ord) override {
         RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ord));
-        return Status::OK();
-    }
-
-    Status seek_to_first() override {
-        RETURN_IF_ERROR(_offset_iterator->seek_to_first());
         return Status::OK();
     }
 
@@ -474,15 +474,6 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
-    Status seek_to_first() override {
-        RETURN_IF_ERROR(_key_iterator->seek_to_first());
-        RETURN_IF_ERROR(_val_iterator->seek_to_first());
-        RETURN_IF_ERROR(_offsets_iterator->seek_to_first());
-        if (_map_reader->is_nullable()) {
-            RETURN_IF_ERROR(_null_iterator->seek_to_first());
-        }
-        return Status::OK();
-    }
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
@@ -512,16 +503,6 @@ public:
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
 
-    Status seek_to_first() override {
-        for (auto& column_iterator : _sub_column_iterators) {
-            RETURN_IF_ERROR(column_iterator->seek_to_first());
-        }
-        if (_struct_reader->is_nullable()) {
-            RETURN_IF_ERROR(_null_iterator->seek_to_first());
-        }
-        return Status::OK();
-    }
-
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
@@ -548,15 +529,6 @@ public:
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
 
-    Status seek_to_first() override {
-        RETURN_IF_ERROR(_offset_iterator->seek_to_first());
-        RETURN_IF_ERROR(_item_iterator->seek_to_first()); // lazy???
-        if (_array_reader->is_nullable()) {
-            RETURN_IF_ERROR(_null_iterator->seek_to_first());
-        }
-        return Status::OK();
-    }
-
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
@@ -577,11 +549,6 @@ public:
     RowIdColumnIterator() = delete;
     RowIdColumnIterator(int64_t tid, RowsetId rid, int32_t segid)
             : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
-
-    Status seek_to_first() override {
-        _current_rowid = 0;
-        return Status::OK();
-    }
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
         _current_rowid = ord_idx;
@@ -622,6 +589,36 @@ private:
     int32_t _segment_id = 0;
 };
 
+// Add new RowIdColumnIteratorV2
+class RowIdColumnIteratorV2 : public ColumnIterator {
+public:
+    RowIdColumnIteratorV2(uint8_t version, int64_t backend_id, uint32_t file_id)
+            : _version(version), _backend_id(backend_id), _file_id(file_id) {}
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = ord_idx;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    ordinal_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    uint32_t _current_rowid = 0;
+    uint8_t _version;
+    int64_t _backend_id;
+    uint32_t _file_id;
+};
+
 class VariantRootColumnIterator : public ColumnIterator {
 public:
     VariantRootColumnIterator() = delete;
@@ -631,8 +628,6 @@ public:
     ~VariantRootColumnIterator() override = default;
 
     Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
-
-    Status seek_to_first() override { return _inner_iter->seek_to_first(); }
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
         return _inner_iter->seek_to_ordinal(ord_idx);
@@ -651,6 +646,9 @@ public:
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
 
 private:
+    Status _process_root_column(vectorized::MutableColumnPtr& dst,
+                                vectorized::MutableColumnPtr& root_column,
+                                const vectorized::DataTypePtr& most_common_type);
     std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 
@@ -669,11 +667,6 @@ public:
               _scale(scale) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    Status seek_to_first() override {
-        _current_rowid = 0;
-        return Status::OK();
-    }
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
         _current_rowid = ord_idx;
@@ -712,6 +705,49 @@ private:
     int _scale;
     std::vector<char> _mem_value;
 
+    // current rowid
+    ordinal_t _current_rowid = 0;
+};
+
+// This iterator is used to read default value column
+class DefaultNestedColumnIterator : public ColumnIterator {
+public:
+    DefaultNestedColumnIterator(std::unique_ptr<ColumnIterator>&& sibling,
+                                vectorized::DataTypePtr file_column_type)
+            : _sibling_iter(std::move(sibling)), _file_column_type(std::move(file_column_type)) {}
+
+    Status init(const ColumnIteratorOptions& opts) override {
+        if (_sibling_iter) {
+            return _sibling_iter->init(opts);
+        }
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = ord_idx;
+        if (_sibling_iter) {
+            return _sibling_iter->seek_to_ordinal(ord_idx);
+        }
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst);
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    ordinal_t get_current_ordinal() const override {
+        if (_sibling_iter) {
+            return _sibling_iter->get_current_ordinal();
+        }
+        return _current_rowid;
+    }
+
+private:
+    std::unique_ptr<ColumnIterator> _sibling_iter;
+    std::shared_ptr<const vectorized::IDataType> _file_column_type;
     // current rowid
     ordinal_t _current_rowid = 0;
 };

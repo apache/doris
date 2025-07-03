@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
@@ -37,7 +38,7 @@ import java.util.regex.Pattern;
 /**
  * Use for block some sql by rule.
  **/
-public class SqlBlockRule implements Writable {
+public class SqlBlockRule implements Writable, GsonPostProcessable {
 
     public static final String NAME_TYPE = "SQL BLOCK RULE NAME";
 
@@ -191,11 +192,14 @@ public class SqlBlockRule implements Writable {
      **/
     public static SqlBlockRule read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        SqlBlockRule sqlBlockRule = GsonUtils.GSON.fromJson(json, SqlBlockRule.class);
-        if (StringUtils.isNotEmpty(sqlBlockRule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(
-                sqlBlockRule.getSql())) {
-            sqlBlockRule.setSqlPattern(Pattern.compile(sqlBlockRule.getSql()));
+        return GsonUtils.GSON.fromJson(json, SqlBlockRule.class);
+    }
+
+    @Override
+    public void gsonPostProcess() {
+        if (StringUtils.isNotEmpty(this.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(
+                this.getSql())) {
+            this.setSqlPattern(Pattern.compile(this.getSql()));
         }
-        return sqlBlockRule;
     }
 }

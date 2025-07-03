@@ -28,7 +28,7 @@ import java.util.Map;
  * Used for load refactor, as an adapter for original load stmt, will proxy to insert stmt or original load stmt, chosen
  * by configuration
  */
-public class UnifiedLoadStmt extends DdlStmt {
+public class UnifiedLoadStmt extends DdlStmt implements NotFallbackInParser {
 
     private final StatementBase proxyStmt;
 

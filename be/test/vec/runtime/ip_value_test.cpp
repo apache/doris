@@ -49,8 +49,8 @@ static void print_bytes(T num) {
 TEST(IPValueTest, IPv4ValueTest) {
     const std::string ipv4_str1 = "192.168.103.254";
     const std::string ipv4_str2 = "193.168.103.255";
-    vectorized::IPv4 ipv4_val1;
-    vectorized::IPv4 ipv4_val2;
+    IPv4 ipv4_val1;
+    IPv4 ipv4_val2;
     ASSERT_TRUE(IPv4Value::from_string(ipv4_val1, ipv4_str1.c_str(), ipv4_str1.size()));
     ASSERT_TRUE(IPv4Value::from_string(ipv4_val2, ipv4_str2.c_str(), ipv4_str2.size()));
     ASSERT_TRUE(ipv4_val1 < ipv4_val2);
@@ -65,8 +65,8 @@ TEST(IPValueTest, IPv4ValueTest) {
 TEST(IPValueTest, IPv6ValueTest) {
     const std::string ipv6_str1 = "2001:418:0:5000::c2d";
     const std::string ipv6_str2 = "2001:428::205:171:200:230";
-    vectorized::IPv6 ipv6_val1;
-    vectorized::IPv6 ipv6_val2;
+    IPv6 ipv6_val1;
+    IPv6 ipv6_val2;
     ASSERT_TRUE(IPv6Value::from_string(ipv6_val1, ipv6_str1.c_str(), ipv6_str1.size()));
     ASSERT_TRUE(IPv6Value::from_string(ipv6_val2, ipv6_str2.c_str(), ipv6_str2.size()));
     ASSERT_TRUE(ipv6_val1 < ipv6_val2);
@@ -91,12 +91,12 @@ static void apply_cidr_mask(const char* __restrict src, char* __restrict dst_low
 TEST(IPValueTest, IPv6CIDRTest) {
     const std::string ipv6_str1 = "2001:0db8:0000:85a3:0000:0000:ac1f:8001";
     const std::string ipv6_str2 = "2001:0db8:0000:85a3:ffff:ffff:ffff:ffff";
-    vectorized::IPv6 ipv6_val1; // little-endian
-    vectorized::IPv6 ipv6_val2; // little-endian
+    IPv6 ipv6_val1; // little-endian
+    IPv6 ipv6_val2; // little-endian
     ASSERT_TRUE(IPv6Value::from_string(ipv6_val1, ipv6_str1.c_str(), ipv6_str1.size()));
     ASSERT_TRUE(IPv6Value::from_string(ipv6_val2, ipv6_str2.c_str(), ipv6_str2.size()));
-    vectorized::IPv6 min_range1, max_range1;
-    vectorized::IPv6 min_range2, max_range2;
+    IPv6 min_range1, max_range1;
+    IPv6 min_range2, max_range2;
     apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_val1), reinterpret_cast<char*>(&min_range1),
                     reinterpret_cast<char*>(&max_range1), 0);
     apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_val2), reinterpret_cast<char*>(&min_range2),

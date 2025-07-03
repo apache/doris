@@ -16,7 +16,7 @@
  // under the License.
 
  suite("test_bitmap_serialize") {
-     def tableName = "test_bitmap"
+     def tableName = "test_bitmap_serialize"
 
      sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """

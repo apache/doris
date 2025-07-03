@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 
@@ -216,12 +218,23 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation relation, PushDownContext ctx) {
-        if (supportPhysicalRelations(relation)
-                && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
-            topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
-            return true;
+        if (supportPhysicalRelations(relation) && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            // in ut, relation.getStats() may return null
+            if (relation.getStats() == null || ConnectContext.get() == null
+                    || ConnectContext.get().getSessionVariable() == null
+                    || Math.max(relation.getStats().getRowCount(), 1)
+                            * ConnectContext.get().getSessionVariable().topnFilterRatio > ctx.topn.getLimit()
+                                    + ctx.topn.getOffset()) {
+                topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
+                return true;
+            }
         }
         return false;
+    }
+
+    @Override
+    public Boolean visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan, PushDownContext ctx) {
+        return visitPhysicalRelation(lazyScan, ctx);
     }
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
@@ -230,6 +243,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
                 || relation instanceof PhysicalEsScan
                 || relation instanceof PhysicalFileScan
                 || relation instanceof PhysicalJdbcScan
-                || relation instanceof PhysicalDeferMaterializeOlapScan;
+                || relation instanceof PhysicalDeferMaterializeOlapScan
+                || relation instanceof PhysicalLazyMaterializeOlapScan;
     }
 }

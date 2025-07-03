@@ -185,10 +185,11 @@ suite("test_case_function_null", "query,p0,arrow_flight_sql") {
             c2,
             c1;
     """
-
+    // There is a behavior change. The 0.4cast boolean used to be 0 in the past, but now it has changed to 1.
+    // Therefore, we need to update the case accordingly.
     qt_sql_case1 """
         SELECT SUM(
-            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.0 AS BOOLEAN)))
             WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
             THEN (- (+ case_null2.c0))
             WHEN CASE (NULL IN (NULL))
@@ -197,9 +198,10 @@ suite("test_case_function_null", "query,p0,arrow_flight_sql") {
             END)
         FROM case_null2;
     """
-
+    // There is a behavior change. The 0.4cast boolean used to be 0 in the past, but now it has changed to 1.
+    // Therefore, we need to update the case accordingly.
     qt_sql_case2 """
-        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.0 AS BOOLEAN)))
             WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
             THEN (- (+ case_null2.c0))
             END)
@@ -209,9 +211,11 @@ suite("test_case_function_null", "query,p0,arrow_flight_sql") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    // There is a behavior change. The 0.4cast boolean used to be 0 in the past, but now it has changed to 1.
+    // Therefore, we need to update the case accordingly.
     qt_sql_case1 """
         SELECT SUM(
-            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.0 AS BOOLEAN)))
             WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
             THEN (- (+ case_null2.c0))
             WHEN CASE (NULL IN (NULL))
@@ -221,8 +225,10 @@ suite("test_case_function_null", "query,p0,arrow_flight_sql") {
         FROM case_null2;
     """
 
+    // There is a behavior change. The 0.4cast boolean used to be 0 in the past, but now it has changed to 1.
+    // Therefore, we need to update the case accordingly.
     qt_sql_case2 """
-        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.0 AS BOOLEAN)))
             WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
             THEN (- (+ case_null2.c0))
             END)

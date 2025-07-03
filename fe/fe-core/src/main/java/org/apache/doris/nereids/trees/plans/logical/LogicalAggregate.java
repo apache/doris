@@ -19,15 +19,15 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdFactory;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.TableFdItem;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,6 +40,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -153,12 +154,18 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         this.sourceRepeat = Objects.requireNonNull(sourceRepeat, "sourceRepeat cannot be null");
     }
 
+    @Override
     public List<Expression> getGroupByExpressions() {
         return groupByExpressions;
     }
 
+    @Override
     public List<NamedExpression> getOutputExpressions() {
         return outputExpressions;
+    }
+
+    public NamedExpression getOutputExpression(int index) {
+        return outputExpressions.get(index);
     }
 
     public String getOutputExprsSql() {
@@ -167,11 +174,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public Optional<LogicalRepeat<?>> getSourceRepeat() {
         return sourceRepeat;
-    }
-
-    public boolean isDistinct() {
-        return outputExpressions.stream().allMatch(e -> e instanceof Slot)
-                && groupByExpressions.stream().allMatch(e -> e instanceof Slot);
     }
 
     public boolean isGenerated() {
@@ -192,6 +194,33 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     @Override
+    public String getFingerprint() {
+        StringBuilder builder = new StringBuilder();
+        // logical agg is mapped to physical GLOBAL
+        String aggPhase = "Aggregate(GLOBAL)";
+        List<Object> groupByExpressionsArgs = Lists.newArrayList(
+                "groupByExpr", groupByExpressions);
+        builder.append(Utils.toSqlString(aggPhase, groupByExpressionsArgs.toArray()));
+
+        builder.append("outputExpr=");
+        for (NamedExpression expr : outputExpressions) {
+            if (expr instanceof Alias) {
+                if (expr.child(0) instanceof AggregateExpression) {
+                    builder.append(((AggregateExpression) expr.child(0)).getFunction().getName());
+                } else if (expr.child(0) instanceof AggregateFunction) {
+                    builder.append(((AggregateFunction) expr.child(0)).getName());
+                } else {
+                    builder.append(Utils.toStringOrNull(expr));
+                }
+            } else {
+                builder.append(Utils.toStringOrNull(expr));
+            }
+        }
+
+        return builder.toString();
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         ImmutableList.Builder<Slot> outputSlots = ImmutableList.builderWithExpectedSize(outputExpressions.size());
         for (NamedExpression outputExpression : outputExpressions) {
@@ -208,6 +237,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     @Override
     public List<? extends Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()
+                .addAll(groupByExpressions)
                 .addAll(outputExpressions)
                 .build();
     }
@@ -269,6 +299,17 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved, generated,
                 hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
+    }
+
+    public LogicalAggregate<Plan> withGroupBy(List<Expression> groupByExprList) {
+        return new LogicalAggregate<>(groupByExprList, outputExpressions, normalized, ordinalIsResolved, generated,
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
+    }
+
+    public LogicalAggregate<Plan> withChildGroupByAndOutput(List<Expression> groupByExprList,
+            List<NamedExpression> outputExpressionList, Plan newChild) {
+        return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved, generated,
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
     }
 
     public LogicalAggregate<Plan> withChildAndOutput(CHILD_TYPE child,
@@ -378,27 +419,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-
-        ImmutableSet<SlotReference> groupByExprs = getGroupByExpressions().stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .collect(ImmutableSet.toImmutableSet());
-
-        // inherit from child
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getTrait().getFdItems();
-        builder.addAll(childItems);
-
-        // todo: fill the table sets
-        TableFdItem fdItem = FdFactory.INSTANCE.createTableFdItem(groupByExprs, true,
-                false, ImmutableSet.of());
-        builder.add(fdItem);
-
-        return builder.build();
-    }
-
-    @Override
     public void computeEqualSet(DataTrait.Builder builder) {
         builder.addEqualSet(child().getLogicalProperties().getTrait());
     }
@@ -406,5 +426,15 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     @Override
     public void computeFd(DataTrait.Builder builder) {
         builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+    }
+
+    /** supportAggregatePhase */
+    public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
+        for (AggregateFunction aggregateFunction : getAggregateFunctions()) {
+            if (!aggregateFunction.supportAggregatePhase(aggregatePhase)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

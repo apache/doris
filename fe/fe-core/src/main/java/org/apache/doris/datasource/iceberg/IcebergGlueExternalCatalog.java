@@ -27,7 +27,6 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 
-import java.util.List;
 import java.util.Map;
 
 public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
@@ -58,12 +57,7 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
                 catalogProperties.get(S3Properties.Env.ENDPOINT));
         catalogProperties.putIfAbsent(S3FileIOProperties.ENDPOINT, endpoint);
 
-        glueCatalog.initialize(icebergCatalogType, catalogProperties);
+        glueCatalog.initialize(getName(), catalogProperties);
         catalog = glueCatalog;
-    }
-
-    @Override
-    protected List<String> listDatabaseNames() {
-        return metadataOps.listDatabaseNames();
     }
 }

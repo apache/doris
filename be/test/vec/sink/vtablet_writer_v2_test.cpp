@@ -37,12 +37,13 @@ const int64_t src_id = 1000;
 static void add_stream(std::shared_ptr<LoadStreamMap> load_stream_map, int64_t node_id,
                        std::vector<int64_t> success_tablets,
                        std::unordered_map<int64_t, Status> failed_tablets) {
-    auto stub = load_stream_map->get_or_create(node_id);
+    auto streams = load_stream_map->get_or_create(node_id);
+    streams->mark_open();
     for (const auto& tablet_id : success_tablets) {
-        stub->at(0)->add_success_tablet(tablet_id);
+        streams->select_one_stream()->add_success_tablet(tablet_id);
     }
     for (const auto& [tablet_id, reason] : failed_tablets) {
-        stub->at(0)->add_failed_tablet(tablet_id, reason);
+        streams->select_one_stream()->add_failed_tablet(tablet_id, reason);
     }
 }
 

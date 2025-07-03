@@ -32,7 +32,7 @@ import com.google.common.collect.Maps;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AlterRepositoryStmt extends DdlStmt {
+public class AlterRepositoryStmt extends DdlStmt implements NotFallbackInParser {
     private String name;
     private Map<String, String> properties;
 
@@ -59,7 +59,7 @@ public class AlterRepositoryStmt extends DdlStmt {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        FeNameFormat.checkCommonName("repository", name);
+        FeNameFormat.checkRepositoryName(name);
         Map<String, String> copyProperties = new HashMap<>(properties);
         if (copyProperties.size() == 0) {
             throw new UserException("alter repository need contains ak/sk/token info of s3.");
@@ -82,5 +82,10 @@ public class AlterRepositoryStmt extends DdlStmt {
         sb.append("ALTER REPOSITORY '").append(name).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

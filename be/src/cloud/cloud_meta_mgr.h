@@ -16,17 +16,21 @@
 // under the License.
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 #include <string>
 #include <tuple>
 #include <variant>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_meta.h"
 #include "util/s3_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class DeleteBitmap;
 class StreamLoadContext;
@@ -57,12 +61,18 @@ public:
 
     Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
 
-    Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false);
+    Status get_schema_dict(int64_t index_id, std::shared_ptr<SchemaCloudDictionary>* schema_dict);
 
-    Status prepare_rowset(const RowsetMeta& rs_meta,
+    Status sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options = {},
+                               SyncRowsetStats* sync_stats = nullptr);
+    Status sync_tablet_rowsets_unlocked(
+            CloudTablet* tablet, std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
+            const SyncOptions& options = {}, SyncRowsetStats* sync_stats = nullptr);
+
+    Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta& rs_meta,
+    Status commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
@@ -73,7 +83,14 @@ public:
 
     Status precommit_txn(const StreamLoadContext& ctx);
 
-    Status get_storage_vault_info(StorageVaultInfos* vault_infos);
+    /**
+     * Gets storage vault (storage backends) from meta-service
+     * 
+     * @param vault_info output param, all storage backends
+     * @param is_vault_mode output param, true for pure vault mode, false for legacy mode
+     * @return status
+     */
+    Status get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode);
 
     Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
 
@@ -83,13 +100,20 @@ public:
 
     Status lease_tablet_job(const TabletJobInfoPB& job);
 
-    Status update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema);
-
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
-                                DeleteBitmap* delete_bitmap);
+                                DeleteBitmap* delete_bitmap, int64_t txn_id = -1,
+                                bool is_explicit_txn = false, int64_t next_visible_version = -1);
+
+    Status cloud_update_delete_bitmap_without_lock(
+            const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
+            std::map<std::string, int64_t>& rowset_to_versions,
+            int64_t pre_rowset_agg_start_version = 0, int64_t pre_rowset_agg_end_version = 0);
 
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);
+
+    void remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id, int64_t initiator,
+                                          int64_t tablet_id);
 
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
@@ -98,8 +122,13 @@ private:
 
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
-                                     const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);
+                                     const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
+                                     bool full_sync = false, SyncRowsetStats* sync_stats = nullptr);
+    void check_table_size_correctness(const RowsetMeta& rs_meta);
+    int64_t get_segment_file_size(const RowsetMeta& rs_meta);
+    int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);
 };
 
 } // namespace cloud
+#include "common/compile_check_end.h"
 } // namespace doris

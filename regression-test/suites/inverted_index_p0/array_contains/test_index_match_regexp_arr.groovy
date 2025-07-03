@@ -35,7 +35,7 @@ suite("test_index_match_regexp_arr", "array_contains_inverted_index"){
       `request` array<text> NULL COMMENT "[]",
       `status` int(11) NULL COMMENT "",
       `size` int(11) NULL COMMENT "",
-      INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+      INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
       ) ENGINE=OLAP
       DUPLICATE KEY(`@timestamp`)
       COMMENT "OLAP"

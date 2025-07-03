@@ -47,7 +47,7 @@ if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger 
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
 if [[ -z "${commit_id_from_checkout}" ]]; then echo "ERROR: env commit_id_from_checkout not set" && exit 1; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
-if [[ -z "${cos_ak}" || -z "${cos_sk}" ]]; then echo "ERROR: env cos_ak or cos_sk not set" && exit 1; fi
+if [[ -z "${s3SourceAk}" || -z "${s3SourceSk}" ]]; then echo "ERROR: env s3SourceAk or s3SourceSk not set" && exit 1; fi
 if [[ -z "${oss_ak}" || -z "${oss_sk}" ]]; then echo "ERROR: env oss_ak or oss_sk not set." && exit 1; fi
 
 echo "#### 1. check if need run"
@@ -67,14 +67,8 @@ fi
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
-if [[ "${target_branch}" == "master" ]]; then
-    echo "INFO: PR target branch ${target_branch}"
-    install_java
-else
-    echo "WARNING: PR target branch ${target_branch} is NOT in (master), skip pipeline."
-    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
-    exit 0
-fi
+echo "INFO: PR target branch ${target_branch}"
+install_java
 
 # shellcheck source=/dev/null
 # _get_pr_changed_files file_changed_performance
@@ -151,7 +145,7 @@ if download_oss_file "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"; 
         master_commit=$(cat output/"${master_commit_file}")
         if merge_pr_to_master_commit "${pr_num_from_trigger}" "${target_branch}" "${master_commit}"; then
             echo "INFO: merged done"
-            if [[ "${teamcity_buildType_id:-}" == "Doris_DorisCloudRegression_CloudP1" ]]; then
+            if [[ "${teamcity_buildType_id:-}" =~ ^Doris_DorisCloudRegression_CloudP1 ]]; then
                 echo "INFO: 用cloud_p1/conf覆盖cloud_p0/conf"
                 if [[ -d "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p1/conf ]]; then
                     cp -rf "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p1/conf/* \

@@ -24,6 +24,7 @@
 #include <google/protobuf/util/json_util.h>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/s3_rate_limiter.h"
@@ -42,8 +43,12 @@ extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t 
 extern std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode ret);
 
 RecyclerServiceImpl::RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler* recycler,
-                                         Checker* checker)
-        : txn_kv_(std::move(txn_kv)), recycler_(recycler), checker_(checker) {}
+                                         Checker* checker,
+                                         std::shared_ptr<TxnLazyCommitter> txn_lazy_committer)
+        : txn_kv_(std::move(txn_kv)),
+          recycler_(recycler),
+          checker_(checker),
+          txn_lazy_committer_(std::move(txn_lazy_committer)) {}
 
 RecyclerServiceImpl::~RecyclerServiceImpl() = default;
 
@@ -56,14 +61,12 @@ void RecyclerServiceImpl::recycle_instance(::google::protobuf::RpcController* co
     brpc::ClosureGuard closure_guard(done);
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg = "OK";
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&code, &msg, &response, &ctrl](int*) {
-                response->mutable_status()->set_code(code);
-                response->mutable_status()->set_msg(msg);
-                LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
-                          << "recycle_instance"
-                          << " " << ctrl->remote_side() << " " << msg;
-            });
+    DORIS_CLOUD_DEFER {
+        response->mutable_status()->set_code(code);
+        response->mutable_status()->set_msg(msg);
+        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ") << "recycle_instance"
+                  << " " << ctrl->remote_side() << " " << msg;
+    };
 
     std::vector<InstanceInfoPB> instances;
     instances.reserve(request->instance_ids_size());
@@ -151,7 +154,9 @@ void RecyclerServiceImpl::check_instance(const std::string& instance_id, MetaSer
 }
 
 void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
-                       MetaServiceCode& code, std::string& msg) {
+                       MetaServiceCode& code, std::string& msg,
+                       RecyclerThreadPoolGroup thread_pool_group,
+                       std::shared_ptr<TxnLazyCommitter> txn_lazy_committer) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -188,19 +193,21 @@ void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& 
             return;
         }
     }
-    auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance);
+
+    auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance, thread_pool_group,
+                                                       txn_lazy_committer);
     if (recycler->init() != 0) {
         LOG(WARNING) << "failed to init InstanceRecycler recycle_copy_jobs on instance "
                      << instance_id;
         return;
     }
-
     std::thread worker([recycler = std::move(recycler), instance_id] {
         LOG(INFO) << "manually trigger recycle_copy_jobs on instance " << instance_id;
         recycler->recycle_copy_jobs();
         std::lock_guard lock(s_worker_mtx);
         s_worker.erase(instance_id);
     });
+    pthread_setname_np(worker.native_handle(), "recycler_worker");
     worker.detach();
 }
 
@@ -267,16 +274,15 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
     std::string req;
     std::string response_body;
     std::string request_body;
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&code, &msg, &status_code, &response_body, &cntl, &req](int*) {
-                status_code = std::get<0>(convert_ms_code_to_http_code(code));
-                LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ") << "http"
-                          << " " << cntl->remote_side() << " request=\n"
-                          << req << "\n ret=" << code << " msg=" << msg;
-                cntl->http_response().set_status_code(status_code);
-                cntl->response_attachment().append(response_body);
-                cntl->response_attachment().append("\n");
-            });
+    DORIS_CLOUD_DEFER {
+        status_code = std::get<0>(convert_ms_code_to_http_code(code));
+        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ") << "http"
+                  << " " << cntl->remote_side() << " request=\n"
+                  << req << "\n ret=" << code << " msg=" << msg;
+        cntl->http_response().set_status_code(status_code);
+        cntl->response_attachment().append(response_body);
+        cntl->response_attachment().append("\n");
+    };
 
     // Prepare input request info
     auto unresolved_path = cntl->http_request().unresolved_path();
@@ -332,7 +338,9 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
             status_code = 400;
             return;
         }
-        recycle_copy_jobs(txn_kv_, *instance_id, code, msg);
+        recycle_copy_jobs(txn_kv_, *instance_id, code, msg, recycler_->_thread_pool_group,
+                          txn_lazy_committer_);
+
         response_body = msg;
         return;
     }
@@ -439,7 +447,7 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
     }
 
     status_code = 404;
-    msg = "not found";
+    msg = "http path " + uri.path() + " not found, it may be not implemented";
     response_body = msg;
 }
 

@@ -89,7 +89,9 @@ suite("insert_group_commit_with_prepare_stmt") {
             assertTrue(serverInfo.contains("'status':'PREPARE'"))
             assertTrue(serverInfo.contains("'label':'group_commit_"))
             // TODO: currently if enable_server_side_prepared_statement = true, will not reuse plan
-            // assertEquals(reuse_plan, serverInfo.contains("reuse_group_commit_plan"))
+            if (reuse_plan) {
+                assertEquals(reuse_plan, serverInfo.contains("reuse_group_commit_plan"))
+            }
         } else {
             // for batch insert
             ConnectionImpl connection = (ConnectionImpl) stmt.getConnection()
@@ -127,8 +129,13 @@ suite("insert_group_commit_with_prepare_stmt") {
         return serverStatementIds
     }
 
-    def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb)
+    def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb, false)
     logger.info("url: " + url)
+
+    sql """ set global enable_prepared_stmt_audit_log = true """
+    onFinish {
+        sql """ set global enable_prepared_stmt_audit_log = false """
+    }
 
     def result1 = connect(user, password, url + "&sessionVariables=group_commit=async_mode") {
         try {
@@ -144,11 +151,10 @@ suite("insert_group_commit_with_prepare_stmt") {
             UNIQUE KEY(`id`, `name`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
+                "group_commit_interval_ms" = "40",
                 "replication_num" = "1"
             );
             """
-
-            sql """ set enable_insert_strict = false; """
 
             // 1. insert into
             def insert_stmt = prepareStatement """ INSERT INTO ${table} VALUES(?, ?, ?) """
@@ -208,11 +214,10 @@ suite("insert_group_commit_with_prepare_stmt") {
             DUPLICATE KEY(`id`, `name`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
+                "group_commit_interval_ms" = "40",
                 "replication_num" = "1"
             );
             """
-
-            sql """ set enable_insert_strict = false; """
 
             // 1. insert into
             def insert_stmt = prepareStatement """ INSERT INTO ${table} VALUES(?, ?, ?) """

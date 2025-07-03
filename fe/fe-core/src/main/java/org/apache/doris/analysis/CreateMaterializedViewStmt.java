@@ -67,7 +67,7 @@ import java.util.Set;
  * ORDER BY column_name[, column_name ...])
  * [PROPERTIES ("key" = "value")]
  */
-public class CreateMaterializedViewStmt extends DdlStmt {
+public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateMaterializedViewStmt.class);
 
     public static final String MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
@@ -272,11 +272,12 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             SelectListItem selectListItem = selectList.getItems().get(i);
 
             Expr selectListItemExpr = selectListItem.getExpr();
-            selectListItemExpr.setDisableTableName(true);
-            if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
-                    && !(selectListItemExpr instanceof ArithmeticExpr)) {
+            selectListItemExpr.disableTableName();
+            Expr realItem = selectListItemExpr.unwrapExpr(false);
+            if (!(realItem instanceof SlotRef) && !(realItem instanceof FunctionCallExpr)
+                    && !(realItem instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
-                        + "Error column: " + selectListItemExpr.toSql());
+                        + "Error column: " + selectListItemExpr.toSqlWithoutTbl());
             }
 
             if (!isReplay && selectListItemExpr.hasAutoInc()) {
@@ -297,14 +298,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 if (!isReplay && selectListItemExpr.containsAggregate()) {
                     throw new AnalysisException(
                             "The materialized view's expr calculations cannot be included outside aggregate functions"
-                                    + ", expr: " + selectListItemExpr.toSql());
+                                    + ", expr: " + selectListItemExpr.toSqlWithoutTbl());
                 }
                 List<SlotRef> slots = new ArrayList<>();
                 selectListItemExpr.collect(SlotRef.class, slots);
                 if (!isReplay && slots.size() == 0) {
                     throw new AnalysisException(
                             "The materialized view contain constant expr is disallowed, expr: "
-                                    + selectListItemExpr.toSql());
+                                    + selectListItemExpr.toSqlWithoutTbl());
                 }
                 if (meetAggregate) {
                     throw new AnalysisException("The aggregate column should be after the single column");
@@ -343,9 +344,16 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     }
 
     private void analyzeGroupByClause() throws AnalysisException {
-        if (isReplay || selectStmt.getGroupByClause() == null) {
+        if (isReplay) {
             return;
         }
+        if (selectStmt.getGroupByClause() == null && mvKeysType == KeysType.AGG_KEYS) {
+            throw new AnalysisException("agg mv must has group by clause");
+        }
+        if (selectStmt.getGroupByClause() == null) {
+            return;
+        }
+
         List<Expr> groupingExprs = selectStmt.getGroupByClause().getGroupingExprs();
         List<FunctionCallExpr> aggregateExprs = selectStmt.getAggInfo().getAggregateExprs();
         List<Expr> selectExprs = selectStmt.getSelectList().getExprs();
@@ -415,7 +423,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
             if (!mvColumnItem.getDefineExpr().equals(orderByElement)) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
-                        + "the order of columns in select list, " + mvColumnItem.getDefineExpr().toSql() + " vs "
+                        + "the order of columns in select list, " + mvColumnItem.getDefineExpr().toSqlWithoutTbl()
+                        + " vs "
                         + orderByElement.toSql());
             }
             Preconditions.checkState(mvColumnItem.getAggregationType() == null);
@@ -468,7 +477,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     }
                     break;
                 }
-                if (column.getType().isFloatingPointType()) {
+                if (!column.getType().couldBeShortKey()) {
                     break;
                 }
                 if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
@@ -479,7 +488,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 column.setIsKey(true);
             }
             if (theBeginIndexOfValue == 0) {
-                throw new AnalysisException("The first column could not be float or double type, use decimal instead");
+                throw new AnalysisException(
+                    "The first column could not be float, double or complex "
+                    + "type like array, struct, map, json, variant.");
             }
             // supply value
             for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
@@ -597,7 +608,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         for (SelectListItem selectListItem : selectList.getItems()) {
             Expr selectListItemExpr = selectListItem.getExpr();
             Expr expr = selectListItemExpr;
-            String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSql()));
+            String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()));
             if (selectListItemExpr instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
                 switch (functionCallExpr.getFnName().getFunction().toLowerCase()) {
@@ -721,5 +732,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     @Override
     public String toSql() {
         return null;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

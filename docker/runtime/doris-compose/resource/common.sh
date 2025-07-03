@@ -16,14 +16,16 @@
 # under the License.
 
 export MASTER_FE_IP=""
-export MASTER_FE_IP_FILE=$DORIS_HOME/status/master_fe_ip
+export MASTER_FE_PORT=""
+export MASTER_FE_QUERY_ADDR_FILE=$DORIS_HOME/status/master_fe_query_addr
 export HAS_INIT_FDB_FILE=${DORIS_HOME}/status/has_init_fdb
 export HAS_CREATE_INSTANCE_FILE=$DORIS_HOME/status/has_create_instance
 export LOG_FILE=$DORIS_HOME/log/health.out
 export LOCK_FILE=$DORIS_HOME/status/token
+export MY_TYPE_ID="${MY_TYPE}-${MY_ID}"
 
 health_log() {
-    echo "$(date +'%Y-%m-%d %H:%M:%S') $@" >>$LOG_FILE
+    echo "$(date +'%Y-%m-%d %H:%M:%S') $@" | tee -a $LOG_FILE
 }
 
 # concurrent write meta service server will failed due to fdb txn conflict.
@@ -32,7 +34,7 @@ lock_cluster() {
     health_log "start acquire token"
     while true; do
         if [ -f $LOCK_FILE ]; then
-            if [ "a$(cat $LOCK_FILE)" == "a${MY_IP}" ]; then
+            if [ "a$(cat $LOCK_FILE)" == "a${MY_TYPE_ID}" ]; then
                 health_log "rm $LOCK_FILE generate by myself"
                 rm $LOCK_FILE
                 continue
@@ -57,12 +59,12 @@ lock_cluster() {
         fi
 
         if [ ! -f $LOCK_FILE ]; then
-            echo $MY_IP >$LOCK_FILE
+            echo ${MY_TYPE_ID} >$LOCK_FILE
         fi
 
         sleep 0.1
 
-        if [ "a$(cat $LOCK_FILE)" == "a${MY_IP}" ]; then
+        if [ "a$(cat $LOCK_FILE)" == "a${MY_TYPE_ID}" ]; then
             break
         fi
 
@@ -77,16 +79,18 @@ unlock_cluster() {
         return
     fi
 
-    if [ "a$(cat $LOCK_FILE)" == "a${MY_IP}" ]; then
+    if [ "a$(cat $LOCK_FILE)" == "a${MY_TYPE_ID}" ]; then
         rm $LOCK_FILE
     fi
 }
 
 wait_master_fe_ready() {
     while true; do
-        MASTER_FE_IP=$(cat $MASTER_FE_IP_FILE)
-        if [ -n "$MASTER_FE_IP" ]; then
-            health_log "master fe ${MASTER_FE_IP} has ready."
+        master_fe_query_addr=$(cat $MASTER_FE_QUERY_ADDR_FILE)
+        if [ -n "$master_fe_query_addr" ]; then
+            MASTER_FE_IP=$(echo ${master_fe_query_addr} | cut -d ":" -f 1)
+            MASTER_FE_PORT=$(echo ${master_fe_query_addr} | cut -d ":" -f 2)
+            health_log "master fe ${master_fe_query_addr} has ready."
             break
         fi
         health_log "master fe has not ready."
@@ -120,10 +124,11 @@ wait_pid() {
     health_log ""
     health_log "ps -elf\n$(ps -elf)\n"
     if [ -z $pid ]; then
-        health_log "pid not exist"
+        health_log "pid $pid not exist"
         exit 1
     fi
 
+    health_log "pid $pid exist"
     health_log "wait process $pid"
     while true; do
         ps -p $pid >/dev/null
@@ -132,5 +137,13 @@ wait_pid() {
         fi
         sleep 1s
     done
+
+    health_log "show dmesg -T: "
+    dmesg -T | tail -n 50 | tee -a $LOG_FILE
+
+    health_log "show ps -elf"
+    health_log "ps -elf\n$(ps -elf)\n"
+    health_log "pid $pid not exist"
+
     health_log "wait end"
 }

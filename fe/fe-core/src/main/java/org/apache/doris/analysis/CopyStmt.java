@@ -34,8 +34,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -51,7 +53,7 @@ import java.util.Map;
 /**
  * Copy statement
  */
-public class CopyStmt extends DdlStmt {
+public class CopyStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CopyStmt.class);
 
     private static final ShowResultSetMetaData COPY_INTO_META_DATA =
@@ -80,8 +82,8 @@ public class CopyStmt extends DdlStmt {
     private LabelName label = null;
     private BrokerDesc brokerDesc = null;
     private DataDescription dataDescription = null;
-    private final Map<String, String> brokerProperties = new HashMap<>();
-    private final Map<String, String> properties = new HashMap<>();
+    private Map<String, String> brokerProperties = new HashMap<>();
+    private Map<String, String> properties = new HashMap<>();
 
     @Getter
     private String stage;
@@ -108,6 +110,36 @@ public class CopyStmt extends DdlStmt {
         if (optHints != null) {
             this.optHints = optHints.get(SET_VAR_KEY);
         }
+    }
+
+    /**
+     * Use for Nereids Planner.
+     */
+    public CopyStmt(TableName tableName, CopyFromParam copyFromParam,
+                    CopyIntoProperties copyProperties, Map<String, Map<String, String>> optHints, LabelName label,
+                    String stageId, StageType stageType, String stagePrefix, ObjectInfo objectInfo, String userName,
+                    Map<String, String> brokerProperties, Map<String, String> properties,
+                    DataDescription dataDescription, BrokerDesc brokerDesc, OriginStatement originStmt) {
+        this.tableName = tableName;
+        this.copyFromParam = copyFromParam;
+        this.stage = copyFromParam.getStageAndPattern().getStageName();
+        this.copyIntoProperties = copyProperties;
+        if (optHints != null) {
+            this.optHints = optHints.get(SET_VAR_KEY);
+        }
+
+        this.label = label;
+        this.brokerDesc = brokerDesc;
+        this.brokerProperties = brokerProperties;
+        this.properties = properties;
+
+        this.stageId = stageId;
+        this.stageType = stageType;
+        this.stagePrefix = stagePrefix;
+        this.objectInfo = objectInfo;
+        this.userName = userName;
+        this.dataDescription = dataDescription;
+        this.setOrigStmt(originStmt);
     }
 
     @Override
@@ -147,11 +179,11 @@ public class CopyStmt extends DdlStmt {
                     getOrigStmt() != null ? getOrigStmt().originStmt : "", copyFromParam.getFileColumns(),
                     copyFromParam.getColumnMappingList(), copyFromParam.getFileFilterExpr());
         }
+        dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
         dataDescription = new DataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
                 copyFromParam.getFileColumns(), separator, fileFormatStr, null, false,
                 copyFromParam.getColumnMappingList(), copyFromParam.getFileFilterExpr(), null, MergeType.APPEND, null,
                 null, dataDescProperties);
-        dataDescription.setCompressType(StageUtil.parseCompressType(copyIntoProperties.getCompression()));
         if (!(copyFromParam.getColumnMappingList() == null
                 || copyFromParam.getColumnMappingList().isEmpty())) {
             dataDescription.setIgnoreCsvRedundantCol(true);
@@ -205,7 +237,8 @@ public class CopyStmt extends DdlStmt {
         }
         brokerProperties.put(S3_BUCKET, objInfo.getBucket());
         brokerProperties.put(S3_PREFIX, objInfo.getPrefix());
-        brokerProperties.put(S3Properties.PROVIDER, objInfo.getProvider().toString());
+        // S3 Provider properties should be case insensitive.
+        brokerProperties.put(S3Properties.PROVIDER, objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
         this.copyIntoProperties.analyze();

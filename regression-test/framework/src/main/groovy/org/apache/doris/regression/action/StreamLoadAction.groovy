@@ -198,7 +198,7 @@ class StreamLoadAction implements SuiteAction {
         long endTime = System.currentTimeMillis()
 
         log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
-                " response: ${responseText}" + ex.toString())
+                "response: ${responseText}, " + ex.toString())
         checkResult(responseText, ex, startTime, endTime)
     }
 
@@ -279,6 +279,7 @@ class StreamLoadAction implements SuiteAction {
                     fileName = cacheHttpFile(client, fileName)
                 } else {
                     entity = new InputStreamEntity(httpGetStream(client, fileName))
+                    log.info("http entity length is ${entity.contentLength}")
                     return entity;
                 }
             }
@@ -364,13 +365,15 @@ class StreamLoadAction implements SuiteAction {
                 throw new IllegalStateException("Stream load rows mismatch:\n${responseText}")
             }
 
-            if (time > 0) {
-                long elapsed = endTime - startTime
-                try{
-                    Assert.assertTrue("Expect elapsed <= ${time}, but meet ${elapsed}", elapsed <= time)
-                } catch (Throwable t) {
-                    throw new IllegalStateException("Expect elapsed <= ${time}, but meet ${elapsed}")
-                }
+             if (time > 0) {
+                 long elapsed = endTime - startTime
+                 try {
+                     // stream load may cost more time than expected in regression test, because of case run in parallel.
+                     // So we allow stream load cost more time, use 4 * time as threshold.
+                     Assert.assertTrue("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}", elapsed <= 4 * time)
+                 } catch (Throwable t) {
+                     throw new IllegalStateException("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}")
+                 }
             }
         }
     }

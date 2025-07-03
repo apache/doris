@@ -31,6 +31,8 @@
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 
@@ -47,7 +49,7 @@ namespace {
 Result<FileHandleCache::Accessor> get_file(const hdfsFS& fs, const Path& file, int64_t mtime,
                                            int64_t file_size) {
     static FileHandleCache cache(config::max_hdfs_file_handle_cache_num, 16,
-                                 config::max_hdfs_file_handle_cache_time_sec * 1000L);
+                                 config::max_hdfs_file_handle_cache_time_sec);
     bool cache_hit;
     FileHandleCache::Accessor accessor;
     RETURN_IF_ERROR_RESULT(cache.get_file_handle(fs, file.native(), mtime, file_size, false,
@@ -132,6 +134,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
+
     size_t has_read = 0;
     while (has_read < bytes_req) {
         tSize loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
@@ -195,6 +199,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     if (UNLIKELY(bytes_req == 0)) {
         return Status::OK();
     }
+
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
 
     size_t has_read = 0;
     while (has_read < bytes_req) {

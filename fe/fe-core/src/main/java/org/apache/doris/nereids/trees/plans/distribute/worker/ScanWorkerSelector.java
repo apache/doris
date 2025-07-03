@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.distribute.worker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedScanBucketOlapTableJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UninstancedScanSource;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -35,7 +36,8 @@ public interface ScanWorkerSelector {
 
     // for a scan node, select replica for each scan range(denote tablet if the ScanNode is OlapScanNode),
     // use the replica location to build a worker execute the instance
-    Map<DistributedPlanWorker, UninstancedScanSource> selectReplicaAndWorkerWithoutBucket(ScanNode scanNode);
+    Map<DistributedPlanWorker, UninstancedScanSource> selectReplicaAndWorkerWithoutBucket(
+            ScanNode scanNode, ConnectContext context);
 
     // return
     //   key:   Worker, the backend which will process this fragment
@@ -49,14 +51,12 @@ public interface ScanWorkerSelector {
     //                      and distributed by hash(id) buckets 10. And, so, there has 10 buckets from bucket 0 to
     //                      bucket 9, and every bucket contains two tablets, because there are two partitions.
     Map<DistributedPlanWorker, UninstancedScanSource> selectReplicaAndWorkerWithBucket(
-            UnassignedScanBucketOlapTableJob unassignedJob);
+            UnassignedScanBucketOlapTableJob unassignedJob, ConnectContext context);
 
     static TScanRangeParams buildScanReplicaParams(
             TScanRangeLocations tabletLocation, TScanRangeLocation replicaLocation) {
         TScanRangeParams replicaParam = new TScanRangeParams();
         replicaParam.scan_range = tabletLocation.scan_range;
-        // Volume is optional, so we need to set the value and the is-set bit
-        replicaParam.setVolumeId(replicaLocation.volume_id);
         return replicaParam;
     }
 }

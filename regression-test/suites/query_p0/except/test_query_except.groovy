@@ -22,4 +22,7 @@ suite("test_query_except", "arrow_flight_sql") {
                       SELECT * FROM (SELECT k1 FROM test_query_db.baseall
                                      EXCEPT SELECT k1 FROM test_query_db.test) a ORDER BY k1
                       """
+    qt_select_except2 """
+		      select not_null_k1, not_null_k1 from (SELECT non_nullable(k1) as not_null_k1 FROM test_query_db.baseall where k1 is not null) b1 except select non_nullable(k1), k1 from test_query_db.baseall where k1 is not null order by 1, 2;	
+		      """
 }

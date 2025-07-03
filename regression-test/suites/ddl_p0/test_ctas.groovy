@@ -106,7 +106,7 @@ suite("test_ctas") {
 
         test {
             sql """show load from ${dbname}"""
-            rowNum 6
+            rowNum isGroupCommitMode() ? 4: 6
         }
 
         sql """

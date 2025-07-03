@@ -185,7 +185,7 @@ public class CheckConsistencyJob {
                     maxDataSize = replica.getDataSize();
                 }
 
-                CheckConsistencyTask task = new CheckConsistencyTask(null, replica.getBackendId(),
+                CheckConsistencyTask task = new CheckConsistencyTask(null, replica.getBackendIdWithoutException(),
                                                                      tabletMeta.getDbId(),
                                                                      tabletMeta.getTableId(),
                                                                      tabletMeta.getPartitionId(),
@@ -197,7 +197,7 @@ public class CheckConsistencyJob {
                 batchTask.addTask(task);
 
                 // init checksum as '-1'
-                checksumMap.put(replica.getBackendId(), -1L);
+                checksumMap.put(replica.getBackendIdWithoutException(), -1L);
 
                 ++sentTaskReplicaNum;
             }

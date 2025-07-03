@@ -23,7 +23,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
-import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.thrift.TQueryOptions;
@@ -44,8 +43,6 @@ public abstract class Planner {
     private static final Logger LOG = LogManager.getLogger(Planner.class);
 
     protected ArrayList<PlanFragment> fragments = Lists.newArrayList();
-
-    protected boolean isBlockQuery = false;
 
     protected TQueryOptions queryOptions;
 
@@ -117,10 +114,6 @@ public abstract class Planner {
         return fragments;
     }
 
-    public boolean isBlockQuery() {
-        return isBlockQuery;
-    }
-
     public TQueryOptions getQueryOptions() {
         return queryOptions;
     }
@@ -130,8 +123,6 @@ public abstract class Planner {
     public abstract List<RuntimeFilter> getRuntimeFilters();
 
     public abstract Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt);
-
-    public abstract void addHook(PlannerHook hook);
 
     public List<TopnFilter> getTopnFilters() {
         return Lists.newArrayList();

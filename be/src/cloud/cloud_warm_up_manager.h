@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <bthread/countdown_event.h>
+
 #include <condition_variable>
 #include <deque>
 #include <mutex>
@@ -69,13 +71,15 @@ public:
 
 private:
     void handle_jobs();
-
+    void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,
+                               int64_t expiration_time,
+                               std::shared_ptr<bthread::CountdownEvent> wait);
     std::mutex _mtx;
     std::condition_variable _cond;
     int64_t _cur_job_id {0};
     int64_t _cur_batch_id {-1};
-    std::deque<JobMeta> _pending_job_metas;
-    std::vector<JobMeta> _finish_job;
+    std::deque<std::shared_ptr<JobMeta>> _pending_job_metas;
+    std::vector<std::shared_ptr<JobMeta>> _finish_job;
     std::thread _download_thread;
     bool _closed {false};
     // the attribute for compile in ut

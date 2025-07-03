@@ -24,18 +24,16 @@ import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -45,21 +43,31 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -70,7 +78,6 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -82,13 +89,13 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -112,7 +119,7 @@ public abstract class RoutineLoadJob
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
     public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
-    public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
+    public static final long DEFAULT_MAX_INTERVAL_SECOND = 60;
     public static final long DEFAULT_MAX_BATCH_ROWS = 20000000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
@@ -224,20 +231,6 @@ public abstract class RoutineLoadJob
 
     protected boolean memtableOnSinkNode = false;
 
-    /**
-     * RoutineLoad support json data.
-     * Require Params:
-     * 1) format = "json"
-     * 2) jsonPath = "$.XXX.xxx"
-     */
-    private static final String PROPS_FORMAT = "format";
-    private static final String PROPS_STRIP_OUTER_ARRAY = "strip_outer_array";
-    private static final String PROPS_NUM_AS_STRING = "num_as_string";
-    private static final String PROPS_JSONPATHS = "jsonpaths";
-    private static final String PROPS_JSONROOT = "json_root";
-    private static final String PROPS_FUZZY_PARSE = "fuzzy_parse";
-
-
     protected int currentTaskConcurrentNum;
     @SerializedName("pg")
     protected RoutineLoadProgress progress;
@@ -262,9 +255,6 @@ public abstract class RoutineLoadJob
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
-    // stream load planer will be initialized during job schedule
-    protected StreamLoadPlanner planner;
-
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
     // because we can not serialize the Expressions contained in job.
     @SerializedName("ostmt")
@@ -284,8 +274,6 @@ public abstract class RoutineLoadJob
     // save the latest 3 error log urls
     private Queue<String> errorLogUrls = EvictingQueue.create(3);
 
-    protected boolean isTypeRead = false;
-
     @SerializedName("ccid")
     private String cloudClusterId;
 
@@ -296,10 +284,6 @@ public abstract class RoutineLoadJob
     // use for cloud cluster mode
     protected String qualifiedUser;
     protected String cloudCluster;
-
-    public void setTypeRead(boolean isTypeRead) {
-        this.isTypeRead = isTypeRead;
-    }
 
     public RoutineLoadJob(long id, LoadDataSourceType type) {
         this.id = id;
@@ -346,7 +330,11 @@ public abstract class RoutineLoadJob
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
             this.qualifiedUser = ConnectContext.get().getQualifiedUser();
-            this.cloudCluster = ConnectContext.get().getCloudCluster();
+            try {
+                this.cloudCluster = ConnectContext.get().getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get cloud cluster", e);
+            }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -391,47 +379,32 @@ public abstract class RoutineLoadJob
             this.isPartialUpdate = true;
         }
         jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
-        if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
-            jobProperties.put(PROPS_FORMAT, "csv");
-        } else if (stmt.getFormat().equals("json")) {
-            jobProperties.put(PROPS_FORMAT, "json");
+
+        FileFormatProperties fileFormatProperties = stmt.getFileFormatProperties();
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
+            jobProperties.put(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+            jobProperties.put(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
+            this.enclose = csvFileFormatProperties.getEnclose();
+            this.escape = csvFileFormatProperties.getEscape();
+        } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
+            JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+            jobProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, jsonFileFormatProperties.getJsonPaths());
+            jobProperties.put(JsonFileFormatProperties.PROP_JSON_ROOT, jsonFileFormatProperties.getJsonRoot());
+            jobProperties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
+                    String.valueOf(jsonFileFormatProperties.isStripOuterArray()));
+            jobProperties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING,
+                    String.valueOf(jsonFileFormatProperties.isNumAsString()));
+            jobProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE,
+                    String.valueOf(jsonFileFormatProperties.isFuzzyParse()));
         } else {
             throw new UserException("Invalid format type.");
         }
 
-        if (!Strings.isNullOrEmpty(stmt.getJsonPaths())) {
-            jobProperties.put(PROPS_JSONPATHS, stmt.getJsonPaths());
-        } else {
-            jobProperties.put(PROPS_JSONPATHS, "");
-        }
-        if (!Strings.isNullOrEmpty(stmt.getJsonRoot())) {
-            jobProperties.put(PROPS_JSONROOT, stmt.getJsonRoot());
-        } else {
-            jobProperties.put(PROPS_JSONROOT, "");
-        }
-        if (stmt.isStripOuterArray()) {
-            jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "true");
-        } else {
-            jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
-        }
-        if (stmt.isNumAsString()) {
-            jobProperties.put(PROPS_NUM_AS_STRING, "true");
-        } else {
-            jobProperties.put(PROPS_NUM_AS_STRING, "false");
-        }
-        if (stmt.isFuzzyParse()) {
-            jobProperties.put(PROPS_FUZZY_PARSE, "true");
-        } else {
-            jobProperties.put(PROPS_FUZZY_PARSE, "false");
-        }
-        if (stmt.getEnclose() != null) {
-            jobProperties.put(LoadStmt.KEY_ENCLOSE, stmt.getEnclose());
-        }
-        if (stmt.getEscape() != null) {
-            jobProperties.put(LoadStmt.KEY_ESCAPE, stmt.getEscape());
-        }
-        if (stmt.getWorkloadGroupId() > 0) {
-            jobProperties.put(WORKLOAD_GROUP, String.valueOf(stmt.getWorkloadGroupId()));
+        if (!StringUtils.isEmpty(stmt.getWorkloadGroupName())) {
+            jobProperties.put(WORKLOAD_GROUP, stmt.getWorkloadGroupName());
         }
     }
 
@@ -486,7 +459,7 @@ public abstract class RoutineLoadJob
         lock.writeLock().lock();
     }
 
-    protected void writeUnlock() {
+    public void writeUnlock() {
         lock.writeLock().unlock();
     }
 
@@ -498,8 +471,33 @@ public abstract class RoutineLoadJob
         return dbId;
     }
 
+    public String getCreateTimestampString() {
+        return TimeUtils.longToTimeString(createTimestamp);
+    }
+
+    public String getPauseTimestampString() {
+        return TimeUtils.longToTimeString(pauseTimestamp);
+    }
+
+    public String getEndTimestampString() {
+        return TimeUtils.longToTimeString(endTimestamp);
+    }
+
     public void setOtherMsg(String otherMsg) {
-        this.otherMsg = TimeUtils.getCurrentFormatTime() + ":" + Strings.nullToEmpty(otherMsg);
+        writeLock();
+        try {
+            this.otherMsg = TimeUtils.getCurrentFormatTime() + ":" + Strings.nullToEmpty(otherMsg);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public ErrorReason getPauseReason() {
+        return pauseReason;
+    }
+
+    public RoutineLoadStatistic getRoutineLoadStatistic() {
+        return jobStatistic;
     }
 
     public String getDbFullName() throws MetaNotFoundException {
@@ -518,12 +516,8 @@ public abstract class RoutineLoadJob
         return database.getTableOrMetaException(tableId).getName();
     }
 
-    public long getWorkloadId() {
-        String workloadIdStr = jobProperties.get(WORKLOAD_GROUP);
-        if (!StringUtils.isEmpty(workloadIdStr)) {
-            return Long.parseLong(workloadIdStr);
-        }
-        return -1;
+    public String getWorkloadGroup() {
+        return jobProperties.get(WORKLOAD_GROUP);
     }
 
     public JobState getState() {
@@ -536,6 +530,10 @@ public abstract class RoutineLoadJob
 
     public long getEndTimestamp() {
         return endTimestamp;
+    }
+
+    public RoutineLoadStatistic getJobStatistic() {
+        return jobStatistic;
     }
 
     public PartitionNames getPartitions() {
@@ -616,7 +614,10 @@ public abstract class RoutineLoadJob
 
     @Override
     public int getTimeout() {
-        return (int) getMaxBatchIntervalS();
+        int timeoutSec = (int) getMaxBatchIntervalS() * Config.routine_load_task_timeout_multiplier;
+        int realTimeoutSec = timeoutSec < Config.routine_load_task_min_timeout_sec
+                    ? Config.routine_load_task_min_timeout_sec : timeoutSec;
+        return realTimeoutSec;
     }
 
     @Override
@@ -649,7 +650,7 @@ public abstract class RoutineLoadJob
     }
 
     public String getFormat() {
-        String value = jobProperties.get(PROPS_FORMAT);
+        String value = jobProperties.get(FileFormatProperties.PROP_FORMAT);
         if (value == null) {
             return "csv";
         }
@@ -658,17 +659,17 @@ public abstract class RoutineLoadJob
 
     @Override
     public boolean isStripOuterArray() {
-        return Boolean.parseBoolean(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
+        return Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY));
     }
 
     @Override
     public boolean isNumAsString() {
-        return Boolean.parseBoolean(jobProperties.get(PROPS_NUM_AS_STRING));
+        return Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_NUM_AS_STRING));
     }
 
     @Override
     public boolean isFuzzyParse() {
-        return Boolean.parseBoolean(jobProperties.get(PROPS_FUZZY_PARSE));
+        return Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_FUZZY_PARSE));
     }
 
     @Override
@@ -703,7 +704,7 @@ public abstract class RoutineLoadJob
     }
 
     @Override
-    public boolean isPartialUpdate() {
+    public boolean isFixedPartialUpdate() {
         return isPartialUpdate;
     }
 
@@ -716,7 +717,7 @@ public abstract class RoutineLoadJob
     }
 
     public String getJsonPaths() {
-        String value = jobProperties.get(PROPS_JSONPATHS);
+        String value = jobProperties.get(JsonFileFormatProperties.PROP_JSON_PATHS);
         if (value == null) {
             return "";
         }
@@ -724,7 +725,7 @@ public abstract class RoutineLoadJob
     }
 
     public String getJsonRoot() {
-        String value = jobProperties.get(PROPS_JSONROOT);
+        String value = jobProperties.get(JsonFileFormatProperties.PROP_JSON_ROOT);
         if (value == null) {
             return "";
         }
@@ -770,6 +771,10 @@ public abstract class RoutineLoadJob
         }
     }
 
+    public Queue<String> getErrorLogUrls() {
+        return errorLogUrls;
+    }
+
     // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
     public void processTimeoutTasks() {
         writeLock();
@@ -782,18 +787,6 @@ public abstract class RoutineLoadJob
                     // and after renew, the previous task is removed from routineLoadTaskInfoList,
                     // so task can no longer be committed successfully.
                     // the already committed task will not be handled here.
-                    int timeoutBackOffCount = routineLoadTaskInfo.getTimeoutBackOffCount();
-                    if (timeoutBackOffCount > RoutineLoadTaskInfo.MAX_TIMEOUT_BACK_OFF_COUNT) {
-                        try {
-                            updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TIMEOUT_TOO_MUCH,
-                                        "task " + routineLoadTaskInfo.getId() + " timeout too much"), false);
-                        } catch (UserException e) {
-                            LOG.warn("update job state to pause failed", e);
-                        }
-                        return;
-                    }
-                    routineLoadTaskInfo.setTimeoutBackOffCount(timeoutBackOffCount + 1);
-                    routineLoadTaskInfo.setTimeoutMs((routineLoadTaskInfo.getTimeoutMs() << 1));
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
                     Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
@@ -837,6 +830,11 @@ public abstract class RoutineLoadJob
         }
     }
 
+    public boolean isAbnormalPause() {
+        return this.state == JobState.PAUSED && this.pauseReason != null
+                    && this.pauseReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR;
+    }
+
     // All of private method could not be call without lock
     private void checkStateTransform(RoutineLoadJob.JobState desireState) throws UserException {
         switch (state) {
@@ -861,11 +859,23 @@ public abstract class RoutineLoadJob
     // if rate of error data is more than max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
-                attachment.getReceivedBytes(), false /* not replay */);
+                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), false /* not replay */);
+    }
+
+    protected void updateCloudProgress(RLTaskTxnCommitAttachment attachment) {
+        // In the cloud mode, the reason for needing to overwrite jobStatistic is that
+        // pulling the progress of meta service is equivalent to a replay operation of edit log,
+        // but this method will be called whenever scheduled by RoutineLoadScheduler,
+        // and accumulation will result in incorrect jobStatistic information.
+        this.jobStatistic.totalRows = attachment.getTotalRows();
+        this.jobStatistic.errorRows = attachment.getFilteredRows();
+        this.jobStatistic.unselectedRows = attachment.getUnselectedRows();
+        this.jobStatistic.receivedBytes = attachment.getReceivedBytes();
+        this.jobStatistic.totalTaskExcutionTimeMs = System.currentTimeMillis() - createTimestamp;
     }
 
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
-                                 boolean isReplay) throws UserException {
+                                 long taskExecutionTime, boolean isReplay) throws UserException {
         this.jobStatistic.totalRows += numOfTotalRows;
         this.jobStatistic.errorRows += numOfErrorRows;
         this.jobStatistic.unselectedRows += unselectedRows;
@@ -876,6 +886,8 @@ public abstract class RoutineLoadJob
             MetricRepo.COUNTER_ROUTINE_LOAD_ROWS.increase(numOfTotalRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_ERROR_ROWS.increase(numOfErrorRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_RECEIVED_BYTES.increase(receivedBytes);
+            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(taskExecutionTime);
+            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(1L);
         }
 
         // check error rate
@@ -913,9 +925,11 @@ public abstract class RoutineLoadJob
                                 + "when current total rows is more than base or the filter ratio is more than the max")
                         .build());
             }
-            // reset currentTotalNum and currentErrorNum
+            // reset currentTotalNum, currentErrorNum and otherMsg
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
+            this.otherMsg = "";
+            this.jobStatistic.currentAbortedTaskNum = 0;
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
                     && ((double) this.jobStatistic.currentErrorRows
@@ -934,40 +948,67 @@ public abstract class RoutineLoadJob
                         "current error rows is more than max_error_number "
                             + "or the max_filter_ratio is more than the value set"), isReplay);
             }
-            // reset currentTotalNum and currentErrorNum
+            // reset currentTotalNum, currentErrorNum and otherMsg
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
+            this.otherMsg = "";
         }
     }
 
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         try {
             updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
-                    attachment.getReceivedBytes(), true /* is replay */);
+                    attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), true /* is replay */);
         } catch (UserException e) {
             LOG.error("should not happen", e);
         }
+    }
+
+    public Long totalProgress() {
+        return 0L;
+    }
+
+    public Long totalLag() {
+        return 0L;
     }
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo);
 
     // call before first scheduling
     // derived class can override this.
-    public void prepare() throws UserException {
-        initPlanner();
-    }
+    public abstract void prepare() throws UserException;
 
-    private void initPlanner() throws UserException {
-        // for multi table load job, the table name is dynamic,we will set table when task scheduling.
-        if (isMultiTable) {
-            return;
+    // make this public here just for UT.
+    public void setComputeGroup() {
+        ComputeGroup computeGroup = null;
+        try {
+            if (ConnectContext.get() == null) {
+                ConnectContext ctx = new ConnectContext();
+                ctx.setThreadLocalInfo();
+            }
+            String currentUser = ConnectContext.get().getQualifiedUser();
+            if (StringUtils.isEmpty(currentUser)) {
+                currentUser = getUserIdentity().getQualifiedUser();
+            }
+            if (StringUtils.isEmpty(currentUser)) {
+                LOG.warn("can not find user in routine load");
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+            } else {
+                computeGroup = Env.getCurrentEnv().getAuth().getComputeGroup(currentUser);
+            }
+            if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
+                LOG.warn("get an invalid compute group in routine load");
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+            }
+        } catch (Throwable t) {
+            LOG.warn("error happens when set compute group for routine load", t);
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
         }
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        planner = new StreamLoadPlanner(db,
-                (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
+        ConnectContext.get().setComputeGroup(computeGroup);
     }
 
-    public TPipelineFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
+    public TPipelineFragmentParams plan(NereidsStreamLoadPlanner planner, TUniqueId loadId, long txnId)
+            throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
@@ -991,13 +1032,20 @@ public abstract class RoutineLoadJob
                 } else {
                     ConnectContext.get().setCloudCluster(clusterName);
                 }
+                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
+                ConnectContext.get().setQualifiedUser(this.getUserIdentity().getQualifiedUser());
+            } else {
+                setComputeGroup();
+            }
+            if (ConnectContext.get().getEnv() == null) {
+                ConnectContext.get().setEnv(Env.getCurrentEnv());
             }
 
             TPipelineFragmentParams planParams = planner.plan(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {
-                throw new MetaNotFoundException("txn does not exist: " + txnId);
+                throw new UserException("txn does not exist: " + txnId);
             }
             txnState.addTableIndexes(planner.getDestTable());
             if (isPartialUpdate) {
@@ -1082,9 +1130,6 @@ public abstract class RoutineLoadJob
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
-        if (Config.isCloudMode()) {
-            writeLock();
-        }
         try {
             if (txnOperated) {
                 // find task in job
@@ -1210,6 +1255,7 @@ public abstract class RoutineLoadJob
         long taskBeId = -1L;
         try {
             this.jobStatistic.runningTxnIds.remove(txnState.getTransactionId());
+            setOtherMsg(txnStatusChangeReasonString);
             if (txnOperated) {
                 // step0: find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
@@ -1228,6 +1274,7 @@ public abstract class RoutineLoadJob
                             .build());
                 }
                 ++this.jobStatistic.abortedTaskNum;
+                ++this.jobStatistic.currentAbortedTaskNum;
                 TransactionState.TxnStatusChangeReason txnStatusChangeReason = null;
                 if (txnStatusChangeReasonString != null) {
                     txnStatusChangeReason =
@@ -1331,7 +1378,7 @@ public abstract class RoutineLoadJob
         } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState, txnStatusChangeReason)) {
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
-            routineLoadTaskInfo.selfAdaptTimeout(rlTaskTxnCommitAttachment);
+            routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
         if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
@@ -1362,6 +1409,10 @@ public abstract class RoutineLoadJob
             return;
         }
 
+        if (olapTable.isTemporary()) {
+            throw new DdlException("Cannot create routine load for temporary table "
+                + olapTable.getDisplayName());
+        }
         // check partitions
         olapTable.readLock();
         try {
@@ -1521,16 +1572,21 @@ public abstract class RoutineLoadJob
             }
         }
 
-        preCheckNeedSchedule();
+        boolean needAutoResume = needAutoResume();
+
+        if (!refreshKafkaPartitions(needAutoResume)) {
+            return;
+        }
 
         writeLock();
         try {
-            if (unprotectNeedReschedule()) {
+            if (unprotectNeedReschedule() || needAutoResume) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                         .add("msg", "Job need to be rescheduled")
                         .build());
+                this.otherMsg = pauseReason == null ? "" : pauseReason.getMsg();
                 unprotectUpdateProgress();
-                executeNeedSchedule();
+                unprotectUpdateState(JobState.NEED_SCHEDULE, null, false);
             }
         } finally {
             writeUnlock();
@@ -1541,14 +1597,18 @@ public abstract class RoutineLoadJob
     // Because unprotectUpdateProgress() is protected by writelock.
     // So if there are time-consuming operations, they should be done in this method.
     // (Such as getAllKafkaPartitions() in KafkaRoutineLoad)
-    protected void preCheckNeedSchedule() throws UserException {
-
+    protected boolean refreshKafkaPartitions(boolean needAutoResume) throws UserException {
+        return false;
     }
 
     protected void unprotectUpdateProgress() throws UserException {
     }
 
     protected boolean unprotectNeedReschedule() throws UserException {
+        return false;
+    }
+
+    protected boolean needAutoResume() {
         return false;
     }
 
@@ -1574,14 +1634,30 @@ public abstract class RoutineLoadJob
         return cloudClusterId;
     }
 
+    public void setCloudClusterById() {
+        this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
+    }
+
     // check the correctness of commit info
     protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
                                                TransactionState txnState,
                                                TransactionState.TxnStatusChangeReason txnStatusChangeReason);
 
-    protected abstract String getStatistic();
+    public abstract String getStatistic();
 
-    protected abstract String getLag();
+    public abstract String getLag();
+
+    public String getStateReason() {
+        switch (state) {
+            case PAUSED:
+                return pauseReason == null ? "" : pauseReason.toString();
+            case CANCELLED:
+                return cancelReason == null ? "" : cancelReason.toString();
+            default:
+                return "";
+        }
+    }
 
     public List<String> getShowInfo() {
         Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
@@ -1611,16 +1687,7 @@ public abstract class RoutineLoadJob
             row.add(getStatistic());
             row.add(getProgress().toJsonString());
             row.add(getLag());
-            switch (state) {
-                case PAUSED:
-                    row.add(pauseReason == null ? "" : pauseReason.toString());
-                    break;
-                case CANCELLED:
-                    row.add(cancelReason == null ? "" : cancelReason.toString());
-                    break;
-                default:
-                    row.add("");
-            }
+            row.add(getStateReason());
             row.add(Joiner.on(", ").join(errorLogUrls));
             row.add(otherMsg);
             row.add(userIdentity.getQualifiedUser());
@@ -1633,24 +1700,28 @@ public abstract class RoutineLoadJob
 
     public List<List<String>> getTasksShowInfo() throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
-        if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
-            return rows;
-        }
-
-        routineLoadTaskInfoList.forEach(entity -> {
-            long txnId = entity.getTxnId();
-            if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
+        readLock();
+        try {
+            if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
+                return rows;
+            }
+            routineLoadTaskInfoList.forEach(entity -> {
+                long txnId = entity.getTxnId();
+                if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
+                    rows.add(entity.getTaskShowInfo());
+                    return;
+                }
+                TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(dbId, entity.getTxnId());
+                if (null != transactionState && null != transactionState.getTransactionStatus()) {
+                    entity.setTxnStatus(transactionState.getTransactionStatus());
+                }
                 rows.add(entity.getTaskShowInfo());
-                return;
-            }
-            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(dbId, entity.getTxnId());
-            if (null != transactionState && null != transactionState.getTransactionStatus()) {
-                entity.setTxnStatus(transactionState.getTransactionStatus());
-            }
-            rows.add(entity.getTaskShowInfo());
-        });
-        return rows;
+            });
+            return rows;
+        } finally {
+            readUnlock();
+        }
     }
 
     public String getShowCreateInfo() {
@@ -1676,7 +1747,7 @@ public abstract class RoutineLoadJob
         }
         // 4.3.where_predicates
         if (whereExpr != null) {
-            sb.append("WHERE ").append(whereExpr.toSql()).append(",\n");
+            sb.append("WHERE ").append(whereExpr.toSqlWithoutTbl()).append(",\n");
         }
         // 4.4.partitions
         if (partitions != null) {
@@ -1684,7 +1755,7 @@ public abstract class RoutineLoadJob
         }
         // 4.5.delete_on_predicates
         if (deleteCondition != null) {
-            sb.append("DELETE ON ").append(deleteCondition.toSql()).append(",\n");
+            sb.append("DELETE ON ").append(deleteCondition.toSqlWithoutTbl()).append(",\n");
         }
         // 4.6.source_sequence
         if (sequenceCol != null) {
@@ -1692,7 +1763,7 @@ public abstract class RoutineLoadJob
         }
         // 4.7.preceding_predicates
         if (precedingFilter != null) {
-            sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
+            sb.append("PRECEDING FILTER ").append(precedingFilter.toSqlWithoutTbl()).append(",\n");
         }
         // remove the last ,
         if (sb.charAt(sb.length() - 2) == ',') {
@@ -1706,15 +1777,15 @@ public abstract class RoutineLoadJob
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
-        appendProperties(sb, PROPS_FORMAT, getFormat(), false);
+        appendProperties(sb, FileFormatProperties.PROP_FORMAT, getFormat(), false);
         if (isPartialUpdate) {
             appendProperties(sb, CreateRoutineLoadStmt.PARTIAL_COLUMNS, isPartialUpdate, false);
         }
-        appendProperties(sb, PROPS_JSONPATHS, getJsonPaths(), false);
-        appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
-        appendProperties(sb, PROPS_NUM_AS_STRING, isNumAsString(), false);
-        appendProperties(sb, PROPS_FUZZY_PARSE, isFuzzyParse(), false);
-        appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_JSON_PATHS, getJsonPaths(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_NUM_AS_STRING, isNumAsString(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_FUZZY_PARSE, isFuzzyParse(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
         appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
         appendProperties(sb, LoadStmt.EXEC_MEM_LIMIT, getMemLimit(), true);
@@ -1766,24 +1837,29 @@ public abstract class RoutineLoadJob
 
     private String getTaskStatistic() {
         Map<String, String> result = Maps.newHashMap();
-        result.put("running_task",
-                String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
-        result.put("waiting_task",
-                String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(result);
+        readLock();
+        try {
+            result.put("running_task",
+                    String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
+            result.put("waiting_task",
+                    String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
+            Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+            return gson.toJson(result);
+        } finally {
+            readUnlock();
+        }
     }
 
-    private String jobPropertiesToJsonString() {
+    public String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put("partitions", partitions == null
                 ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null
                 ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
-        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
-        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
+        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSqlWithoutTbl());
+        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSqlWithoutTbl());
         if (getFormat().equalsIgnoreCase("json")) {
-            jobProperties.put(PROPS_FORMAT, "json");
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
         } else {
             jobProperties.put(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR,
                     columnSeparator == null ? "\t" : columnSeparator.toString());
@@ -1802,19 +1878,19 @@ public abstract class RoutineLoadJob
         jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
         jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
         jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
-                deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
+                deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
     }
 
-    abstract String dataSourcePropertiesJsonToString();
+    public abstract String dataSourcePropertiesJsonToString();
 
-    abstract String customPropertiesJsonToString();
+    public abstract String customPropertiesJsonToString();
 
-    abstract Map<String, String> getDataSourceProperties();
+    public abstract Map<String, String> getDataSourceProperties();
 
-    abstract Map<String, String> getCustomProperties();
+    public abstract Map<String, String> getCustomProperties();
 
     public boolean isExpired() {
         if (!isFinal()) {
@@ -1829,21 +1905,7 @@ public abstract class RoutineLoadJob
     }
 
     public static RoutineLoadJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            RoutineLoadJob job = null;
-            LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
-            if (type == LoadDataSourceType.KAFKA) {
-                job = new KafkaRoutineLoadJob();
-            } else {
-                throw new IOException("Unknown load data source type: " + type.name());
-            }
-
-            job.setTypeRead(true);
-            job.readFields(in);
-            return job;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), RoutineLoadJob.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), RoutineLoadJob.class);
     }
 
     @Override
@@ -1861,124 +1923,43 @@ public abstract class RoutineLoadJob
                 isPartialUpdate = Boolean.parseBoolean(v);
             }
         });
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
-        CreateRoutineLoadStmt stmt = null;
         try {
-            stmt = (CreateRoutineLoadStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
-            stmt.checkLoadProperties();
-            setRoutineLoadDesc(stmt.getRoutineLoadDesc());
+            ConnectContext ctx = new ConnectContext();
+            ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
+            StatementContext statementContext = new StatementContext();
+            statementContext.setConnectContext(ctx);
+            ctx.setStatementContext(statementContext);
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getState().reset();
+            try {
+                ctx.setThreadLocalInfo();
+                NereidsParser nereidsParser = new NereidsParser();
+                CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
+                        origStmt.originStmt);
+                CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                createRoutineLoadInfo.validate(ctx);
+                setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
+            } finally {
+                ctx.cleanup();
+            }
         } catch (Exception e) {
-            throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
+            this.state = JobState.CANCELLED;
+            LOG.warn("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
         if (userIdentity != null) {
             userIdentity.setIsAnalyzed();
         }
     }
 
-    @Deprecated
-    protected void readFields(DataInput in) throws IOException {
-        if (!isTypeRead) {
-            dataSourceType = LoadDataSourceType.valueOf(Text.readString(in));
-            isTypeRead = true;
-        }
-
-        id = in.readLong();
-        name = Text.readString(in);
-        // cluster
-        Text.readString(in);
-        dbId = in.readLong();
-        tableId = in.readLong();
-        if (tableId == 0) {
-            isMultiTable = true;
-        }
-        desireTaskConcurrentNum = in.readInt();
-        state = JobState.valueOf(Text.readString(in));
-        maxErrorNum = in.readLong();
-        maxBatchIntervalS = in.readLong();
-        maxBatchRows = in.readLong();
-        maxBatchSizeBytes = in.readLong();
-
-        switch (dataSourceType) {
-            case KAFKA: {
-                progress = new KafkaProgress();
-                progress.readFields(in);
-                break;
-            }
-            default:
-                throw new IOException("unknown data source type: " + dataSourceType);
-        }
-
-        createTimestamp = in.readLong();
-        pauseTimestamp = in.readLong();
-        endTimestamp = in.readLong();
-
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_101) {
-            this.jobStatistic.currentErrorRows = in.readLong();
-            this.jobStatistic.currentTotalRows = in.readLong();
-            this.jobStatistic.errorRows = in.readLong();
-            this.jobStatistic.totalRows = in.readLong();
-            this.jobStatistic.errorRowsAfterResumed = 0;
-            this.jobStatistic.unselectedRows = in.readLong();
-            this.jobStatistic.receivedBytes = in.readLong();
-            this.jobStatistic.totalTaskExcutionTimeMs = in.readLong();
-            this.jobStatistic.committedTaskNum = in.readLong();
-            this.jobStatistic.abortedTaskNum = in.readLong();
-        } else {
-            this.jobStatistic = RoutineLoadStatistic.read(in);
-        }
-        origStmt = OriginStatement.read(in);
-
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            jobProperties.put(key, value);
-            if (key.equals(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
-                isPartialUpdate = Boolean.parseBoolean(value);
-            }
-        }
-
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            sessionVariables.put(key, value);
-        }
-
-        // parse the origin stmt to get routine load desc
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
-        CreateRoutineLoadStmt stmt = null;
-        try {
-            stmt = (CreateRoutineLoadStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
-            stmt.checkLoadProperties();
-            setRoutineLoadDesc(stmt.getRoutineLoadDesc());
-        } catch (Exception e) {
-            throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
-        }
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_110) {
-            if (in.readBoolean()) {
-                userIdentity = UserIdentity.read(in);
-                userIdentity.setIsAnalyzed();
-            } else {
-                userIdentity = UserIdentity.UNKNOWN;
-            }
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_123 && Config.isCloudMode()) {
-            cloudClusterId = Text.readString(in);
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
-            comment = Text.readString(in);
-        } else {
-            comment = "";
-        }
-    }
+    public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
 
     public abstract void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
+
+    public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) {

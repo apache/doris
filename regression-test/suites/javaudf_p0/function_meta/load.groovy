@@ -32,7 +32,10 @@
 
      log.info("Jar path: ${jarPath}".toString())
      sql """ DROP TABLE IF EXISTS ${tableName} """
-     sql """DROP FUNCTION IF EXISTS function_query_test(int);"""
+     sql """DROP FUNCTION IF EXISTS java_udf_int_test(int);"""
+     sql """DROP FUNCTION IF EXISTS udaf_my_sum_int(int);"""
+     sql """DROP FUNCTION IF EXISTS udtf_int(int);"""
+     sql """DROP FUNCTION IF EXISTS java_udf_int_test_global_2(int);"""
      sql """
      CREATE TABLE IF NOT EXISTS ${tableName} (
          `user_id`     INT         NOT NULL COMMENT ""

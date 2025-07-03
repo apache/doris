@@ -31,27 +31,36 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionProductData {
-    T product {};
+    typename PrimitiveTypeTraits<T>::ColumnItemType product {};
 
-    void add(T value, T) { product *= value; }
+    void add(typename PrimitiveTypeTraits<T>::ColumnItemType value,
+             typename PrimitiveTypeTraits<T>::ColumnItemType) {
+        product *= value;
+    }
 
-    void merge(const AggregateFunctionProductData& other, T) { product *= other.product; }
+    void merge(const AggregateFunctionProductData& other,
+               typename PrimitiveTypeTraits<T>::ColumnItemType) {
+        product *= other.product;
+    }
 
     void write(BufferWritable& buffer) const { write_binary(product, buffer); }
 
     void read(BufferReadable& buffer) { read_binary(product, buffer); }
 
-    T get() const { return product; }
+    typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return product; }
 
-    void reset(T value) { product = std::move(value); }
+    void reset(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
+        product = std::move(value);
+    }
 };
 
 template <>
-struct AggregateFunctionProductData<Decimal128V2> {
+struct AggregateFunctionProductData<TYPE_DECIMALV2> {
     Decimal128V2 product {};
 
     void add(Decimal128V2 value, Decimal128V2) {
@@ -77,17 +86,20 @@ struct AggregateFunctionProductData<Decimal128V2> {
     void reset(Decimal128V2 value) { product = std::move(value); }
 };
 
-template <>
-struct AggregateFunctionProductData<Decimal128V3> {
-    Decimal128V3 product {};
+template <PrimitiveType T>
+    requires(T == TYPE_DECIMAL128I || T == TYPE_DECIMAL256)
+struct AggregateFunctionProductData<T> {
+    typename PrimitiveTypeTraits<T>::ColumnItemType product {};
 
     template <typename NestedType>
-    void add(Decimal<NestedType> value, Decimal128V3 multiplier) {
+    void add(Decimal<NestedType> value,
+             typename PrimitiveTypeTraits<T>::ColumnItemType multiplier) {
         product *= value;
         product /= multiplier;
     }
 
-    void merge(const AggregateFunctionProductData& other, Decimal128V3 multiplier) {
+    void merge(const AggregateFunctionProductData& other,
+               typename PrimitiveTypeTraits<T>::ColumnItemType multiplier) {
         product *= other.product;
         product /= multiplier;
     }
@@ -96,20 +108,20 @@ struct AggregateFunctionProductData<Decimal128V3> {
 
     void read(BufferReadable& buffer) { read_binary(product, buffer); }
 
-    Decimal128V2 get() const { return product; }
+    typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return product; }
 
-    void reset(Decimal128V2 value) { product = value; }
+    void reset(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
+        product = std::move(value);
+    }
 };
 
-template <typename T, typename TResult, typename Data>
+template <PrimitiveType T, PrimitiveType TResult, typename Data>
 class AggregateFunctionProduct final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>> {
 public:
-    using ResultDataType = std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<TResult>,
-                                              DataTypeNumber<TResult>>;
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
-    using ColVecResult =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<TResult>, ColumnVector<TResult>>;
+    using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using ColVecResult = typename PrimitiveTypeTraits<TResult>::ColumnType;
 
     std::string get_name() const override { return "product"; }
 
@@ -117,14 +129,14 @@ public:
             : IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>>(
                       argument_types_),
               scale(get_decimal_scale(*argument_types_[0])) {
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (is_decimal(T)) {
             multiplier =
                     ResultDataType::get_scale_multiplier(get_decimal_scale(*argument_types_[0]));
         }
     }
 
     DataTypePtr get_return_type() const override {
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (is_decimal(T)) {
             return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
         } else {
             return std::make_shared<ResultDataType>();
@@ -133,12 +145,15 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
-        this->data(place).add(TResult(column.get_data()[row_num]), multiplier);
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        this->data(place).add(
+                typename PrimitiveTypeTraits<TResult>::ColumnItemType(column.get_data()[row_num]),
+                multiplier);
     }
 
     void reset(AggregateDataPtr place) const override {
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (is_decimal(T)) {
             this->data(place).reset(multiplier);
         } else {
             this->data(place).reset(1);
@@ -166,8 +181,10 @@ public:
 
 private:
     UInt32 scale;
-    TResult multiplier;
+    typename PrimitiveTypeTraits<TResult>::ColumnItemType multiplier;
 };
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

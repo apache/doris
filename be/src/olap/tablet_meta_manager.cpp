@@ -24,7 +24,6 @@
 
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -213,8 +212,8 @@ std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id, int
     std::string key;
     key.reserve(20);
     key.append(DELETE_BITMAP);
-    put_fixed64_le(&key, BigEndian::FromHost64(tablet_id));
-    put_fixed64_le(&key, BigEndian::FromHost64(version));
+    put_fixed64_le(&key, to_endian<std::endian::big>(tablet_id));
+    put_fixed64_le(&key, to_endian<std::endian::big>(version));
     return key;
 }
 
@@ -222,15 +221,15 @@ std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id) {
     std::string key;
     key.reserve(12);
     key.append(DELETE_BITMAP);
-    put_fixed64_le(&key, BigEndian::FromHost64(tablet_id));
+    put_fixed64_le(&key, to_endian<std::endian::big>(tablet_id));
     return key;
 }
 
 void TabletMetaManager::decode_delete_bitmap_key(std::string_view enc_key, TTabletId* tablet_id,
                                                  int64_t* version) {
     DCHECK_EQ(enc_key.size(), 20);
-    *tablet_id = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 4));
-    *version = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 12));
+    *tablet_id = to_endian<std::endian::big>(UNALIGNED_LOAD64(enc_key.data() + 4));
+    *version = to_endian<std::endian::big>(UNALIGNED_LOAD64(enc_key.data() + 12));
 }
 
 Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
@@ -291,8 +290,7 @@ Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabl
         return true;
     };
     LOG(INFO) << "remove old version delete bitmap, tablet_id: " << tablet_id
-              << " version: " << version << " removed keys size: " << remove_keys.size();
-    ;
+              << " version: " << version << ", removed keys size: " << remove_keys.size();
     RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, get_remove_keys_func));
     return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }

@@ -26,6 +26,8 @@ import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
+import org.apache.doris.nereids.minidump.MinidumpUtils;
+import org.apache.doris.nereids.stats.HboStatsCalculator;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -105,15 +107,28 @@ public class DeriveStatsJob extends Job {
         } else {
             ConnectContext connectContext = context.getCascadesContext().getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
-            StatsCalculator statsCalculator = StatsCalculator.estimate(groupExpression,
-                    sessionVariable.getForbidUnknownColStats(),
-                    connectContext.getTotalColumnStatisticMap(),
-                    sessionVariable.isPlayNereidsDump(),
-                    cteIdToStats,
-                    context.getCascadesContext());
+            boolean isHboEnabled = sessionVariable.isEnableHboOptimization();
+            StatsCalculator statsCalculator;
+            if (isHboEnabled) {
+                statsCalculator = new HboStatsCalculator(groupExpression,
+                        sessionVariable.getForbidUnknownColStats(),
+                        connectContext.getTotalColumnStatisticMap(),
+                        sessionVariable.isPlayNereidsDump(),
+                        cteIdToStats,
+                        context.getCascadesContext());
+                statsCalculator.estimate();
+            } else {
+                statsCalculator = new StatsCalculator(groupExpression,
+                        sessionVariable.getForbidUnknownColStats(),
+                        connectContext.getTotalColumnStatisticMap(),
+                        sessionVariable.isPlayNereidsDump(),
+                        cteIdToStats,
+                        context.getCascadesContext());
+                statsCalculator.estimate();
+            }
             STATS_STATE_TRACER.log(StatsStateEvent.of(groupExpression,
                     groupExpression.getOwnerGroup().getStatistics()));
-            if (sessionVariable.isEnableMinidump() && !sessionVariable.isPlayNereidsDump()) {
+            if (MinidumpUtils.isDump() && !sessionVariable.isPlayNereidsDump()) {
                 connectContext.getTotalColumnStatisticMap().putAll(statsCalculator.getTotalColumnStatisticMap());
                 connectContext.getTotalHistogramMap().putAll(statsCalculator.getTotalHistogramMap());
             }

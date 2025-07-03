@@ -22,6 +22,7 @@
 #include <snappy/snappy.h>
 
 #include <iostream>
+#include <type_traits>
 
 #include "common/exception.h"
 #include "util/binary_cast.hpp"
@@ -30,6 +31,7 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/io/var_int.h"
@@ -126,7 +128,7 @@ inline void write_string_binary(const char* s, BufferWritable& buf) {
     write_string_binary(StringRef {std::string(s)}, buf);
 }
 
-inline void write_json_binary(JsonbField s, BufferWritable& buf) {
+inline void write_json_binary(const JsonbField& s, BufferWritable& buf) {
     write_string_binary(StringRef {s.get_value(), s.get_size()}, buf);
 }
 
@@ -168,7 +170,9 @@ void read_float_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
-inline void read_string_binary(std::string& s, BufferReadable& buf,
+template <typename Type>
+    requires(std::is_same_v<Type, String> || std::is_same_v<Type, PaddedPODArray<UInt8>>)
+inline void read_string_binary(Type& s, BufferReadable& buf,
                                size_t MAX_STRING_SIZE = DEFAULT_MAX_STRING_SIZE) {
     UInt64 size = 0;
     read_var_uint(size, buf);
@@ -178,7 +182,7 @@ inline void read_string_binary(std::string& s, BufferReadable& buf,
     }
 
     s.resize(size);
-    buf.read(s.data(), size);
+    buf.read((char*)s.data(), size);
 }
 
 inline void read_string_binary(StringRef& s, BufferReadable& buf,
@@ -200,13 +204,14 @@ inline StringRef read_string_binary_into(Arena& arena, BufferReadable& buf) {
     char* data = arena.alloc(size);
     buf.read(data, size);
 
-    return StringRef(data, size);
+    return {data, size};
 }
 
-inline void read_json_binary(JsonbField val, BufferReadable& buf,
+inline void read_json_binary(JsonbField& val, BufferReadable& buf,
                              size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
-    StringRef jrf = StringRef {val.get_value(), val.get_size()};
-    read_string_binary(jrf, buf);
+    StringRef result;
+    read_string_binary(result, buf);
+    val = JsonbField(result.data, result.size);
 }
 
 template <typename Type>
@@ -225,7 +230,9 @@ void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
     }
 }
 
-inline void read_binary(String& x, BufferReadable& buf) {
+template <typename Type>
+    requires(std::is_same_v<Type, String> || std::is_same_v<Type, PaddedPODArray<UInt8>>)
+inline void read_binary(Type& x, BufferReadable& buf) {
     read_string_binary(x, buf);
 }
 
@@ -248,6 +255,7 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     StringParser::ParseResult result;
     x = StringParser::string_to_float<T>(in.position(), in.count(), &result);
 
+    // to support nan and inf
     if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(x) || std::isinf(x))) {
         return false;
     }

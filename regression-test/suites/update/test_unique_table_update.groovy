@@ -60,27 +60,4 @@ suite("test_unique_table_update","nonConcurrent") {
     } finally {
         qt_select_3 "select * from ${tableName} order by k;"
     }
-
-    // test legacy planner
-    sql "set enable_nereids_planner=false"
-    // update key is not allowed
-    try {
-        sql "update ${tableName} set k=1, v1=1, v2=1 where k=2;"
-        assertTrue(false) 
-    } catch (Exception e) {
-        logger.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Only value columns of unique table could be updated"))
-    } finally {
-        qt_select_4 "select * from ${tableName} order by k;"
-    }
-
-    // update key is allowed
-    try {
-        sql "update ${tableName} set v1=1, v2=1 where k=2;"
-    } catch (Exception e) {
-        logger.info(e.getMessage())
-        assertTrue(false) 
-    } finally {
-        qt_select_5 "select * from ${tableName} order by k;"
-    }
 }

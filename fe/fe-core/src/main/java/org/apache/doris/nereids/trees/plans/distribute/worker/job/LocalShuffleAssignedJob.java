@@ -24,7 +24,11 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
-/** LocalShuffleAssignedJob */
+/**
+ * LocalShuffleAssignedJob:
+ *   this instance will use ignore_data_distribution function of local shuffle to add parallel
+ *   after scan data
+ */
 public class LocalShuffleAssignedJob extends StaticAssignedJob {
     public final int shareScanId;
 

@@ -150,7 +150,8 @@ suite('test_cast', "arrow_flight_sql") {
     sql """
         CREATE TABLE IF NOT EXISTS test_json (
           id INT not null,
-          j JSON not null
+          j JSON not null,
+          v variant not null
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 10
@@ -158,9 +159,10 @@ suite('test_cast', "arrow_flight_sql") {
     """
 
     sql """
-        INSERT INTO test_json VALUES(26, '{"k1":"v1", "k2": 200}');
+        INSERT INTO test_json VALUES(26, '{"k1":"v1", "k2": 200}', '[\"asd]');
     """
     sql "sync"
     sql "Select cast(j as int) from test_json"
+    sql "select cast(v as int) from test_json"
     sql "DROP TABLE IF EXISTS test_json"
 }

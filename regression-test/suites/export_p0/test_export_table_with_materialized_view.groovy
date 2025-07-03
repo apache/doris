@@ -52,9 +52,11 @@ suite("test_export_table_with_materialized_view", "p0") {
         )
         DISTRIBUTED BY HASH(k1) BUCKETS 10 PROPERTIES("replication_num" = "1");
     """
-    sql """
+
+    createMV("""
     CREATE MATERIALIZED VIEW export_table_materialized_view AS SELECT k2, sum(v5) FROM ${table_export_name} GROUP BY k2;
-    """
+    """)
+
     StringBuilder sb = new StringBuilder()
     int i = 1
     for (; i < 100; i++) {
@@ -114,7 +116,7 @@ suite("test_export_table_with_materialized_view", "p0") {
         def outfile_url = waiting_export.call(label)
 
         qt_select_load1 """ select * from s3(
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5+bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "parquet",

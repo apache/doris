@@ -31,6 +31,7 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.LikePredicate.Operator;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.thrift.TExprOpcode;
@@ -69,14 +70,14 @@ public final class QueryBuilders {
      * Generate dsl from compound expr.
      **/
     private static QueryBuilder toCompoundEsDsl(Expr expr, List<Expr> notPushDownList,
-            Map<String, String> fieldsContext, BuilderOptions builderOptions) {
+            Map<String, String> fieldsContext, BuilderOptions builderOptions, Map<String, String> column2typeMap) {
         CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
         switch (compoundPredicate.getOp()) {
             case AND: {
                 QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().must(left).must(right);
                 }
@@ -85,9 +86,9 @@ public final class QueryBuilders {
             case OR: {
                 int beforeSize = notPushDownList.size();
                 QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 int afterSize = notPushDownList.size();
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().should(left).should(right);
@@ -100,7 +101,7 @@ public final class QueryBuilders {
             }
             case NOT: {
                 QueryBuilder child = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        builderOptions);
+                        builderOptions, column2typeMap);
                 if (child != null) {
                     return QueryBuilders.boolQuery().mustNot(child);
                 }
@@ -121,15 +122,30 @@ public final class QueryBuilders {
         return expr;
     }
 
-    public static QueryBuilder toEsDsl(Expr expr) {
+    public static QueryBuilder toEsDsl(Expr expr, Map<String, String> column2typeMap) {
         return toEsDsl(expr, new ArrayList<>(), new HashMap<>(),
                 BuilderOptions.builder().likePushDown(Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE))
-                        .build());
+                        .build(), column2typeMap);
     }
 
-    private static QueryBuilder parseBinaryPredicate(Expr expr, TExprOpcode opCode, String column,
+    private static TExprOpcode flipOpCode(TExprOpcode opCode) {
+        switch (opCode) {
+            case GE:
+                return TExprOpcode.LE;
+            case GT:
+                return TExprOpcode.LT;
+            case LE:
+                return TExprOpcode.GE;
+            case LT:
+                return TExprOpcode.GT;
+            default:
+                return opCode;
+        }
+    }
+
+    private static QueryBuilder parseBinaryPredicate(LiteralExpr expr, TExprOpcode opCode, String column,
             boolean needDateCompat) {
-        Object value = toDorisLiteral(expr.getChild(1));
+        Object value = toDorisLiteral(expr);
         if (needDateCompat) {
             value = compatDefaultDate(value);
         }
@@ -169,32 +185,44 @@ public final class QueryBuilders {
         return QueryBuilders.boolQuery().mustNot(QueryBuilders.existsQuery(column));
     }
 
-    private static QueryBuilder parseLikePredicate(Expr expr, String column) {
-        LikePredicate likePredicate = (LikePredicate) expr;
-        if (likePredicate.getOp().equals(Operator.LIKE)) {
-            char[] chars = likePredicate.getChild(1).getStringValue().toCharArray();
-            // example of translation :
-            //      abc_123  ===> abc?123
-            //      abc%ykz  ===> abc*123
-            //      %abc123  ===> *abc123
-            //      _abc123  ===> ?abc123
-            //      \\_abc1  ===> \\_abc1
-            //      abc\\_123 ===> abc\\_123
-            //      abc\\%123 ===> abc\\%123
-            // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
-            for (int i = 0; i < chars.length; i++) {
-                if (chars[i] == '_' || chars[i] == '%') {
-                    if (i == 0) {
-                        chars[i] = (chars[i] == '_') ? '?' : '*';
-                    } else if (chars[i - 1] != '\\') {
-                        chars[i] = (chars[i] == '_') ? '?' : '*';
-                    }
+    private static QueryBuilder parseLikeExpression(Expr expr, String column) {
+        String pattern;
+        if (expr instanceof LikePredicate) {
+            LikePredicate likePredicate = (LikePredicate) expr;
+            if (!likePredicate.getOp().equals(Operator.LIKE)) {
+                return QueryBuilders.wildcardQuery(column, likePredicate.getChild(1).getStringValue());
+            }
+            pattern = likePredicate.getChild(1).getStringValue();
+        } else if (expr instanceof FunctionCallExpr) {
+            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+            String fnName = functionCallExpr.getFnName().getFunction();
+            if (!fnName.equalsIgnoreCase("like")) {
+                return QueryBuilders.wildcardQuery(column, functionCallExpr.getChild(1).getStringValue());
+            }
+            pattern = functionCallExpr.getChild(1).getStringValue();
+        } else {
+            throw new IllegalArgumentException("Unsupported expression type");
+        }
+        char[] chars = pattern.toCharArray();
+        // example of translation :
+        //      abc_123  ===> abc?123
+        //      abc%ykz  ===> abc*123
+        //      %abc123  ===> *abc123
+        //      _abc123  ===> ?abc123
+        //      \\_abc1  ===> \\_abc1
+        //      abc\\_123 ===> abc\\_123
+        //      abc\\%123 ===> abc\\%123
+        // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
+        for (int i = 0; i < chars.length; i++) {
+            if (chars[i] == '_' || chars[i] == '%') {
+                if (i == 0) {
+                    chars[i] = (chars[i] == '_') ? '?' : '*';
+                } else if (chars[i - 1] != '\\') {
+                    chars[i] = (chars[i] == '_') ? '?' : '*';
                 }
             }
-            return QueryBuilders.wildcardQuery(column, new String(chars));
-        } else {
-            return QueryBuilders.wildcardQuery(column, likePredicate.getChild(1).getStringValue());
         }
+        return QueryBuilders.wildcardQuery(column, new String(chars));
     }
 
     private static QueryBuilder parseInPredicate(Expr expr, String column, boolean needDateCompat) {
@@ -223,73 +251,104 @@ public final class QueryBuilders {
         return new QueryBuilders.EsQueryBuilder(stringValue);
     }
 
+    private static String getColumnFromExpr(Expr expr) {
+        // Type transformed cast can not pushdown
+        if (expr instanceof CastExpr) {
+            Expr withoutCastExpr = exprWithoutCast(expr);
+            if (withoutCastExpr.getType().equals(expr.getType())
+                    || (withoutCastExpr.getType().isFloatingPointType() && expr.getType().isFloatingPointType())) {
+                return ((SlotRef) withoutCastExpr).getColumnName();
+            }
+        } else if (expr instanceof SlotRef) {
+            return ((SlotRef) expr).getColumnName();
+        }
+        return null;
+    }
+
     /**
      * Doris expr to es dsl.
      **/
     public static QueryBuilder toEsDsl(Expr expr, List<Expr> notPushDownList, Map<String, String> fieldsContext,
-            BuilderOptions builderOptions) {
+            BuilderOptions builderOptions, Map<String, String> column2typeMap) {
         if (expr == null) {
             return null;
         }
         // esquery functionCallExpr will be rewritten to castExpr in where clause rewriter,
         // so we get the functionCallExpr here.
         if (expr instanceof CastExpr) {
-            return toEsDsl(expr.getChild(0), notPushDownList, fieldsContext, builderOptions);
+            return toEsDsl(expr.getChild(0), notPushDownList, fieldsContext, builderOptions, column2typeMap);
         }
         // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
-            return toCompoundEsDsl(expr, notPushDownList, fieldsContext, builderOptions);
+            return toCompoundEsDsl(expr, notPushDownList, fieldsContext, builderOptions, column2typeMap);
         }
         TExprOpcode opCode = expr.getOpcode();
-        String column;
+        boolean isFlip = false;
         Expr leftExpr = expr.getChild(0);
-        // Type transformed cast can not pushdown
-        if (leftExpr instanceof CastExpr) {
-            Expr withoutCastExpr = exprWithoutCast(leftExpr);
-            // pushdown col(float) >= 3
-            if (withoutCastExpr.getType().equals(leftExpr.getType()) || (withoutCastExpr.getType().isFloatingPointType()
-                    && leftExpr.getType().isFloatingPointType())) {
-                column = ((SlotRef) withoutCastExpr).getColumnName();
-            } else {
-                notPushDownList.add(expr);
-                return null;
-            }
-        } else if (leftExpr instanceof SlotRef) {
-            column = ((SlotRef) leftExpr).getColumnName();
-        } else {
+        String column = getColumnFromExpr(leftExpr);
+
+        if (StringUtils.isEmpty(column)) {
+            Expr rightExpr = expr.getChild(1);
+            column = getColumnFromExpr(rightExpr);
+            opCode = flipOpCode(opCode);
+            isFlip = true;
+        }
+
+        if (StringUtils.isEmpty(column)) {
             notPushDownList.add(expr);
             return null;
         }
+
+        String type = column2typeMap.get(column);
         // Check whether the date type need compat, it must before keyword replace.
         List<String> needCompatDateFields = builderOptions.getNeedCompatDateFields();
         boolean needDateCompat = needCompatDateFields != null && needCompatDateFields.contains(column);
         // Replace col with col.keyword if mapping exist.
         column = fieldsContext.getOrDefault(column, column);
         if (expr instanceof BinaryPredicate) {
-            return parseBinaryPredicate(expr, opCode, column, needDateCompat);
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+            Expr value;
+            if (isFlip) {
+                value = binaryPredicate.getChild(0);
+            } else {
+                value = binaryPredicate.getChild(1);
+            }
+            // only push down literal expr to ES
+            if (value instanceof LiteralExpr) {
+                LiteralExpr literalExpr = (LiteralExpr) value;
+                return parseBinaryPredicate(literalExpr, opCode, column, needDateCompat);
+            } else {
+                notPushDownList.add(expr);
+                return null;
+            }
         }
         if (expr instanceof IsNullPredicate) {
             return parseIsNullPredicate(expr, column);
         }
         if (expr instanceof LikePredicate) {
-            if (!builderOptions.isLikePushDown()) {
+            if (builderOptions.isLikePushDown() && "keyword".equals(type)) {
+                // only keyword can apply wildcard query
+                return parseLikeExpression(expr, column);
+            } else {
                 notPushDownList.add(expr);
                 return null;
-            } else {
-                return parseLikePredicate(expr, column);
             }
         }
         if (expr instanceof InPredicate) {
             return parseInPredicate(expr, column, needDateCompat);
         }
         if (expr instanceof FunctionCallExpr) {
-            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-            // current only esquery functionCallExpr can be push down to ES
-            if (!"esquery".equals(functionCallExpr.getFnName().getFunction())) {
+            // current only esquery and like applied in keyword functionCallExpr can be push down to ES
+            String fnName = ((FunctionCallExpr) expr).getFnName().getFunction();
+            if ("esquery".equals(fnName)) {
+                return parseFunctionCallExpr(expr);
+            } else if (builderOptions.isLikePushDown() && "like".equalsIgnoreCase(fnName) && "keyword".equals(type)) {
+                return parseLikeExpression(expr, column);
+            } else if (builderOptions.isLikePushDown() && "regexp".equalsIgnoreCase(fnName)) {
+                return parseLikeExpression(expr, column);
+            } else {
                 notPushDownList.add(expr);
                 return null;
-            } else {
-                return parseFunctionCallExpr(expr);
             }
         }
         return null;

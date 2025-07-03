@@ -93,7 +93,7 @@ public class EsPartitionsProcDir implements ProcDirInterface {
                 }
                 partitionInfo.add(joiner.join(colNames));  // partition key
                 partitionInfo.add(
-                        rangePartitionInfo.getItem(esShardPartitions.getPartitionId()).getItems().toString()); // range
+                        rangePartitionInfo.getItem(esShardPartitions.getPartitionId()).getItemsString()); // range
                 partitionInfo.add("-");  // dis
                 partitionInfo.add(esShardPartitions.getShardRoutings().size());  // shards
                 partitionInfo.add(1);  //  replica num

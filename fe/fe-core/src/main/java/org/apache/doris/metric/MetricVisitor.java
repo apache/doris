@@ -46,6 +46,8 @@ public abstract class MetricVisitor {
 
     public abstract void visitCloudTableStats();
 
+    public abstract void visitWorkloadGroup();
+
     public String finish() {
         return sb.toString();
     }

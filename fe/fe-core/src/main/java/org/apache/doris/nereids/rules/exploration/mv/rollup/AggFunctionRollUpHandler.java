@@ -62,12 +62,12 @@ public abstract class AggFunctionRollUpHandler {
     /**
      * Extract the function arguments by functionWithAny pattern
      * Such as functionWithAny def is bitmap_union(to_bitmap(Any.INSTANCE)),
-     * actualFunction is bitmap_union(to_bitmap(case when a = 5 then 1 else 2 end))
+     * actualExpression is bitmap_union(to_bitmap(case when a = 5 then 1 else 2 end))
      * after extracting, the return argument is: case when a = 5 then 1 else 2 end
      */
-    protected static List<Expression> extractArguments(Expression functionWithAny, Function actualFunction) {
+    protected static List<Expression> extractArguments(Expression functionWithAny, Expression actualExpression) {
         Set<Object> exprSetToRemove = functionWithAny.collectToSet(expr -> !(expr instanceof Any));
-        return actualFunction.collectFirst(expr ->
+        return actualExpression.collectFirst(expr ->
                         exprSetToRemove.stream().noneMatch(exprToRemove -> exprToRemove.equals(expr)))
                 .map(expr -> ImmutableList.of((Expression) expr)).orElse(ImmutableList.of());
     }

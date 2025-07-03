@@ -23,3 +23,8 @@ meta-change:
   - fe/fe-core/src/main/java/org/apache/doris/persist/EditLog.java
   - gensrc/thrift/*
   - gensrc/proto/*
+
+doing:
+  - base-branch: 'master'
+  - changed-files:
+    - any-glob-to-any-file: '**'

@@ -17,9 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.AlterCatalogCommentStmt;
-import org.apache.doris.analysis.AlterCatalogNameStmt;
-import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
@@ -37,6 +34,7 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalogFactory;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -57,18 +55,9 @@ public class CatalogFactory {
         CatalogLog log = new CatalogLog();
         if (stmt instanceof DropCatalogStmt) {
             log.setCatalogId(catalogId);
-        } else if (stmt instanceof AlterCatalogPropertyStmt) {
-            log.setCatalogId(catalogId);
-            log.setNewProps(((AlterCatalogPropertyStmt) stmt).getNewProperties());
-        } else if (stmt instanceof AlterCatalogNameStmt) {
-            log.setCatalogId(catalogId);
-            log.setNewCatalogName(((AlterCatalogNameStmt) stmt).getNewCatalogName());
         } else if (stmt instanceof RefreshCatalogStmt) {
             log.setCatalogId(catalogId);
             log.setInvalidCache(((RefreshCatalogStmt) stmt).isInvalidCache());
-        } else if (stmt instanceof AlterCatalogCommentStmt) {
-            log.setCatalogId(catalogId);
-            log.setComment(((AlterCatalogCommentStmt) stmt).getComment());
         } else {
             throw new RuntimeException("Unknown stmt for catalog manager " + stmt.getClass().getSimpleName());
         }
@@ -81,6 +70,15 @@ public class CatalogFactory {
     public static CatalogIf createFromLog(CatalogLog log) throws DdlException {
         return createCatalog(log.getCatalogId(), log.getCatalogName(), log.getResource(),
                 log.getComment(), log.getProps(), true);
+    }
+
+    /**
+     * create the catalog instance from CreateCatalogCommand.
+     */
+    public static CatalogIf createFromCommand(long catalogId, CreateCatalogCommand cmd)
+            throws DdlException {
+        return createCatalog(catalogId, cmd.getCatalogName(), cmd.getResource(),
+                cmd.getComment(), cmd.getProperties(), false);
     }
 
     /**
@@ -124,7 +122,7 @@ public class CatalogFactory {
                 catalog = new EsExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "jdbc":
-                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment, isReplay);
+                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "iceberg":
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);

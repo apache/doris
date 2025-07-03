@@ -20,6 +20,12 @@ package org.apache.doris.nereids.trees.plans.algebra;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Slot;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.Collection;
+import java.util.List;
 
 /** CatalogRelation */
 public interface CatalogRelation extends Relation {
@@ -27,4 +33,14 @@ public interface CatalogRelation extends Relation {
     TableIf getTable();
 
     DatabaseIf getDatabase() throws AnalysisException;
+
+    List<String> getQualifier();
+
+    default CatalogRelation withOperativeSlots(Collection<Slot> operativeSlots) {
+        return this;
+    }
+
+    default List<Slot> getOperativeSlots() {
+        return ImmutableList.of();
+    }
 }

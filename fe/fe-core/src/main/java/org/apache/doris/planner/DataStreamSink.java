@@ -62,6 +62,7 @@ public class DataStreamSink extends DataSink {
     protected TOlapTableLocationParam tabletSinkLocationParam = null;
     protected TupleDescriptor tabletSinkTupleDesc = null;
     protected long tabletSinkTxnId = -1;
+    protected List<Expr> tabletSinkExprs = null;
 
     public DataStreamSink() {
 
@@ -145,6 +146,10 @@ public class DataStreamSink extends DataSink {
         this.tabletSinkLocationParam = locationParam;
     }
 
+    public void setTabletSinkExprs(List<Expr> tabletSinkExprs) {
+        this.tabletSinkExprs = tabletSinkExprs;
+    }
+
     public void setTabletSinkTxnId(long txnId) {
         this.tabletSinkTxnId = txnId;
     }
@@ -171,6 +176,9 @@ public class DataStreamSink extends DataSink {
             strBuilder.append(prefix).append("  PROJECTION TUPLE: ").append(outputTupleDesc.getId());
             strBuilder.append("\n");
         }
+        if (isMerge) {
+            strBuilder.append("IS_MERGE: true\n");
+        }
 
         return strBuilder.toString();
     }
@@ -181,7 +189,7 @@ public class DataStreamSink extends DataSink {
         }
         List<String> filtersStr = new ArrayList<>();
         for (RuntimeFilter filter : runtimeFilters) {
-            filtersStr.add(filter.getExplainString(isBuildNode, isBrief, getExchNodeId()));
+            filtersStr.add(filter.getExplainString(getExchNodeId()));
         }
         return Joiner.on(", ").join(filtersStr) + "\n";
     }
@@ -224,6 +232,12 @@ public class DataStreamSink extends DataSink {
         if (tabletSinkLocationParam != null) {
             tStreamSink.setTabletSinkLocation(tabletSinkLocationParam);
         }
+        if (tabletSinkExprs != null) {
+            for (Expr expr : tabletSinkExprs) {
+                tStreamSink.addToTabletSinkExprs(expr.treeToThrift());
+            }
+        }
+        tStreamSink.setIsMerge(isMerge);
         tStreamSink.setTabletSinkTxnId(tabletSinkTxnId);
         result.setStreamSink(tStreamSink);
         return result;

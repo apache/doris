@@ -26,10 +26,13 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -250,7 +253,7 @@ TEST(TxnKvTest, CompatibleGetTest) {
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_KEY_NOT_FOUND);
     ValueBuf val_buf;
-    ASSERT_EQ(doris::cloud::get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(doris::cloud::blob_get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
     txn->put(key, val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -259,7 +262,7 @@ TEST(TxnKvTest, CompatibleGetTest) {
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     err = doris::cloud::key_exists(txn.get(), key);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-    err = doris::cloud::get(txn.get(), key, &val_buf);
+    err = doris::cloud::blob_get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     EXPECT_EQ(val_buf.ver, 0);
     doris::TabletSchemaCloudPB saved_schema;
@@ -277,15 +280,16 @@ TEST(TxnKvTest, CompatibleGetTest) {
     // Check remove
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_KEY_NOT_FOUND);
-    ASSERT_EQ(doris::cloud::get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(doris::cloud::blob_get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(TxnKvTest, PutLargeValueTest) {
     auto txn_kv = std::make_shared<MemTxnKv>();
 
     auto sp = doris::SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        doris::SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->enable_processing();
 
     doris::TabletSchemaCloudPB schema;
@@ -305,7 +309,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     auto key = meta_schema_key({instance_id, 10005, 1});
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    doris::cloud::put(txn.get(), key, schema, 1, 100);
+    doris::cloud::blob_put(txn.get(), key, schema, 1, 100);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     // Check get
@@ -313,7 +317,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     ValueBuf val_buf;
     doris::TabletSchemaCloudPB saved_schema;
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_OK);
-    TxnErrorCode err = doris::cloud::get(txn.get(), key, &val_buf);
+    TxnErrorCode err = doris::cloud::blob_get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     std::cout << "num iterators=" << val_buf.iters.size() << std::endl;
     EXPECT_EQ(val_buf.ver, 1);
@@ -329,7 +333,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
         auto* limit = doris::try_any_cast<int*>(args[0]);
         *limit = 100;
     });
-    err = doris::cloud::get(txn.get(), key, &val_buf);
+    err = doris::cloud::blob_get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     std::cout << "num iterators=" << val_buf.iters.size() << std::endl;
     EXPECT_EQ(val_buf.ver, 1);
@@ -364,7 +368,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     // Check remove
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_KEY_NOT_FOUND);
-    ASSERT_EQ(doris::cloud::get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(doris::cloud::blob_get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(TxnKvTest, RangeGetIteratorContinue) {
@@ -560,6 +564,10 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     TxnErrorCode err = txn_kv->create_txn(&txn);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     constexpr std::string_view prefix = "FullRangeGetIterator";
+
+    std::string last_key {prefix};
+    encode_int64(INT64_MAX, &last_key);
+    txn->remove(prefix, last_key);
     for (int i = 0; i < 100; ++i) {
         std::string key {prefix};
         encode_int64(i, &key);
@@ -573,14 +581,15 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     encode_int64(INT64_MAX, &end);
 
     auto* sp = doris::SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        doris::SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->enable_processing();
 
     {
         // Without txn
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 11;
 
         auto it = txn_kv->full_range_get(begin, end, opts);
         ASSERT_TRUE(it->is_valid());
@@ -599,11 +608,87 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     }
 
     {
+        // Peek
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 11;
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        ASSERT_TRUE(it->is_valid());
+
+        // 1. Peek the first element without next
+        auto&& kvp = it->peek();
+        ASSERT_TRUE(kvp.has_value());
+        auto [k, v] = *kvp;
+        std::string expected(prefix);
+        encode_int64(0, &expected);
+        EXPECT_EQ(k, expected);
+        EXPECT_EQ(v, "0");
+
+        int cnt = 0;
+        for (auto kvp = it->peek(); kvp.has_value(); kvp = it->peek()) {
+            auto [k, v] = *kvp;
+            EXPECT_EQ(v, std::to_string(cnt));
+
+            // 2. Peek the next element is equal to the peeked element
+            auto&& kvp2 = it->next();
+            ASSERT_TRUE(kvp2.has_value());
+            auto [k2, v2] = *kvp2;
+            EXPECT_EQ(k2, k);
+            EXPECT_EQ(v2, v);
+
+            ++cnt;
+            // Total cost: 100ms * 100 = 10s > fdb txn timeout 5s, however we create a new transaction
+            // in each inner range get
+            std::this_thread::sleep_for(100ms);
+        }
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 100);
+    }
+
+    {
+        // With limitation
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 110;
+        opts.exact_limit = 11;
+
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        ASSERT_TRUE(it->is_valid());
+
+        int cnt = 0;
+        for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+            auto [k, v] = *kvp;
+            EXPECT_EQ(v, std::to_string(cnt));
+            ++cnt;
+        }
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 11);
+    }
+
+    {
+        // With limitation, prefetch
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 5;
+        opts.prefetch = true;
+        opts.exact_limit = 11;
+
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        ASSERT_TRUE(it->is_valid());
+
+        int cnt = 0;
+        for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+            auto [k, v] = *kvp;
+            EXPECT_EQ(v, std::to_string(cnt));
+            ++cnt;
+        }
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 11);
+    }
+
+    {
         // With txn
         err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 11;
         opts.txn = txn.get();
 
         auto it = txn_kv->full_range_get(begin, end, opts);
@@ -623,8 +708,8 @@ TEST(TxnKvTest, FullRangeGetIterator) {
         // With prefetch
         err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 11;
         opts.txn = txn.get();
         opts.prefetch = true;
 
@@ -656,8 +741,8 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     {
         // With object pool
         std::vector<std::unique_ptr<RangeGetIterator>> obj_pool;
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 11;
         opts.obj_pool = &obj_pool;
 
         auto it = txn_kv->full_range_get(begin, end, opts);
@@ -686,19 +771,19 @@ TEST(TxnKvTest, FullRangeGetIterator) {
 
     {
         // Abnormal
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 11;
         err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         opts.txn = txn.get();
         auto it = txn_kv->full_range_get(begin, end, opts);
         auto* fdb_it = static_cast<fdb::FullRangeGetIterator*>(it.get());
-        fdb_it->is_valid_ = false;
+        fdb_it->code_ = TxnErrorCode::TXN_INVALID_ARGUMENT;
         ASSERT_FALSE(it->is_valid());
         ASSERT_FALSE(it->has_next());
         ASSERT_FALSE(it->next().has_value());
 
-        fdb_it->is_valid_ = true;
+        fdb_it->code_ = TxnErrorCode::TXN_OK;
         ASSERT_TRUE(it->is_valid());
         int cnt = 0;
         for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
@@ -726,8 +811,8 @@ TEST(TxnKvTest, FullRangeGetIterator) {
                 },
                 &guard);
 
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 11;
         opts.prefetch = true;
         auto it = txn_kv->full_range_get(begin, end, opts);
         auto kvp = it->next();
@@ -745,8 +830,8 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     {
         // Benchmark prefetch
         // No prefetch
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
+        FullRangeGetOptions opts(txn_kv);
+        opts.batch_limit = 11;
         err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         opts.txn = txn.get();

@@ -30,6 +30,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /// For bitmap value
 struct BitmapValueData {
@@ -64,7 +65,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf, Arena* arena) {
+    void read(BufferReadable& buf, Arena*) {
         read_binary(has_value, buf);
         if (has()) {
             DataTypeBitMap::deserialize_as_stream(value, buf);
@@ -73,7 +74,8 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnBitmap&>(column).get_data()[row_num];
+        value = assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(column)
+                        .get_data()[row_num];
     }
 
     void change(const Self& to, Arena*) {
@@ -100,9 +102,9 @@ public:
         key.write(buf);
     }
 
-    void read(BufferReadable& buf, Arena* arena) {
-        value.read(buf, arena);
-        key.read(buf, arena);
+    void read(BufferReadable& buf, Arena*) {
+        value.read(buf, nullptr);
+        key.read(buf, nullptr);
     }
 };
 
@@ -110,15 +112,15 @@ template <typename VT, typename KT>
 struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
     using Self = AggregateFunctionMaxByData;
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
-                          Arena* arena) {
-        if (this->key.change_if_greater(key_column, row_num, arena)) {
-            this->value.change(value_column, row_num, arena);
+                          Arena*) {
+        if (this->key.change_if_greater(key_column, row_num, nullptr)) {
+            this->value.change(value_column, row_num, nullptr);
         }
     }
 
-    void change_if_better(const Self& to, Arena* arena) {
-        if (this->key.change_if_greater(to.key, arena)) {
-            this->value.change(to.value, arena);
+    void change_if_better(const Self& to, Arena*) {
+        if (this->key.change_if_greater(to.key, nullptr)) {
+            this->value.change(to.value, nullptr);
         }
     }
 
@@ -129,15 +131,15 @@ template <typename VT, typename KT>
 struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
     using Self = AggregateFunctionMinByData;
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
-                          Arena* arena) {
-        if (this->key.change_if_less(key_column, row_num, arena)) {
-            this->value.change(value_column, row_num, arena);
+                          Arena*) {
+        if (this->key.change_if_less(key_column, row_num, nullptr)) {
+            this->value.change(value_column, row_num, nullptr);
         }
     }
 
-    void change_if_better(const Self& to, Arena* arena) {
-        if (this->key.change_if_less(to.key, arena)) {
-            this->value.change(to.value, arena);
+    void change_if_better(const Self& to, Arena*) {
+        if (this->key.change_if_less(to.key, nullptr)) {
+            this->value.change(to.value, nullptr);
         }
     }
 
@@ -168,15 +170,15 @@ public:
     DataTypePtr get_return_type() const override { return value_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
-        this->data(place).change_if_better(*columns[0], *columns[1], row_num, arena);
+             Arena*) const override {
+        this->data(place).change_if_better(*columns[0], *columns[1], row_num, nullptr);
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
-        this->data(place).change_if_better(this->data(rhs), arena);
+               Arena*) const override {
+        this->data(place).change_if_better(this->data(rhs), nullptr);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -184,8 +186,8 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
-        this->data(place).read(buf, arena);
+                     Arena*) const override {
+        this->data(place).read(buf, nullptr);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -197,99 +199,180 @@ template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data, typename VT>
 AggregateFunctionPtr create_aggregate_function_min_max_by_impl(const DataTypes& argument_types,
                                                                const bool result_is_nullable) {
-    WhichDataType which(remove_nullable(argument_types[1]));
-
-#define DISPATCH(TYPE)                                                            \
-    if (which.idx == TypeIndex::TYPE)                                             \
-        return creator_without_type::create<                                      \
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE>>>>( \
+    switch (argument_types[1]->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_BOOLEAN>>>>(
                 argument_types, result_is_nullable);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-
-#define DISPATCH(TYPE)                                                              \
-    if (which.idx == TypeIndex::TYPE)                                               \
-        return creator_without_type::create<                                        \
-                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE>>>>( \
+    case PrimitiveType::TYPE_TINYINT:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_TINYINT>>>>(
                 argument_types, result_is_nullable);
-    FOR_DECIMAL_TYPES(DISPATCH)
-#undef DISPATCH
-
-    if (which.idx == TypeIndex::String) {
-        return creator_without_type::create<
+    case PrimitiveType::TYPE_SMALLINT:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_SMALLINT>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_INT:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_INT>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_BIGINT:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_BIGINT>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_LARGEINT:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_LARGEINT>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_FLOAT:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_FLOAT>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DOUBLE:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DOUBLE>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL32:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMAL32>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL64:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMAL64>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMAL128I>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMALV2:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMALV2>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL256:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMAL256>>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_STRING:
+        return creator_without_type::create_multi_arguments<
                 AggregateFunctionTemplate<Data<VT, SingleValueDataString>>>(argument_types,
                                                                             result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
-        return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int64>>>>(
+    case PrimitiveType::TYPE_DATE:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DATE>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateV2) {
-        return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt32>>>>(
+    case PrimitiveType::TYPE_DATETIME:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DATETIME>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateTimeV2) {
-        return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt64>>>>(
+    case PrimitiveType::TYPE_DATEV2:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DATEV2>>>>(
                 argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
+                argument_types, result_is_nullable);
+    default:
+        return nullptr;
     }
-    return nullptr;
 }
 
 template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data>
 AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
                                                           const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
+                                                          const bool result_is_nullable,
+                                                          const AggregateFunctionAttr& attr) {
     if (argument_types.size() != 2) {
         return nullptr;
     }
 
-    WhichDataType which(remove_nullable(argument_types[0]));
-#define DISPATCH(TYPE)                                                                    \
-    if (which.idx == TypeIndex::TYPE)                                                     \
-        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data, \
-                                                         SingleValueDataFixed<TYPE>>(     \
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_BOOLEAN>>(
                 argument_types, result_is_nullable);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-
-#define DISPATCH(TYPE)                                                                    \
-    if (which.idx == TypeIndex::TYPE)                                                     \
-        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data, \
-                                                         SingleValueDataDecimal<TYPE>>(   \
+    case PrimitiveType::TYPE_TINYINT:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_TINYINT>>(
                 argument_types, result_is_nullable);
-    FOR_DECIMAL_TYPES(DISPATCH)
-#undef DISPATCH
-
-    if (which.idx == TypeIndex::String) {
+    case PrimitiveType::TYPE_SMALLINT:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_SMALLINT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_INT:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_INT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_BIGINT:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_BIGINT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_LARGEINT:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_LARGEINT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_FLOAT:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_FLOAT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DOUBLE:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_DOUBLE>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL32:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataDecimal<TYPE_DECIMAL32>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL64:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataDecimal<TYPE_DECIMAL64>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataDecimal<TYPE_DECIMAL128I>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMALV2:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataDecimal<TYPE_DECIMALV2>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL256:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataDecimal<TYPE_DECIMAL256>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
                                                          SingleValueDataString>(argument_types,
                                                                                 result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
+    case PrimitiveType::TYPE_DATE:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Int64>>(
+                                                         SingleValueDataFixed<TYPE_DATE>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateV2) {
+    case PrimitiveType::TYPE_DATETIME:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<UInt32>>(
+                                                         SingleValueDataFixed<TYPE_DATETIME>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateTimeV2) {
+    case PrimitiveType::TYPE_DATEV2:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<UInt64>>(
+                                                         SingleValueDataFixed<TYPE_DATEV2>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::BitMap) {
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_DATETIMEV2>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_BITMAP:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
                                                          BitmapValueData>(argument_types,
                                                                           result_is_nullable);
+    default:
+        return nullptr;
     }
-    return nullptr;
 }
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

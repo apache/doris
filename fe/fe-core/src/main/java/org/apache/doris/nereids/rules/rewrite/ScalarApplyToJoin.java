@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -45,7 +46,10 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalApply().when(LogicalApply::isScalar).then(apply -> {
-            if (apply.isCorrelated()) {
+            // apply.isCorrelated() only check if correlated slot exits
+            // but correlation filter may be eliminated by SimplifyConflictCompound rule
+            // so we need check both correlated slot and correlation filter exists before creating LogicalJoin node
+            if (apply.isCorrelated() && apply.getCorrelationFilter().isPresent()) {
                 return correlatedToJoin(apply);
             } else {
                 return unCorrelatedToJoin(apply);
@@ -53,16 +57,21 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
         }).toRule(RuleType.SCALAR_APPLY_TO_JOIN);
     }
 
-    private Plan unCorrelatedToJoin(LogicalApply apply) {
-        LogicalAssertNumRows assertNumRows = new LogicalAssertNumRows<>(new AssertNumRowsElement(1,
-                apply.getSubqueryExpr().toString(), AssertNumRowsElement.Assertion.EQ),
-                (LogicalPlan) apply.right());
+    private Plan unCorrelatedToJoin(LogicalApply<Plan, Plan> apply) {
+        Plan joinRightChild;
+        if (apply.right() instanceof LogicalOneRowRelation) {
+            joinRightChild = apply.right();
+        } else {
+            joinRightChild = new LogicalAssertNumRows<>(new AssertNumRowsElement(1,
+                    apply.right().toString(), AssertNumRowsElement.Assertion.EQ),
+                    (LogicalPlan) apply.right());
+        }
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
-                (LogicalPlan) apply.left(), assertNumRows, null);
+                (LogicalPlan) apply.left(), joinRightChild, null);
     }
 
     private Plan correlatedToJoin(LogicalApply apply) {

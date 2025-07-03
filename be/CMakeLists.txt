@@ -72,13 +72,11 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 # Options
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
-option(USE_MEM_TRACKER, "Use memory tracker" ON)
 option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
-    set(USE_MEM_TRACKER OFF)
     set(USE_UNWIND OFF)
 endif()
 
@@ -86,12 +84,18 @@ if (DISPLAY_BUILD_TIME)
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "time -f 'TimeUsage: real=%es, user=%Us, sys=%Ss'")
 endif()
 
+if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
+    add_definitions(-DBE_TEST)
+    add_definitions(-DBUILD_FILE_CACHE_MICROBENCH_TOOL)
+    add_definitions(-DBE_BENCHMARK)
+endif()
+
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
-message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
+message(STATUS "USE_AVX2 is ${USE_AVX2}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -130,8 +134,8 @@ message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
 
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
-
-option(WITH_MYSQL "Support access MySQL" ON)
+option(BUILD_BENCHMARK "ON for make google benchmark or OFF for not" OFF)
+message(STATUS "make benchmark: ${BUILD_BENCHMARK}")
 
 option(BUILD_FS_BENCHMARK "ON for building fs benchmark tool or OFF for not" OFF)
 message(STATUS "build fs benchmark tool: ${BUILD_FS_BENCHMARK}")
@@ -157,12 +161,24 @@ set(BOOST_VERSION "1.81.0")
 
 if (NOT APPLE)
     find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system container)
 else()
     find_package(Boost ${BOOST_VERSION} COMPONENTS system date_time)
     find_package(Boost ${BOOST_VERSION} COMPONENTS system container)
 endif()
 
+# Set if use libazure or not
+option(BUILD_AZURE "ON for building azure support for BE or OFF for not" OFF)
+message(STATUS "build azure: ${BUILD_AZURE}")
+if(BUILD_AZURE STREQUAL "ON")
+    add_definitions(-DUSE_AZURE)
+endif()
+
+
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
+
+option(BUILD_FAISS "Link doris with faiss for vector similarity search" OFF)
+message(STATUS "build faiss: ${BUILD_FAISS}")
 
 include (cmake/thirdparty.cmake)
 
@@ -214,6 +230,15 @@ install(DIRECTORY
     ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
 
+install(DIRECTORY
+    ${BASE_DIR}/dict/icu/uax29
+    DESTINATION ${OUTPUT_DIR}/dict/icu)
+
+
+install(DIRECTORY
+    ${BASE_DIR}/dict/ik
+    DESTINATION ${OUTPUT_DIR}/dict)
+
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
 # You can check funcion here which depends on platform. Don't forget add this
@@ -250,12 +275,14 @@ add_compile_options(-g
                     -Wall
                     -Wextra
                     -Werror
+                    -Wundef
                     -pthread
                     -fstrict-aliasing
                     -fno-omit-frame-pointer
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
+                    -Wno-deprecated-declarations
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
@@ -293,9 +320,6 @@ if (COMPILER_CLANG)
                         -Wno-shorten-64-to-32)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
-        if (NOT OS_MACOSX)
-            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-lstdc++>)
-        endif()
         add_definitions(-DUSE_LIBCPP)
     endif()
 endif ()
@@ -318,30 +342,26 @@ endif()
 # simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
+    add_definitions(-DLIBDIVIDE_SSE2)
     if (USE_AVX2)
         add_compile_options(-mavx2)
+        add_definitions(-DUSE_AVX2)
+        add_definitions(-DLIBDIVIDE_AVX2)
     endif()
 endif()
 
 if (ARCH_ARM)
     add_compile_options(-march=armv8-a+crc)
+    add_definitions(-DLIBDIVIDE_NEON)
 endif()
 #
-
-if (WITH_MYSQL)
-    add_definitions(-DDORIS_WITH_MYSQL)
-endif()
 
 if (ENABLE_INJECTION_POINT)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
 endif()
 
-# Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
-# and compaction,and observe the memory of BE through be_ip:http_port/MemTracker.
-# Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
-# which will bring about a 2% performance improvement, which may be useful in performance POC.
-if (USE_MEM_TRACKER)
-    add_definitions(-DUSE_MEM_TRACKER)
+if (ENABLE_CACHE_LOCK_DEBUG)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_CACHE_LOCK_DEBUG")
 endif()
 
 # Compile with jemalloc.
@@ -365,29 +385,29 @@ endif()
 # For CMAKE_BUILD_TYPE=Debug
 if (OS_MACOSX AND ARCH_ARM)
     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
-    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Og")
+    set(CXX_FLAGS_DEBUG "-Og")
 else()
-    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
+    set(CXX_FLAGS_DEBUG "-O0")
 endif()
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
-set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
-set(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -fsanitize=undefined -fno-strict-aliasing -fno-sanitize=alignment,signed-integer-overflow,float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
-set(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
+set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-strict-aliasing -fno-sanitize=alignment,signed-integer-overflow,float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
-set(CXX_FLAGS_ASAN_UT "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
+set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -mcmodel=medium -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
+set(CXX_FLAGS_UBSAN "-O0 -fno-wrapv -mcmodel=medium -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
 # Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
 # If use -O0 to compile, BE will stack overflow when start. https://github.com/apache/doris/issues/8868
-set(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=thread -DTHREAD_SANITIZER -Wno-missing-declarations")
+set(CXX_FLAGS_TSAN "-O1 -fsanitize=thread -DTHREAD_SANITIZER -Wno-missing-declarations")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
@@ -428,7 +448,6 @@ include_directories(
 
 include_directories(
     ${SRC_DIR}/
-    ${TEST_DIR}/
 )
 
 include_directories(
@@ -487,6 +506,7 @@ set(DORIS_LINK_LIBS
     IO
     Olap
     Runtime
+    RuntimeFilter
     Service
     Udf
     Util
@@ -509,6 +529,7 @@ find_package(absl)
 # add it here first.
 set(COMMON_THIRDPARTY
     Boost::date_time
+    Boost::container
     ${COMMON_THIRDPARTY}
 )
 
@@ -521,6 +542,9 @@ if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
         hadoop_hdfs
     )
     add_definitions(-DUSE_HADOOP_HDFS)
+    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
+    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 else()
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
@@ -551,14 +575,13 @@ endif()
 if (OS_MACOSX)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        Boost::container
         bfd
         iberty
         intl
     )
 endif()
 
-if (MAKE_TEST)
+if (BUILD_BENCHMARK)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
         benchmark
@@ -571,10 +594,6 @@ set(DORIS_DEPENDENCIES
     ${COMMON_THIRDPARTY}
     ${KRB5_LIBS}
 )
-
-if (WITH_MYSQL)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
-endif()
 
 if (USE_UNWIND)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} libunwind)
@@ -595,9 +614,11 @@ if (NOT OS_MACOSX)
         ${DORIS_DEPENDENCIES}
         -static-libstdc++
         -static-libgcc
-        -lstdc++fs
         -lresolv
     )
+    if (NOT (USE_LIBCPP AND COMPILER_CLANG))
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
+    endif()
 else()
     set(DORIS_LINK_LIBS
         ${DORIS_LINK_LIBS}
@@ -696,6 +717,14 @@ if (MAKE_TEST)
     endif()
 endif ()
 
+# use this to avoid some runtime tracker. reuse BE_TEST symbol, no need another.
+if (BUILD_BENCHMARK)
+    add_definitions(-DBE_TEST)
+# The separate BENCHMARK marker is introduced here because 
+# some BE UTs mock certain functions, and BENCHMARK cannot find their definitions.
+    add_definitions(-DBE_BENCHMARK)
+endif()
+
 get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)
 get_directory_property(COMPILER_DEFINES COMPILE_DEFINITIONS)
 message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
@@ -742,13 +771,19 @@ add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
-add_subdirectory(${SRC_DIR}/service)
+add_subdirectory(${SRC_DIR}/runtime_filter)
+add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
 if (BUILD_META_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
+endif()
+
+option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
+if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
+    add_subdirectory(${SRC_DIR}/io/tools)
 endif()
 
 option(BUILD_INDEX_TOOL "Build index tool" OFF)
@@ -760,35 +795,46 @@ add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
 add_subdirectory(${SRC_DIR}/pipeline)
 
+# this include doris_be_test
 if (MAKE_TEST)
+    include_directories(${TEST_DIR}/)
+    # must after include!
     add_subdirectory(${TEST_DIR})
 endif ()
 
 add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
-# Install be
-install(DIRECTORY DESTINATION ${OUTPUT_DIR})
-install(DIRECTORY DESTINATION ${OUTPUT_DIR}/bin)
-install(DIRECTORY DESTINATION ${OUTPUT_DIR}/conf)
+if(NOT BUILD_BENCHMARK)
+    # Install be
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR})
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/bin)
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/conf)
 
-install(FILES
-    ${BASE_DIR}/../bin/start_be.sh
-    ${BASE_DIR}/../bin/stop_be.sh
-    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
-    GROUP_READ GROUP_WRITE GROUP_EXECUTE
-    WORLD_READ WORLD_EXECUTE
-    DESTINATION ${OUTPUT_DIR}/bin)
+    install(FILES
+        ${BASE_DIR}/../bin/start_be.sh
+        ${BASE_DIR}/../bin/stop_be.sh
+        ${BASE_DIR}/../tools/jeprof
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_WRITE GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+        DESTINATION ${OUTPUT_DIR}/bin)
 
-install(FILES
-    ${BASE_DIR}/../conf/be.conf
-    ${BASE_DIR}/../conf/odbcinst.ini
-    ${BASE_DIR}/../conf/asan_suppr.conf
-    ${BASE_DIR}/../conf/lsan_suppr.conf
-    DESTINATION ${OUTPUT_DIR}/conf)
+    install(FILES
+        ${BASE_DIR}/../conf/be.conf
+        ${BASE_DIR}/../conf/odbcinst.ini
+        ${BASE_DIR}/../conf/asan_suppr.conf
+        ${BASE_DIR}/../conf/lsan_suppr.conf
+        DESTINATION ${OUTPUT_DIR}/conf)
+endif()
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
 foreach(dir ${dirs})
     message(STATUS "dir='${dir}'")
 endforeach()
 
-
+if (BUILD_BENCHMARK)
+    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
+    target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
+    message(STATUS "Add benchmark to build")
+    install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)
+endif()

@@ -17,32 +17,58 @@
 package org.apache.doris.regression.suite
 
 import org.apache.doris.regression.Config
-import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.Http
+import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.NodeType
 
 import com.google.common.collect.Maps
+import org.awaitility.Awaitility
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 import groovy.json.JsonSlurper
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
+import static java.util.concurrent.TimeUnit.SECONDS
 import java.util.stream.Collectors
+import java.sql.Connection
 
 class ClusterOptions {
 
     int feNum = 1
     int beNum = 3
+    int msNum = 1
 
+    Boolean sqlModeNodeMgr = false
+    Boolean beMetaServiceEndpoint = true
+    Boolean beClusterId = false
+
+    int waitTimeout = 180
+
+    // don't add whitespace in feConfigs items,
+    // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> feConfigs = [
         'heartbeat_interval_second=5',
+        'workload_group_check_interval_ms=1000',
     ]
 
+    // don't add whitespace in beConfigs items,
+    // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> beConfigs = [
+        'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
+        'enable_java_support=false',
     ]
+
+    List<String> msConfigs = []
+
+    List<String> recycleConfigs = []
+
+    // host mapping(host:IP), for example: myhost:192.168.10.10
+    // just as `docker run --add-host myhost:192.168.10.10` do.
+    List<String> extraHosts = []
 
     boolean connectToFollower = false
 
@@ -51,9 +77,11 @@ class ClusterOptions {
     // 3. cloudMode = null, create both cloud and none-cloud cluster, depend on the running pipeline mode.
     Boolean cloudMode = false
 
-    // when cloudMode = true/false,  but the running pipeline is diff with cloudMode,
-    // skip run this docker test or not.
-    boolean skipRunWhenPipelineDiff = true
+    // in cloud mode, deployment methods are divided into
+    // 1. master - multi observers
+    // 2. mutli followers - multi observers
+    // default use 1
+    Boolean useFollowersMode = false
 
     // each be disks, a disks format is: disk_type=disk_num[,disk_capacity]
     // here disk_type=HDD or SSD,  disk capacity is in gb unit.
@@ -95,12 +123,14 @@ class ServerNode {
     String host
     int httpPort
     boolean alive
+    String path
 
     static void fromCompose(ServerNode node, ListHeader header, int index, List<Object> fields) {
         node.index = index
         node.host = (String) fields.get(header.indexOf('IP'))
         node.httpPort = (Integer) fields.get(header.indexOf('http_port'))
         node.alive = fields.get(header.indexOf('alive')) == 'true'
+        node.path = (String) fields.get(header.indexOf('path'))
     }
 
     static long toLongOrDefault(Object val, long defValue) {
@@ -130,10 +160,19 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getLogFilePath() {
+        assert false : 'Unknown node type'
+    }
+
+    String getConfFilePath() {
+        assert false : 'Unknown node type'
+    }
+
 }
 
 class Frontend extends ServerNode {
 
+    int editLogPort
     int queryPort
     boolean isMaster
 
@@ -141,6 +180,7 @@ class Frontend extends ServerNode {
         Frontend fe = new Frontend()
         ServerNode.fromCompose(fe, header, index, fields)
         fe.queryPort = (Integer) fields.get(header.indexOf('query_port'))
+        fe.editLogPort = (Integer) fields.get(header.indexOf('edit_log_port'))
         fe.isMaster = fields.get(header.indexOf('is_master')) == 'true'
         return fe
     }
@@ -149,23 +189,42 @@ class Frontend extends ServerNode {
         return NodeType.FE
     }
 
+    String getLogFilePath() {
+        return path + '/log/fe.log'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/fe.conf'
+    }
+
 }
 
 class Backend extends ServerNode {
 
+    int heartbeatPort
     long backendId
     int tabletNum
 
     static Backend fromCompose(ListHeader header, int index, List<Object> fields) {
         Backend be = new Backend()
         ServerNode.fromCompose(be, header, index, fields)
+        be.heartbeatPort = (Integer) fields.get(header.indexOf('heartbeat_port'))
         be.backendId = toLongOrDefault(fields.get(header.indexOf('backend_id')), -1L)
         be.tabletNum = (int) toLongOrDefault(fields.get(header.indexOf('tablet_num')), 0L)
+
         return be
     }
 
     NodeType getNodeType() {
         return NodeType.BE
+    }
+
+    String getLogFilePath() {
+        return path + '/log/be.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/be.conf'
     }
 
 }
@@ -182,6 +241,14 @@ class MetaService extends ServerNode {
         return NodeType.MS
     }
 
+    String getLogFilePath() {
+        return path + '/log/meta_service.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/doris_cloud.conf'
+    }
+
 }
 
 class Recycler extends ServerNode {
@@ -196,6 +263,14 @@ class Recycler extends ServerNode {
         return NodeType.RECYCLER
     }
 
+    String getLogFilePath() {
+        return path + '/log/recycler.INFO'
+    }
+
+    String getConfFilePath() {
+        return path + '/conf/doris_cloud.conf'
+    }
+
 }
 
 @Slf4j
@@ -207,6 +282,8 @@ class SuiteCluster {
     final String name
     final Config config
     private boolean running
+    private boolean sqlModeNodeMgr = false
+    private boolean isCloudMode = false
 
     SuiteCluster(String name, Config config) {
         this.name = name
@@ -219,6 +296,8 @@ class SuiteCluster {
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
 
+        this.isCloudMode = isCloud
+
         def cmd = [
             'up', name, config.image
         ]
@@ -229,18 +308,33 @@ class SuiteCluster {
         if (options.beNum > 0) {
             cmd += ['--add-be-num', String.valueOf(options.beNum)]
         }
+        if (options.msNum > 0) {
+            cmd += ['--add-ms-num', String.valueOf(options.msNum)]
+        }
         // TODO: need escape white space in config
-        if (options.feConfigs != null && options.feConfigs.size() > 0) {
+        if (!options.feConfigs.isEmpty()) {
             cmd += ['--fe-config']
             cmd += options.feConfigs
         }
-        if (options.beConfigs != null && options.beConfigs.size() > 0) {
+        if (!options.beConfigs.isEmpty()) {
             cmd += ['--be-config']
             cmd += options.beConfigs
+        }
+        if (!options.msConfigs.isEmpty()) {
+            cmd += ['--ms-config']
+            cmd += options.msConfigs
+        }
+        if (!options.recycleConfigs.isEmpty()) {
+            cmd += ['--recycle-config']
+            cmd += options.recycleConfigs
         }
         if (options.beDisks != null) {
             cmd += ['--be-disks']
             cmd += options.beDisks
+        }
+        if (!options.extraHosts.isEmpty()) {
+            cmd += ['--extra-hosts']
+            cmd += options.extraHosts
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
@@ -248,9 +342,26 @@ class SuiteCluster {
         if (isCloud) {
             cmd += ['--cloud']
         }
-        cmd += ['--wait-timeout', String.valueOf(180)]
 
-        runCmd(cmd.join(' '), -1)
+        if (isCloud && options.useFollowersMode) {
+            cmd += ['--fe-follower']
+        }
+
+        if (options.sqlModeNodeMgr) {
+            cmd += ['--sql-mode-node-mgr']
+        }
+        if (!options.beMetaServiceEndpoint) {
+            cmd += ['--no-be-metaservice-endpoint']
+        }
+        if (!options.beClusterId) {
+            cmd += ['--no-be-cluster-id']
+        }
+
+        cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
+
+        sqlModeNodeMgr = options.sqlModeNodeMgr
+
+        runCmd(cmd.join(' '), 180)
 
         // wait be report disk
         Thread.sleep(5000)
@@ -352,6 +463,7 @@ class SuiteCluster {
         def data = runCmd(cmd)
         assert data instanceof List
         def rows = (List<List<Object>>) data
+        logger.info('get all nodes {}', rows)
         def header = new ListHeader(rows.get(0))
         for (int i = 1; i < rows.size(); i++) {
             def row = (List<Object>) rows.get(i)
@@ -362,14 +474,14 @@ class SuiteCluster {
             } else if (name.startsWith('fe-')) {
                 int index = name.substring('fe-'.length()) as int
                 frontends.add(Frontend.fromCompose(header, index, row))
-            } else if (name.startsWith('ms-')){
+            } else if (name.startsWith('ms-')) {
                 int index = name.substring('ms-'.length()) as int
                 metaservices.add(MetaService.fromCompose(header, index, row))
-            } else if (name.startsWith('recycle-')){
+            } else if (name.startsWith('recycle-')) {
                 int index = name.substring('recycle-'.length()) as int
                 recyclers.add(Recycler.fromCompose(header, index, row))
             } else if (name.startsWith('fdb-')) {
-                // current not used
+            // current not used
             } else {
                 assert false : 'Unknown node type with name: ' + name
             }
@@ -377,24 +489,31 @@ class SuiteCluster {
         return new Tuple4(frontends, backends, metaservices, recyclers)
     }
 
-    List<Integer> addFrontend(int num) throws Exception {
-        def result = add(num, 0, null)
+    List<Integer> addFrontend(int num, boolean followerMode=false) throws Exception {
+        def result = add(num, 0, null, followerMode)
         return result.first
     }
 
-    List<Integer> addBackend(int num, String ClusterName="") throws Exception {
+    List<Integer> addBackend(int num, String ClusterName='') throws Exception {
         def result = add(0, num, ClusterName)
         return result.second
     }
 
-    // APPR: clusterName just used for cloud mode, 1 cluster has n bes
-    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName) throws Exception {
+    // ATTN: clusterName just used for cloud mode, 1 cluster has n bes
+    // ATTN: followerMode just used for cloud mode
+    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false) throws Exception {
         assert feNum > 0 || beNum > 0
 
         def sb = new StringBuilder()
         sb.append('up ' + name + ' ')
         if (feNum > 0) {
             sb.append('--add-fe-num ' + feNum + ' ')
+            if (followerMode) {
+                sb.append('--fe-follower' + ' ')
+            }
+            if (sqlModeNodeMgr) {
+                sb.append('--sql-mode-node-mgr' + ' ')
+            }
         }
         if (beNum > 0) {
             sb.append('--add-be-num ' + beNum + ' ')
@@ -404,7 +523,7 @@ class SuiteCluster {
         }
         sb.append('--wait-timeout 60')
 
-        def data = (Map<String, Map<String, Object>>) runCmd(sb.toString(), -1)
+        def data = (Map<String, Map<String, Object>>) runCmd(sb.toString(), 180)
         def newFrontends = (List<Integer>) data.get('fe').get('add_list')
         def newBackends = (List<Integer>) data.get('be').get('add_list')
 
@@ -430,53 +549,66 @@ class SuiteCluster {
         return running
     }
 
+    boolean isCloudMode() {
+        return this.isCloudMode
+    }
+
+    int START_WAIT_TIMEOUT = 120
+    int STOP_WAIT_TIMEOUT = 60
+
     // if not specific fe indices, then start all frontends
     void startFrontends(int... indices) {
-        runFrontendsCmd('start', indices)
-        waitHbChanged()
+        runFrontendsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
     // if not specific be indices, then start all backends
     void startBackends(int... indices) {
-        runBackendsCmd('start', indices)
-        waitHbChanged()
+        runBackendsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
-        runFrontendsCmd('stop', indices)
+        runFrontendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
-        runBackendsCmd('stop', indices)
+        runBackendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
     // if not specific fe indices, then restart all frontends
     void restartFrontends(int... indices) {
-        runFrontendsCmd('restart', indices)
-        waitHbChanged()
+        runFrontendsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
     // if not specific be indices, then restart all backends
     void restartBackends(int... indices) {
-        runBackendsCmd('restart', indices)
-        waitHbChanged()
+        runBackendsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    }
+
+    // if not specific ms indices, then restart all ms
+    void restartMs(int... indices) {
+        runMsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    }
+
+    // if not specific recycler indices, then restart all recyclers
+    void restartRecyclers(int... indices) {
+        runRecyclerCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
     // if not specific fe indices, then drop all frontends
-    void dropFrontends(boolean clean=false, int... indices) {
+    void dropFrontends(boolean clean, int... indices) {
         def cmd = 'down'
         if (clean) {
             cmd += ' --clean'
         }
-        runFrontendsCmd(cmd, indices)
+        runFrontendsCmd(60, cmd, indices)
     }
 
     // if not specific be indices, then decommission all backends
-    void decommissionBackends(boolean clean=false, int... indices) {
+    void decommissionBackends(boolean clean, int... indices) {
         def cmd = 'down'
         if (clean) {
             cmd += ' --clean'
@@ -485,12 +617,12 @@ class SuiteCluster {
     }
 
     // if not specific be indices, then drop force all backends
-    void dropForceBackends(boolean clean=false, int... indices) {
+    void dropForceBackends(boolean clean, int... indices) {
         def cmd = 'down --drop-force'
         if (clean) {
             cmd += ' --clean'
         }
-        runBackendsCmd(cmd, indices)
+        runBackendsCmd(60, cmd, indices)
     }
 
     void checkFeIsAlive(int index, boolean isAlive) {
@@ -525,37 +657,46 @@ class SuiteCluster {
         }
     }
 
+    void addRWPermToAllFiles() {
+        def cmd = 'add-rw-perm ' + name
+        runCmd(cmd)
+    }
+
     private void waitHbChanged() {
         // heart beat interval is 5s
         Thread.sleep(7000)
     }
 
-    private void runFrontendsCmd(String op, int... indices) {
+    private void runFrontendsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --fe-id ' + indices.join(' ')
-        runCmd(cmd)
+        runCmd(cmd, timeoutSecond)
     }
 
-    private void runBackendsCmd(Integer timeoutSecond = null, String op, int... indices) {
+    private void runBackendsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --be-id ' + indices.join(' ')
-        if (timeoutSecond == null) {
-            runCmd(cmd)
-        } else {
-            runCmd(cmd, timeoutSecond)
-        }
+        runCmd(cmd, timeoutSecond)
+    }
+
+    private void runMsCmd(int timeoutSecond, String op, int... indices) {
+        def cmd = op + ' ' + name + ' --ms-id ' + indices.join(' ')
+        runCmd(cmd, timeoutSecond)
+    }
+
+    private void runRecyclerCmd(int timeoutSecond, String op, int... indices) {
+        def cmd = op + ' ' + name + ' --recycle-id ' + indices.join(' ')
+        runCmd(cmd, timeoutSecond)
     }
 
     private Object runCmd(String cmd, int timeoutSecond = 60) throws Exception {
-        def fullCmd = String.format('python %s %s --output-json', config.dorisComposePath, cmd)
+        def fullCmd = String.format('python -W ignore %s %s -v --output-json', config.dorisComposePath, cmd)
         logger.info('Run doris compose cmd: {}', fullCmd)
         def proc = fullCmd.execute()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()
-        proc.consumeProcessOutput(outBuf, errBuf)
-        if (timeoutSecond > 0) {
-            proc.waitForOrKill(timeoutSecond * 1000)
-        } else {
-            proc.waitFor()
-        }
+        Awaitility.await().atMost(timeoutSecond, SECONDS).until({
+            proc.waitForProcessOutput(outBuf, errBuf)
+            return true
+        })
         if (proc.exitValue() != 0) {
             throw new Exception(String.format('Exit value: %s != 0, stdout: %s, stderr: %s',
                                               proc.exitValue(), outBuf.toString(), errBuf.toString()))

@@ -37,29 +37,35 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -68,6 +74,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
@@ -81,10 +88,10 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
-import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.TableScan;
@@ -106,6 +113,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -123,6 +131,8 @@ public class StatisticsUtil {
 
     private static final String TOTAL_SIZE = "totalSize";
     private static final String NUM_ROWS = "numRows";
+    private static final String SPARK_NUM_ROWS = "spark.sql.statistics.numRows";
+    private static final String SPARK_TOTAL_SIZE = "spark.sql.statistics.totalSize";
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
     public static final int UPDATED_PARTITION_THRESHOLD = 3;
@@ -148,23 +158,25 @@ public class StatisticsUtil {
             return Collections.emptyList();
         }
         boolean useFileCacheForStat = (enableFileCache && Config.allow_analyze_statistics_info_polluting_file_cache);
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, useFileCacheForStat)) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(useFileCacheForStat)) {
             if (Config.isCloudMode()) {
-                r.connectContext.getCloudCluster();
+                try {
+                    r.connectContext.getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to connect to cloud cluster", e);
+                    return Collections.emptyList();
+                }
             }
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
             return stmtExecutor.executeInternalQuery();
         }
     }
 
     public static QueryState execUpdate(String sql) throws Exception {
         StmtExecutor stmtExecutor = null;
-        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext();
+        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
         try {
-            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
             QueryState state = r.connectContext.getState();
             if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
@@ -180,8 +192,7 @@ public class StatisticsUtil {
         }
     }
 
-    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches)
-            throws Exception {
+    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches) {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return null;
         }
@@ -192,21 +203,18 @@ public class StatisticsUtil {
         return resultBatches.stream().map(Histogram::fromResultRow).collect(Collectors.toList());
     }
 
-    public static PartitionColumnStatistic deserializeToPartitionStatistics(List<ResultRow> resultBatches) {
+    public static PartitionColumnStatistic deserializeToPartitionStatistics(List<ResultRow> resultBatches)
+            throws IOException {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return null;
         }
         return PartitionColumnStatistic.fromResultRow(resultBatches);
     }
 
-    public static AutoCloseConnectContext buildConnectContext() {
-        return buildConnectContext(false, false);
-    }
-
-    public static AutoCloseConnectContext buildConnectContext(boolean limitScan, boolean useFileCacheForStat) {
+    public static AutoCloseConnectContext buildConnectContext(boolean useFileCacheForStat) {
         ConnectContext connectContext = new ConnectContext();
+        connectContext.getState().setInternal(true);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.internalSession = true;
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
@@ -215,8 +223,6 @@ public class StatisticsUtil {
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
-        sessionVariable.setEnableNereidsPlanner(true);
-        sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
@@ -224,14 +230,22 @@ public class StatisticsUtil {
         sessionVariable.enablePushDownMinMaxOnUnique = true;
         sessionVariable.enablePushDownStringMinMax = true;
         sessionVariable.enableUniqueKeyPartialUpdate = false;
+        sessionVariable.enableMaterializedViewRewrite = false;
+        sessionVariable.enableQueryCache = false;
+        sessionVariable.enableSqlCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setStartTime();
         if (Config.isCloudMode()) {
             AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
-            ctx.connectContext.getCloudCluster();
+            try {
+                ctx.connectContext.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to connect to cloud cluster", e);
+                return ctx;
+            }
             sessionVariable.disableFileCache = !useFileCacheForStat;
             return ctx;
         } else {
@@ -240,7 +254,7 @@ public class StatisticsUtil {
     }
 
     public static void analyze(StatementBase statementBase) throws UserException {
-        try (AutoCloseConnectContext r = buildConnectContext()) {
+        try (AutoCloseConnectContext r = buildConnectContext(false)) {
             Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), r.connectContext);
             statementBase.analyze(analyzer);
         }
@@ -286,6 +300,10 @@ public class StatisticsUtil {
             case VARCHAR:
             case STRING:
                 return new StringLiteral(columnValue);
+            case IPV4:
+                return new org.apache.doris.analysis.IPv4Literal(columnValue);
+            case IPV6:
+                return new org.apache.doris.analysis.IPv6Literal(columnValue);
             case HLL:
             case BITMAP:
             case ARRAY:
@@ -336,6 +354,12 @@ public class StatisticsUtil {
                 case STRING:
                     VarcharLiteral varchar = new VarcharLiteral(columnValue);
                     return varchar.getDouble();
+                case IPV4:
+                    IPv4Literal ipv4 = new IPv4Literal(columnValue);
+                    return ipv4.getDouble();
+                case IPV6:
+                    IPv6Literal ipv6 = new IPv6Literal(columnValue);
+                    return ipv6.getDouble();
                 case HLL:
                 case BITMAP:
                 case ARRAY:
@@ -348,6 +372,23 @@ public class StatisticsUtil {
             throw new AnalysisException(e.getMessage(), e);
         }
 
+    }
+
+    public static DBObjects convertTableNameToObjects(TableNameInfo tableNameInfo) {
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
+        if (catalogIf == null) {
+            throw new IllegalStateException(String.format("Catalog:%s doesn't exist", tableNameInfo.getCtl()));
+        }
+        DatabaseIf<? extends TableIf> databaseIf = catalogIf.getDbNullable(tableNameInfo.getDb());
+        if (databaseIf == null) {
+            throw new IllegalStateException(String.format("DB:%s doesn't exist", tableNameInfo.getDb()));
+        }
+        TableIf tableIf = databaseIf.getTableNullable(tableNameInfo.getTbl());
+        if (tableIf == null) {
+            throw new IllegalStateException(String.format("Table:%s doesn't exist", tableNameInfo.getTbl()));
+        }
+        return new DBObjects(catalogIf, databaseIf, tableIf);
     }
 
     public static DBObjects convertTableNameToObjects(TableName tableName) {
@@ -464,6 +505,9 @@ public class StatisticsUtil {
     }
 
     public static boolean statsTblAvailable() {
+        if (!InternalSchemaInitializer.isStatsTableSchemaValid()) {
+            return false;
+        }
         String dbName = FeConstants.INTERNAL_DB_NAME;
         List<OlapTable> statsTbls = new ArrayList<>();
         try {
@@ -479,14 +523,22 @@ public class StatisticsUtil {
             //                         dbName,
             //                         StatisticConstants.HISTOGRAM_TBL_NAME));
         } catch (Throwable t) {
+            LOG.info("stat table does not exist, db_name: {}, table_name: {}", dbName,
+                        StatisticConstants.TABLE_STATISTIC_TBL_NAME);
             return false;
         }
         if (Config.isCloudMode()) {
             if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).availableBackendsExists()) {
+                LOG.info("there are no available backends");
                 return false;
             }
-            try (AutoCloseConnectContext r = buildConnectContext()) {
-                r.connectContext.getCloudCluster();
+            try (AutoCloseConnectContext r = buildConnectContext(false)) {
+                try {
+                    r.connectContext.getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to connect to cloud cluster", e);
+                    return false;
+                }
                 for (OlapTable table : statsTbls) {
                     for (Partition partition : table.getPartitions()) {
                         if (partition.getBaseIndex().getTablets().stream()
@@ -608,29 +660,50 @@ public class StatisticsUtil {
     public static long getHiveRowCount(HMSExternalTable table) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
-            return -1;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // Table parameters contains row count, simply get and return it.
-        if (parameters.containsKey(NUM_ROWS)) {
-            long rows = Long.parseLong(parameters.get(NUM_ROWS));
-            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
-            if (rows != 0) {
-                return rows;
-            }
+        long rows = getRowCountFromParameters(parameters);
+        if (rows > 0) {
+            LOG.info("Get row count {} for hive table {} in table parameters.", rows, table.getName());
+            return rows;
         }
-        if (!parameters.containsKey(TOTAL_SIZE)) {
-            return -1;
+        if (!parameters.containsKey(TOTAL_SIZE) && !parameters.containsKey(SPARK_TOTAL_SIZE)) {
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
-        long totalSize = Long.parseLong(parameters.get(TOTAL_SIZE));
+        long totalSize = parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE))
+                : Long.parseLong(parameters.get(SPARK_TOTAL_SIZE));
         long estimatedRowSize = 0;
         for (Column column : table.getFullSchema()) {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
-            return -1;
+            LOG.warn("Hive table {} estimated row size is invalid {}", table.getName(), estimatedRowSize);
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
-        return totalSize / estimatedRowSize;
+        rows = totalSize / estimatedRowSize;
+        LOG.info("Get row count {} for hive table {} by total size {} and row size {}",
+                rows, table.getName(), totalSize, estimatedRowSize);
+        return rows;
+    }
+
+    public static long getRowCountFromParameters(Map<String, String> parameters) {
+        if (parameters == null) {
+            return TableIf.UNKNOWN_ROW_COUNT;
+        }
+        // Table parameters contains row count, simply get and return it.
+        if (parameters.containsKey(NUM_ROWS)) {
+            long rows = Long.parseLong(parameters.get(NUM_ROWS));
+            if (rows <= 0 && parameters.containsKey(SPARK_NUM_ROWS)) {
+                rows = Long.parseLong(parameters.get(SPARK_NUM_ROWS));
+            }
+            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
+            if (rows > 0) {
+                return rows;
+            }
+        }
+        return TableIf.UNKNOWN_ROW_COUNT;
     }
 
     /**
@@ -655,20 +728,25 @@ public class StatisticsUtil {
      */
     public static Optional<ColumnStatistic> getIcebergColumnStats(String colName, org.apache.iceberg.Table table) {
         TableScan tableScan = table.newScan().includeColumnStats();
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-        columnStatisticBuilder.setCount(0);
-        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
-        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
-        columnStatisticBuilder.setDataSize(0);
-        columnStatisticBuilder.setAvgSizeByte(0);
-        columnStatisticBuilder.setNumNulls(0);
+        double totalDataSize = 0;
+        double totalDataCount = 0;
+        double totalNumNull = 0;
         try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
             for (FileScanTask task : fileScanTasks) {
-                processDataFile(task.file(), task.spec(), colName, columnStatisticBuilder);
+                int colId = getColId(task.spec(), colName);
+                totalDataSize += task.file().columnSizes().get(colId);
+                totalDataCount += task.file().recordCount();
+                totalNumNull += task.file().nullValueCounts().get(colId);
             }
         } catch (IOException e) {
             LOG.warn("Error to close FileScanTask.", e);
         }
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(totalDataCount);
+        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+        columnStatisticBuilder.setDataSize(totalDataSize);
+        columnStatisticBuilder.setAvgSizeByte(0);
+        columnStatisticBuilder.setNumNulls(totalNumNull);
         if (columnStatisticBuilder.getCount() > 0) {
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
                     / columnStatisticBuilder.getCount());
@@ -676,8 +754,7 @@ public class StatisticsUtil {
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private static void processDataFile(DataFile dataFile, PartitionSpec partitionSpec,
-            String colName, ColumnStatisticBuilder columnStatisticBuilder) {
+    private static int getColId(PartitionSpec partitionSpec, String colName) {
         int colId = -1;
         for (Types.NestedField column : partitionSpec.schema().columns()) {
             if (column.name().equals(colName)) {
@@ -688,12 +765,7 @@ public class StatisticsUtil {
         if (colId == -1) {
             throw new RuntimeException(String.format("Column %s not exist.", colName));
         }
-        // Update the data size, count and num of nulls in columnStatisticBuilder.
-        // TODO: Get min max value.
-        columnStatisticBuilder.setDataSize(columnStatisticBuilder.getDataSize() + dataFile.columnSizes().get(colId));
-        columnStatisticBuilder.setCount(columnStatisticBuilder.getCount() + dataFile.recordCount());
-        columnStatisticBuilder.setNumNulls(columnStatisticBuilder.getNumNulls()
-                + dataFile.nullValueCounts().get(colId));
+        return colId;
     }
 
     public static boolean isUnsupportedType(Type type) {
@@ -705,6 +777,25 @@ public class StatisticsUtil {
                 || type instanceof MapType
                 || type instanceof VariantType
                 || type instanceof AggStateType;
+    }
+
+    public static boolean canCollectColumn(Column c, TableIf table, boolean isSampleAnalyze, long indexId) {
+        // Full analyze can collect all columns.
+        if (!isSampleAnalyze) {
+            return true;
+        }
+        // External table can collect all columns.
+        if (!(table instanceof OlapTable)) {
+            return true;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        // Skip agg table value columns
+        KeysType keysType = olapTable.getIndexMetaByIndexId(indexId).getKeysType();
+        if (KeysType.AGG_KEYS.equals(keysType) && !c.isKey()) {
+            return false;
+        }
+        // Skip mor unique table value columns
+        return !KeysType.UNIQUE_KEYS.equals(keysType) || olapTable.isUniqKeyMergeOnWrite() || c.isKey();
     }
 
     public static void sleep(long millis) {
@@ -809,12 +900,7 @@ public class StatisticsUtil {
     }
 
     public static boolean enableAutoAnalyze() {
-        try {
-            return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_AUTO_ANALYZE).enableAutoAnalyze;
-        } catch (Exception e) {
-            LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
-        }
-        return false;
+        return VariableMgr.getDefaultSessionVariable().enableAutoAnalyze;
     }
 
     public static boolean enableAutoAnalyzeInternalCatalog() {
@@ -833,6 +919,16 @@ public class StatisticsUtil {
                 SessionVariable.ENABLE_PARTITION_ANALYZE).enablePartitionAnalyze;
         } catch (Exception e) {
             LOG.warn("Fail to get value of enable partition analyze, return false by default", e);
+        }
+        return false;
+    }
+
+    public static boolean isEnableHboInfoCollection() {
+        try {
+            return findConfigFromGlobalSessionVar(
+                    SessionVariable.ENABLE_HBO_INFO_COLLECTION).isEnableHboInfoCollection();
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable hbo optimization, return false by default", e);
         }
         return false;
     }
@@ -925,6 +1021,24 @@ public class StatisticsUtil {
         return StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD;
     }
 
+    public static int getPartitionSampleCount() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.PARTITION_SAMPLE_COUNT).partitionSampleCount;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of partition_sample_count, return default", e);
+        }
+        return StatisticConstants.PARTITION_SAMPLE_COUNT;
+    }
+
+    public static long getPartitionSampleRowCount() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.PARTITION_SAMPLE_ROW_COUNT).partitionSampleRowCount;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of partition_sample_row_count, return default", e);
+        }
+        return StatisticConstants.PARTITION_SAMPLE_ROW_COUNT;
+    }
+
     public static String encodeValue(ResultRow row, int index) {
         if (row == null || row.getValues().size() <= index) {
             return "NULL";
@@ -953,31 +1067,33 @@ public class StatisticsUtil {
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
-        int waitRowCountReportedTime = 75;
+        int waitRowCountReportedTime = 120;
         if (!(table instanceof OlapTable) || method.equals(AnalysisInfo.AnalysisMethod.FULL)) {
             return false;
         }
         OlapTable olapTable = (OlapTable) table;
+        long rowCount = 0;
         for (int i = 0; i < waitRowCountReportedTime; i++) {
-            if (olapTable.getRowCount() > 0) {
-                return false;
+            rowCount = olapTable.getRowCountForIndex(olapTable.getBaseIndexId(), true);
+            // rowCount == -1 means new table or first load row count not fully reported, need to wait.
+            if (rowCount == -1) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    LOG.info("Sleep interrupted.");
+                }
+                continue;
             }
-            // If visible version is 2, table is probably not empty. So we wait row count to be reported.
-            // If visible version is not 2 and getRowCount return 0, we assume it is an empty table.
-            if (olapTable.getVisibleVersion() != TableAttributes.TABLE_INIT_VERSION + 1) {
-                return true;
-            }
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                LOG.info("Sleep interrupted.", e);
-            }
+            break;
         }
-        return true;
+        return rowCount == 0;
     }
 
     public static boolean needAnalyzeColumn(TableIf table, Pair<String, String> column) {
         if (column == null) {
+            return false;
+        }
+        if (!table.autoAnalyzeEnabled()) {
             return false;
         }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
@@ -1003,7 +1119,7 @@ public class StatisticsUtil {
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             // 0. Check new partition first time loaded flag.
-            if (olapTable.isPartitionColumn(column.second) && tableStatsStatus.partitionChanged.get()) {
+            if (tableStatsStatus.partitionChanged.get()) {
                 return true;
             }
             // 1. Check row count.
@@ -1049,7 +1165,7 @@ public class StatisticsUtil {
             }
             // External is hard to calculate change rate, use time interval to control analyze frequency.
             return System.currentTimeMillis()
-                    - tableStatsStatus.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
+                    - tableStatsStatus.lastAnalyzeTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
         }
     }
 
@@ -1058,11 +1174,14 @@ public class StatisticsUtil {
         if (!StatisticsUtil.enablePartitionAnalyze() || !table.isPartitionedTable()) {
             return false;
         }
-        Collection<Partition> partitions = table.getPartitions();
+        if (tableStatsStatus.partitionChanged != null && tableStatsStatus.partitionChanged.get()) {
+            return true;
+        }
         ConcurrentMap<Long, Long> partitionUpdateRows = columnStatsMeta.partitionUpdateRows;
         if (partitionUpdateRows == null) {
             return true;
         }
+        Collection<Partition> partitions = table.getPartitions();
         // New partition added or old partition deleted.
         if (partitions.size() != partitionUpdateRows.size()) {
             return true;
@@ -1100,5 +1219,81 @@ public class StatisticsUtil {
             }
         }
         return false;
+    }
+
+    // This function return true means the column hasn't been analyzed for longer than the configured time.
+    public static boolean isLongTimeColumn(TableIf table, Pair<String, String> column) {
+        if (column == null) {
+            return false;
+        }
+        if (!table.autoAnalyzeEnabled()) {
+            return false;
+        }
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tblStats = manager.findTableStatsStatus(table.getId());
+        // Table never been analyzed, skip it for higher priority jobs.
+        if (tblStats == null) {
+            LOG.warn("Table stats is null.");
+            return false;
+        }
+        ColStatsMeta columnStats = tblStats.findColumnStatsMeta(column.first, column.second);
+        if (columnStats == null) {
+            // Column never been analyzed, skip it for higher priority jobs.
+            return false;
+        }
+        // User injected column stats, don't do auto analyze, avoid overwrite user injected stats.
+        if (tblStats.userInjected) {
+            return false;
+        }
+        boolean isLongTime = Config.auto_analyze_interval_seconds > 0
+                && System.currentTimeMillis() - columnStats.updatedTime > Config.auto_analyze_interval_seconds * 1000;
+        if (!isLongTime) {
+            return false;
+        }
+        // For olap table, if the table visible version and row count doesn't change since last analyze,
+        // we don't need to analyze it because its data is not changed.
+        OlapTable olapTable = (OlapTable) table;
+        long version = 0;
+        try {
+            version = ((OlapTable) table).getVisibleVersion();
+        } catch (RpcException e) {
+            LOG.warn("in cloud getVisibleVersion exception", e);
+        }
+        return version != columnStats.tableVersion
+                || olapTable.getRowCount() != columnStats.rowCount;
+    }
+
+    public static boolean canCollect() {
+        return enableAutoAnalyze() && inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
+    }
+
+    /**
+     * Get the map of column literal value and its row count percentage in the table.
+     * The stringValues is like:
+     * value1 :percent1 ;value2 :percent2 ;value3 :percent3
+     * @return Map of LiteralExpr -> percentage.
+     */
+    public static LinkedHashMap<LiteralExpr, Float> getHotValues(String stringValues, Type type) {
+        if (stringValues == null) {
+            return null;
+        }
+        try {
+            LinkedHashMap<LiteralExpr, Float> ret = Maps.newLinkedHashMap();
+            for (String oneRow : stringValues.split(" ;")) {
+                String[] oneRowSplit = oneRow.split(" :");
+                float value = Float.parseFloat(oneRowSplit[1]);
+                String stringLiteral = oneRowSplit[0].replaceAll("\\\\:", ":").replaceAll("\\\\;", ";");
+                ret.put(readableValue(type, stringLiteral), value);
+            }
+            if (!ret.isEmpty()) {
+                return ret;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to parse hot values [{}]. {}", stringValues, e.getMessage());
+        }
+        return null;
     }
 }

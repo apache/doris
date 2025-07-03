@@ -23,7 +23,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Multimap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -33,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -40,6 +44,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * `SplitGenerator` provides the file splits, and `FederationBackendPolicy` assigns these splits to backends.
  */
 public class SplitAssignment {
+    private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
     private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
@@ -50,10 +55,11 @@ public class SplitAssignment {
     private final List<String> pathPartitionKeys;
     private final Object assignLock = new Object();
     private Split sampleSplit = null;
-    private final AtomicBoolean isStop = new AtomicBoolean(false);
+    private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
     private UserException exception = null;
+    private final List<Closeable> closeableResources = new ArrayList<>();
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
@@ -69,13 +75,21 @@ public class SplitAssignment {
     }
 
     public void init() throws UserException {
-        splitGenerator.startSplit();
+        splitGenerator.startSplit(backendPolicy.numBackends());
         synchronized (assignLock) {
-            while (sampleSplit == null && waitFirstSplit()) {
+            final int waitIntervalTimeMillis = 100;
+            final int initTimeoutMillis = 30000; // 30s
+            int waitTotalTime = 0;
+            while (sampleSplit == null && needMoreSplit()) {
                 try {
-                    assignLock.wait(100);
+                    assignLock.wait(waitIntervalTimeMillis);
                 } catch (InterruptedException e) {
                     throw new UserException(e.getMessage(), e);
+                }
+                waitTotalTime += waitIntervalTimeMillis;
+                if (waitTotalTime > initTimeoutMillis) {
+                    throw new UserException("Failed to get first split after waiting for "
+                            + (waitTotalTime / 1000) + " seconds.");
                 }
             }
         }
@@ -84,8 +98,8 @@ public class SplitAssignment {
         }
     }
 
-    private boolean waitFirstSplit() {
-        return !scheduleFinished.get() && !isStop.get() && exception == null;
+    public boolean needMoreSplit() {
+        return !scheduleFinished.get() && !isStopped.get() && exception == null;
     }
 
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
@@ -95,8 +109,16 @@ public class SplitAssignment {
             for (Split split : splits) {
                 locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
             }
-            if (!assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>()).offer(locations)) {
-                throw new UserException("Failed to offer batch split");
+            while (needMoreSplit()) {
+                BlockingQueue<Collection<TScanRangeLocations>> queue =
+                        assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
+                try {
+                    if (queue.offer(locations, 100, TimeUnit.MILLISECONDS)) {
+                        break;
+                    }
+                } catch (InterruptedException e) {
+                    addUserException(new UserException("Failed to offer batch split by interrupted", e));
+                }
             }
         }
     }
@@ -113,7 +135,7 @@ public class SplitAssignment {
         return sampleSplit;
     }
 
-    public void addToQueue(List<Split> splits) {
+    public void addToQueue(List<Split> splits) throws UserException {
         if (splits.isEmpty()) {
             return;
         }
@@ -123,19 +145,9 @@ public class SplitAssignment {
                 sampleSplit = splits.get(0);
                 assignLock.notify();
             }
-            try {
-                batch = backendPolicy.computeScanRangeAssignment(splits);
-            } catch (UserException e) {
-                exception = e;
-            }
+            batch = backendPolicy.computeScanRangeAssignment(splits);
         }
-        if (batch != null) {
-            try {
-                appendBatch(batch);
-            } catch (UserException e) {
-                exception = e;
-            }
-        }
+        appendBatch(batch);
     }
 
     private void notifyAssignment() {
@@ -150,15 +162,23 @@ public class SplitAssignment {
         }
         BlockingQueue<Collection<TScanRangeLocations>> splits = assignment.computeIfAbsent(backend,
                 be -> new LinkedBlockingQueue<>());
-        if (scheduleFinished.get() && splits.isEmpty() || isStop.get()) {
+        if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
             return null;
         }
         return splits;
     }
 
     public void setException(UserException e) {
-        exception = e;
+        addUserException(e);
         notifyAssignment();
+    }
+
+    private void addUserException(UserException e) {
+        if (exception != null) {
+            exception.addSuppressed(e);
+        } else {
+            exception = e;
+        }
     }
 
     public void finishSchedule() {
@@ -167,11 +187,29 @@ public class SplitAssignment {
     }
 
     public void stop() {
-        isStop.set(true);
+        if (isStop()) {
+            return;
+        }
+        isStopped.set(true);
+        closeableResources.forEach((closeable) -> {
+            try {
+                closeable.close();
+            } catch (Exception e) {
+                LOG.warn("close resource error:{}", e.getMessage(), e);
+                // ignore
+            }
+        });
         notifyAssignment();
+        if (exception != null) {
+            throw new RuntimeException(exception);
+        }
     }
 
     public boolean isStop() {
-        return isStop.get();
+        return isStopped.get();
+    }
+
+    public void addCloseable(Closeable resource) {
+        closeableResources.add(resource);
     }
 }

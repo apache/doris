@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -30,8 +32,6 @@ import org.apache.doris.thrift.TFloatLiteral;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -126,11 +126,20 @@ public class FloatLiteral extends NumericLiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
         return Double.compare(value, expr.getDoubleValue());
     }
 
     @Override
     public String toSqlImpl() {
+        return getStringValue();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return getStringValue();
     }
 
@@ -152,25 +161,27 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         if (type == Type.TIME || type == Type.TIMEV2) {
             // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
             // for example '11:22:33' -> 11:22:33
             String timeStr = getStringValue();
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
+            if (Double.isInfinite(getValue())) {
+                return Double.toString(getValue());
+            }
             return BigDecimal.valueOf(getValue()).toPlainString();
         }
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        String ret = getStringValue();
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        String ret = this.getStringValueForQuery(options);
         if (type == Type.TIME || type == Type.TIMEV2) {
-            // here already wrapped in ''
-            ret = ret.substring(1, ret.length() - 1);
+            ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
         }
-        return options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
+        return ret;
     }
 
     public static Type getDefaultTimeType(Type type) throws AnalysisException {
@@ -238,17 +249,6 @@ public class FloatLiteral extends NumericLiteralExpr {
     public void swapSign() throws NotImplementedException {
         // swapping sign does not change the type
         value = -value;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = in.readDouble();
-    }
-
-    public static FloatLiteral read(DataInput in) throws IOException {
-        FloatLiteral literal = new FloatLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

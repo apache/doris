@@ -18,7 +18,7 @@
 
 suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
 
-    def tableName = "test_csv_with_enclose_and_escape"
+    def tableName = "test_csv_with_enclose_and_escapeS3_load"
     def s3BucketName = getS3BucketName()
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -161,7 +161,6 @@ class LoadAttributes {
         this.isExceptFailed = isExceptFailed
 
         properties = new HashMap<>()
-        properties.put("use_new_load_scan_node", "true")
     }
 
     LoadAttributes addProperties(String k, String v) {

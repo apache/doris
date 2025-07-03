@@ -25,20 +25,15 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.RangeUtils;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -66,11 +61,29 @@ public class RangePartitionInfo extends PartitionInfo {
         }
     }
 
+    public Map<Long, PartitionItem> getPartitionItems(Collection<Long> partitionIds) {
+        Map<Long, PartitionItem> columnRanges = Maps.newLinkedHashMapWithExpectedSize(partitionIds.size());
+        for (Long partitionId : partitionIds) {
+            PartitionItem partitionItem = idToItem.get(partitionId);
+            if (partitionItem == null) {
+                partitionItem = idToTempItem.get(partitionId);
+            }
+            if (partitionItem == null) {
+                throw new IllegalStateException("Can not found partition item: " + partitionId);
+            }
+            columnRanges.put(partitionId, partitionItem);
+        }
+        return columnRanges;
+    }
+
     @Override
     public PartitionItem createAndCheckPartitionItem(SinglePartitionDesc desc, boolean isTemp) throws DdlException {
         Range<PartitionKey> newRange = null;
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
         // check range
+        if (partitionKeyDesc.hasInValues()) {
+            throw new DdlException("Range partition expected 'VALUES [LESS THAN or [(\"xxx\" ,...), (\"xxx\", ...))]'");
+        }
         try {
             newRange = createAndCheckNewRange(partitionKeyDesc, isTemp);
         } catch (AnalysisException e) {
@@ -206,44 +219,6 @@ public class RangePartitionInfo extends PartitionInfo {
         RangeUtils.checkRangeConflict(list1, list2);
     }
 
-    @Deprecated
-    public static PartitionInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), RangePartitionInfo.class);
-        }
-
-        PartitionInfo partitionInfo = new RangePartitionInfo();
-        partitionInfo.readFields(in);
-        return partitionInfo;
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        int counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            Column column = Column.read(in);
-            partitionColumns.add(column);
-        }
-
-        this.isMultiColumnPartition = partitionColumns.size() > 1;
-
-        counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            long partitionId = in.readLong();
-            Range<PartitionKey> range = RangeUtils.readRange(in);
-            idToItem.put(partitionId, new RangePartitionItem(range));
-        }
-
-        counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            long partitionId = in.readLong();
-            Range<PartitionKey> range = RangeUtils.readRange(in);
-            idToTempItem.put(partitionId, new RangePartitionItem(range));
-        }
-    }
-
     @Override
     public String toSql(OlapTable table, List<Long> partitionId) {
         StringBuilder sb = new StringBuilder();
@@ -282,13 +257,9 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append("PARTITION ").append(partitionName).append(" VALUES [");
             sb.append(range.lowerEndpoint().toSql());
             sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
-
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
-                    sb.append(" (\"" + PropertyAnalyzer.PROPERTIES_STORAGE_POLICY + "\" = \"");
-                    sb.append(p).append("\")");
-                }
-            });
+            if (!"".equals(getStoragePolicy(entry.getKey()))) {
+                sb.append("(\"storage_policy\" = \"").append(getStoragePolicy(entry.getKey())).append("\")");
+            }
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());

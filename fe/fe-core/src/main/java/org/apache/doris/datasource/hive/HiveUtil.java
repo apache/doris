@@ -21,9 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -47,9 +49,6 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.TextInputFormat;
 import org.apache.hadoop.util.ReflectionUtils;
 
-import java.io.UnsupportedEncodingException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -68,6 +67,8 @@ public final class HiveUtil {
     public static final String COMPRESSION_KEY = "compression";
     public static final Set<String> SUPPORTED_ORC_COMPRESSIONS = ImmutableSet.of("plain", "zlib", "snappy", "zstd");
     public static final Set<String> SUPPORTED_PARQUET_COMPRESSIONS = ImmutableSet.of("plain", "snappy", "zstd");
+    public static final Set<String> SUPPORTED_TEXT_COMPRESSIONS =
+            ImmutableSet.of("plain", "gzip", "zstd", "bzip2", "lz4", "snappy");
 
     private HiveUtil() {
     }
@@ -75,14 +76,14 @@ public final class HiveUtil {
     /**
      * get input format class from inputFormatName.
      *
-     * @param jobConf         jobConf used when getInputFormatClass
+     * @param jobConf jobConf used when getInputFormatClass
      * @param inputFormatName inputFormat class name
-     * @param symlinkTarget   use target inputFormat class when inputFormat is SymlinkTextInputFormat
+     * @param symlinkTarget use target inputFormat class when inputFormat is SymlinkTextInputFormat
      * @return a class of inputFormat.
      * @throws UserException when class not found.
      */
     public static InputFormat<?, ?> getInputFormat(JobConf jobConf,
-                                                   String inputFormatName, boolean symlinkTarget) throws UserException {
+            String inputFormatName, boolean symlinkTarget) throws UserException {
         try {
             Class<? extends InputFormat<?, ?>> inputFormatClass = getInputFormatClass(jobConf, inputFormatName);
             if (symlinkTarget && (inputFormatClass == SymlinkTextInputFormat.class)) {
@@ -119,16 +120,22 @@ public final class HiveUtil {
         return HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(inputFormat);
     }
 
-    public static String getHivePartitionValue(String part) {
-        String[] kv = part.split("=");
-        Preconditions.checkState(kv.length == 2, String.format("Malformed partition name %s", part));
-        try {
-            // hive partition value maybe contains special characters like '=' and '/'
-            return URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
-        } catch (UnsupportedEncodingException e) {
-            // It should not be here
-            throw new RuntimeException(e);
+    // "c1=a/c2=b/c3=c" ---> List(["c1","a"], ["c2","b"], ["c3","c"])
+    // Similar to the `toPartitionValues` method, except that it adds the partition column name.
+    public static List<String[]> toPartitionColNameAndValues(String partitionName) {
+
+        String[] parts = partitionName.split("/");
+        List<String[]> result = new ArrayList<>(parts.length);
+        for (String part : parts) {
+            String[] kv = part.split("=");
+            Preconditions.checkState(kv.length == 2, String.format("Malformed partition name %s", part));
+
+            result.add(new String[] {
+                    FileUtils.unescapePathName(kv[0]),
+                    FileUtils.unescapePathName(kv[1])
+            });
         }
+        return result;
     }
 
     // "c1=a/c2=b/c3=c" ---> List("a","b","c")
@@ -147,6 +154,8 @@ public final class HiveUtil {
             if (start > partitionName.length()) {
                 break;
             }
+            //Ref: common/src/java/org/apache/hadoop/hive/common/FileUtils.java
+            //makePartName(List<String> partCols, List<String> vals,String defaultStr)
             resultBuilder.add(FileUtils.unescapePathName(partitionName.substring(start, end)));
             start = end + 1;
         }
@@ -167,12 +176,12 @@ public final class HiveUtil {
 
         Map<String, List<String>> partitionNameToPartitionValues =
                 partitionNames
-                    .stream()
-                    .collect(Collectors.toMap(partitionName -> partitionName, HiveUtil::toPartitionValues));
+                        .stream()
+                        .collect(Collectors.toMap(partitionName -> partitionName, HiveUtil::toPartitionValues));
 
         Map<List<String>, Partition> partitionValuesToPartition =
                 partitions.stream()
-                    .collect(Collectors.toMap(Partition::getValues, partition -> partition));
+                        .collect(Collectors.toMap(Partition::getValues, partition -> partition));
 
         ImmutableMap.Builder<String, Partition> resultBuilder = ImmutableMap.builder();
         for (Map.Entry<String, List<String>> entry : partitionNameToPartitionValues.entrySet()) {
@@ -190,7 +199,6 @@ public final class HiveUtil {
         Table table = new Table();
         table.setDbName(hiveTable.getDbName());
         table.setTableName(hiveTable.getTableName());
-        // table.setOwner("");
         int createTime = (int) System.currentTimeMillis() * 1000;
         table.setCreateTime(createTime);
         table.setLastAccessTime(createTime);
@@ -210,10 +218,10 @@ public final class HiveUtil {
         setCompressType(hiveTable, props);
         // set hive table comment by table properties
         props.put("comment", hiveTable.getComment());
-        table.setParameters(props);
         if (props.containsKey("owner")) {
             table.setOwner(props.get("owner"));
         }
+        HiveProperties.setTableProperties(table, props);
         return table;
     }
 
@@ -231,6 +239,12 @@ public final class HiveUtil {
                 throw new AnalysisException("Unsupported orc compression type " + compression);
             }
             props.putIfAbsent("orc.compress", StringUtils.isEmpty(compression) ? "zlib" : compression);
+        } else if (fileFormat.equalsIgnoreCase("text")) {
+            if (StringUtils.isNotEmpty(compression) && !SUPPORTED_TEXT_COMPRESSIONS.contains(compression)) {
+                throw new AnalysisException("Unsupported text compression type " + compression);
+            }
+            props.putIfAbsent("text.compression", StringUtils.isEmpty(compression)
+                    ? ConnectContext.get().getSessionVariable().hiveTextCompression() : compression);
         } else {
             throw new IllegalArgumentException("Compression is not supported on " + fileFormat);
         }
@@ -248,7 +262,7 @@ public final class HiveUtil {
         sd.setBucketCols(bucketCols);
         sd.setNumBuckets(numBuckets);
         Map<String, String> parameters = new HashMap<>();
-        parameters.put("tag", "doris external hive talbe");
+        parameters.put("tag", "doris external hive table");
         sd.setParameters(parameters);
         return sd;
     }
@@ -265,6 +279,10 @@ public final class HiveUtil {
             inputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
             outputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
             serDe = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
+        } else if (fileFormat.equalsIgnoreCase("text")) {
+            inputFormat = "org.apache.hadoop.mapred.TextInputFormat";
+            outputFormat = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat";
+            serDe = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
         } else {
             throw new IllegalArgumentException("Creating table with an unsupported file format: " + fileFormat);
         }
@@ -312,7 +330,7 @@ public final class HiveUtil {
 
     public static Map<String, String> updateStatisticsParameters(
             Map<String, String> parameters,
-            HiveCommonStatistics statistics) {
+            CommonStatistics statistics) {
         HashMap<String, String> result = new HashMap<>(parameters);
 
         result.put(StatsSetupConst.NUM_FILES, String.valueOf(statistics.getFileCount()));
@@ -345,8 +363,8 @@ public final class HiveUtil {
 
     public static Partition toMetastoreApiPartition(HivePartition hivePartition) {
         Partition result = new Partition();
-        result.setDbName(hivePartition.getDbName());
-        result.setTableName(hivePartition.getTblName());
+        result.setDbName(hivePartition.getTableInfo().getDbName());
+        result.setTableName(hivePartition.getTableInfo().getTbName());
         result.setValues(hivePartition.getPartitionValues());
         result.setSd(makeStorageDescriptorFromHivePartition(hivePartition));
         result.setParameters(hivePartition.getParameters());
@@ -355,7 +373,7 @@ public final class HiveUtil {
 
     public static StorageDescriptor makeStorageDescriptorFromHivePartition(HivePartition partition) {
         SerDeInfo serdeInfo = new SerDeInfo();
-        serdeInfo.setName(partition.getTblName());
+        serdeInfo.setName(partition.getTableInfo().getTbName());
         serdeInfo.setSerializationLib(partition.getSerde());
 
         StorageDescriptor sd = new StorageDescriptor();

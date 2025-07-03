@@ -19,7 +19,6 @@ package org.apache.doris.jdbc;
 
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorColumn;
@@ -28,16 +27,27 @@ import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.zaxxer.hikari.HikariDataSource;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
+import org.semver4j.Semver;
 
 import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Array;
 import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.net.URLConnection;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -56,8 +66,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private HikariDataSource hikariDataSource = null;
     private final byte[] hikariDataSourceLock = new byte[0];
-    private JdbcDataSourceConfig config;
+    private ClassLoader classLoader = null;
     private Connection conn = null;
+    protected JdbcDataSourceConfig config;
     protected PreparedStatement preparedStatement = null;
     protected Statement stmt = null;
     protected ResultSet resultSet = null;
@@ -66,8 +77,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     protected VectorTable outputTable = null;
     protected int batchSizeNum = 0;
     protected int curBlockRows = 0;
+    protected String jdbcDriverVersion;
+    private static final Map<URL, ClassLoader> classLoaderMap = Maps.newConcurrentMap();
 
     public BaseJdbcExecutor(byte[] thriftParams) throws Exception {
+        setJdbcDriverSystemProperties();
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
         TDeserializer deserializer = new TDeserializer(PROTOCOL_FACTORY);
         try {
@@ -82,6 +96,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 .setJdbcUrl(request.jdbc_url)
                 .setJdbcDriverUrl(request.driver_path)
                 .setJdbcDriverClass(request.jdbc_driver_class)
+                .setJdbcDriverChecksum(request.jdbc_driver_checksum)
                 .setBatchSize(request.batch_size)
                 .setOp(request.op)
                 .setTableType(request.table_type)
@@ -92,29 +107,27 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 .setConnectionPoolKeepAlive(request.connection_pool_keep_alive);
         JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
         init(config, request.statement);
+        this.jdbcDriverVersion = getJdbcDriverVersion();
     }
 
     public void close() throws Exception {
+        if (outputTable != null) {
+            outputTable.close();
+        }
         try {
-            if (stmt != null) {
+            if (stmt != null && !stmt.isClosed()) {
                 try {
                     stmt.cancel();
                 } catch (SQLException e) {
-                    LOG.error("Error cancelling statement", e);
+                    LOG.warn("Cannot cancelling statement: ", e);
                 }
             }
 
-            boolean shouldAbort = conn != null && resultSet != null;
-            boolean aborted = false; // Used to record whether the abort operation is performed
-            if (shouldAbort) {
-                aborted = abortReadConnection(conn, resultSet);
-            }
-
-            // If no abort operation is performed, the resource needs to be closed manually
-            if (!aborted) {
-                closeResources(resultSet, stmt, conn);
+            if (conn != null && resultSet != null) {
+                abortReadConnection(conn, resultSet);
             }
         } finally {
+            closeResources(resultSet, stmt, conn);
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
                 hikariDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
@@ -123,27 +136,30 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    private void closeResources(AutoCloseable... closeables) {
-        for (AutoCloseable closeable : closeables) {
-            if (closeable != null) {
+    private void closeResources(Object... resources) {
+        for (Object resource : resources) {
+            if (resource != null) {
                 try {
-                    if (closeable instanceof Connection) {
-                        if (!((Connection) closeable).isClosed()) {
-                            closeable.close();
-                        }
-                    } else {
-                        closeable.close();
+                    if (resource instanceof ResultSet) {
+                        ((ResultSet) resource).close();
+                    } else if (resource instanceof Statement) {
+                        ((Statement) resource).close();
+                    } else if (resource instanceof Connection) {
+                        ((Connection) resource).close();
                     }
                 } catch (Exception e) {
-                    LOG.error("Cannot close resource: ", e);
+                    LOG.warn("Cannot close resource: ", e);
                 }
             }
         }
     }
 
-    protected boolean abortReadConnection(Connection connection, ResultSet resultSet)
+    protected void abortReadConnection(Connection connection, ResultSet resultSet)
             throws SQLException {
-        return false;
+    }
+
+    protected void setJdbcDriverSystemProperties() {
+        System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
     }
 
     public void cleanDataSource() {
@@ -294,8 +310,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         String hikariDataSourceKey = config.createCacheKey();
         try {
-            ClassLoader parent = getClass().getClassLoader();
-            ClassLoader classLoader = UdfUtils.getClassLoader(config.getJdbcDriverUrl(), parent);
+            initializeClassLoader(config);
             Thread.currentThread().setContextClassLoader(classLoader);
             hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
             if (hikariDataSource == null) {
@@ -318,7 +333,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                             ds.setKeepaliveTime(config.getConnectionPoolMaxLifeTime() / 5L); // default 6 min
                         }
                         hikariDataSource = ds;
-                        JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, ds);
+                        JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, hikariDataSource);
                         LOG.info("JdbcClient set"
                                 + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                                 + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
@@ -347,9 +362,78 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         } catch (FileNotFoundException e) {
             throw new JdbcExecutorException("FileNotFoundException failed: ", e);
         } catch (Exception e) {
+            String msg = e.getMessage();
+            // If driver class loading failed (Hikari wraps it), clear stale cache and prompt retry
+            if (msg != null && msg.contains("Failed to load driver class")) {
+                try {
+                    URL url = new URL(config.getJdbcDriverUrl());
+                    classLoaderMap.remove(url);
+                    // Prompt user to verify driver validity and retry
+                    throw new JdbcExecutorException(
+                        String.format("Failed to load driver class `%s`. "
+                                        + "Please check that the driver JAR is valid and retry.",
+                                      config.getJdbcDriverClass()), e);
+                } catch (MalformedURLException ignore) {
+                    // ignore invalid URL when cleaning cache
+                }
+            }
             throw new JdbcExecutorException("Initialize datasource failed: ", e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
+        }
+    }
+
+    private synchronized void initializeClassLoader(JdbcDataSourceConfig config) {
+        try {
+            URL[] urls = {new URL(config.getJdbcDriverUrl())};
+            if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
+                this.classLoader = classLoaderMap.get(urls[0]);
+            } else {
+                String expectedChecksum = config.getJdbcDriverChecksum();
+                String actualChecksum = computeObjectChecksum(urls[0].toString(), null);
+                if (!expectedChecksum.equals(actualChecksum)) {
+                    throw new RuntimeException("Checksum mismatch for JDBC driver.");
+                }
+                ClassLoader parent = getClass().getClassLoader();
+                this.classLoader = URLClassLoader.newInstance(urls, parent);
+                classLoaderMap.put(urls[0], this.classLoader);
+            }
+        } catch (MalformedURLException e) {
+            throw new RuntimeException("Failed to load JDBC driver from path: "
+                    + config.getJdbcDriverUrl(), e);
+        }
+    }
+
+    public static String computeObjectChecksum(String urlStr, String encodedAuthInfo) {
+        try (InputStream inputStream = getInputStreamFromUrl(urlStr, encodedAuthInfo, 10000, 10000)) {
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            byte[] buf = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buf)) != -1) {
+                digest.update(buf, 0, bytesRead);
+            }
+            return Hex.encodeHexString(digest.digest());
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new RuntimeException("Compute driver checksum from url: " + urlStr
+                    + " encountered an error: " + e.getMessage());
+        }
+    }
+
+    public static InputStream getInputStreamFromUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
+            int readTimeoutMs) throws IOException {
+        try {
+            URL url = new URL(urlStr);
+            URLConnection conn = url.openConnection();
+
+            if (encodedAuthInfo != null) {
+                conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
+            }
+
+            conn.setConnectTimeout(connectTimeoutMs);
+            conn.setReadTimeout(readTimeoutMs);
+            return conn.getInputStream();
+        } catch (Exception e) {
+            throw new IOException("Failed to open URL connection: " + urlStr, e);
         }
     }
 
@@ -522,6 +606,30 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);
+        }
+    }
+
+    private String getJdbcDriverVersion() {
+        try {
+            if (conn != null) {
+                DatabaseMetaData metaData = conn.getMetaData();
+                return metaData.getDriverVersion();
+            } else {
+                return null;
+            }
+        } catch (SQLException e) {
+            LOG.warn("Failed to retrieve JDBC Driver version", e);
+            return null;
+        }
+    }
+
+    protected boolean isJdbcVersionGreaterThanOrEqualTo(String version) {
+        Semver currentVersion = Semver.coerce(jdbcDriverVersion);
+        Semver targetVersion = Semver.coerce(version);
+        if (currentVersion != null && targetVersion != null) {
+            return currentVersion.isGreaterThanOrEqualTo(targetVersion);
+        } else {
+            return false;
         }
     }
 

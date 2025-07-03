@@ -102,11 +102,11 @@ struct XorImpl {
     static inline constexpr bool special_implementation_for_nulls() { return false; }
 };
 
-template <typename A>
+template <PrimitiveType A>
 struct NotImpl {
-    using ResultType = UInt8;
+    static constexpr PrimitiveType ResultType = TYPE_BOOLEAN;
 
-    static inline ResultType apply(A a) { return !a; }
+    static inline UInt8 apply(typename PrimitiveTypeTraits<A>::ColumnItemType a) { return !a; }
 };
 
 template <typename Impl, typename Name>
@@ -128,10 +128,10 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override;
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override;
+                        uint32_t result, size_t input_rows_count) const override;
 };
 
-template <template <typename> class Impl, typename Name>
+template <template <PrimitiveType> class Impl, typename Name>
 class FunctionUnaryLogical : public IFunction {
 public:
     static constexpr auto name = Name::name;
@@ -144,7 +144,7 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override;
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override;
+                        uint32_t result, size_t input_rows_count) const override;
 };
 
 } // namespace FunctionsLogicalDetail

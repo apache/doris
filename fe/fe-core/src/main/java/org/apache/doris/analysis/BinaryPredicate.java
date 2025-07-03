@@ -26,12 +26,13 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -42,8 +43,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Objects;
 
@@ -283,6 +282,13 @@ public class BinaryPredicate extends Predicate {
     @Override
     public String toSqlImpl() {
         return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString() + " "
+                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table);
     }
 
     @Override
@@ -719,30 +725,6 @@ public class BinaryPredicate extends Predicate {
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
-        int isWritable = in.readInt();
-        if (isWritable == 0) {
-            return;
-        }
-
-        // read op
-        Operator op = Operator.valueOf(Text.readString(in));
-        // read left
-        SlotRef left = new SlotRef(null, Text.readString(in));
-        // read right
-        StringLiteral right = new StringLiteral(Text.readString(in));
-
-        this.op = op;
-        this.addChild(left);
-        this.addChild(right);
-    }
-
-    public static BinaryPredicate read(DataInput in) throws IOException {
-        BinaryPredicate binaryPredicate = new BinaryPredicate();
-        binaryPredicate.readFields(in);
-        return binaryPredicate;
-    }
-
     @Override
     public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
         recursiveResetChildrenResult(forPushDownPredicatesToView);
@@ -755,7 +737,7 @@ public class BinaryPredicate extends Predicate {
         return compareLiteral((LiteralExpr) leftChildValue, (LiteralExpr) rightChildValue);
     }
 
-    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) {
         final boolean isFirstNull = (first instanceof NullLiteral);
         final boolean isSecondNull = (second instanceof NullLiteral);
         if (op == Operator.EQ_FOR_NULL) {
@@ -776,13 +758,13 @@ public class BinaryPredicate extends Predicate {
             case EQ_FOR_NULL:
                 return new BoolLiteral(compareResult == 0);
             case GE:
-                return new BoolLiteral(compareResult == 1 || compareResult == 0);
+                return new BoolLiteral(compareResult >= 0);
             case GT:
-                return new BoolLiteral(compareResult == 1);
+                return new BoolLiteral(compareResult > 0);
             case LE:
-                return new BoolLiteral(compareResult == -1 || compareResult == 0);
+                return new BoolLiteral(compareResult <= 0);
             case LT:
-                return new BoolLiteral(compareResult == -1);
+                return new BoolLiteral(compareResult < 0);
             case NE:
                 return new BoolLiteral(compareResult != 0);
             default:

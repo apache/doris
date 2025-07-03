@@ -46,7 +46,7 @@ public class BackendServiceClient {
     public BackendServiceClient(TNetworkAddress address, Executor executor) {
         this.address = address;
         channel = NettyChannelBuilder.forAddress(address.getHostname(), address.getPort())
-                .executor(executor)
+                .executor(executor).keepAliveTime(Config.grpc_keep_alive_second, TimeUnit.SECONDS)
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
                 .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
@@ -89,7 +89,8 @@ public class BackendServiceClient {
                 .cancelPlanFragment(request);
     }
 
-    public Future<InternalService.PFetchDataResult> fetchDataAsync(InternalService.PFetchDataRequest request) {
+    public ListenableFuture<InternalService.PFetchDataResult> fetchDataAsync(
+            InternalService.PFetchDataRequest request) {
         return stub.fetchData(request);
     }
 
@@ -188,6 +189,25 @@ public class BackendServiceClient {
         return stub.alterVaultSync(request);
     }
 
+    public Future<InternalService.PGetBeResourceResponse> getBeResource(InternalService.PGetBeResourceRequest request,
+            int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).getBeResource(request);
+    }
+
+    public Future<InternalService.PDeleteDictionaryResponse> deleteDictionary(
+            InternalService.PDeleteDictionaryRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).deleteDictionary(request);
+    }
+
+    public Future<InternalService.PCommitRefreshDictionaryResponse> commitRefreshDictionary(
+            InternalService.PCommitRefreshDictionaryRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).commitRefreshDictionary(request);
+    }
+
+    public Future<InternalService.PAbortRefreshDictionaryResponse> abortRefreshDictionary(
+            InternalService.PAbortRefreshDictionaryRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).abortRefreshDictionary(request);
+    }
 
     public void shutdown() {
         ConnectivityState state = channel.getState(false);

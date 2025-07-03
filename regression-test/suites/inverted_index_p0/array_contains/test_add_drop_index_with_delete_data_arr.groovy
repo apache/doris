@@ -144,7 +144,7 @@ suite("test_add_drop_index_with_delete_data_arr", "array_contains_inverted_index
     assertEquals(select_result[3][2], "desc world")
 
     // add index on column description
-    sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
+    sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"none\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     if (!isCloudMode()) {
         sql "build index idx_desc on ${indexTbName1}"
@@ -229,7 +229,7 @@ suite("test_add_drop_index_with_delete_data_arr", "array_contains_inverted_index
     assertEquals(select_result[2][2], "desc world")
     
     // add index on column description
-    sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
+    sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"none\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     if (!isCloudMode()) {
         sql "build index idx_desc on ${indexTbName1}"

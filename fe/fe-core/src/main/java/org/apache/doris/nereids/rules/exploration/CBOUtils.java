@@ -42,6 +42,13 @@ public class CBOUtils {
                 .collect(Collectors.toSet());
     }
 
+    public static Plan newProjectIfNeeded(Set<ExprId> requiredExprIds, Plan plan) {
+        if (requiredExprIds.equals(plan.getOutputExprIdSet())) {
+            return plan;
+        }
+        return newProject(requiredExprIds, plan);
+    }
+
     public static Plan newProject(Set<ExprId> requiredExprIds, Plan plan) {
         List<NamedExpression> projects = plan.getOutput().stream()
                 .filter(namedExpr -> requiredExprIds.contains(namedExpr.getExprId()))

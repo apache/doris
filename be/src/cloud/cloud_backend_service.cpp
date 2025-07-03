@@ -29,6 +29,8 @@
 #include "common/status.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "runtime/stream_load/stream_load_context.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/thrift_server.h"
 
@@ -66,7 +68,9 @@ void CloudBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse&,
             if (!result.has_value()) {
                 return;
             }
-            Status st = result.value()->sync_rowsets(-1, true);
+            SyncOptions options;
+            options.warmup_delta_data = true;
+            Status st = result.value()->sync_rowsets(options);
             if (!st.ok()) {
                 LOG_WARNING("failed to sync load for tablet").error(st);
             }
@@ -103,7 +107,9 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                 .tag("request_type", "SET_BATCH")
                 .tag("job_id", request.job_id)
                 .tag("batch_id", request.batch_id)
-                .tag("jobs size", request.job_metas.size());
+                .tag("jobs size", request.job_metas.size())
+                .tag("tablet num of first meta",
+                     request.job_metas.empty() ? 0 : request.job_metas[0].tablet_ids.size());
         bool retry = false;
         st = manager.check_and_set_batch_id(request.job_id, request.batch_id, &retry);
         if (!retry && st) {
@@ -149,7 +155,19 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
 
 void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
                                               const TWarmUpCacheAsyncRequest& request) {
-    std::string brpc_addr = fmt::format("{}:{}", request.host, request.brpc_port);
+    std::string host = request.host;
+    auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+    if (dns_cache == nullptr) {
+        LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+    } else if (!is_valid_ip(request.host)) {
+        Status status = dns_cache->get(request.host, &host);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get ip from host " << request.host << ": "
+                         << status.to_string();
+            return;
+        }
+    }
+    std::string brpc_addr = get_host_port(host, request.brpc_port);
     Status st = Status::OK();
     TStatus t_status;
     std::shared_ptr<PBackendService_Stub> brpc_stub =
@@ -178,12 +196,23 @@ void CloudBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncRespon
                                                     const TCheckWarmUpCacheAsyncRequest& request) {
     std::map<int64_t, bool> task_done;
     _engine.file_cache_block_downloader().check_download_task(request.tablets, &task_done);
+    DBUG_EXECUTE_IF("CloudBackendService.check_warm_up_cache_async.return_task_false", {
+        for (auto& it : task_done) {
+            it.second = false;
+        }
+    });
     response.__set_task_done(task_done);
 
     Status st = Status::OK();
     TStatus t_status;
     st.to_thrift(&t_status);
     response.status = t_status;
+}
+
+void CloudBackendService::get_stream_load_record(TStreamLoadRecordResult& result,
+                                                 int64_t last_stream_record_time) {
+    BaseBackendService::get_stream_load_record(result, last_stream_record_time,
+                                               _engine.get_stream_load_recorder());
 }
 
 } // namespace doris

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -38,6 +39,7 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(Like.class).then(LikeToEqualRewrite::rewriteLikeToEqual)
+                        .toRule(ExpressionRuleType.LIKE_TO_EQUAL)
         );
     }
 
@@ -51,6 +53,10 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
         StringBuilder sb = new StringBuilder();
         int len = str.length();
         char escapeChar = '\\';
+        if (like.arity() == 3) {
+            escapeChar = ((VarcharLiteral) like.child(2)).value.charAt(0);
+        }
+
         for (int i = 0; i < len;) {
             char c = str.charAt(i);
             if (c == escapeChar && (i + 1) < len

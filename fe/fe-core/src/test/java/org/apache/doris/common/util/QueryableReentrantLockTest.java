@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.lock.MonitoredReentrantLock;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -24,7 +26,7 @@ import java.util.concurrent.TimeUnit;
 
 public class QueryableReentrantLockTest {
 
-    private QueryableReentrantLock lock = new QueryableReentrantLock(true);
+    private MonitoredReentrantLock lock = new MonitoredReentrantLock(true);
 
     @Test
     public void test() throws InterruptedException {

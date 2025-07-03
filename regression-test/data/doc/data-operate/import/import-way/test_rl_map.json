@@ -1,0 +1,3 @@
+{ "id" : 1, "name" : "Benjamin", "age":18, "map":{"a": 100, "b": 200}}
+{ "id" : 2, "name" : "Emily", "age":20, "map":{"c": 300, "d": 400}}
+{ "id" : 3, "name" : "Alexander", "age":22, "map":{"e": 500, "f": 600}}

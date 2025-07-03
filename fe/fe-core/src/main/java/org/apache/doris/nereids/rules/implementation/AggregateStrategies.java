@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -40,17 +41,21 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -58,10 +63,12 @@ import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -109,40 +116,68 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalAggregate(
                     logicalFilter(
                         logicalOlapScan().when(this::isDupOrMowKeyTable).when(this::isInvertedIndexEnabledOnTable)
-                    ).when(filter -> !filter.getConjuncts().isEmpty()))
-                    .when(agg -> enablePushDownCountOnIndex())
-                    .when(agg -> agg.getGroupByExpressions().isEmpty())
-                    .when(agg -> {
-                        Set<AggregateFunction> funcs = agg.getAggregateFunctions();
-                        return !funcs.isEmpty() && funcs.stream()
-                                .allMatch(f -> f instanceof Count && !f.isDistinct());
-                    })
-                    .thenApply(ctx -> {
-                        LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
-                        LogicalFilter<LogicalOlapScan> filter = agg.child();
-                        LogicalOlapScan olapScan = filter.child();
-                        return pushdownCountOnIndex(agg, null, filter, olapScan, ctx.cascadesContext);
-                    })
+                    )
+                )
+                .when(agg -> enablePushDownCountOnIndex())
+                .when(agg -> agg.getGroupByExpressions().isEmpty())
+                .when(agg -> {
+                    Set<AggregateFunction> funcs = agg.getAggregateFunctions();
+                    if (funcs.isEmpty() || !funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct()
+                            && (((Count) f).isCountStar() || f.child(0) instanceof Slot))) {
+                        return false;
+                    }
+                    Set<Expression> conjuncts = agg.child().getConjuncts();
+                    if (conjuncts.isEmpty()) {
+                        return false;
+                    }
+
+                    Set<Slot> aggSlots = funcs.stream()
+                            .flatMap(f -> f.getInputSlots().stream())
+                            .collect(Collectors.toSet());
+                    return aggSlots.isEmpty() || conjuncts.stream().allMatch(expr ->
+                                checkSlotInOrExpression(expr, aggSlots) && checkIsNullExpr(expr, aggSlots));
+                })
+                .thenApply(ctx -> {
+                    LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
+                    LogicalFilter<LogicalOlapScan> filter = agg.child();
+                    LogicalOlapScan olapScan = filter.child();
+                    return pushdownCountOnIndex(agg, null, filter, olapScan, ctx.cascadesContext);
+                })
             ),
             RuleType.COUNT_ON_INDEX.build(
                 logicalAggregate(
                     logicalProject(
                         logicalFilter(
                             logicalOlapScan().when(this::isDupOrMowKeyTable).when(this::isInvertedIndexEnabledOnTable)
-                        ).when(filter -> !filter.getConjuncts().isEmpty())))
-                    .when(agg -> enablePushDownCountOnIndex())
-                    .when(agg -> agg.getGroupByExpressions().isEmpty())
-                    .when(agg -> {
-                        Set<AggregateFunction> funcs = agg.getAggregateFunctions();
-                        return !funcs.isEmpty() && funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct());
-                    })
-                    .thenApply(ctx -> {
-                        LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
-                        LogicalProject<LogicalFilter<LogicalOlapScan>> project = agg.child();
-                        LogicalFilter<LogicalOlapScan> filter = project.child();
-                        LogicalOlapScan olapScan = filter.child();
-                        return pushdownCountOnIndex(agg, project, filter, olapScan, ctx.cascadesContext);
-                    })
+                        )
+                    )
+                )
+                .when(agg -> enablePushDownCountOnIndex())
+                .when(agg -> agg.getGroupByExpressions().isEmpty())
+                .when(agg -> {
+                    Set<AggregateFunction> funcs = agg.getAggregateFunctions();
+                    if (funcs.isEmpty() || !funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct()
+                            && (((Count) f).isCountStar() || f.child(0) instanceof Slot))) {
+                        return false;
+                    }
+                    Set<Expression> conjuncts = agg.child().child().getConjuncts();
+                    if (conjuncts.isEmpty()) {
+                        return false;
+                    }
+
+                    Set<Slot> aggSlots = funcs.stream()
+                            .flatMap(f -> f.getInputSlots().stream())
+                            .collect(Collectors.toSet());
+                    return aggSlots.isEmpty() || conjuncts.stream().allMatch(expr ->
+                                checkSlotInOrExpression(expr, aggSlots) && checkIsNullExpr(expr, aggSlots));
+                })
+                .thenApply(ctx -> {
+                    LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
+                    LogicalProject<LogicalFilter<LogicalOlapScan>> project = agg.child();
+                    LogicalFilter<LogicalOlapScan> filter = project.child();
+                    LogicalOlapScan olapScan = filter.child();
+                    return pushdownCountOnIndex(agg, project, filter, olapScan, ctx.cascadesContext);
+                })
             ),
             RuleType.STORAGE_LAYER_AGGREGATE_MINMAX_ON_UNIQUE_WITHOUT_PROJECT.build(
                 logicalAggregate(
@@ -154,7 +189,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                     }
                                     Expression childExpr = filter.getConjuncts().iterator().next().children().get(0);
                                     if (childExpr instanceof SlotReference) {
-                                        Optional<Column> column = ((SlotReference) childExpr).getColumn();
+                                        Optional<Column> column = ((SlotReference) childExpr).getOriginalColumn();
                                         return column.map(Column::isDeleteSignColumn).orElse(false);
                                     }
                                     return false;
@@ -176,23 +211,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         })
             ),
             RuleType.STORAGE_LAYER_AGGREGATE_MINMAX_ON_UNIQUE.build(
-                    logicalAggregate(
-                            logicalProject(
-                                    logicalFilter(
-                                            logicalOlapScan().when(this::isUniqueKeyTable))
-                                            .when(filter -> {
-                                                if (filter.getConjuncts().size() != 1) {
-                                                    return false;
-                                                }
-                                                Expression childExpr = filter.getConjuncts().iterator().next()
-                                                        .children().get(0);
-                                                if (childExpr instanceof SlotReference) {
-                                                    Optional<Column> column = ((SlotReference) childExpr).getColumn();
-                                                    return column.map(Column::isDeleteSignColumn).orElse(false);
-                                                }
-                                                return false;
-                                            }))
-                        )
+                    logicalAggregate(logicalProject(logicalFilter(logicalOlapScan().when(this::isUniqueKeyTable))
+                            .when(filter -> {
+                                if (filter.getConjuncts().size() != 1) {
+                                    return false;
+                                }
+                                Expression childExpr = filter.getConjuncts().iterator().next()
+                                        .children().get(0);
+                                if (childExpr instanceof SlotReference) {
+                                    Optional<Column> column = ((SlotReference) childExpr).getOriginalColumn();
+                                    return column.map(Column::isDeleteSignColumn).orElse(false);
+                                }
+                                return false;
+                            })))
                         .when(agg -> enablePushDownMinMaxOnUnique())
                         .when(agg -> agg.getGroupByExpressions().isEmpty())
                         .when(agg -> {
@@ -252,8 +283,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     logicalProject(
                         logicalFileScan()
                     )
-                )
-                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                ).when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
                     .thenApply(ctx -> {
                         LogicalAggregate<LogicalProject<LogicalFileScan>> agg = ctx.root;
                         LogicalProject<LogicalFileScan> project = agg.child();
@@ -264,31 +294,37 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             RuleType.ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().isEmpty())
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.ONE))
                     .thenApplyMulti(ctx -> onePhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().isEmpty())
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
             // RuleType.TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI.build(
             //     basePattern
             //         .when(this::containsCountDistinctMultiExpr)
+            //         .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
             //         .thenApplyMulti(ctx -> twoPhaseAggregateWithCountDistinctMulti(ctx.root, ctx.cascadesContext))
             // ),
             RuleType.THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI.build(
                 basePattern
                     .when(this::containsCountDistinctMultiExpr)
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.THREE))
                     .thenApplyMulti(ctx -> threePhaseAggregateWithCountDistinctMulti(ctx.root, ctx.cascadesContext))
             ),
             RuleType.ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1 && couldConvertToMulti(agg))
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.ONE))
                     .thenApplyMulti(ctx -> onePhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1 && couldConvertToMulti(agg))
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT.build(
@@ -296,16 +332,20 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> agg.getDistinctArguments().size() > 1
                             && !containsCountDistinctMultiExpr(agg)
                             && couldConvertToMulti(agg))
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             // RuleType.TWO_PHASE_AGGREGATE_WITH_DISTINCT.build(
             //     basePattern
             //         .when(agg -> agg.getDistinctArguments().size() == 1)
+            //         .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
             //         .thenApplyMulti(ctx -> twoPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             // ),
             RuleType.THREE_PHASE_AGGREGATE_WITH_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
+                    .whenNot(agg -> agg.mustUseMultiDistinctAgg())
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.THREE))
                     .thenApplyMulti(ctx -> threePhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             ),
             /*
@@ -329,6 +369,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .when(agg -> agg.getGroupByExpressions().isEmpty())
+                    .whenNot(agg -> agg.mustUseMultiDistinctAgg())
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.FOUR))
                     .thenApplyMulti(ctx -> {
                         Function<List<Expression>, RequireProperties> secondPhaseRequireDistinctHash =
                                 groupByAndDistinct -> RequireProperties.of(
@@ -376,6 +418,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         }
                         return couldConvertToMulti(agg);
                     })
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.FOUR))
+                    .whenNot(Aggregate::mustUseMultiDistinctAgg)
                     .thenApplyMulti(ctx -> {
                         Function<List<Expression>, RequireProperties> secondPhaseRequireGroupByAndDistinctHash =
                                 groupByAndDistinct -> RequireProperties.of(
@@ -446,6 +490,38 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return connectContext != null && connectContext.getSessionVariable().isEnablePushDownCountOnIndex();
     }
 
+    private boolean checkSlotInOrExpression(Expression expr, Set<Slot> aggSlots) {
+        if (expr instanceof Or) {
+            Set<Slot> slots = expr.getInputSlots();
+            if (!slots.stream().allMatch(aggSlots::contains)) {
+                return false;
+            }
+        } else {
+            for (Expression child : expr.children()) {
+                if (!checkSlotInOrExpression(child, aggSlots)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean checkIsNullExpr(Expression expr, Set<Slot> aggSlots) {
+        if (expr instanceof IsNull) {
+            Set<Slot> slots = expr.getInputSlots();
+            if (slots.stream().anyMatch(aggSlots::contains)) {
+                return false;
+            }
+        } else {
+            for (Expression child : expr.children()) {
+                if (!checkIsNullExpr(child, aggSlots)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private boolean isDupOrMowKeyTable(LogicalOlapScan logicalScan) {
         if (logicalScan != null) {
             KeysType keysType = logicalScan.getTable().getKeysType();
@@ -463,10 +539,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         OlapTable olapTable = logicalScan.getTable();
         Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
 
-        return indexIdToMeta.values().stream()
-                .anyMatch(indexMeta -> indexMeta.getIndexes().stream()
-                        .anyMatch(index -> index.getIndexType() == IndexType.INVERTED
-                                || index.getIndexType() == IndexType.BITMAP));
+        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+            for (Index index : indexMeta.getIndexes()) {
+                IndexType indexType = index.getIndexType();
+                switch (indexType) {
+                    case INVERTED:
+                    case BITMAP:
+                        return true;
+                    default: {
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -495,26 +580,53 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalFilter<? extends Plan> filter,
             LogicalOlapScan olapScan,
             CascadesContext cascadesContext) {
-        PhysicalOlapScan physicalOlapScan
-                = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
+
+        PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
                 .build()
                 .transform(olapScan, cascadesContext)
                 .get(0);
-        if (project != null) {
-            return agg.withChildren(ImmutableList.of(
-                    project.withChildren(ImmutableList.of(
-                            filter.withChildren(ImmutableList.of(
-                                    new PhysicalStorageLayerAggregate(
-                                            physicalOlapScan,
-                                            PushDownAggOp.COUNT_ON_MATCH)))))
-            ));
-        } else {
-            return agg.withChildren(ImmutableList.of(
-                            filter.withChildren(ImmutableList.of(
-                                    new PhysicalStorageLayerAggregate(
-                                            physicalOlapScan,
-                                            PushDownAggOp.COUNT_ON_MATCH)))));
+
+        List<Expression> argumentsOfAggregateFunction = normalizeArguments(agg.getAggregateFunctions(), project);
+
+        if (!onlyContainsSlot(argumentsOfAggregateFunction)) {
+            return agg;
         }
+
+        return agg.withChildren(ImmutableList.of(
+                project != null
+                        ? project.withChildren(ImmutableList.of(
+                        filter.withChildren(ImmutableList.of(
+                                new PhysicalStorageLayerAggregate(
+                                        physicalOlapScan, PushDownAggOp.COUNT_ON_MATCH)))))
+                        : filter.withChildren(ImmutableList.of(
+                                new PhysicalStorageLayerAggregate(
+                                        physicalOlapScan, PushDownAggOp.COUNT_ON_MATCH)))
+        ));
+    }
+
+    private List<Expression> normalizeArguments(Set<AggregateFunction> aggregateFunctions,
+            @Nullable LogicalProject<? extends Plan> project) {
+        List<Expression> arguments = aggregateFunctions.stream()
+                .flatMap(aggregateFunction -> aggregateFunction.getArguments().stream())
+                .collect(ImmutableList.toImmutableList());
+
+        if (project != null) {
+            arguments = Project.findProject(arguments, project.getProjects())
+                    .stream()
+                    .map(p -> p instanceof Alias ? p.child(0) : p)
+                    .collect(ImmutableList.toImmutableList());
+        }
+
+        return arguments;
+    }
+
+    private boolean onlyContainsSlot(List<Expression> arguments) {
+        return arguments.stream().allMatch(argument -> {
+            if (argument instanceof SlotReference) {
+                return true;
+            }
+            return false;
+        });
     }
 
     //select /*+SET_VAR(enable_pushdown_minmax_on_unique=true) */min(user_id) from table_unique;
@@ -581,7 +693,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 SlotReference.class::isInstance);
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots, outPutSlots);
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getColumn().get();
+            Column column = slot.getOriginalColumn().get();
             PrimitiveType colType = column.getType().getPrimitiveType();
             if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
                 return false;
@@ -715,7 +827,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalScan.getOutput());
 
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getColumn().get();
+            Column column = slot.getOriginalColumn().get();
             if (column.isAggregated()) {
                 return canNotPush;
             }
@@ -759,9 +871,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
 
         } else if (logicalScan instanceof LogicalFileScan) {
-            PhysicalFileScan physicalScan = (PhysicalFileScan) new LogicalFileScanToPhysicalFileScan()
-                    .build()
-                    .transform(logicalScan, cascadesContext)
+            Rule rule = (logicalScan instanceof LogicalHudiScan) ? new LogicalHudiScanToPhysicalHudiScan().build()
+                    : new LogicalFileScanToPhysicalFileScan().build();
+            PhysicalFileScan physicalScan = (PhysicalFileScan) rule.transform(logicalScan, cascadesContext)
                     .get(0);
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
@@ -1705,13 +1817,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     private AggregateFunction tryConvertToMultiDistinct(AggregateFunction function) {
-        if (function instanceof Count && function.isDistinct()) {
-            return new MultiDistinctCount(function.getArgument(0),
-                    function.getArguments().subList(1, function.arity()).toArray(new Expression[0]));
-        } else if (function instanceof Sum && function.isDistinct()) {
-            return ((Sum) function).convertToMultiDistinct();
-        } else if (function instanceof GroupConcat && function.isDistinct()) {
-            return ((GroupConcat) function).convertToMultiDistinct();
+        if (function instanceof SupportMultiDistinct && function.isDistinct()) {
+            return ((SupportMultiDistinct) function).convertToMultiDistinct();
         }
         return function;
     }
@@ -1973,7 +2080,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (!func.isDistinct()) {
                 continue;
             }
-            if (!(func instanceof Count || func instanceof Sum || func instanceof GroupConcat)) {
+            if (!(func instanceof Count || func instanceof Sum || func instanceof GroupConcat
+                    || func instanceof Sum0)) {
                 return false;
             }
             if (func.arity() <= 1) {
@@ -1981,7 +2089,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
             for (int i = 1; i < func.arity(); i++) {
                 // think about group_concat(distinct col_1, ',')
-                if (!func.child(i).getInputSlots().isEmpty()) {
+                if (!(func.child(i) instanceof OrderExpression) && !func.child(i).getInputSlots().isEmpty()) {
                     return false;
                 }
             }

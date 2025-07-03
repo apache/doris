@@ -25,6 +25,8 @@
 
 namespace doris::vectorized {
 
+// store and commit data. only after commit the data is effective on its' base(ColumnString)
+// everytime commit, the _data add one row.
 class BufferWritable final {
 public:
     explicit BufferWritable(ColumnString& vector)
@@ -64,6 +66,7 @@ private:
 using VectorBufferWriter = BufferWritable;
 using BufferWriter = BufferWritable;
 
+// There is consumption of the buffer in the read method.
 class BufferReadable {
 public:
     explicit BufferReadable(StringRef& ref) : _data(ref.data) {}
@@ -76,7 +79,7 @@ public:
         return ref;
     }
 
-    void read(char* data, int len) {
+    void read(char* data, size_t len) {
         memcpy(data, _data, len);
         _data += len;
     }

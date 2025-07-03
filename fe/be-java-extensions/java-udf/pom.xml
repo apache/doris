@@ -51,6 +51,7 @@ under the License.
 
     <build>
         <finalName>java-udf</finalName>
+        <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

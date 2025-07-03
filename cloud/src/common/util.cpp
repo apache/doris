@@ -247,6 +247,30 @@ bool ValueBuf::to_pb(google::protobuf::Message* pb) const {
     return pb->ParseFromZeroCopyStream(&merge_stream);
 }
 
+std::string ValueBuf::value() const {
+    butil::IOBuf merge;
+    for (auto&& it : iters) {
+        it->reset();
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            merge.append_user_data((void*)v.data(), v.size(), +[](void*) {});
+        }
+    }
+    return merge.to_string();
+}
+
+std::vector<std::string> ValueBuf::keys() const {
+    std::vector<std::string> ret;
+    for (auto&& it : iters) {
+        it->reset();
+        while (it->has_next()) {
+            auto [k, _] = it->next();
+            ret.push_back({k.data(), k.size()});
+        }
+    }
+    return ret;
+}
+
 void ValueBuf::remove(Transaction* txn) const {
     for (auto&& it : iters) {
         it->reset();
@@ -307,7 +331,7 @@ TxnErrorCode ValueBuf::get(Transaction* txn, std::string_view key, bool snapshot
     return TxnErrorCode::TXN_OK;
 }
 
-TxnErrorCode get(Transaction* txn, std::string_view key, ValueBuf* val, bool snapshot) {
+TxnErrorCode blob_get(Transaction* txn, std::string_view key, ValueBuf* val, bool snapshot) {
     return val->get(txn, key, snapshot);
 }
 
@@ -322,16 +346,16 @@ TxnErrorCode key_exists(Transaction* txn, std::string_view key, bool snapshot) {
     return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
 }
 
-void put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb, uint8_t ver,
-         size_t split_size) {
+void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb,
+              uint8_t ver, size_t split_size) {
     std::string value;
     bool ret = pb.SerializeToString(&value); // Always success
     DCHECK(ret) << hex(key) << ' ' << pb.ShortDebugString();
-    put(txn, key, value, ver, split_size);
+    blob_put(txn, key, value, ver, split_size);
 }
 
-void put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
-         size_t split_size) {
+void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
+              size_t split_size) {
     auto split_vec = split_string(value, split_size);
     int64_t suffix_base = ver;
     suffix_base <<= 56;

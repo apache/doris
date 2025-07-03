@@ -15,4 +15,4 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select  /*+SET_VAR(parallel_fragment_exec_instance_num=1,parallel_pipeline_task_num=1)*/ count(*) from lineorder a left join lineorder b on a.lo_orderkey=b.lo_orderkey;
+select  /*+SET_VAR(parallel_pipeline_task_num=1)*/ count(*) from lineorder a left join lineorder b on a.lo_orderkey=b.lo_orderkey;

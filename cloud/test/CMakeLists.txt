@@ -17,7 +17,7 @@ add_executable(doris_txn_test doris_txn_test.cpp)
 add_executable(txn_kv_test txn_kv_test.cpp)
 set_target_properties(txn_kv_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 
-add_executable(recycler_test recycler_test.cpp mock_accessor.cpp)
+add_executable(recycler_test recycler_test.cpp)
 
 add_executable(mem_txn_kv_test mem_txn_kv_test.cpp)
 
@@ -25,6 +25,7 @@ add_executable(meta_service_test
    meta_service_test.cpp
    meta_service_job_test.cpp
    meta_service_http_test.cpp
+   meta_service_tablet_stats_test.cpp
    schema_kv_test.cpp
 )
 
@@ -42,19 +43,27 @@ add_executable(log_test log_test.cpp)
 
 add_executable(resource_test resource_test.cpp)
 
+add_executable(rpc_kv_bvar_test rpc_kv_bvar_test.cpp)
+
 add_executable(http_encode_key_test http_encode_key_test.cpp)
 
 add_executable(fdb_injection_test fdb_injection_test.cpp)
 
 add_executable(s3_accessor_test s3_accessor_test.cpp)
 
-add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
+add_executable(s3_accessor_mock_test s3_accessor_mock_test.cpp)
 
-add_executable(util_test util_test.cpp)
+add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
 
 add_executable(stopwatch_test stopwatch_test.cpp)
 
+add_executable(util_test util_test.cpp)
+
 add_executable(network_util_test network_util_test.cpp)
+
+add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
+
+add_executable(versionstamp_test versionstamp_test.cpp)
 
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
@@ -79,17 +88,25 @@ target_link_libraries(log_test ${TEST_LINK_LIBS})
 
 target_link_libraries(resource_test ${TEST_LINK_LIBS})
 
+target_link_libraries(rpc_kv_bvar_test ${TEST_LINK_LIBS})
+
 target_link_libraries(http_encode_key_test ${TEST_LINK_LIBS})
 
 target_link_libraries(s3_accessor_test ${TEST_LINK_LIBS})
 
-target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
+target_link_libraries(s3_accessor_mock_test ${TEST_LINK_LIBS})
 
-target_link_libraries(util_test ${TEST_LINK_LIBS})
+target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
 
 target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
 
+target_link_libraries(util_test ${TEST_LINK_LIBS})
+
 target_link_libraries(network_util_test ${TEST_LINK_LIBS})
+
+target_link_libraries(txn_lazy_commit_test ${TEST_LINK_LIBS})
+
+target_link_libraries(versionstamp_test ${TEST_LINK_LIBS})
 
 # FDB related tests need to be linked with libfdb_c
 set(FDB_LINKER_FLAGS "-lfdb_c -L${THIRDPARTY_DIR}/lib")

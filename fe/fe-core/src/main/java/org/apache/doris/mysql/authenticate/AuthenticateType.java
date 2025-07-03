@@ -40,4 +40,22 @@ public enum AuthenticateType {
                 return DEFAULT;
         }
     }
+
+    public static String getAuthTypeConfigString() {
+        String authType = Config.authentication_type.toLowerCase();
+
+        if (LdapConfig.ldap_authentication_enabled) {
+            return LDAP.name();
+        }
+
+        switch (authType) {
+            case "default":
+                return DEFAULT.toString();
+            case "ldap":
+                return LDAP.toString();
+            default:
+                return authType;
+        }
+    }
+
 }

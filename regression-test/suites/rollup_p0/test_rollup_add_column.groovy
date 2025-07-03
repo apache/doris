@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite("test_rollup_add_column") {
     def tbName = "test_rollup_add_column"
     def rollupName = "test_rollup_add_column_index"
@@ -41,38 +44,30 @@ suite("test_rollup_add_column") {
         """
 
     sql """ALTER TABLE ${tbName} ADD ROLLUP ${rollupName}(k1, v1);"""
-    int max_try_secs = 60
-    while (max_try_secs--) {
+    int max_try_secs = 120
+    // if timeout testcase will fail same behaviour as old method.
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobRollupState(tbName)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+            return true;
+        } 
+        return false;
     }
+
     Thread.sleep(2000)
 
     sql "ALTER TABLE ${tbName} ADD COLUMN k3 INT KEY NOT NULL DEFAULT '3' AFTER k1 TO ${rollupName};"
-    max_try_secs = 60
-    while (max_try_secs--) {
+
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobColumnState(tbName)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
+        return false;
     }
 
     sql "insert into ${tbName} values(1, 2, 3, 4, 5);"

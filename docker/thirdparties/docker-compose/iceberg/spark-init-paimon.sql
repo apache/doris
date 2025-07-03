@@ -1,1 +1,0 @@
--- create database if not exists paimon.test_paimon_db;

@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
-public class AlterWorkloadSchedPolicyStmt extends DdlStmt {
+public class AlterWorkloadSchedPolicyStmt extends DdlStmt implements NotFallbackInParser {
 
     private final String policyName;
     private final Map<String, String> properties;

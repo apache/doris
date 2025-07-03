@@ -21,6 +21,7 @@
 #include "vec/sink/writer/vtablet_writer.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class OlapTableSinkOperatorX;
 
@@ -32,18 +33,14 @@ public:
     ENABLE_FACTORY_CREATOR(OlapTableSinkLocalState);
     OlapTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {};
-    Status close(RuntimeState* state, Status exec_status) override;
     friend class OlapTableSinkOperatorX;
-
-private:
-    Status _close_status = Status::OK();
 };
 class OlapTableSinkOperatorX final : public DataSinkOperatorX<OlapTableSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<OlapTableSinkLocalState>;
     OlapTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
                            const std::vector<TExpr>& t_output_expr)
-            : Base(operator_id, 0),
+            : Base(operator_id, 0, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
               _pool(pool) {};
@@ -57,13 +54,10 @@ public:
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));
-        return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-    }
-
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
+
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
@@ -82,4 +76,5 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

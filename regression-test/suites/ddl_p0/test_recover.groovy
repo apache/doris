@@ -273,7 +273,8 @@ suite("test_recover") {
                 
             // test drop/recover db
 
-                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
+                def showDatabase = sql """ SHOW CREATE DATABASE test_recover_db """
+                assertTrue(showDatabase[0][1].contains("CREATE DATABASE `test_recover_db`"))
 
                 sql """
             DROP DATABASE `test_recover_db`
@@ -283,7 +284,8 @@ suite("test_recover") {
             RECOVER DATABASE `test_recover_db`
             """
 
-                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
+                showDatabase = sql """ SHOW CREATE DATABASE test_recover_db """
+                assertTrue(showDatabase[0][1].contains("CREATE DATABASE `test_recover_db`"))
 
                 sql """
             CREATE TABLE `test_recover_db`.`test_recover_tb_1` (
@@ -312,7 +314,8 @@ suite("test_recover") {
             CREATE DATABASE `test_recover_db`
             """
 
-                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
+                showDatabase = sql """ SHOW CREATE DATABASE `test_recover_db` """
+                assertTrue(showDatabase[0][1].contains("CREATE DATABASE `test_recover_db`"))
 
                 sql """
             DROP DATABASE `test_recover_db`
@@ -321,7 +324,8 @@ suite("test_recover") {
             CREATE DATABASE `test_recover_db`
             """
 
-                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
+                showDatabase = sql """ SHOW CREATE DATABASE `test_recover_db` """
+                assertTrue(showDatabase[0][1].contains("CREATE DATABASE `test_recover_db`"))
 
                 sql """
             DROP DATABASE `test_recover_db`
@@ -331,7 +335,8 @@ suite("test_recover") {
             CREATE DATABASE `test_recover_db`
             """
 
-                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
+                showDatabase = sql """ SHOW CREATE DATABASE `test_recover_db` """
+                assertTrue(showDatabase[0][1].contains("CREATE DATABASE `test_recover_db`"))
                 
                 sql """
             CREATE TABLE `test_recover_db`.`test_recover_tb` (
@@ -359,7 +364,8 @@ suite("test_recover") {
             CREATE DATABASE `test_recover_db`
             """
 
-                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
+                showDatabase = sql """ SHOW CREATE DATABASE `test_recover_db` """
+                assertTrue(showDatabase[0][1].contains("CREATE DATABASE `test_recover_db`"))
 
                 sql """
             DROP DATABASE `test_recover_db`
@@ -369,7 +375,8 @@ suite("test_recover") {
             RECOVER DATABASE `test_recover_db` AS `test_recover_db_new`
             """
 
-                qt_select """ SHOW CREATE DATABASE `test_recover_db_new` """
+                showDatabase = sql """ SHOW CREATE DATABASE `test_recover_db_new` """
+                assertTrue(showDatabase[0][1].contains("CREATE DATABASE `test_recover_db_new`"))
 
                 sql """
             CREATE TABLE `test_recover_db_new`.`test_recover_tb_2` (
@@ -413,8 +420,10 @@ suite("test_recover") {
             )
             """
 
-                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
-                qt_select """ SHOW CREATE DATABASE `test_recover_db_new` """
+                showDatabase = sql """ SHOW CREATE DATABASE `test_recover_db` """
+                assertTrue(showDatabase[0][1].contains("CREATE DATABASE `test_recover_db`"))
+                showDatabase = sql """ SHOW CREATE DATABASE `test_recover_db_new` """
+                assertTrue(showDatabase[0][1].contains("CREATE DATABASE `test_recover_db_new`"))
                 res = sql """SHOW CREATE TABLE `test_recover_db`.`test_recover_tb`"""
                 assertTrue(res.size() != 0)
                 qt_select """SHOW TABLES FROM `test_recover_db`"""

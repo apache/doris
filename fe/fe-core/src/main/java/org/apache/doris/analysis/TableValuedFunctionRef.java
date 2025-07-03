@@ -26,6 +26,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -119,8 +120,8 @@ public class TableValuedFunctionRef extends TableRef {
         analyzeJoin(analyzer);
     }
 
-    public ScanNode getScanNode(PlanNodeId id) {
-        return tableFunction.getScanNode(id, desc);
+    public ScanNode getScanNode(PlanNodeId id, SessionVariable sv) {
+        return tableFunction.getScanNode(id, desc, sv);
     }
 
     public TableValuedFunctionIf getTableFunction() {

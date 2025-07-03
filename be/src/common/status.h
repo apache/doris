@@ -47,6 +47,7 @@ namespace ErrorCode {
     TStatusError(IO_ERROR, true);                         \
     TStatusError(NOT_FOUND, true);                        \
     TStatusError(ALREADY_EXIST, true);                    \
+    TStatusError(DIRECTORY_NOT_EMPTY, true);              \
     TStatusError(NOT_IMPLEMENTED_ERROR, false);           \
     TStatusError(END_OF_FILE, false);                     \
     TStatusError(INTERNAL_ERROR, true);                   \
@@ -76,6 +77,8 @@ namespace ErrorCode {
     TStatusError(HTTP_ERROR, true);                       \
     TStatusError(TABLET_MISSING, true);                   \
     TStatusError(NOT_MASTER, true);                       \
+    TStatusError(OBTAIN_LOCK_FAILED, false);              \
+    TStatusError(SNAPSHOT_EXPIRED, false);                \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
@@ -118,7 +121,6 @@ namespace ErrorCode {
     E(NEED_SEND_AGAIN, -241, false);                         \
     E(OS_ERROR, -242, true);                                 \
     E(DIR_NOT_EXIST, -243, true);                            \
-    E(FILE_NOT_EXIST, -244, true);                           \
     E(CREATE_FILE_ERROR, -245, true);                        \
     E(STL_ERROR, -246, true);                                \
     E(MUTEX_ERROR, -247, true);                              \
@@ -130,6 +132,9 @@ namespace ErrorCode {
     E(BAD_CAST, -254, true);                                 \
     E(ARITHMETIC_OVERFLOW_ERRROR, -255, false);              \
     E(PERMISSION_DENIED, -256, false);                       \
+    E(QUERY_MEMORY_EXCEEDED, -257, false);                   \
+    E(WORKLOAD_GROUP_MEMORY_EXCEEDED, -258, false);          \
+    E(PROCESS_MEMORY_EXCEEDED, -259, false);                 \
     E(CE_CMD_PARAMS_ERROR, -300, true);                      \
     E(CE_BUFFER_TOO_SMALL, -301, true);                      \
     E(CE_CMD_NOT_VALID, -302, true);                         \
@@ -244,6 +249,7 @@ namespace ErrorCode {
     E(CUMULATIVE_MISS_VERSION, -2006, true);                 \
     E(FULL_NO_SUITABLE_VERSION, -2008, false);               \
     E(FULL_MISS_VERSION, -2009, true);                       \
+    E(CUMULATIVE_MEET_DELETE_VERSION, -2010, false);         \
     E(META_INVALID_ARGUMENT, -3000, true);                   \
     E(META_OPEN_DB_ERROR, -3001, true);                      \
     E(META_KEY_NOT_FOUND, -3002, false);                     \
@@ -270,11 +276,9 @@ namespace ErrorCode {
     E(SEGCOMPACTION_INIT_READER, -3117, false);              \
     E(SEGCOMPACTION_INIT_WRITER, -3118, false);              \
     E(SEGCOMPACTION_FAILED, -3119, false);                   \
-    E(PIP_WAIT_FOR_RF, -3120, false);                        \
-    E(PIP_WAIT_FOR_SC, -3121, false);                        \
     E(ROWSET_ADD_TO_BINLOG_FAILED, -3122, true);             \
     E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123, true);      \
-    E(INVERTED_INDEX_INVALID_PARAMETERS, -6000, false);      \
+    E(INDEX_INVALID_PARAMETERS, -6000, false);               \
     E(INVERTED_INDEX_NOT_SUPPORTED, -6001, false);           \
     E(INVERTED_INDEX_CLUCENE_ERROR, -6002, false);           \
     E(INVERTED_INDEX_FILE_NOT_FOUND, -6003, false);          \
@@ -286,11 +290,15 @@ namespace ErrorCode {
     E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
     E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
+    E(INVERTED_INDEX_FILE_CORRUPTED, -6012, false);          \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
+    E(NEW_ROWS_IN_PARTIAL_UPDATE, -7003, false);             \
     E(INVALID_TABLET_STATE, -7211, false);                   \
-    E(ROWSETS_EXPIRED, -7311, false);
+    E(ROWSETS_EXPIRED, -7311, false);                        \
+    E(CGROUP_ERROR, -7411, false);                           \
+    E(FATAL_ERROR, -7412, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -314,8 +322,8 @@ extern ErrorCodeState error_states[MAX_ERROR_CODE_DEFINE_NUM];
 class ErrorCodeInitializer {
 public:
     ErrorCodeInitializer(int temp) : signal_value(temp) {
-        for (int i = 0; i < MAX_ERROR_CODE_DEFINE_NUM; ++i) {
-            error_states[i].error_code = 0;
+        for (auto& error_state : error_states) {
+            error_state.error_code = 0;
         }
 #define M(NAME, ENABLESTACKTRACE)                                  \
     error_states[TStatusCode::NAME].stacktrace = ENABLESTACKTRACE; \
@@ -338,7 +346,7 @@ public:
 #undef M
     }
 
-    void check_init() {
+    void check_init() const {
         //the signal value is 0, it means the global error states not inited, it's logical error
         // DO NOT use dcheck here, because dcheck depend on glog, and glog maybe not inited at this time.
         if (signal_value == 0) {
@@ -377,6 +385,11 @@ public:
         _code = rhs._code;
         if (rhs._err_msg) {
             _err_msg = std::make_unique<ErrMsg>(*rhs._err_msg);
+        } else {
+            // If rhs error msg is empty, then should also clear current error msg
+            // For example, if rhs is OK and current status is error, then copy to current
+            // status, should clear current error message.
+            _err_msg.reset();
         }
         return *this;
     }
@@ -386,6 +399,8 @@ public:
         _code = rhs._code;
         if (rhs._err_msg) {
             _err_msg = std::move(rhs._err_msg);
+        } else {
+            _err_msg.reset();
         }
         return *this;
     }
@@ -441,10 +456,26 @@ public:
         return status;
     }
 
-    static Status OK() { return Status(); }
+    static Status OK() { return {}; }
 
+    template <bool stacktrace = true, typename... Args>
+    static Status FatalError(std::string_view msg, Args&&... args) {
+#ifndef NDEBUG
+        LOG(FATAL) << fmt::format(msg, std::forward<Args>(args)...);
+#endif
+        return Error<ErrorCode::FATAL_ERROR, stacktrace>(msg, std::forward<Args>(args)...);
+    }
+
+// default have stacktrace. could disable manually.
 #define ERROR_CTOR(name, code)                                                       \
     template <bool stacktrace = true, typename... Args>                              \
+    static Status name(std::string_view msg, Args&&... args) {                       \
+        return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
+    }
+
+// default have no stacktrace. could enable manually.
+#define ERROR_CTOR_NOSTACK(name, code)                                               \
+    template <bool stacktrace = false, typename... Args>                             \
     static Status name(std::string_view msg, Args&&... args) {                       \
         return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
     }
@@ -452,30 +483,32 @@ public:
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
-    ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
-    ERROR_CTOR(InvalidJsonPath, INVALID_JSON_PATH)
+    ERROR_CTOR_NOSTACK(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR_NOSTACK(InvalidJsonPath, INVALID_JSON_PATH)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
     ERROR_CTOR(NotFound, NOT_FOUND)
-    ERROR_CTOR(AlreadyExist, ALREADY_EXIST)
+    ERROR_CTOR_NOSTACK(AlreadyExist, ALREADY_EXIST)
+    ERROR_CTOR_NOSTACK(DirectoryNotEmpty, DIRECTORY_NOT_EMPTY)
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
-    ERROR_CTOR(EndOfFile, END_OF_FILE)
+    ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
-    ERROR_CTOR(WaitForRf, PIP_WAIT_FOR_RF)
-    ERROR_CTOR(WaitForScannerContext, PIP_WAIT_FOR_SC)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
-    ERROR_CTOR(Cancelled, CANCELLED)
+    ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
-    ERROR_CTOR(TimedOut, TIMEOUT)
-    ERROR_CTOR(TooManyTasks, TOO_MANY_TASKS)
+    ERROR_CTOR_NOSTACK(TimedOut, TIMEOUT)
+    ERROR_CTOR_NOSTACK(TooManyTasks, TOO_MANY_TASKS)
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
-    ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
-    ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
+    ERROR_CTOR_NOSTACK(DataQualityError, DATA_QUALITY_ERROR)
+    ERROR_CTOR_NOSTACK(NotAuthorized, NOT_AUTHORIZED)
     ERROR_CTOR(HttpError, HTTP_ERROR)
-    ERROR_CTOR(NeedSendAgain, NEED_SEND_AGAIN)
+    ERROR_CTOR_NOSTACK(NeedSendAgain, NEED_SEND_AGAIN)
+    ERROR_CTOR_NOSTACK(CgroupError, CGROUP_ERROR)
+    ERROR_CTOR_NOSTACK(ObtainLockFailed, OBTAIN_LOCK_FAILED)
+    ERROR_CTOR_NOSTACK(NetworkError, NETWORK_ERROR)
 #undef ERROR_CTOR
 
     template <int code>
@@ -556,7 +589,7 @@ private:
 // and another thread is call to_string method, it may core, because the _err_msg is an unique ptr and
 // it is deconstructed during copy method.
 // And also we could not use lock, because we need get status frequently to check if it is cancelled.
-// The defaule value is ok.
+// The default value is ok.
 class AtomicStatus {
 public:
     AtomicStatus() : error_st_(Status::OK()) {}
@@ -577,6 +610,12 @@ public:
         return true;
     }
 
+    void reset() {
+        std::lock_guard l(mutex_);
+        error_st_ = Status::OK();
+        error_code_ = 0;
+    }
+
     // will copy a new status object to avoid concurrency
     // This stauts could only be called when ok==false
     Status status() const {
@@ -584,15 +623,15 @@ public:
         return error_st_;
     }
 
+    AtomicStatus(const AtomicStatus&) = delete;
+    void operator=(const AtomicStatus&) = delete;
+
 private:
     std::atomic_int16_t error_code_ = 0;
     Status error_st_;
     // mutex's lock is not a const method, but we will use this mutex in
     // some const method, so that it should be mutable.
     mutable std::mutex mutex_;
-
-    AtomicStatus(const AtomicStatus&) = delete;
-    void operator=(const AtomicStatus&) = delete;
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
@@ -637,9 +676,6 @@ inline std::string Status::to_string_no_stack() const {
             throw Exception(_status_);  \
         }                               \
     } while (false)
-
-#define RETURN_ERROR_IF_NON_VEC \
-    return Status::NotSupported("Non-vectorized engine is not supported since Doris 2.0.");
 
 #define RETURN_IF_STATUS_ERROR(status, stmt) \
     do {                                     \

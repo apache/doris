@@ -227,9 +227,11 @@ TEST(ResourceTest, ModifyNodesIpTest) {
         auto* c = ins.mutable_clusters()->Add();
         c->set_cluster_name("cluster_name_1");
         c->set_cluster_id("cluster_id_1");
+        c->set_type(ClusterPB::COMPUTE);
         auto* c1 = ins.mutable_clusters()->Add();
         c1->set_cluster_name("cluster_name_2");
         c1->set_cluster_id("cluster_id_2");
+        c1->set_type(ClusterPB::COMPUTE);
         *try_any_cast<InstanceInfoPB*>(args[1]) = ins;
     });
     sp->enable_processing();
@@ -286,9 +288,11 @@ TEST(ResourceTest, ModifyNodesHostTest) {
         auto* c = ins.mutable_clusters()->Add();
         c->set_cluster_name("cluster_name_1");
         c->set_cluster_id("cluster_id_1");
+        c->set_type(ClusterPB::COMPUTE);
         auto* c1 = ins.mutable_clusters()->Add();
         c1->set_cluster_name("cluster_name_2");
         c1->set_cluster_id("cluster_id_2");
+        c1->set_type(ClusterPB::COMPUTE);
         *try_any_cast<InstanceInfoPB*>(args[1]) = ins;
     });
     sp->enable_processing();
@@ -390,12 +394,16 @@ TEST(ResourceTest, AddDropCluster) {
         auto* key_id = try_any_cast<int64_t*>(args[2]);
         *key_id = 1;
     });
+    sp->set_call_back("resource_manager::set_safe_drop_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
     sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
         auto* key = try_any_cast<std::string*>(args[0]);
         *key = "test";
         auto* ret = try_any_cast<int*>(args[1]);
         *ret = 0;
     });
+    sp->set_call_back("resource_manager::set_safe_drop_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();

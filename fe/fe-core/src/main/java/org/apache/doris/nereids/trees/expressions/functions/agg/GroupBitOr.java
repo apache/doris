@@ -41,11 +41,11 @@ public class GroupBitOr extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
+            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
@@ -63,7 +63,7 @@ public class GroupBitOr extends NullableAggregateFunction
     }
 
     private GroupBitOr(boolean distinct, boolean alwaysNullable, Expression child) {
-        super("group_bit_or", distinct, alwaysNullable, child);
+        super("group_bit_or", false, alwaysNullable, child);
     }
 
     @Override

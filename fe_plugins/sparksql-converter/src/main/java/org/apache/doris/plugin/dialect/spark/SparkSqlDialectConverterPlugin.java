@@ -37,7 +37,7 @@ public class SparkSqlDialectConverterPlugin extends Plugin implements DialectCon
 
     @Override
     public ImmutableSet<Dialect> acceptDialects() {
-        return ImmutableSet.of(Dialect.SPARK_SQL);
+        return ImmutableSet.of(Dialect.SPARK);
     }
 
     @Override

@@ -79,6 +79,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -120,6 +121,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     private List<Predicate> deleteConditions;
 
     private MarkedCountDownLatch<Long, Long> countDownLatch;
+
+    private long timeoutS = 300L;
 
     public DeleteJob(long id, long transactionId, String label,
                      Map<Long, Short> partitionReplicaNum, DeleteInfo deleteInfo) {
@@ -251,14 +254,16 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         return tabletDeleteInfoMap.values();
     }
 
+    public void setTimeoutS(long timeoutS) {
+        this.timeoutS = timeoutS;
+    }
+
     public long getTimeoutMs() {
         if (FeConstants.runningUnitTest) {
             // for making unit test run fast
             return 1000;
         }
-        // timeout is between 30 seconds to 5 min
-        long timeout = Math.max(totalTablets.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
-        return Math.min(timeout, Config.delete_job_max_timeout_second * 1000L);
+        return timeoutS * 1000L;
     }
 
     public void setTargetDb(Database targetDb) {
@@ -316,13 +321,17 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
                 for (Predicate condition : deleteConditions) {
                     SlotRef slotRef = (SlotRef) condition.getChild(0);
-                    String columnName = new String(slotRef.getColumnName());
+                    String columnName = slotRef.getColumnName();
                     TColumn column = colNameToColDesc.get(slotRef.getColumnName());
                     if (column == null) {
                         columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
                         column = colNameToColDesc.get(columnName);
                     }
                     if (column == null) {
+                        if (partition.isRollupIndex(index.getId())) {
+                            throw new AnalysisException("If MV or rollup index exists, do not support delete."
+                                    + "Drop existing rollup or MV and try again.");
+                        }
                         throw new AnalysisException(
                                 "condition's column not founded in index, column=" + columnName + " , index=" + index);
                     }
@@ -344,7 +353,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                         // signature, adding 10 billion to `getNextId`. We are confident that the old signature
                         // generated will not exceed this number.
                         PushTask pushTask = new PushTask(null,
-                                replica.getBackendId(), targetDb.getId(), targetTbl.getId(),
+                                backendId, targetDb.getId(), targetTbl.getId(),
                                 partition.getId(), indexId,
                                 tabletId, replicaId, schemaHash,
                                 -1, "", -1, 0,
@@ -433,7 +442,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                         LOG.warn("could not find tablet id for replica {}, the tablet maybe dropped", replica);
                         return;
                     }
-                    tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
+                    tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendIdWithoutException()));
                 }));
         return tabletCommitInfos;
     }
@@ -500,6 +509,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         private final Collection<String> partitionNames;
 
         private final List<Predicate> deleteConditions;
+        private final List<Partition> selectedPartitions;
 
         public BuildParams(Database db, OlapTable table,
                            Collection<String> partitionNames,
@@ -508,6 +518,18 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             this.table = table;
             this.partitionNames = partitionNames;
             this.deleteConditions = deleteConditions;
+            this.selectedPartitions = null;
+        }
+
+        public BuildParams(Database db, OlapTable table,
+                List<String> partitionNames,
+                List<Partition> selectedPartitions,
+                List<Predicate> deleteConditions) {
+            this.db = db;
+            this.table = table;
+            this.partitionNames = partitionNames;
+            this.deleteConditions = deleteConditions;
+            this.selectedPartitions = selectedPartitions;
         }
 
         public OlapTable getTable() {
@@ -525,14 +547,17 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         public List<Predicate> getDeleteConditions() {
             return deleteConditions;
         }
+
+        public List<Partition> getSelectedPartitions() {
+            return selectedPartitions;
+        }
     }
 
     public static class Builder {
 
-        public DeleteJob buildWith(BuildParams params) throws Exception {
+        public DeleteJob buildWithNereids(BuildParams params) {
             boolean noPartitionSpecified = params.getPartitionNames().isEmpty();
-            List<Partition> partitions = getSelectedPartitions(params.getTable(),
-                    params.getPartitionNames(), params.getDeleteConditions());
+            List<Partition> partitions = params.getSelectedPartitions();
             Map<Long, Short> partitionReplicaNum = partitions.stream()
                     .collect(Collectors.toMap(
                             Partition::getId,
@@ -559,6 +584,47 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             deleteJob.setTargetDb(params.getDb());
             deleteJob.setTargetTbl(params.getTable());
             deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                deleteJob.setTimeoutS(connectContext.getExecTimeoutS());
+            }
+            return deleteJob;
+        }
+
+        public DeleteJob buildWith(BuildParams params) throws Exception {
+            boolean noPartitionSpecified = params.getPartitionNames().isEmpty();
+            List<Partition> partitions = getSelectedPartitions(params.getTable(), params.getPartitionNames(),
+                    params.getDeleteConditions());
+            Map<Long, Short> partitionReplicaNum = partitions.stream()
+                    .collect(Collectors.toMap(
+                            Partition::getId,
+                            partition ->
+                                    params.getTable()
+                                            .getPartitionInfo()
+                                            .getReplicaAllocation(partition.getId())
+                                            .getTotalReplicaNum()));
+            // generate label
+            String label = DELETE_PREFIX + UUID.randomUUID();
+            //generate jobId
+            long jobId = Env.getCurrentEnv().getNextId();
+            List<String> partitionNames = partitions.stream().map(Partition::getName).collect(Collectors.toList());
+            List<Long> partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
+            DeleteInfo deleteInfo = new DeleteInfo(params.getDb().getId(), params.getTable().getId(),
+                    params.getTable().getName(), getDeleteCondString(params.getDeleteConditions()),
+                    noPartitionSpecified, partitionIds, partitionNames);
+            DeleteJob deleteJob = ConnectContext.get() != null && ConnectContext.get().isTxnModel()
+                    ? new TxnDeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo)
+                    : new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
+            long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
+            deleteJob.setPartitions(partitions);
+            deleteJob.setDeleteConditions(params.getDeleteConditions());
+            deleteJob.setTargetDb(params.getDb());
+            deleteJob.setTargetTbl(params.getTable());
+            deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                deleteJob.setTimeoutS(connectContext.getExecTimeoutS());
+            }
             return deleteJob;
         }
 
@@ -570,7 +636,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE
                         || olapTable.getPartitionInfo().getType() == PartitionType.LIST) {
                     Set<String> partitionColumnNameSet = olapTable.getPartitionColumnNames();
-                    Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
+                    Map<String, ColumnRange> columnNameToRange = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
                     for (String colName : partitionColumnNameSet) {
                         ColumnRange columnRange = createColumnRange(olapTable, colName, deleteConditions);
                         // Not all partition columns are involved in predicate conditions
@@ -607,7 +673,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     }
                 } else if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     // this is an un-partitioned table, use table name as partition name
-                    partitionNames.add(olapTable.getName());
+                    partitionNames.add(olapTable.getDisplayName());
                 } else {
                     throw new UserException("Unknown partition type: " + olapTable.getPartitionInfo().getType());
                 }

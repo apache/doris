@@ -39,8 +39,6 @@
 namespace doris {
 struct uint24_t;
 
-static bvar::Adder<size_t> g_zone_map_memory_bytes("doris_zone_map_memory_bytes");
-
 namespace segment_v2 {
 
 template <PrimitiveType Type>
@@ -125,7 +123,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>();
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
@@ -142,26 +140,29 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     return writer.finish(meta->mutable_page_zone_maps());
 }
 
-Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
+Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory,
+                                OlapReaderStatistics* index_load_stats) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory] {
-        return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta));
+    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
+        return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta),
+                     index_load_stats);
     });
 }
 
 Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
-                                 std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta) {
+                                 std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta,
+                                 OlapReaderStatistics* index_load_stats) {
     IndexedColumnReader reader(_file_reader, *page_zone_maps_meta);
-    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
-    IndexedColumnIterator iter(&reader);
+    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory, index_load_stats));
+    IndexedColumnIterator iter(&reader, index_load_stats);
 
     _page_zone_maps.resize(reader.num_values());
 
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
-        // The type of reader is FieldType::OLAP_FIELD_TYPE_OBJECT.
-        // ColumnBitmap will be created when using FieldType::OLAP_FIELD_TYPE_OBJECT.
+        // The type of reader is FieldType::OLAP_FIELD_TYPE_BITMAP.
+        // ColumnBitmap will be created when using FieldType::OLAP_FIELD_TYPE_BITMAP.
         // But what we need actually is ColumnString.
         vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
 
@@ -174,19 +175,18 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
                                                column->get_data_at(0).size)) {
             return Status::Corruption("Failed to parse zone map");
         }
+        _pb_meta_size += _page_zone_maps[i].ByteSizeLong();
     }
 
-    g_zone_map_memory_bytes << sizeof(*this) + sizeof(ZoneMapPB) * _page_zone_maps.size() +
-                                       sizeof(IndexedColumnMetaPB);
-
+    update_metadata_size();
     return Status::OK();
 }
 
-ZoneMapIndexReader::~ZoneMapIndexReader() {
-    // Maybe wrong due to load failures.
-    g_zone_map_memory_bytes << -sizeof(*this) - sizeof(ZoneMapPB) * _page_zone_maps.size() -
-                                       sizeof(IndexedColumnMetaPB);
+int64_t ZoneMapIndexReader::get_metadata_size() const {
+    return sizeof(ZoneMapIndexReader) + _pb_meta_size;
 }
+
+ZoneMapIndexReader::~ZoneMapIndexReader() = default;
 #define APPLY_FOR_PRIMITITYPE(M) \
     M(TYPE_TINYINT)              \
     M(TYPE_SMALLINT)             \

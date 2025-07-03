@@ -39,6 +39,7 @@ namespace doris {
 CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type)
         : HttpHandlerWithAuth(exec_env, hier, type) {}
+
 void CheckRPCChannelAction::handle(HttpRequest* req) {
     std::string req_ip = req->param("ip");
     std::string req_port = req->param("port");

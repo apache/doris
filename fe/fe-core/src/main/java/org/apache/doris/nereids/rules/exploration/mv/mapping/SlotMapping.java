@@ -26,6 +26,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 
@@ -68,20 +69,29 @@ public class SlotMapping extends Mapping {
         BiMap<MappedRelation, MappedRelation> mappedRelationMap = relationMapping.getMappedRelationMap();
         for (Map.Entry<MappedRelation, MappedRelation> mappedRelationEntry : mappedRelationMap.entrySet()) {
             MappedRelation sourceRelation = mappedRelationEntry.getKey();
-            Map<String, Slot> sourceSlotNameToSlotMap = sourceRelation.getSlotNameToSlotMap();
+            Map<List<String>, Slot> sourceSlotNameToSlotMap = sourceRelation.getSlotNameToSlotMap();
 
             MappedRelation targetRelation = mappedRelationEntry.getValue();
-            Map<String, Slot> targetSlotNameSlotMap = targetRelation.getSlotNameToSlotMap();
+            Map<List<String>, Slot> targetSlotNameSlotMap = targetRelation.getSlotNameToSlotMap();
 
-            for (String sourceSlotName : sourceSlotNameToSlotMap.keySet()) {
+            for (List<String> sourceSlotName : sourceSlotNameToSlotMap.keySet()) {
+                Slot sourceSlot = sourceSlotNameToSlotMap.get(sourceSlotName);
                 Slot targetSlot = targetSlotNameSlotMap.get(sourceSlotName);
-                // source slot can not map from target, bail out
                 if (targetSlot == null) {
+                    // there are two scenes in which targetSlot maybe null
+                    // 1
+                    // if variant, though can not map slot from query to view, but we maybe derive slot from query
+                    // variant self, such as query slot to view slot mapping is payload#4 -> payload#10
+                    // and query has a variant which is payload['issue']['number']#20, this can not get from view.
+                    // in this scene, we can derive
+                    // payload['issue']['number']#20 -> element_at(element_at(payload#10, 'issue'), 'number') mapping
+                    // in expression rewrite
+                    // 2
+                    // Maybe table add column after last refresh
                     LOG.warn(String.format("SlotMapping generate is null, source relation is %s, "
                             + "target relation is %s", sourceRelation, targetRelation));
-                    return null;
+                    continue;
                 }
-                Slot sourceSlot = sourceSlotNameToSlotMap.get(sourceSlotName);
                 relationSlotMap.put(MappedSlot.of(sourceSlot,
                                 sourceRelation.getBelongedRelation()),
                         MappedSlot.of(targetSlot, targetRelation.getBelongedRelation()));

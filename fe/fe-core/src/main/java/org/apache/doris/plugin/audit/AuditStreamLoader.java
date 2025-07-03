@@ -46,7 +46,7 @@ public class AuditStreamLoader {
     public AuditStreamLoader() {
         this.hostPort = "127.0.0.1:" + Config.http_port;
         this.db = FeConstants.INTERNAL_DB_NAME;
-        this.auditLogTbl = AuditLoaderPlugin.AUDIT_LOG_TABLE;
+        this.auditLogTbl = AuditLoader.AUDIT_LOG_TABLE;
         this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
         // currently, FE identity is FE's IP, so we replace the "." in IP to make it suitable for label
         this.feIdentity = hostPort.replaceAll("\\.", "_").replaceAll(":", "_");
@@ -68,6 +68,8 @@ public class AuditStreamLoader {
                 InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")));
         conn.addRequestProperty("redirect-policy", "random-be");
+        conn.addRequestProperty("column_separator", AuditLoader.AUDIT_TABLE_COL_SEPARATOR_STR);
+        conn.addRequestProperty("line_delimiter", AuditLoader.AUDIT_TABLE_LINE_DELIMITER_STR);
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;

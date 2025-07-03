@@ -16,16 +16,17 @@
 // under the License.
 #pragma once
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "http/http_request.h"
 
 namespace doris {
 
 class HttpRequest;
+class ExecEnv;
 
-class BeProcThreadAction : public HttpHandler {
+class BeProcThreadAction : public HttpHandlerWithAuth {
 public:
-    BeProcThreadAction() = default;
+    BeProcThreadAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
     ~BeProcThreadAction() override = default;
     void handle(HttpRequest* req) override;
 };

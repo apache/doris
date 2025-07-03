@@ -48,6 +48,7 @@
 class SipHash;
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class Block;
@@ -105,6 +106,7 @@ private:
     size_t s;
 
     ColumnConst(const ColumnPtr& data, size_t s_);
+    ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty);
     ColumnConst(const ColumnConst& src) = default;
 
 public:
@@ -116,11 +118,7 @@ public:
 
     bool is_variable_length() const override { return data->is_variable_length(); }
 
-    ColumnPtr remove_low_cardinality() const;
-
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
-
-    const char* get_family_name() const override { return "Const"; }
 
     void resize(size_t new_size) override { s = new_size; }
 
@@ -143,6 +141,10 @@ public:
     bool is_null_at(size_t) const override { return data->is_null_at(0); }
 
     void insert_range_from(const IColumn&, size_t /*start*/, size_t length) override {
+        s += length;
+    }
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override {
         s += length;
     }
 
@@ -176,8 +178,7 @@ public:
 
     size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override {
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override {
         data->serialize_vec(keys, num_rows, max_row_byte_size);
     }
 
@@ -196,7 +197,7 @@ public:
         get_data_column_ptr()->update_crc_with_value(start, end, hash, nullptr);
     }
 
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                      const uint8_t* null_map) const override {
         data->serialize_vec_with_null_map(keys, num_rows, null_map);
     }
@@ -205,20 +206,12 @@ public:
         data->update_hash_with_value(0, hash);
     }
 
-    // (TODO.Amory) here may not use column_const update hash, and PrimitiveType is not used.
-    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
-                                uint32_t offset = 0,
-                                const uint8_t* __restrict null_data = nullptr) const override;
-
-    void update_hashes_with_value(uint64_t* __restrict hashes,
-                                  const uint8_t* __restrict null_data) const override;
-
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 
     ColumnPtr replicate(const Offsets& offsets) const override;
 
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override;
@@ -227,8 +220,10 @@ public:
 
     size_t allocated_bytes() const override { return data->allocated_bytes() + sizeof(s); }
 
+    bool has_enough_capacity(const IColumn& src) const override { return true; }
+
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
-        auto rhs_const_column = assert_cast<const ColumnConst&>(rhs);
+        auto rhs_const_column = assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
 
         const auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
         const auto* rhs_nullable =
@@ -247,15 +242,6 @@ public:
         }
     }
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        assert_cast<Self&>(*res).resize(selector.size());
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        assert_cast<Self&>(*res).resize(end - begin);
-    }
-
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
     bool structure_equals(const IColumn& rhs) const override {
@@ -265,11 +251,9 @@ public:
         return false;
     }
 
-    //    bool is_nullable() const override { return is_column_nullable(*data); }
+    // ColumnConst is not nullable, but may be concrete nullable.
+    bool is_concrete_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
-    bool is_numeric() const override { return data->is_numeric(); }
-    bool is_fixed_and_contiguous() const override { return data->is_fixed_and_contiguous(); }
-    size_t size_of_value_if_fixed() const override { return data->size_of_value_if_fixed(); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
     /// Not part of the common interface.
@@ -282,12 +266,24 @@ public:
 
     template <typename T>
     T get_value() const {
-        return get_field().safe_get<NearestFieldType<T>>();
+        // Here the cast is correct, relevant code is rather tricky.
+        return static_cast<T>(get_field().get<NearestFieldType<T>>());
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data->replace_column_data(rhs, row, self_row);
     }
+
+    void finalize() override { data->finalize(); }
+
+    void erase(size_t start, size_t length) override {
+        if (start >= s || length == 0) {
+            return;
+        }
+        length = std::min(length, s - start);
+        s = s - length;
+    }
 };
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

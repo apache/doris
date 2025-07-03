@@ -20,6 +20,7 @@
 #include "operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class AssertNumRowsLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
@@ -28,12 +29,19 @@ public:
     AssertNumRowsLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~AssertNumRowsLocalState() = default;
+
+private:
+    friend class AssertNumRowsOperatorX;
 };
 
 class AssertNumRowsOperatorX final : public StreamingOperatorX<AssertNumRowsLocalState> {
 public:
     AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
+
+#ifdef BE_TEST
+    AssertNumRowsOperatorX() = default;
+#endif
 
     Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
@@ -52,4 +60,5 @@ private:
     bool _should_convert_output_to_nullable;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

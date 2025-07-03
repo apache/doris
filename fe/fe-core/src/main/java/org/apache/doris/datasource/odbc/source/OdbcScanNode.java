@@ -17,28 +17,22 @@
 
 package org.apache.doris.datasource.odbc.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
-import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -53,7 +47,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -64,6 +57,7 @@ public class OdbcScanNode extends ExternalScanNode {
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
+    private final List<Expr> pushedDownConjuncts = new ArrayList<>();
     private String tblName;
     private String connectString;
     private TOdbcTableType odbcType;
@@ -79,11 +73,6 @@ public class OdbcScanNode extends ExternalScanNode {
         odbcType = tbl.getOdbcTableType();
         tblName = JdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
         this.tbl = tbl;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
     }
 
     /**
@@ -104,24 +93,10 @@ public class OdbcScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        // Convert predicates to Odbc columns and filters.
-        createOdbcColumns();
-        createOdbcFilters();
-        createScanRangeLocations();
-    }
-
-    @Override
     public void finalizeForNereids() throws UserException {
         createOdbcColumns();
         createOdbcFilters();
         createScanRangeLocations();
-    }
-
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext context, Set<SlotId> requiredByProjectSlotIdSet)
-            throws UserException {
-        createOdbcColumns();
     }
 
     @Override
@@ -154,7 +129,7 @@ public class OdbcScanNode extends ExternalScanNode {
     // only all conjuncts be pushed down as filter, we can
     // push down limit operation to ODBC table
     private boolean shouldPushDownLimit() {
-        return limit != -1 && conjuncts.isEmpty();
+        return limit != -1 && conjuncts.size() == pushedDownConjuncts.size();
     }
 
     private String getOdbcQueryStr() {
@@ -224,7 +199,7 @@ public class OdbcScanNode extends ExternalScanNode {
             if (shouldPushDownConjunct(odbcType, p)) {
                 String filter = JdbcScanNode.conjunctExprToString(odbcType, p, tbl);
                 filters.add(filter);
-                conjuncts.remove(p);
+                pushedDownConjuncts.add(p);
             }
         }
     }
@@ -241,23 +216,6 @@ public class OdbcScanNode extends ExternalScanNode {
 
         msg.odbc_scan_node = odbcScanNode;
         super.toThrift(msg);
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
-        numNodes = numNodes <= 0 ? 1 : numNodes;
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-    }
-
-    @Override
-    public StatsDelta genStatsDelta() throws AnalysisException {
-        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
-                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
-                tbl.getId(), -1L);
     }
 
     @Override

@@ -74,7 +74,7 @@ TEST_F(OrdinalPageIndexTest, normal) {
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
     OrdinalIndexReader index(file_reader, 16 * 1024 * 4096 + 1, index_meta.ordinal_index());
-    EXPECT_TRUE(index.load(true, false).ok());
+    EXPECT_TRUE(index.load(true, false, nullptr).ok());
     EXPECT_EQ(16 * 1024, index.num_data_pages());
     EXPECT_EQ(1, index.get_first_ordinal(0));
     EXPECT_EQ(4096, index.get_last_ordinal(0));
@@ -128,7 +128,7 @@ TEST_F(OrdinalPageIndexTest, one_data_page) {
     }
 
     OrdinalIndexReader index(nullptr, num_values, index_meta.ordinal_index());
-    EXPECT_TRUE(index.load(true, false).ok());
+    EXPECT_TRUE(index.load(true, false, nullptr).ok());
     EXPECT_EQ(1, index.num_data_pages());
     EXPECT_EQ(0, index.get_first_ordinal(0));
     EXPECT_EQ(num_values - 1, index.get_last_ordinal(0));

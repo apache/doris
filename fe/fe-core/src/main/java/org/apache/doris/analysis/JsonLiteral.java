@@ -17,10 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TJsonLiteral;
@@ -29,8 +30,6 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Objects;
 
 public class JsonLiteral extends LiteralExpr {
@@ -85,6 +84,12 @@ public class JsonLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return "'" + value.replaceAll("'", "''") + "'";
+    }
+
+    @Override
     public String toSqlImpl() {
         return "'" + value.replaceAll("'", "''") + "'";
     }
@@ -101,7 +106,7 @@ public class JsonLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return null;
     }
 
@@ -134,17 +139,6 @@ public class JsonLiteral extends LiteralExpr {
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         // code should not be readched, since JSONB is analyzed as StringLiteral
         throw new AnalysisException("Unknown check type: " + targetType);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = Text.readString(in);
-    }
-
-    public static JsonLiteral read(DataInput in) throws IOException {
-        JsonLiteral literal = new JsonLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

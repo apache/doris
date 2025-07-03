@@ -21,17 +21,13 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <mutex>
-#include <ostream>
-#include <string>
-
-#include "util/spinlock.h"
 
 namespace doris {
 
 class UUIDGenerator {
 public:
     boost::uuids::uuid next_uuid() {
-        std::lock_guard<SpinLock> lock(_uuid_gen_lock);
+        std::lock_guard<std::mutex> lock(_uuid_gen_lock);
         return _boost_uuid_generator();
     }
 
@@ -42,7 +38,7 @@ public:
 
 private:
     boost::uuids::basic_random_generator<boost::mt19937> _boost_uuid_generator;
-    SpinLock _uuid_gen_lock;
+    std::mutex _uuid_gen_lock;
 };
 
 } // namespace doris

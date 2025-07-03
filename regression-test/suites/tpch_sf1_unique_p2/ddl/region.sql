@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS region (
 UNIQUE KEY(R_REGIONKEY)
 DISTRIBUTED BY HASH(R_REGIONKEY) BUCKETS 1
 PROPERTIES (
+  "enable_mow_light_delete" = "true",
   "replication_num" = "1"
 )
 

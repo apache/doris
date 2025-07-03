@@ -25,21 +25,13 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.ShowCreateFunctionStmt;
-import org.apache.doris.analysis.ShowCreateTableStmt;
-import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -66,22 +58,30 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.policy.DropPolicyLog;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.ShowExecutor;
-import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -128,7 +128,7 @@ import java.util.UUID;
  * an example.
  * This class use {@link TestInstance} in JUnit5 to do initialization and cleanup stuff. Unlike
  * deprecated legacy combination-based implementation {@link UtFrameUtils}, we use an inherit-manner,
- * thus we could wrap common logic in this base class. It's more easy to use.
+ * thus we could wrap common logic in this base class. It's easier to use.
  * Note:
  * Unit-test method in derived classes must use the JUnit5 {@link org.junit.jupiter.api.Test}
  * annotation, rather than the old JUnit4 {@link org.junit.Test} or others.
@@ -140,6 +140,8 @@ public abstract class TestWithFeService {
     protected ConnectContext connectContext;
     protected boolean needCleanDir = true;
     protected int lastFeRpcPort = 0;
+    // make it default to enable_advance_next_id
+    protected boolean enableAdvanceNextId = Config.enable_advance_next_id;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "";
 
@@ -152,11 +154,15 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
+        // this.enableAdvanceNextId may be reset by children classes
+        Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
+        FeConstants.disableWGCheckerForUT = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
         createDorisCluster();
+        Env.getCurrentEnv().getWorkloadGroupMgr().createNormalWorkloadGroupForUT();
         runBeforeAll();
     }
 
@@ -412,7 +418,7 @@ public abstract class TestWithFeService {
     protected void createDorisCluster()
             throws InterruptedException, NotInitException, IOException, DdlException, EnvVarNotSetException,
             FeStartException {
-        createDorisCluster(runningDir, backendNum());
+        createDorisClusterWithMultiTag(runningDir, backendNum());
     }
 
     protected void createDorisCluster(String runningDir, int backendNum)
@@ -425,24 +431,11 @@ public abstract class TestWithFeService {
             bes.add(createBackend("127.0.0.1", feRpcPort));
         }
         System.out.println("after create backend");
-        checkBEHeartbeat(bes);
+        if (!checkBEHeartbeat(bes)) {
+            System.out.println("Some backends dead, all backends: " + bes);
+        }
         // Thread.sleep(2000);
         System.out.println("after create backend2");
-    }
-
-    private void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
-        int maxTry = Config.heartbeat_interval_second + 2;
-        boolean allAlive = false;
-        while (maxTry-- > 0 && !allAlive) {
-            Thread.sleep(1000);
-            boolean hasDead = false;
-            for (Backend be : bes) {
-                if (!be.isAlive()) {
-                    hasDead = true;
-                }
-            }
-            allAlive = !hasDead;
-        }
     }
 
     // Create multi backends with different host for unit test.
@@ -452,14 +445,45 @@ public abstract class TestWithFeService {
             InterruptedException {
         // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1"
         // to make cluster running well.
-        FeConstants.runningUnitTest = true;
+        if (backendNum > 1) {
+            FeConstants.runningUnitTest = true;
+        }
         int feRpcPort = startFEServer(runningDir);
         List<Backend> bes = Lists.newArrayList();
+        System.out.println("start create backend, backend num " + backendNum);
         for (int i = 0; i < backendNum; i++) {
             String host = "127.0.0." + (i + 1);
             bes.add(createBackend(host, feRpcPort));
         }
-        checkBEHeartbeat(bes);
+        System.out.println("after create backend");
+        if (!checkBEHeartbeat(bes)) {
+            System.out.println("Some backends dead, all backends: " + bes);
+        }
+        System.out.println("after create backend2");
+    }
+
+    protected boolean checkBEHeartbeat(List<Backend> bes) {
+        return checkBEHeartbeatStatus(bes, true);
+    }
+
+    protected boolean checkBELostHeartbeat(List<Backend> bes) {
+        return checkBEHeartbeatStatus(bes, false);
+    }
+
+    private boolean checkBEHeartbeatStatus(List<Backend> bes, boolean isAlive) {
+        int maxTry = Config.heartbeat_interval_second + 2;
+        while (maxTry-- > 0) {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                // no exception
+            }
+            if (bes.stream().allMatch(be -> be.isAlive() == isAlive)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected Backend addNewBackend() throws IOException, InterruptedException {
@@ -499,8 +523,8 @@ public abstract class TestWithFeService {
         Backend be = new Backend(Env.getCurrentEnv().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setPathHash(be.getId());
-        diskInfo1.setTotalCapacityB(10L << 30);
-        diskInfo1.setAvailableCapacityB(5L << 30);
+        diskInfo1.setTotalCapacityB(10L << 40);
+        diskInfo1.setAvailableCapacityB(5L << 40);
         diskInfo1.setDataUsedCapacityB(480000);
         diskInfo1.setPathHash(be.getId());
         Map<String, DiskInfo> disks = Maps.newHashMap();
@@ -587,7 +611,18 @@ public abstract class TestWithFeService {
                 && connectContext.getState().getErrorCode() == null) {
             return stmtExecutor;
         } else {
+            // throw new IllegalStateException(connectContext.getState().getErrorMessage());
             return null;
+        }
+    }
+
+    public void executeSql(String queryStr) throws Exception {
+        connectContext.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
+        stmtExecutor.execute();
+        if (connectContext.getState().getStateType() == QueryState.MysqlStateType.ERR
+                || connectContext.getState().getErrorCode() != null) {
+            throw new IllegalStateException(connectContext.getState().getErrorMessage());
         }
     }
 
@@ -595,6 +630,11 @@ public abstract class TestWithFeService {
         String createDbStmtStr = "CREATE DATABASE " + db;
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Env.getCurrentEnv().createDb(createDbStmt);
+    }
+
+    public void createDatabaseAndUse(String db) throws Exception {
+        createDatabase(db);
+        useDatabase(db);
     }
 
     public void createDatabaseWithSql(String createDbSql) throws Exception {
@@ -617,37 +657,12 @@ public abstract class TestWithFeService {
         connectContext.setDatabase(dbName);
     }
 
-    protected ShowResultSet showCreateTable(String sql) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showCreateFunction(String sql) throws Exception {
-        ShowCreateFunctionStmt stmt = (ShowCreateFunctionStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showFunctions(String sql) throws Exception {
-        ShowFunctionsStmt stmt = (ShowFunctionsStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showCreateTableByName(String table) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt("show create table " + table);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
     public void createTable(String sql) throws Exception {
         createTable(sql, false);
     }
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            Config.enable_odbc_mysql_broker_table = true;
             createTables(enableNerieds, sql);
         } catch (Exception e) {
             e.printStackTrace();
@@ -670,11 +685,6 @@ public abstract class TestWithFeService {
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) parseAndAnalyzeStmt(
                 "recover table " + table + ";", connectContext);
         Env.getCurrentEnv().recoverTable(recoverTableStmt);
-    }
-
-    public void createTableAsSelect(String sql) throws Exception {
-        CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
     }
 
     public void createCatalog(String sql) throws Exception {
@@ -717,13 +727,15 @@ public abstract class TestWithFeService {
     }
 
     public void createView(String sql) throws Exception {
-        CreateViewStmt createViewStmt = (CreateViewStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createView(createViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateViewCommand command = (CreateViewCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     protected void createPolicy(String sql) throws Exception {
-        CreatePolicyStmt createPolicyStmt = (CreatePolicyStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().getPolicyMgr().createPolicy(createPolicyStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     public void createFunction(String sql) throws Exception {
@@ -748,8 +760,12 @@ public abstract class TestWithFeService {
     }
 
     protected void dropPolicy(String sql) throws Exception {
-        DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        DropRowPolicyCommand command = (DropRowPolicyCommand) nereidsParser.parseSingle(sql);
+        TableNameInfo tableNameInfo = command.getTableNameInfo();
+        DropPolicyLog dropPolicyLog = new DropPolicyLog(tableNameInfo.getCtl(), tableNameInfo.getDb(),
+                tableNameInfo.getTbl(), PolicyTypeEnum.ROW, command.getPolicyName(), command.getUser(), command.getRoleName());
+        Env.getCurrentEnv().getPolicyMgr().dropPolicy(dropPolicyLog, command.isIfExists());
     }
 
     protected void createSqlBlockRule(String sql) throws Exception {
@@ -793,9 +809,41 @@ public abstract class TestWithFeService {
     }
 
     protected void addUser(String userName, boolean ifNotExists) throws Exception {
-        CreateUserStmt createUserStmt = (CreateUserStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "create user " + (ifNotExists ? "if not exists " : "") + userName + "@'%'", connectContext);
-        DdlExecutor.execute(Env.getCurrentEnv(), createUserStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create user " + (ifNotExists ? "if not exists " : "") + userName + "@'%'";
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateUserCommand) {
+            ((CreateUserCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    protected void createRole(String roleName) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "CREATE ROLE " + roleName;
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateRoleCommand) {
+            ((CreateRoleCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    protected void grantRole(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof GrantRoleCommand) {
+            ((GrantRoleCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    protected void grantPriv(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof GrantTablePrivilegeCommand) {
+            ((GrantTablePrivilegeCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     protected void addRollup(String sql) throws Exception {
@@ -820,6 +868,19 @@ public abstract class TestWithFeService {
         // waiting table state to normal
         Thread.sleep(100);
     }
+
+    protected void alterMv(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterMTMVCommand) {
+            ((AlterMTMVCommand) parsed).run(connectContext, stmtExecutor);
+        }
+        checkAlterJob();
+        // waiting table state to normal
+        Thread.sleep(1000);
+    }
+
 
     protected void createMvByNereids(String sql) throws Exception {
         new MockUp<EditLog>() {

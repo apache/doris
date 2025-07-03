@@ -24,7 +24,9 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "io/fs/file_system.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/storage_policy.h"
@@ -33,7 +35,7 @@
 
 namespace doris {
 
-class RowsetMeta {
+class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
     RowsetMeta() = default;
     ~RowsetMeta();
@@ -129,21 +131,21 @@ public:
 
     void set_num_rows(int64_t num_rows) { _rowset_meta_pb.set_num_rows(num_rows); }
 
-    size_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
+    int64_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
 
-    void set_total_disk_size(size_t total_disk_size) {
+    void set_total_disk_size(int64_t total_disk_size) {
         _rowset_meta_pb.set_total_disk_size(total_disk_size);
     }
 
-    size_t data_disk_size() const { return _rowset_meta_pb.data_disk_size(); }
+    int64_t data_disk_size() const { return _rowset_meta_pb.data_disk_size(); }
 
-    void set_data_disk_size(size_t data_disk_size) {
+    void set_data_disk_size(int64_t data_disk_size) {
         _rowset_meta_pb.set_data_disk_size(data_disk_size);
     }
 
-    size_t index_disk_size() const { return _rowset_meta_pb.index_disk_size(); }
+    int64_t index_disk_size() const { return _rowset_meta_pb.index_disk_size(); }
 
-    void set_index_disk_size(size_t index_disk_size) {
+    void set_index_disk_size(int64_t index_disk_size) {
         _rowset_meta_pb.set_index_disk_size(index_disk_size);
     }
 
@@ -255,6 +257,12 @@ public:
         return num_segments() > 1 && is_singleton_delta() && segments_overlap() != NONOVERLAPPING;
     }
 
+    bool produced_by_compaction() const {
+        return has_version() &&
+               (start_version() < end_version() ||
+                (start_version() == end_version() && segments_overlap() == NONOVERLAPPING));
+    }
+
     // get the compaction score of this rowset.
     // if segments are overlapping, the score equals to the number of segments,
     // otherwise, score is 1.
@@ -292,6 +300,15 @@ public:
 
     auto& get_segments_key_bounds() const { return _rowset_meta_pb.segments_key_bounds(); }
 
+    bool is_segments_key_bounds_truncated() const {
+        return _rowset_meta_pb.has_segments_key_bounds_truncated() &&
+               _rowset_meta_pb.segments_key_bounds_truncated();
+    }
+
+    void set_segments_key_bounds_truncated(bool truncated) {
+        _rowset_meta_pb.set_segments_key_bounds_truncated(truncated);
+    }
+
     bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
@@ -309,12 +326,7 @@ public:
         return true;
     }
 
-    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
-        for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
-            KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
-            *new_key_bounds = key_bounds;
-        }
-    }
+    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds);
 
     void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
         *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);
@@ -350,6 +362,17 @@ public:
 
     // Used for partial update, when publish, partial update may add a new rowset and we should update rowset meta
     void merge_rowset_meta(const RowsetMeta& other);
+
+    InvertedIndexFileInfo inverted_index_file_info(int seg_id);
+
+    const auto& inverted_index_file_info() const {
+        return _rowset_meta_pb.inverted_index_file_info();
+    }
+
+    void add_inverted_index_files_info(
+            const std::vector<const InvertedIndexFileInfo*>& idx_file_info);
+
+    int64_t get_metadata_size() const override;
 
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;

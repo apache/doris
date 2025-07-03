@@ -30,7 +30,7 @@ suite("ssb_sf1_q1_2_nereids") {
     test {
         // sql(new File(context.file.parentFile, "../sql/q1.2.sql").text)
         sql """
-        SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/  
+        SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/
         SUM(lo_extendedprice*lo_discount) AS
         REVENUE
         FROM  lineorder, date
@@ -39,6 +39,6 @@ suite("ssb_sf1_q1_2_nereids") {
         AND lo_discount BETWEEN 4 AND 6
         AND lo_quantity BETWEEN 26 AND 35;"""
 
-        resultFile(file = "../sql/q1.2.out", tag = "q1.2")
+        resultFile("../sql/q1.2.out", "q1.2")
     }
 }

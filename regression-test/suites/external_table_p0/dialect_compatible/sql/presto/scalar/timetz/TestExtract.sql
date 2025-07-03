@@ -1,0 +1,498 @@
+set sql_dialect='presto';
+set enable_fallback_to_original_planner=false;
+set debug_skip_fold_constant=false;
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901+08:35] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012+08:35] is invalid
+-- SELECT hour(TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901+08:35] is invalid
+-- SELECT hour(TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901+08:35] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012+08:35] is invalid
+-- SELECT minute(TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901+08:35] is invalid
+-- SELECT minute(TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901+08:35] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012+08:35] is invalid
+-- SELECT second(TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56+08:35] is invalid
+-- SELECT second(TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1+08:35] is invalid
+-- SELECT second(TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12+08:35] is invalid
+-- SELECT second(TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123+08:35] is invalid
+-- SELECT second(TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234+08:35] is invalid
+-- SELECT second(TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345+08:35] is invalid
+-- SELECT second(TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456+08:35] is invalid
+-- SELECT second(TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567+08:35] is invalid
+-- SELECT second(TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678+08:35] is invalid
+-- SELECT second(TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789+08:35] is invalid
+-- SELECT second(TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890+08:35] is invalid
+-- SELECT second(TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901+08:35] is invalid
+-- SELECT second(TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012+08:35] is invalid
+-- SELECT millisecond(TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234567+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345678+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456789+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234567890+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345678901+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456789012+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT timezone_hour(TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567890+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678901+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789012+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567890-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678901-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789012-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT timezone_hour(TIME '12:34:56-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567890-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567890-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678901-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678901-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789012-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789012-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567890-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678901-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789012-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT timezone_hour(TIME '12:34:56-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567890-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567890-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678901-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678901-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789012-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789012-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT timezone_minute(TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567890+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678901+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789012+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567890-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678901-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789012-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT timezone_minute(TIME '12:34:56-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567890-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567890-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678901-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678901-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789012-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789012-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567890-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678901-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789012-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT timezone_minute(TIME '12:34:56-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567890-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567890-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678901-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678901-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789012-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789012-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+set debug_skip_fold_constant=true;
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234567+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345678+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456789+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234567890+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345678901+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456789012+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.1+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.12+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.123+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.1234+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.12345+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.123456+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.1234567+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.12345678+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.123456789+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.1234567890+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.12345678901+08:35'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.123456789012+08:35'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234567+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345678+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456789+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234567890+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345678901+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456789012+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.1+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.12+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.123+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.1234+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.12345+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.123456+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.1234567+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.12345678+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.123456789+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.1234567890+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.12345678901+08:35'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.123456789012+08:35'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234567+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345678+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456789+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234567890+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345678901+08:35'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456789012+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.1+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.12+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.123+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.1234+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.12345+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.123456+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.1234567+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.12345678+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.123456789+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.1234567890+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.12345678901+08:35'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.123456789012+08:35'); # differ: doris : None, presto : 56
+-- SELECT millisecond(TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234567+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345678+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456789+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234567890+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345678901+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456789012+08:35');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT timezone_hour(TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567890+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678901+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789012+08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567890-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678901-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789012-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT timezone_hour(TIME '12:34:56-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567890-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567890-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678901-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678901-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789012-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789012-08:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.1234567890-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.12345678901-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT EXTRACT(TIMEZONE_HOUR FROM TIME '12:34:56.123456789012-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_HOUR'
+-- SELECT timezone_hour(TIME '12:34:56-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.1234567890-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.1234567890-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.12345678901-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.12345678901-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_hour(TIME '12:34:56.123456789012-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_hour(TIME '12:34:56.123456789012-00:35');	                          ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT timezone_minute(TIME '12:34:56+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567890+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567890+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678901+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678901+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789012+08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789012+08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567890-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678901-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789012-08:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT timezone_minute(TIME '12:34:56-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567890-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567890-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678901-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678901-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789012-08:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789012-08:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.1234567890-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.12345678901-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT EXTRACT(TIMEZONE_MINUTE FROM TIME '12:34:56.123456789012-00:35'); # error: errCode = 2, detailMessage = Can not found function 'TIMEZONE_MINUTE'
+-- SELECT timezone_minute(TIME '12:34:56-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.1234567890-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.1234567890-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.12345678901-00:35'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.12345678901-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT timezone_minute(TIME '12:34:56.123456789012-00:35') # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT timezone_minute(TIME '12:34:56.123456789012-00:35');	                            ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	

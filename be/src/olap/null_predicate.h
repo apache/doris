@@ -53,7 +53,7 @@ public:
                     roaring::Roaring* roaring) const override;
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    InvertedIndexIterator* iterator, uint32_t num_rows,
+                    IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override;
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -87,8 +87,8 @@ public:
         if (_is_null) {
             return bf->test_bytes(nullptr, 0);
         } else {
-            LOG(FATAL) << "Bloom filter is not supported by predicate type: is_null=" << _is_null;
-            return true;
+            throw Exception(Status::FatalError(
+                    "Bloom filter is not supported by predicate type: is_null="));
         }
     }
 

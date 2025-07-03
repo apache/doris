@@ -28,6 +28,8 @@
 
 namespace doris::vectorized {
 
+constexpr auto DECIMAL256_FUNCTION_SUFFIX {"_decimal256"};
+
 class SimpleFunctionFactory;
 
 void register_function_size(SimpleFunctionFactory& factory);
@@ -58,6 +60,7 @@ void register_function_is_null(SimpleFunctionFactory& factory);
 void register_function_is_not_null(SimpleFunctionFactory& factory);
 void register_function_nullables(SimpleFunctionFactory& factory);
 void register_function_to_time_function(SimpleFunctionFactory& factory);
+void register_function_time_value_field(SimpleFunctionFactory& factory);
 void register_function_time_of_function(SimpleFunctionFactory& factory);
 void register_function_string(SimpleFunctionFactory& factory);
 void register_function_running_difference(SimpleFunctionFactory& factory);
@@ -73,6 +76,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory);
 void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
 void register_function_jsonb(SimpleFunctionFactory& factory);
+void register_function_to_json(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
 void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
@@ -97,15 +101,20 @@ void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
 void register_function_width_bucket(SimpleFunctionFactory& factory);
 void register_function_ignore(SimpleFunctionFactory& factory);
-
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
 void register_function_match(SimpleFunctionFactory& factory);
 void register_function_tokenize(SimpleFunctionFactory& factory);
-
 void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
+void register_function_multi_match(SimpleFunctionFactory& factory);
+void register_function_split_by_regexp(SimpleFunctionFactory& factory);
+void register_function_assert_true(SimpleFunctionFactory& factory);
+void register_function_compress(SimpleFunctionFactory& factory);
+void register_function_bit_test(SimpleFunctionFactory& factory);
+void register_function_dict_get(SimpleFunctionFactory& factory);
+void register_function_dict_get_many(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -115,6 +124,9 @@ class SimpleFunctionFactory {
     /// whenever change this, please make sure old functions was all cleared. otherwise the version now-1 will think it should do replacement
     /// which actually should be done by now-2 version.
     constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 5;
+
+    /// @TEMPORARY: for be_exec_version=8.
+    constexpr static int NEWEST_VERSION_EXPLODE_MULTI_PARAM = 8;
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
@@ -146,25 +158,32 @@ public:
         register_function(name, &createDefaultFunction<Function>);
     }
 
+    /// @TEMPORARY: for be_exec_version=8
+    template <class Function>
+    void register_alternative_function(std::string name) {
+        static std::string suffix {"_old"};
+        function_to_replace[name] = name + suffix;
+        register_function(name + suffix, &createDefaultFunction<Function>);
+    }
+
     void register_alias(const std::string& name, const std::string& alias) {
         function_alias[alias] = name;
     }
 
-    /// @TEMPORARY: for be_exec_version=4
-    template <class Function>
-    void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_5_0"};
-        function_to_replace[Function::name] = Function::name + suffix;
-        register_function(Function::name + suffix, &createDefaultFunction<Function>);
-    }
-
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
-                                 const DataTypePtr& return_type,
+                                 const DataTypePtr& return_type, const FunctionAttr& attr = {},
                                  int be_version = BeExecVersionManager::get_newest_version()) {
         std::string key_str = name;
 
         if (function_alias.contains(name)) {
             key_str = function_alias[name];
+        }
+
+        if (attr.enable_decimal256) {
+            if (key_str == "array_sum" || key_str == "array_avg" || key_str == "array_product" ||
+                key_str == "array_cum_sum") {
+                key_str += DECIMAL256_FUNCTION_SUFFIX;
+            }
         }
 
         temporary_function_update(be_version, key_str);
@@ -197,7 +216,7 @@ private:
     FunctionCreators function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=4. replace function to old version.
+    /// @TEMPORARY: for be_exec_version=8. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 
     template <typename Function>
@@ -205,10 +224,10 @@ private:
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
     }
 
-    /// @TEMPORARY: for be_exec_version=4
+    /// @TEMPORARY: for be_exec_version=8
     void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
-        if (fe_version_now < NEWEST_VERSION_FUNCTION_SUBSTITUTE &&
+        if (fe_version_now < NEWEST_VERSION_EXPLODE_MULTI_PARAM &&
             function_to_replace.find(name) != function_to_replace.end()) {
             name = function_to_replace[name];
         }
@@ -246,6 +265,7 @@ public:
             register_function_is_not_null(instance);
             register_function_nullables(instance);
             register_function_to_time_function(instance);
+            register_function_time_value_field(instance);
             register_function_time_of_function(instance);
             register_function_string(instance);
             register_function_in(instance);
@@ -260,6 +280,7 @@ public:
             register_function_date_time_string_to_string(instance);
             register_function_json(instance);
             register_function_jsonb(instance);
+            register_function_to_json(instance);
             register_function_hash(instance);
             register_function_ifnull(instance);
             register_function_comparison_eq_for_null(instance);
@@ -292,6 +313,13 @@ public:
             register_function_tokenize(instance);
             register_function_ignore(instance);
             register_function_variant_element(instance);
+            register_function_multi_match(instance);
+            register_function_split_by_regexp(instance);
+            register_function_assert_true(instance);
+            register_function_bit_test(instance);
+            register_function_compress(instance);
+            register_function_dict_get(instance);
+            register_function_dict_get_many(instance);
         });
         return instance;
     }

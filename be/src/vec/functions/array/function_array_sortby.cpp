@@ -30,7 +30,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -46,7 +45,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class FunctionArraySortBy : public IFunction {
 public:
     static constexpr auto name = "array_sortby";
@@ -59,14 +58,14 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(remove_nullable(arguments[0])))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "first argument for function: " << name << " should be DataTypeArray"
                 << " and arguments[0] is " << arguments[0]->get_name();
         return arguments[0];
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr argument_columns[2] = {nullptr, nullptr};
         ColumnPtr argument_nullmap[2] = {nullptr, nullptr};
         for (int i = 0; i < 2; ++i) {
@@ -95,13 +94,13 @@ public:
                 src_column_array.get_offsets_column().clone_resized(input_rows_count);
         MutableColumnPtr result_nullmap = nullptr;
         const ColumnUInt8::Container* src_null_map_data = nullptr;
-        if (argument_nullmap[0] != nullptr) {
+        if (argument_nullmap[0]) {
             const auto& src_column_nullmap = assert_cast<const ColumnUInt8&>(*argument_nullmap[0]);
             result_nullmap = src_column_nullmap.clone_resized(input_rows_count);
             src_null_map_data = &(src_column_nullmap.get_data());
         }
         const ColumnUInt8::Container* key_null_map_data = nullptr;
-        if (argument_nullmap[1] != nullptr) {
+        if (argument_nullmap[1]) {
             const auto& key_column_nullmap = assert_cast<const ColumnUInt8&>(*argument_nullmap[1]);
             key_null_map_data = &(key_column_nullmap.get_data());
         }
@@ -149,7 +148,7 @@ public:
             }
         }
         src_nested_nullable_column.append_data_by_selector(result_data_column, src_selector);
-        if (result_nullmap != nullptr) {
+        if (result_nullmap) {
             block.replace_by_position(
                     result,
                     ColumnNullable::create(ColumnArray::create(std::move(result_data_column),

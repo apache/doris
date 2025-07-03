@@ -42,7 +42,7 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     public UnboundSlot(List<String> nameParts) {
-        this(ImmutableList.copyOf(nameParts), Optional.empty());
+        this(Utils.fastToImmutableList(nameParts), Optional.empty());
     }
 
     public UnboundSlot(List<String> nameParts, Optional<Pair<Integer, Integer>> indexInSqlString) {
@@ -76,13 +76,18 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     @Override
-    public String getInternalName() {
-        return getName();
-    }
-
-    @Override
-    public String toSql() {
-        return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
+    public String computeToSql() {
+        switch (nameParts.size()) {
+            case 1: return Utils.quoteIfNeeded(nameParts.get(0));
+            case 2: return Utils.quoteIfNeeded(nameParts.get(0)) + "." + Utils.quoteIfNeeded(nameParts.get(1));
+            case 3: return Utils.quoteIfNeeded(nameParts.get(0)) + "." + Utils.quoteIfNeeded(nameParts.get(1))
+                    + "." + Utils.quoteIfNeeded(nameParts.get(2));
+            default: {
+                return nameParts.stream().map(Utils::quoteIfNeeded)
+                        .reduce((left, right) -> left + "." + right)
+                        .orElse("");
+            }
+        }
     }
 
     public static UnboundSlot quoted(String name) {
@@ -107,7 +112,7 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return nameParts.hashCode();
     }
 

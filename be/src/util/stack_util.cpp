@@ -36,12 +36,15 @@ void DumpStackTraceToString(std::string* stacktrace);
 namespace doris {
 
 std::string get_stack_trace(int start_pointers_index, std::string dwarf_location_info_mode) {
+#ifndef BE_TEST
     if (!config::enable_stacktrace) {
         return "no enable stacktrace";
     }
+#endif
     if (dwarf_location_info_mode.empty()) {
         dwarf_location_info_mode = config::dwarf_location_info_mode;
     }
+
     auto tool = config::get_stack_trace_tool;
     if (tool == "glog") {
         return get_stack_trace_by_glog();

@@ -21,8 +21,10 @@
 
 #include "operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
+#include "runtime_filter/runtime_filter_producer_helper_cross.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class NestedLoopJoinBuildSinkOperatorX;
 
@@ -33,33 +35,26 @@ public:
     ENABLE_FACTORY_CREATOR(NestedLoopJoinBuildSinkLocalState);
     using Parent = NestedLoopJoinBuildSinkOperatorX;
     NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-    ~NestedLoopJoinBuildSinkLocalState() = default;
+    ~NestedLoopJoinBuildSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
-    vectorized::VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
-    RuntimeProfile::Counter* runtime_filter_compute_timer() {
-        return _runtime_filter_compute_timer;
-    }
     vectorized::Blocks& build_blocks() { return _shared_state->build_blocks; }
-    RuntimeProfile::Counter* publish_runtime_filter_timer() {
-        return _publish_runtime_filter_timer;
-    }
 
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
-    uint64_t _build_rows = 0;
-    uint64_t _total_mem_usage = 0;
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
+    std::shared_ptr<RuntimeFilterProducerHelperCross> _runtime_filter_producer_helper;
 };
 
 class NestedLoopJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState> {
 public:
-    NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, bool need_local_merge);
+    NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                     const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
                 "{} should not init with TDataSink",
@@ -69,7 +64,6 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -77,8 +71,8 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         }
-        return _child_x->ignore_data_distribution() ? DataDistribution(ExchangeType::BROADCAST)
-                                                    : DataDistribution(ExchangeType::NOOP);
+        return _child->is_serial_operator() ? DataDistribution(ExchangeType::BROADCAST)
+                                            : DataDistribution(ExchangeType::NOOP);
     }
 
 private:
@@ -86,9 +80,9 @@ private:
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 
-    bool _need_local_merge;
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

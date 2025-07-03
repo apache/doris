@@ -191,6 +191,14 @@
 -- !select_group_concat_n --
 \N
 
+-- !select_linear_histogram --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_linear_histogram2 --
+
+-- !select_linear_histogram_n --
+{"num_buckets":0,"buckets":[]}
+
 -- !select_multi_distinct_group_concat --
 \N
 

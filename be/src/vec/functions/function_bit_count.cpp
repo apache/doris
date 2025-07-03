@@ -22,14 +22,12 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
-#include "util/radix_sort.h"
 #include "vec/core/types.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct NameBitCount {
     static constexpr auto name = "bit_count";
 };
@@ -38,13 +36,15 @@ template <typename T>
 struct BitCountImpl {
     // No unsigned type in Java. So we need signed number as return type
     // Int8_MAX = 127
-    using ResultType = std::conditional_t<sizeof(T) * 8 >= 128, Int16, Int8>;
+    static constexpr PrimitiveType ResultType = sizeof(T) * 8 >= 128 ? TYPE_SMALLINT : TYPE_TINYINT;
 
-    static inline ResultType apply(T a) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(T a) {
         if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, Int64> ||
                       std::is_same_v<T, Int32> || std::is_same_v<T, Int16> ||
                       std::is_same_v<T, Int8>) {
-            return std::popcount(static_cast<std::make_unsigned_t<T>>(a));
+            // ResultType already check the length
+            return cast_set<typename PrimitiveTypeTraits<ResultType>::CppType, int, false>(
+                    std::popcount(static_cast<std::make_unsigned_t<T>>(a)));
         } else {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "bit_count only support using INTEGER as operator");

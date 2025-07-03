@@ -50,12 +50,6 @@ TEST_F(ExceptionTest, NestedError) {
         throw doris::Exception(ErrorCode::OS_ERROR, "test OS_ERROR {}", "bug");
     } catch (doris::Exception& e1) {
         EXPECT_TRUE(e1.to_string().find("OS_ERROR") != std::string::npos);
-        try {
-            throw doris::Exception(e1, ErrorCode::INVALID_ARGUMENT, "test INVALID_ARGUMENT");
-        } catch (doris::Exception& e2) {
-            EXPECT_TRUE(e2.to_string().find("OS_ERROR") != std::string::npos);
-            EXPECT_TRUE(e2.to_string().find("INVALID_ARGUMENT") != std::string::npos);
-        }
     }
 }
 

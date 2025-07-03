@@ -48,12 +48,12 @@ suite("test_delete_from_timeout","nonConcurrent") {
 
         GetDebugPoint().enableDebugPointForAllBEs("PushHandler::_do_streaming_ingestion.try_lock_fail")
 
-        t1 = Thread.start {
+        def t1 = Thread.start {
             sleep(15000)
             GetDebugPoint().disableDebugPointForAllBEs("PushHandler::_do_streaming_ingestion.try_lock_fail")
         }
 
-        sql """delete from ${tableName} where col1 = "false" and col2 = "-9999782574499444.2" and col3 = "-25"; """
+        sql """delete from ${tableName} where col1 = "false" and col3 = "-25"; """
         t1.join()
         qt_sql "select * from ${tableName} order by col1, col2, col3;"
 

@@ -19,13 +19,16 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.proto.Types;
+import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.DecimalFormat;
+import java.util.List;
 import java.util.UUID;
 
 public class DebugUtil {
@@ -176,5 +179,99 @@ public class DebugUtil {
         StringWriter sw = new StringWriter();
         e.printStackTrace(new PrintWriter(sw));
         return sw.toString();
+    }
+
+    public static String prettyPrintChangedSessionVar(List<List<String>> nestedList) {
+        if (nestedList == null || nestedList.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder output = new StringBuilder();
+
+        // Assuming each inner list has exactly 3 columns
+        int[] columnWidths = new int[3];
+
+        // Calculate the maximum width of each column
+        // First consider the header widths: "VarName", "CurrentValue", "DefaultValue"
+        String[] headers = {"VarName", "CurrentValue", "DefaultValue"};
+        for (int i = 0; i < headers.length; i++) {
+            columnWidths[i] = headers[i].length();  // Initialize with header length
+        }
+
+        // Update column widths based on data
+        for (List<String> row : nestedList) {
+            for (int i = 0; i < row.size(); i++) {
+                columnWidths[i] = Math.max(columnWidths[i], row.get(i).length());
+            }
+        }
+
+        // Build the table header
+        for (int i = 0; i < headers.length; i++) {
+            output.append(format(columnWidths[i], headers[i]));
+            if (i < headers.length - 1) {
+                output.append(" | ");  // Separator between columns
+            }
+        }
+        output.append("\n");  // Newline after the header
+
+        // Add a separator line for better readability (optional)
+        for (int i = 0; i < headers.length; i++) {
+            output.append(format(columnWidths[i], Strings.repeat("-", columnWidths[i])));
+            if (i < headers.length - 1) {
+                output.append("-|-");  // Separator between columns
+            }
+        }
+        output.append("\n");  // Newline after the separator
+
+        // Build the table body with proper alignment based on column widths
+        for (List<String> row : nestedList) {
+            for (int i = 0; i < row.size(); i++) {
+                String element = row.get(i);
+                // Pad with spaces if the element is shorter than the column width
+                output.append(format(columnWidths[i], element));
+                if (i < row.size() - 1) {
+                    output.append(" | ");  // Separator between columns
+                }
+            }
+            output.append("\n");  // Newline after each row
+        }
+
+        return output.toString();
+    }
+
+    public static String prettyPrintPlanNodeRuntimeStatsItems(
+            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems) {
+        StringBuilder result = new StringBuilder();
+        if (planNodeRuntimeStatsItems == null || planNodeRuntimeStatsItems.isEmpty()) {
+            result.append("The list is empty or null.\n");
+            return result.toString();
+        }
+
+        result.append(String.format("%-10s %-10s %-15s %-15s %-15s %-15s %-15s %-15s %-15s %-15s %-10s %-10s\n",
+                "NodeID", "InstanceNum", "InputRows", "OutputRows", "CommonFilterRows", "CommonFilterInputRows",
+                "RuntimeFilterRows", "RuntimeFilterInputRows", "JoinBuilderRows", "JoinProbeRows",
+                "JoinBuilderSkewRatio", "JoinProbeSkewRatio"));
+
+        for (TPlanNodeRuntimeStatsItem item : planNodeRuntimeStatsItems) {
+            result.append(String.format("%-10d %-10d %-15d %-15d %-15d %-15d %-15d %-15d %-15d %-15d %-10d %-10d\n",
+                    item.getNodeId(),
+                    item.getInstanceNum(),
+                    item.getInputRows(),
+                    item.getOutputRows(),
+                    item.getCommonFilterRows(),
+                    item.getCommonFilterInputRows(),
+                    item.getRuntimeFilterRows(),
+                    item.getRuntimeFilterInputRows(),
+                    item.getJoinBuilderRows(),
+                    item.getJoinProbeRows(),
+                    item.getJoinBuilderSkewRatio(),
+                    item.getJoinProberSkewRatio()
+            ));
+        }
+        return result.toString();
+    }
+
+    private static String format(int width, String name) {
+        return name + StringUtils.repeat(" ", Math.max(0, name.length() - width));
     }
 }

@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -37,6 +36,7 @@
 #include "util/sse_util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr uint32_t BlockBloomFilter::kRehash[8] __attribute__((aligned(32)));
 // constexpr data member requires initialization in the class declaration.
@@ -66,7 +66,7 @@ Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_
     }
     // Don't use _log_num_buckets if it will lead to undefined behavior by a shift
     // that is too large.
-    _directory_mask = (1ULL << _log_num_buckets) - 1;
+    _directory_mask = (1 << _log_num_buckets) - 1;
 
     const size_t alloc_size = directory_size();
     close(); // Ensure that any previously allocated memory for directory_ is released.
@@ -138,14 +138,37 @@ void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t h
 }
 
 bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
+#if defined(__ARM_NEON)
+    uint32x4_t masks[2];
+
+    uint32x4_t directory_1 = vld1q_u32(&_directory[bucket_idx][0]);
+    uint32x4_t directory_2 = vld1q_u32(&_directory[bucket_idx][4]);
+
+    make_find_mask(hash, masks);
+    // The condition for returning true is that all the bits in _directory[bucket_idx][i] specified by masks[i] are 1.
+    // This can be equivalently expressed as all the bits in not( _directory[bucket_idx][i]) specified by masks[i] are 0.
+    // vbicq_u32(vec1, vec2) : Result of (vec1 AND NOT vec2)
+    // If true is returned, out_1 and out_2 should be all zeros.
+    uint32x4_t out_1 = vbicq_u32(masks[0], directory_1);
+    uint32x4_t out_2 = vbicq_u32(masks[1], directory_2);
+
+    out_1 = vorrq_u32(out_1, out_2);
+
+    uint32x2_t low = vget_low_u32(out_1);
+    uint32x2_t high = vget_high_u32(out_1);
+    low = vorr_u32(low, high);
+    uint32_t res = vget_lane_u32(low, 0) | vget_lane_u32(low, 1);
+    return !(res);
+#else
+    uint32_t masks[kBucketWords];
+    make_find_mask(hash, masks);
     for (int i = 0; i < kBucketWords; ++i) {
-        BucketWord hval = (kRehash[i] * hash) >> ((1 << kLogBucketWordBits) - kLogBucketWordBits);
-        hval = 1U << hval;
-        if (!(DCHECK_NOTNULL(_directory)[bucket_idx][i] & hval)) {
+        if ((DCHECK_NOTNULL(_directory)[bucket_idx][i] & masks[i]) == 0) {
             return false;
         }
     }
     return true;
+#endif
 }
 
 void BlockBloomFilter::insert_no_avx2(const uint32_t hash) noexcept {
@@ -246,3 +269,4 @@ Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
 }
 
 } // namespace doris
+#include "common/compile_check_end.h"

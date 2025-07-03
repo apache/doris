@@ -29,6 +29,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
@@ -99,7 +100,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .limit(1, 1).build();
         plan = new LogicalOlapTableSink<>(new Database(), scan.getTable(), scan.getTable().getBaseSchema(),
                 new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
-                Collectors.toList()), false, DMLCommandType.NONE, plan);
+                Collectors.toList()), false, TPartialUpdateNewRowPolicy.APPEND, DMLCommandType.NONE, plan);
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .rewrite()
@@ -113,7 +114,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .build();
         plan = new LogicalOlapTableSink<>(new Database(), scan.getTable(), scan.getTable().getBaseSchema(),
                 new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
-                Collectors.toList()), false, DMLCommandType.NONE, plan);
+                Collectors.toList()), false, TPartialUpdateNewRowPolicy.APPEND, DMLCommandType.NONE, plan);
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .rewrite()
                 .nonMatch(logicalSort());
@@ -165,8 +166,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
         PlanChecker.from(connectContext).disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id) t limit 1")
                 .rewrite()
-                // there is no topn below agg
-                .matches(logicalTopN(logicalAggregate(logicalProject(logicalOlapScan()))));
+                .nonMatch(logicalTopN());
         PlanChecker.from(connectContext)
                 .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id limit 1) t")
@@ -184,8 +184,6 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .analyze("select count(*) from "
                         + "(select * from student order by id) t1 left join student t2 on t1.id = t2.id limit 1")
                 .rewrite()
-                .matches(logicalTopN(logicalAggregate(logicalProject(logicalJoin(
-                        logicalProject(logicalOlapScan()),
-                        logicalProject(logicalOlapScan()))))));
+                .nonMatch(logicalTopN());
     }
 }

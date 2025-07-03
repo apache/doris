@@ -29,12 +29,14 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Optional;
@@ -48,7 +50,9 @@ import java.util.Optional;
  * ...
  * )
  */
-public class AlterRoutineLoadStmt extends DdlStmt {
+public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
+
+    private static final Logger LOG = LogManager.getLogger(AlterRoutineLoadStmt.class);
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
 
@@ -68,6 +72,8 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .add(CreateRoutineLoadStmt.WORKLOAD_GROUP)
+            .add(LoadStmt.KEY_ENCLOSE)
+            .add(LoadStmt.KEY_ESCAPE)
             .build();
 
     private final LabelName labelName;
@@ -246,9 +252,18 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         }
         if (jobProperties.containsKey(CreateRoutineLoadStmt.WORKLOAD_GROUP)) {
             String workloadGroup = jobProperties.get(CreateRoutineLoadStmt.WORKLOAD_GROUP);
-            long wgId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), workloadGroup);
-            analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP, String.valueOf(wgId));
+            if (!StringUtils.isEmpty(workloadGroup)) {
+                // NOTE: delay check workload group's existence check when alter routine load job
+                // because we can only get clusterId when alter job.
+                analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP,
+                        jobProperties.get(CreateRoutineLoadStmt.WORKLOAD_GROUP));
+            }
+        }
+        if (jobProperties.containsKey(LoadStmt.KEY_ENCLOSE)) {
+            analyzedJobProperties.put(LoadStmt.KEY_ENCLOSE, jobProperties.get(LoadStmt.KEY_ENCLOSE));
+        }
+        if (jobProperties.containsKey(LoadStmt.KEY_ESCAPE)) {
+            analyzedJobProperties.put(LoadStmt.KEY_ESCAPE, jobProperties.get(LoadStmt.KEY_ESCAPE));
         }
     }
 
@@ -264,4 +279,10 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         dataSourceProperties.setTimezone(job.getTimezone());
         dataSourceProperties.analyze();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
+
 }

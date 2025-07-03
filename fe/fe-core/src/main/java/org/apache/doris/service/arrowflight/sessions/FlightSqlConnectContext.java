@@ -17,12 +17,16 @@
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,6 +65,7 @@ public class FlightSqlConnectContext extends ConnectContext {
         if (flightSqlChannel != null) {
             flightSqlChannel.close();
         }
+        connectScheduler.getFlightSqlConnectPoolMgr().unregisterConnection(this);
     }
 
     // kill operation with no protect.
@@ -70,11 +75,22 @@ public class FlightSqlConnectContext extends ConnectContext {
 
         if (killConnection) {
             isKilled = true;
+            // Close channel and break connection with client.
             closeChannel();
-            connectScheduler.unregisterConnection(this);
         }
         // Now, cancel running query.
-        cancelQuery();
+        cancelQuery(new Status(TStatusCode.CANCELLED, "arrow flight query killed by user"));
+    }
+
+    @Override
+    public void setQueryId(TUniqueId queryId) {
+        if (this.queryId != null) {
+            this.lastQueryId = this.queryId.deepCopy();
+        }
+        this.queryId = queryId;
+        if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
+            connectScheduler.getFlightSqlConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
+        }
     }
 
     @Override

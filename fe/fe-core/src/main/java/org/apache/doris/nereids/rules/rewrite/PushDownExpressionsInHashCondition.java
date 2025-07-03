@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -62,8 +63,19 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> join.getHashJoinConjuncts().stream().anyMatch(equalTo ->
-                        equalTo.children().stream().anyMatch(e -> !(e instanceof Slot))))
+                .when(join -> {
+                    boolean needProcessHashConjuncts = join.getHashJoinConjuncts().stream()
+                            .anyMatch(equalTo -> equalTo.children().stream()
+                                    .anyMatch(e -> !(e instanceof Slot)));
+                    List<Slot> leftSlots = join.left().getOutput();
+                    List<Slot> rightSlots = join.right().getOutput();
+                    Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
+                            leftSlots, rightSlots, join.getMarkJoinConjuncts());
+                    boolean needProcessMarkConjuncts = pair.first.stream()
+                            .anyMatch(equalTo -> equalTo.children().stream()
+                                    .anyMatch(e -> !(e instanceof Slot)));
+                    return needProcessHashConjuncts || needProcessMarkConjuncts;
+                })
                 .then(PushDownExpressionsInHashCondition::pushDownHashExpression)
                 .toRule(RuleType.PUSH_DOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
     }
@@ -73,17 +85,22 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
      */
     public static LogicalJoin<? extends Plan, ? extends Plan> pushDownHashExpression(
             LogicalJoin<? extends Plan, ? extends Plan> join) {
-        Set<NamedExpression> leftProjectExprs = Sets.newHashSet();
-        Set<NamedExpression> rightProjectExprs = Sets.newHashSet();
-        Map<Expression, NamedExpression> exprReplaceMap = Maps.newHashMap();
+        Set<NamedExpression> leftProjectExprs = Sets.newLinkedHashSet();
+        Set<NamedExpression> rightProjectExprs = Sets.newLinkedHashSet();
+        Map<Expression, NamedExpression> replaceMap = Maps.newHashMap();
         join.getHashJoinConjuncts().forEach(conjunct -> {
             Preconditions.checkArgument(conjunct instanceof EqualPredicate);
             // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
             // doesn't swap the two sides.
             conjunct = JoinUtils.swapEqualToForChildrenOrder((EqualPredicate) conjunct, join.left().getOutputSet());
-            generateReplaceMapAndProjectExprs(conjunct.child(0), exprReplaceMap, leftProjectExprs);
-            generateReplaceMapAndProjectExprs(conjunct.child(1), exprReplaceMap, rightProjectExprs);
+            generateReplaceMapAndProjectExprs(conjunct.child(0), replaceMap, leftProjectExprs);
+            generateReplaceMapAndProjectExprs(conjunct.child(1), replaceMap, rightProjectExprs);
         });
+        List<Expression> newHashConjuncts = join.getHashJoinConjuncts().stream()
+                .map(equalTo -> equalTo.withChildren(equalTo.children()
+                        .stream().map(expr -> replaceMap.get(expr).toSlot())
+                        .collect(ImmutableList.toImmutableList())))
+                .collect(ImmutableList.toImmutableList());
 
         // add other conjuncts used slots to project exprs
         Set<ExprId> leftExprIdSet = join.left().getOutputExprIdSet();
@@ -100,7 +117,28 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
         });
 
         // add mark conjuncts used slots to project exprs
-        join.getMarkJoinConjuncts().stream().flatMap(conjunct ->
+        // if mark conjuncts could be hash condition, normalize it
+        List<Slot> leftSlots = join.left().getOutput();
+        List<Slot> rightSlots = join.right().getOutput();
+        Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(leftSlots,
+                rightSlots, join.getMarkJoinConjuncts());
+        pair.first.forEach(conjunct -> {
+            Preconditions.checkArgument(conjunct instanceof EqualPredicate);
+            // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
+            // doesn't swap the two sides.
+            conjunct = JoinUtils.swapEqualToForChildrenOrder((EqualPredicate) conjunct, join.left().getOutputSet());
+            generateReplaceMapAndProjectExprs(conjunct.child(0), replaceMap, leftProjectExprs);
+            generateReplaceMapAndProjectExprs(conjunct.child(1), replaceMap, rightProjectExprs);
+        });
+        ImmutableList.Builder<Expression> newMarkConjunctsBuilder = ImmutableList.builder();
+        pair.first.stream()
+                .map(equalTo -> equalTo.withChildren(equalTo.children()
+                        .stream().map(expr -> replaceMap.get(expr).toSlot())
+                        .collect(ImmutableList.toImmutableList())))
+                .forEach(newMarkConjunctsBuilder::add);
+        newMarkConjunctsBuilder.addAll(pair.second);
+
+        pair.second.stream().flatMap(conjunct ->
                 conjunct.getInputSlots().stream()
         ).forEach(slot -> {
             if (leftExprIdSet.contains(slot.getExprId())) {
@@ -111,14 +149,9 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
                 rightProjectExprs.add(slot);
             }
         });
-
-        List<Expression> newHashConjuncts = join.getHashJoinConjuncts().stream()
-                .map(equalTo -> equalTo.withChildren(equalTo.children()
-                        .stream().map(expr -> exprReplaceMap.get(expr).toSlot())
-                        .collect(ImmutableList.toImmutableList())))
-                .collect(ImmutableList.toImmutableList());
-        return join.withHashJoinConjunctsAndChildren(
+        return join.withHashAndMarkJoinConjunctsAndChildren(
                 newHashConjuncts,
+                newMarkConjunctsBuilder.build(),
                 createChildProjectPlan(join.left(), join, leftProjectExprs),
                 createChildProjectPlan(join.right(), join, rightProjectExprs), join.getJoinReorderContext());
 

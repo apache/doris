@@ -58,4 +58,9 @@ public class StatsMathUtil {
         }
         return a / nonZeroDivisor(b);
     }
+
+    // TODO: add more protection at other stats estimation
+    public static double normalizeRowCountOrNdv(double value) {
+        return value >= 0 && value < 1 ? 1 : value;
+    }
 }

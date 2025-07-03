@@ -23,6 +23,7 @@
 
 #include "common/util.h"
 #include "meta-service/keys.h"
+#include "meta-service/meta_service_schema.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 
@@ -233,4 +234,69 @@ int lease_instance_recycle_job(TxnKv* txn_kv, std::string_view key, const std::s
     return 0;
 }
 
+int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
+                   TabletIndexPB& tablet_idx) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+
+    std::string key, val;
+    meta_tablet_idx_key({instance_id, tablet_id}, &key);
+    err = txn->get(key, &val);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << fmt::format("failed to get tablet_idx, err={} tablet_id={} key={}", err,
+                                    tablet_id, hex(key));
+        return -1;
+    }
+    if (!tablet_idx.ParseFromString(val)) [[unlikely]] {
+        LOG(WARNING) << fmt::format("malformed tablet index value, tablet_id={} key={}", tablet_id,
+                                    hex(key));
+        return -1;
+    }
+    if (tablet_id != tablet_idx.tablet_id()) [[unlikely]] {
+        LOG(WARNING) << "unexpected error given_tablet_id=" << tablet_id
+                     << " idx_pb_tablet_id=" << tablet_idx.tablet_id() << " key=" << hex(key);
+        return -1;
+    }
+    return 0;
+}
+
+int get_tablet_meta(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
+                    TabletMetaCloudPB& tablet_meta) {
+    TabletIndexPB tablet_idx;
+    int ret = get_tablet_idx(txn_kv, instance_id, tablet_id, tablet_idx);
+    if (ret < 0) {
+        return ret;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+
+    std::string key, val;
+    meta_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                     tablet_idx.partition_id(), tablet_id},
+                    &key);
+    err = txn->get(key, &val);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << fmt::format(
+                "failed to get tablet, err={}, table_id={}, index_id={}, partition_id={}, "
+                "tablet_id={} key={}",
+                err, tablet_idx.table_id(), tablet_idx.index_id(), tablet_idx.partition_id(),
+                tablet_id, hex(key));
+        return -1;
+    }
+    if (!tablet_meta.ParseFromString(val)) [[unlikely]] {
+        LOG(WARNING) << fmt::format("malformed tablet meta, tablet_id={} key={}", tablet_id,
+                                    hex(key));
+        return -1;
+    }
+    return 0;
+}
 } // namespace doris::cloud

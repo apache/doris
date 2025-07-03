@@ -57,15 +57,26 @@ class WaitForAction implements SuiteAction {
         if (ObjectUtils.isEmpty(time) || time <= 0) {
             time = 600
         }
-        Awaitility.await().atMost(time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and().pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        def forRollUp = sql.toUpperCase().contains("ALTER TABLE ROLLUP")
+        def num = 9
+        if (forRollUp) {
+            num = 8
+        }
+        Awaitility.await().atMost(time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+            log.info("sql is :\n${sql}")
             def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
-            String res = result.get(0).get(9)
+            String res = result.get(0).get(num)
             if (res == "FINISHED" || res == "CANCELLED") {
                 Assert.assertEquals("FINISHED", res)
                 return true;
             }
             return false;
         });
-
+        // In the current implementation, Doris's ALTER TABLE operation 
+        // cannot ensure the table status is transitioned to NORMAL state atomically 
+        // upon job completion. As a workaround, we introduce a sleep interval to await 
+        // the table's state normalization, thereby avoiding failures in follow-up operations.
+        sleep(300)
     }
 }

@@ -107,19 +107,12 @@ get_session_variable() {
   echo "${v/*Value: /}"
 }
 
-_parallel_fragment_exec_instance_num="$(get_session_variable parallel_fragment_exec_instance_num)"
 _exec_mem_limit="$(get_session_variable exec_mem_limit)"
-_query_timeout="$(get_session_variable query_timeout)"
-
 echo '============================================'
 echo "Optimize session variables"
-run_sql "set global parallel_fragment_exec_instance_num=16;"
 run_sql "set global exec_mem_limit=32G;"
-run_sql "set global query_timeout=900;"
 echo '============================================'
 run_sql "show variables"
-echo '============================================'
-run_sql "analyze table hits with sync;"
 
 TRIES=3
 QUERY_NUM=1
@@ -147,11 +140,9 @@ done
 
 cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
 best_hot_run_sum=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' result.csv)
-echo "Total cold run time: ${cold_run_sum} ms"
-echo "Total hot run time: ${best_hot_run_sum} ms"
+echo "Total cold run time: ${cold_run_sum} s"
+echo "Total hot run time: ${best_hot_run_sum} s"
 echo 'Finish ClickBench queries.'
 
 echo "Restore session variables"
-run_sql "set global parallel_fragment_exec_instance_num=${_parallel_fragment_exec_instance_num};"
 run_sql "set global exec_mem_limit=${_exec_mem_limit};"
-run_sql "set global query_timeout=${_query_timeout};"

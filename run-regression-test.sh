@@ -43,22 +43,26 @@ Usage: $0 <shell_options> <framework_options>
      -genOut                           generate .out file if not exist
      -forceGenOut                      delete and generate .out file
      -parallel                         run tests using specified threads
+     -dockerSuiteParallel              run docker tests using specified threads
      -randomOrder                      run tests in a random order
      -noKillDocker                     don't kill container when finish docker suites
+     -runMode                          if run docker suites, no need to setup external doris clusters.
+                                       user may specify run mode: cloud or not_cloud.
      -times                            rum tests {times} times
 
   Eg.
-    $0                                 build regression test framework and run all suite which in default group
-    $0 --run test_select               run a suite which named as test_select
-    $0 --compile                       only compile regression framework
-    $0 --run -s test_select            run a suite which named as test_select
-    $0 --run test_select -genOut       generate output file for test_select if not exist
-    $0 --run -g default                run all suite in the group which named as default
-    $0 --run -d demo,correctness/tmp   run all suite in the directories which named as demo and correctness/tmp
-    $0 --clean                         clean output of regression test framework
-    $0 --clean --run test_select       clean output and build regression test framework and run a suite which named as test_select
-    $0 --run -h                        print framework options
-    $0 --teamcity --run test_select    print teamcity service messages and build regression test framework and run test_select
+    $0                                        build regression test framework and run all suite which in default group
+    $0 --run test_select                      run a suite which named as test_select
+    $0 --compile                              only compile regression framework
+    $0 --run -s test_select                   run a suite which named as test_select
+    $0 --run test_select -genOut              generate output file for test_select if not exist
+    $0 --run -g default                       run all suite in the group which named as default
+    $0 --run -d demo,correctness/tmp          run all suite in the directories which named as demo and correctness/tmp
+    $0 --run -d regression-test/suites/demo   specify the suite directories path from repo root
+    $0 --clean                                clean output of regression test framework
+    $0 --clean --run test_select              clean output and build regression test framework and run a suite which named as test_select
+    $0 --run -h                               print framework options
+    $0 --teamcity --run test_select           print teamcity service messages and build regression test framework and run test_select
 
 Log path: \${DORIS_HOME}/output/regression-test/log
 Default config file: \${DORIS_HOME}/regression-test/conf/regression-conf.groovy

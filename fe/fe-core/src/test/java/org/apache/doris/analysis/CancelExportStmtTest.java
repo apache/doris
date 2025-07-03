@@ -93,7 +93,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt = new CancelExportStmt(null, compoundAndPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label') AND (`state` = 'PENDING')",
+                "CANCEL EXPORT FROM testDb WHERE ((`label` = 'doris_test_label') AND (`state` = 'PENDING'))",
                 stmt.toString());
 
         CompoundPredicate compoundOrPredicate = new CompoundPredicate(Operator.OR, labelBinaryPredicate,
@@ -101,7 +101,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt = new CancelExportStmt(null, compoundOrPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label') OR (`state` = 'PENDING')",
+                "CANCEL EXPORT FROM testDb WHERE ((`label` = 'doris_test_label') OR (`state` = 'PENDING'))",
                 stmt.toString());
     }
 
@@ -234,7 +234,6 @@ public class CancelExportStmtTest extends TestWithFeService {
         exportMgr.unprotectAddJob(job3);
         exportMgr.unprotectAddJob(job4);
 
-
         // cancel export job where state = "PENDING"
         Assert.assertTrue(job1.getState() == ExportJobState.PENDING);
         SlotRef stateSlotRef = new SlotRef(null, "state");
@@ -349,31 +348,5 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt.analyze(analyzer);
         exportMgr.cancelExportJob(stmt);
         Assert.assertTrue(job8.getState() == ExportJobState.CANCELLED);
-    }
-
-    @Test
-    public void testCancelAuth() {
-        ExportMgr exportMgr = new ExportMgr();
-        List<ExportJob> jobs = Lists.newArrayList();
-        ExportJob job1 = new ExportJob();
-        job1.setTableName(new TableName("ctl1", "db1", "table1"));
-        jobs.add(job1);
-        try {
-            // should check table auth
-            exportMgr.checkCancelExportJobAuth("ctl1", "db1", jobs);
-            throw new RuntimeException("should exception");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Admin_priv,Select_priv"));
-            Assert.assertTrue(e.getMessage().contains("table1"));
-        }
-        jobs.add(new ExportJob());
-        try {
-            // should check db auth
-            exportMgr.checkCancelExportJobAuth("ctl1", "db1", jobs);
-            throw new RuntimeException("should exception");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Admin_priv,Select_priv"));
-            Assert.assertTrue(e.getMessage().contains("db1"));
-        }
     }
 }

@@ -71,8 +71,9 @@ import java.util.Optional;
 
 public class TrinoConnectorExternalTable extends ExternalTable {
 
-    public TrinoConnectorExternalTable(long id, String name, String dbName, TrinoConnectorExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.TRINO_CONNECTOR_EXTERNAL_TABLE);
+    public TrinoConnectorExternalTable(long id, String name, String remoteName, TrinoConnectorExternalCatalog catalog,
+            TrinoConnectorExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.TRINO_CONNECTOR_EXTERNAL_TABLE);
     }
 
     @Override
@@ -108,7 +109,8 @@ public class TrinoConnectorExternalTable extends ExternalTable {
                     qualifiedTable.asSchemaTableName(), Optional.empty(), Optional.empty()));
         }
         if (!connectorTableHandle.isPresent()) {
-            throw new RuntimeException(String.format("Table does not exist: %s.%s.%s", qualifiedTable));
+            throw new RuntimeException(String.format("Table does not exist: %s.%s.%s", trinoConnectorCatalog.getName(),
+                    dbName, name));
         }
 
         // 4. Get ColumnHandle
@@ -193,10 +195,10 @@ public class TrinoConnectorExternalTable extends ExternalTable {
             return ScalarType.createDateV2Type();
         } else if (type instanceof TimestampType) {
             TimestampType timestampType = (TimestampType) type;
-            return ScalarType.createDatetimeV2Type(timestampType.getPrecision());
+            return ScalarType.createDatetimeV2Type(getMaxDatetimePrecision(timestampType.getPrecision()));
         } else if (type instanceof TimestampWithTimeZoneType) {
             TimestampWithTimeZoneType timestampWithTimeZoneType = (TimestampWithTimeZoneType) type;
-            return ScalarType.createDatetimeV2Type(timestampWithTimeZoneType.getPrecision());
+            return ScalarType.createDatetimeV2Type(getMaxDatetimePrecision(timestampWithTimeZoneType.getPrecision()));
         } else if (type instanceof io.trino.spi.type.ArrayType) {
             Type elementType = trinoConnectorTypeToDorisType(
                     ((io.trino.spi.type.ArrayType) type).getElementType());
@@ -221,6 +223,10 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         } else {
             throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
+    }
+
+    private int getMaxDatetimePrecision(int precision) {
+        return Math.min(precision, 6);
     }
 
     public ConnectorTableHandle getConnectorTableHandle() {

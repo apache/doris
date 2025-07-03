@@ -168,21 +168,11 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         createMv(createMVSql);
         ConnectContext.get().getState().setNereids(true);
         Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException("db1")
-                        .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta()
-                        .forEach((id, meta) -> {
-                            if (meta.getWhereClause() != null) {
-                                meta.getWhereClause().setDisableTableName(false);
-                            }
-                        });
+                        .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta();
         testMv(query1, EMPS_MV_NAME);
         ConnectContext.get().getState().setNereids(false);
         Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException("db1")
-                .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta()
-                .forEach((id, meta) -> {
-                    if (meta.getWhereClause() != null) {
-                        meta.getWhereClause().setDisableTableName(true);
-                    }
-                });
+                .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta();
     }
 
     @Test
@@ -781,7 +771,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         String uniqueTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, k2 int, v1 int) UNIQUE KEY (k1, k2) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');";
         createTable(uniqueTable);
-        String createK1MV = "create materialized view only_k1 as select k2 from " + TEST_TABLE_NAME;
+        String createK1MV = "create materialized view only_k1 as select k2,k1 from " + TEST_TABLE_NAME;
         createMv(createK1MV);
         String query = "select * from " + TEST_TABLE_NAME + ";";
         singleTableTest(query, TEST_TABLE_NAME, false);

@@ -27,8 +27,9 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Pair;
@@ -45,8 +46,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -140,6 +139,9 @@ public class CastExpr extends Expr {
             if (type.isStructType() && e.type.isStructType()) {
                 getChild(0).setType(type);
             }
+            if (type.isScalarType()) {
+                targetTypeDef = new TypeDef(type);
+            }
             analysisDone();
             return;
         }
@@ -185,6 +187,7 @@ public class CastExpr extends Expr {
         targetTypeDef = other.targetTypeDef;
         isImplicit = other.isImplicit;
         noOp = other.noOp;
+        nullableFromNereids = other.nullableFromNereids;
     }
 
     private static String getFnName(Type targetType) {
@@ -216,13 +219,24 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (needExternalSql) {
-            return getChild(0).toSql();
-        }
         if (isAnalyzed) {
             return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
         } else {
             return "CAST(" + getChild(0).toSql() + " AS "
+                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
+        }
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
+        if (needExternalSql) {
+            return getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
+        }
+        if (isAnalyzed) {
+            return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
+                    + type.toSql() + ")";
+        } else {
+            return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
                     + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
         }
     }
@@ -332,6 +346,10 @@ public class CastExpr extends Expr {
         if (fn == null) {
             //TODO(xy): check map type
             if ((type.isMapType() || type.isStructType()) && childType.isStringType()) {
+                return;
+            }
+            // same with Type.canCastTo() can be cast to jsonb
+            if (childType.isComplexType() && type.isJsonbType()) {
                 return;
             }
             if (childType.isNull() && Type.canCastTo(childType, type)) {
@@ -468,23 +486,6 @@ public class CastExpr extends Expr {
         return this;
     }
 
-    public static CastExpr read(DataInput input) throws IOException {
-        CastExpr castExpr = new CastExpr();
-        castExpr.readFields(input);
-        return castExpr;
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        isImplicit = in.readBoolean();
-        ScalarType scalarType = TypeUtils.readScalaType(in);
-        targetTypeDef = new TypeDef(scalarType);
-        int counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            children.add(Expr.readIn(in));
-        }
-    }
-
     public CastExpr rewriteExpr(List<String> parameters, List<Expr> inputParamsExprs) throws AnalysisException {
         // child
         Expr child = this.getChild(0);
@@ -572,8 +573,13 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return children.get(0).getStringValueForArray(options);
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        return children.get(0).getStringValueForStreamLoad(options);
+    }
+
+    @Override
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return children.get(0).getStringValueInComplexTypeForQuery(options);
     }
 
     public void setNotFold(boolean notFold) {

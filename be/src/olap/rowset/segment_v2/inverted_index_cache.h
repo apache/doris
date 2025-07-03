@@ -99,23 +99,23 @@ public:
 private:
     InvertedIndexSearcherCache() = default;
 
-    class InvertedIndexSearcherCachePolicy : public LRUCachePolicyTrackingManual {
+    class InvertedIndexSearcherCachePolicy : public LRUCachePolicy {
     public:
         InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
                                          uint32_t element_count_capacity)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE,
-                                               capacity, LRUCacheType::SIZE,
-                                               config::inverted_index_cache_stale_sweep_time_sec,
-                                               num_shards, element_count_capacity, true) {}
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, true) {}
         InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
                                          uint32_t element_count_capacity,
                                          CacheValueTimeExtractor cache_value_time_extractor,
                                          bool cache_value_check_timestamp)
-                : LRUCachePolicyTrackingManual(
-                          CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
-                          LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
-                          num_shards, element_count_capacity, cache_value_time_extractor,
-                          cache_value_check_timestamp, true) {}
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, cache_value_time_extractor,
+                                 cache_value_check_timestamp, true) {}
     };
     // Insert a cache entry by key.
     // And the cache entry will be returned in handle.
@@ -179,9 +179,9 @@ private:
 
 class InvertedIndexQueryCacheHandle;
 
-class InvertedIndexQueryCache : public LRUCachePolicyTrackingManual {
+class InvertedIndexQueryCache : public LRUCachePolicy {
 public:
-    using LRUCachePolicyTrackingManual::insert;
+    using LRUCachePolicy::insert;
 
     // cache key
     struct CacheKey {
@@ -227,10 +227,9 @@ public:
     InvertedIndexQueryCache() = delete;
 
     InvertedIndexQueryCache(size_t capacity, uint32_t num_shards)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE,
-                                           capacity, LRUCacheType::SIZE,
-                                           config::inverted_index_cache_stale_sweep_time_sec,
-                                           num_shards) {}
+            : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE, capacity,
+                             LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
+                             num_shards) {}
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
 

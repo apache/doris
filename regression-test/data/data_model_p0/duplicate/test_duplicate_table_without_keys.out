@@ -5,10 +5,10 @@
 0	1	2	5
 
 -- !desc_dup_table --
-k1	INT	Yes	true	\N	
-k2	INT	Yes	true	\N	
-k3	INT	Yes	true	\N	
-int_value	INT	Yes	false	\N	NONE
+k1	int	Yes	true	\N	
+k2	int	Yes	true	\N	
+k3	int	Yes	true	\N	
+int_value	int	Yes	false	\N	NONE
 
 -- !select_dup_table --
 0	1	2	3
@@ -16,10 +16,10 @@ int_value	INT	Yes	false	\N	NONE
 0	1	2	5
 
 -- !desc_dup_table --
-k1	INT	Yes	false	\N	NONE
-k2	INT	Yes	false	\N	NONE
-k3	INT	Yes	false	\N	NONE
-int_value	INT	Yes	false	\N	NONE
+k1	int	Yes	false	\N	NONE
+k2	int	Yes	false	\N	NONE
+k3	int	Yes	false	\N	NONE
+int_value	int	Yes	false	\N	NONE
 
 -- !select_dup_table --
 0	1	2	0	3
@@ -27,16 +27,16 @@ int_value	INT	Yes	false	\N	NONE
 0	1	2	0	5
 
 -- !desc_dup_table --
-k1	INT	Yes	false	\N	NONE
-k2	INT	Yes	false	\N	NONE
-k3	INT	Yes	false	\N	NONE
-new_col1	INT	Yes	false	0	NONE
-int_value	INT	Yes	false	\N	NONE
+k1	int	Yes	false	\N	NONE
+k2	int	Yes	false	\N	NONE
+k3	int	Yes	false	\N	NONE
+new_col1	int	Yes	false	0	NONE
+int_value	int	Yes	false	\N	NONE
 
 -- !desc_dup_table --
-k1	INT	Yes	false	\N	NONE
-k2	INT	Yes	false	\N	NONE
-k3	INT	Yes	false	\N	NONE
-new_col1	INT	Yes	false	0	NONE
-int_value	INT	Yes	false	\N	NONE
+k1	int	Yes	false	\N	NONE
+k2	int	Yes	false	\N	NONE
+k3	int	Yes	false	\N	NONE
+new_col1	int	Yes	false	0	NONE
+int_value	int	Yes	false	\N	NONE
 

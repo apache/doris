@@ -41,10 +41,11 @@ suite("test_infer_predicate") {
         contains "PREDICATES: (k2"
     }
 
-    explain {
-        sql "select * from infer_tb1 inner join infer_tb2 where cast(infer_tb2.k4 as int) = infer_tb1.k2  and infer_tb2.k4 = 1;"
-        contains "PREDICATES: (CAST(k2"
-    }
+// not support infer predicate downcast
+//    explain {
+//        sql "select * from infer_tb1 inner join infer_tb2 where cast(infer_tb2.k4 as int) = infer_tb1.k2  and infer_tb2.k4 = 1;"
+//        contains "PREDICATES: (CAST(k2"
+//    }
 
     explain {
         sql "select * from infer_tb1 inner join infer_tb3 where infer_tb3.k1 = infer_tb1.k2  and infer_tb3.k1 = '123';"
@@ -55,6 +56,9 @@ suite("test_infer_predicate") {
         sql "select * from infer_tb1 left join infer_tb2 on infer_tb1.k1 = infer_tb2.k3 left join infer_tb3 on " +
                 "infer_tb2.k3 = infer_tb3.k2 where infer_tb1.k1 = 1;"
         contains "PREDICATES: (k3"
-        contains "PREDICATES: (k2"
+        // After modifying the logic of pull up predicates from join, the left join left table predicate will not be pulled up.
+        // left join left table predicates should not be pulled up. because there may be null value.
+        // However, in this case, pulling up seems to be OK, so note for now
+        // contains "PREDICATES: (k2"
     }
 }

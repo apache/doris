@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -53,6 +54,11 @@ public class JavaUdfBuilder extends UdfBuilder {
     }
 
     @Override
+    public List<FunctionSignature> getSignatures() {
+        return udf.getSignatures();
+    }
+
+    @Override
     public Class<? extends BoundFunction> functionClass() {
         return JavaUdf.class;
     }
@@ -83,5 +89,20 @@ public class JavaUdfBuilder extends UdfBuilder {
             processedExprs.add(TypeCoercionUtils.castIfNotSameType(exprs.get(i), argTypes.get(i)));
         }
         return Pair.ofSame(udf.withChildren(processedExprs));
+    }
+
+    @Override
+    public String parameterDisplayString() {
+        StringBuilder string = new StringBuilder("(");
+        for (int i = 0; i < udf.getArgumentsTypes().size(); ++i) {
+            if (i > 0) {
+                string.append(", ");
+            }
+            string.append(udf.getArgumentsTypes().get(i));
+            if (isVarArgs && i + 1 == udf.getArgumentsTypes().size()) {
+                string.append("...");
+            }
+        }
+        return string.append(")").toString();
     }
 }

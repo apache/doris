@@ -22,7 +22,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW PROCEDURE STATUS
-public class ShowProcedureStmt extends ShowStmt {
+public class ShowProcedureStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Db", ScalarType.createVarchar(64)))

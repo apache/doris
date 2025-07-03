@@ -101,6 +101,23 @@ function install_java() {
     fi
 }
 
+install_maven() {
+    if ! mvn -v >/dev/null; then
+        sudo apt update && sudo apt install maven -y >/dev/null
+        PATH="/usr/share/maven/bin:${PATH}"
+        export PATH
+    fi
+    if ! mvn -v >/dev/null; then
+        wget -c -t3 -q "${MAVEN_DOWNLOAD_URL:-https://dlcdn.apache.org/maven/maven-3/3.9.8/binaries/apache-maven-3.9.8-bin.tar.gz}"
+        tar -xf apache-maven-3.9.8-bin.tar.gz -C /usr/share/
+        PATH="/usr/share/apache-maven-3.9.8/bin:${PATH}"
+        export PATH
+    fi
+    if ! mvn -v >/dev/null; then
+        echo "ERROR: install maven failed" && return 1
+    fi
+}
+
 function start_doris_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if install_java && [[ -z "${JAVA_HOME}" ]]; then
@@ -120,10 +137,10 @@ function start_doris_fe() {
         if [[ -n "${fe_version}" ]] && [[ "${fe_version}" != "NULL" ]]; then
             echo "INFO: doris fe started, fe version: ${fe_version}" && return 0
         else
-            echo "${i}/60, Wait for Frontend ready, sleep 2 seconds ..." && sleep 2
+            echo "${i}/60, Wait for Frontend ready, sleep 5 seconds ..." && sleep 5
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Start Doris Frontend Failed after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Start Doris Frontend Failed after 5 mins wait..." && return 1; fi
 }
 
 function start_doris_be() {
@@ -177,10 +194,10 @@ function check_doris_ready() {
             [[ ${be_ready_count} -eq 1 ]]; then
             echo -e "INFO: Doris cluster ready, be version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
         else
-            echo 'Wait for backends ready, sleep 2 seconds ...' && sleep 2
+            echo 'Wait for backends ready, sleep 5 seconds ...' && sleep 5
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Doris cluster not ready after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Doris cluster not ready after 5 mins wait..." && return 1; fi
 
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
@@ -189,14 +206,26 @@ function check_doris_ready() {
 
 function stop_doris() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
-    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
     if "${DORIS_HOME}"/be/bin/stop_be.sh && "${DORIS_HOME}"/fe/bin/stop_fe.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
         echo "WARNING: force stoped doris"
     fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
+}
+
+function stop_doris_grace() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if "${DORIS_HOME}"/be/bin/stop_be.sh --grace && "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
+        echo "INFO: normally stoped doris --grace"
+    else
+        pgrep -fi doris | xargs kill -9 &>/dev/null
+        echo "WARNING: force stoped doris"
+    fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; fi
 }
 
 function clean_fdb() {
@@ -210,6 +239,7 @@ function clean_fdb() {
         fdbcli --exec "writemode on;clearrange \x01\x10recycle\x00\x01\x10${instance_id}\x00\x01 \x01\x10recycle\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
         fdbcli --exec "writemode on;clearrange \x01\x10job\x00\x01\x10${instance_id}\x00\x01 \x01\x10job\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
         fdbcli --exec "writemode on;clearrange \x01\x10copy\x00\x01\x10${instance_id}\x00\x01 \x01\x10copy\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x00 \xff" &&
         rm -f /var/log/foundationdb/*; then
         echo "INFO: fdb cleaned."
     else
@@ -231,7 +261,41 @@ function install_fdb() {
     fi
 }
 
-function restart_doris() {
+deploy_doris_sql_converter() {
+    # https://doris.apache.org/zh-CN/docs/dev/lakehouse/sql-dialect/
+    if ${DEBUG:-false}; then
+        download_url="https://selectdb-doris.oss-cn-beijing.aliyuncs.com/doris-sql-convertor/doris-sql-convertor-1.0.6-bin-x86.tar.gz"
+    else
+        download_url="${doris_sql_converter_download_url}"
+    fi
+    if [[ -z "${doris_sql_converter_download_url}" ]]; then
+        echo "INFO: doris_sql_converter_download_url not set, skip download doris-sql-converter." && return 0
+    fi
+    if wget -c -t3 -q "${download_url}"; then
+        download_file_name="$(basename "${download_url}")"
+        extract_dir_name="doris_sql_converter"
+        mkdir -p "${extract_dir_name}"
+        tar -xf "${download_file_name}" --strip-components 1 -C "${extract_dir_name}"
+        if [[ ! -f "${extract_dir_name}"/conf/config.conf ]]; then
+            echo "ERROR: miss file ${extract_dir_name}/conf/config.conf" && return 1
+        fi
+        doris_sql_converter_port="${doris_sql_converter_port:-5001}"
+        sed -i "/port=.*/d" "${extract_dir_name}"/conf/config.conf
+        echo "port=${doris_sql_converter_port}" >>"${extract_dir_name}"/conf/config.conf
+        echo "INFO: changed doris-sql-converter port to ${doris_sql_converter_port}"
+        if bash "${extract_dir_name}"/bin/stop.sh && fuser -k 5002/tcp; then echo; fi
+        if bash "${extract_dir_name}"/bin/start.sh &&
+            sleep 2s && lsof -i:"${doris_sql_converter_port}"; then
+            echo "INFO: doris-sql-converter start success."
+        else
+            echo "ERROR: doris-sql-converter start failed." && return 1
+        fi
+    else
+        echo "ERROR: download doris-sql-converter ${download_url} failed." && return 1
+    fi
+}
+
+function _restart_doris() {
     if stop_doris; then echo; fi
     if ! start_doris_fe; then return 1; fi
     if ! start_doris_be; then return 1; fi
@@ -241,14 +305,19 @@ function restart_doris() {
             [[ ${be_ready_count} -eq 1 ]]; then
             echo -e "INFO: ${be_ready_count} Backends ready, version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
         else
-            echo 'Wait for Backends ready, sleep 2 seconds ...' && sleep 2
+            echo 'Wait for Backends ready, sleep 5 seconds ...' && sleep 5
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Backend not ready after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Backend not ready after 5 mins wait..." && return 1; fi
 
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
     sleep 10s
+}
+
+function restart_doris() {
+    # restart BE may block on JVM_MonitorWait() for a long time, here try twice
+    _restart_doris || _restart_doris
 }
 
 function check_tpch_table_rows() {
@@ -415,7 +484,7 @@ set_session_variable() {
     if [[ -z "${v}" ]]; then return 1; fi
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
-    if ${cl} -e"set global ${k}=${v};"; then
+    if ${cl} -e"set global ${k}='${v}';"; then
         if [[ "$(get_session_variable "${k}" | tr '[:upper:]' '[:lower:]')" == "${v}" ]]; then
             echo "INFO:      set global ${k}=${v};"
         else
@@ -423,6 +492,16 @@ set_session_variable() {
         fi
     else
         return 1
+    fi
+}
+
+set_default_storage_vault() {
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
+    if ${cl} -e"set built_in_storage_vault as default storage vault;"; then
+        echo "INFO:      set built_in_storage_vault as default storage vault;"
+    else
+        echo "ERROR:     set built_in_storage_vault as default storage vault;" && return 1
     fi
 }
 
@@ -457,6 +536,47 @@ function set_doris_session_variables_from_file() {
     else
         echo "ERROR: set session variables from file ${session_variables_file}, failed" && return 1
     fi
+}
+
+_monitor_regression_log() {
+    if ! command -v inotifywait >/dev/null; then
+        apt install inotify-tools -y
+    fi
+
+    # Path to the log directory
+    local LOG_DIR="${DORIS_HOME}"/regression-test/log
+
+    # keyword to search for in the log files
+    local KEYWORD="Reach limit of connections"
+
+    local query_port
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+
+    echo "INFO: start monitoring the log files in ${LOG_DIR} for the keyword '${KEYWORD}'"
+
+    local start_row=1
+    local filepath=""
+    set +x
+    # Monitor the log directory for new files and changes, only one file
+    # shellcheck disable=SC2034
+    inotifywait -m -e modify "${LOG_DIR}" | while read -r directory events filename; do
+        filepath="${directory}${filename}"
+        if [[ ! -f "${filepath}" ]]; then continue; fi
+        total_rows=$(wc -l "${filepath}" | awk '{print $1}')
+        if [[ -n ${total_rows} ]] && [[ ${start_row} -ge ${total_rows} ]]; then
+            start_row=${total_rows}
+        fi
+        # shellcheck disable=SC2250
+        if sed -n "${start_row},\$p" "${filepath}" | grep -a -q "${KEYWORD}"; then
+            matched=$(grep -a -n "${KEYWORD}" "${filepath}")
+            start_row=$(echo "${matched}" | tail -n1 | cut -d: -f1)
+            echo "WARNING: find '${matched}' in ${filepath}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+            mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;' | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+        fi
+        start_row=$((start_row + 1))
+        # echo "start_row ${start_row}" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+    done
+
 }
 
 archive_doris_logs() {
@@ -656,6 +776,34 @@ function create_warehouse() {
     fi
 }
 
+function create_warehouse_vault() {
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak and oss_sk are required." && return 1
+    fi
+
+    if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
+        \"instance_id\": \"cloud_instance_0\",
+        \"name\":\"cloud_instance_0\",
+        \"user_id\":\"user-id\",
+        \"vault\": {
+            \"obj_info\": {
+                \"provider\": \"OSS\",
+                \"region\": \"oss-cn-hongkong\",
+                \"bucket\": \"doris-community-test\",
+                \"prefix\": \"cloud_regression_vault\",
+                \"endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+                \"external_endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+                \"ak\": \"${oss_ak}\",
+                \"sk\": \"${oss_sk}\"
+            }
+        }
+    }"; then
+        echo
+    else
+        return 1
+    fi
+}
+
 function warehouse_add_fe() {
     local ret
     if curl "127.0.0.1:5000/MetaService/http/add_cluster?token=greedisgood9999" -d "{
@@ -731,6 +879,32 @@ function check_if_need_gcore() {
         fi
     else
         echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
+    fi
+}
+
+prepare_java_udf() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    # custom_lib相关的case需要在fe启动前把编译好的jar放到 $DORIS_HOME/fe/custom_lib/
+    install_java
+    install_maven
+    OLD_JAVA_HOME=${JAVA_HOME}
+    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+    export JAVA_HOME
+    if bash "${DORIS_HOME}"/../run-regression-test.sh --clean &&
+        bash "${DORIS_HOME}"/../run-regression-test.sh --compile; then
+        echo
+    else
+        echo "ERROR: failed to compile java udf"
+    fi
+    JAVA_HOME=${OLD_JAVA_HOME}
+    export JAVA_HOME
+
+    if ls "${DORIS_HOME}"/fe/custom_lib/*.jar &&
+        ls "${DORIS_HOME}"/be/custom_lib/*.jar; then
+        echo "INFO: java udf prepared."
+    else
+        echo "ERROR: failed to prepare java udf"
+        return 1
     fi
 }
 

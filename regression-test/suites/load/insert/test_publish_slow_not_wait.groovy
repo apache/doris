@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite('test_publish_slow_not_wait') {
+suite('test_publish_slow_not_wait', 'docker') {
     def options = new ClusterOptions()
     options.beNum = 3
     options.feConfigs.add('disable_tablet_scheduler=true')

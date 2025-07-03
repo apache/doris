@@ -39,7 +39,7 @@ suite("test_alter_table_column_rename") {
     for (row : result) {
         //println row
         String jdbcUrl = "jdbc:mysql://" + row[1] + ":" + row[4]
-        def result1 = connect(user = 'root', password = '', jdbcUrl) {
+        def result1 = connect('root', '', jdbcUrl) {
             sql """ SYNC """
             sql """ use regression_test_schema_change_p0 """
             sql """ select * from ${tbName} where new_col = 2 """

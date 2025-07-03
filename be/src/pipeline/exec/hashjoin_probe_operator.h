@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
@@ -26,7 +27,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class HashJoinProbeLocalState;
 
 using HashTableCtxVariants =
@@ -36,14 +37,13 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::CROSS_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
 class HashJoinProbeOperatorX;
-class HashJoinProbeLocalState final
+class HashJoinProbeLocalState MOCK_REMOVE(final)
         : public JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
@@ -56,25 +56,16 @@ public:
     Status close(RuntimeState* state) override;
 
     void prepare_for_next();
-    void add_tuple_is_null_column(vectorized::Block* block) override;
     Status filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
                                         bool* eos, vectorized::Block* temp_block,
                                         bool check_rows_count = true);
 
-    bool have_other_join_conjunct() const;
-    bool is_right_semi_anti() const;
-    bool is_outer_join() const;
-    std::vector<bool>* left_output_slot_flags();
-    std::vector<bool>* right_output_slot_flags();
-    vectorized::DataTypes right_table_data_types();
-    vectorized::DataTypes left_table_data_types();
-    bool* has_null_in_build_side() { return &_shared_state->_has_null_in_build_side; }
+    bool has_null_in_build_side() { return _shared_state->_has_null_in_build_side; }
     const std::shared_ptr<vectorized::Block>& build_block() const {
         return _shared_state->build_block;
     }
     bool empty_right_table_shortcut() const {
-        // !Base::_projections.empty() means nereids planner
-        return _shared_state->empty_right_table_need_probe_dispose && !Base::_projections.empty();
+        return _shared_state->empty_right_table_need_probe_dispose;
     }
     std::string debug_string(int indentation_level) const override;
 
@@ -92,7 +83,6 @@ private:
     bool _ready_probe = false;
     bool _probe_eos = false;
     int _last_probe_match;
-
     // For mark join, last probe index of null mark
     int _last_probe_null_mark;
 
@@ -116,24 +106,24 @@ private:
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
+    int _task_idx;
+
     RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
-    RuntimeProfile::Counter* _probe_next_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
+    RuntimeProfile::Counter* _non_equal_join_conjuncts_timer = nullptr;
 };
 
-class HashJoinProbeOperatorX final : public JoinProbeOperatorX<HashJoinProbeLocalState> {
+class HashJoinProbeOperatorX MOCK_REMOVE(final)
+        : public JoinProbeOperatorX<HashJoinProbeLocalState> {
 public:
     HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
@@ -152,8 +142,9 @@ public:
                                                      _partition_exprs)
                                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
+    bool is_broadcast_join() const { return _is_broadcast_join; }
 
-    bool is_shuffled_hash_join() const override {
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
     bool require_data_distribution() const override {
@@ -161,11 +152,22 @@ public:
                _join_distribution != TJoinDistributionType::NONE;
     }
 
+    bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
+
+    bool can_do_lazy_materialized() const { return _have_other_join_conjunct || _is_mark_join; }
+
+    bool is_lazy_materialized_column(int column_id) const {
+        return can_do_lazy_materialized() &&
+               !_should_not_lazy_materialized_column_ids.contains(column_id);
+    }
+
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
+    template <int JoinOpType>
+    friend struct ProcessHashTableProbe;
 
     const TJoinDistributionType::type _join_distribution;
 
@@ -174,21 +176,26 @@ private:
     vectorized::VExprContextSPtrs _other_join_conjuncts;
 
     vectorized::VExprContextSPtrs _mark_join_conjuncts;
+    // mark the build hash table whether it needs to store null value
+    std::vector<bool> _serialize_null_into_key;
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    bool _probe_ignore_null = false;
-
-    std::vector<bool> _should_convert_to_nullable;
 
     vectorized::DataTypes _right_table_data_types;
     vectorized::DataTypes _left_table_data_types;
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+    bool _need_finalize_variant_column = false;
+    std::set<int> _should_not_lazy_materialized_column_ids;
     std::vector<std::string> _right_table_column_names;
     const std::vector<TExpr> _partition_exprs;
+
+    // Index of column(slot) from right table in the `_intermediate_row_desc`.
+    size_t _right_col_idx;
 };
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

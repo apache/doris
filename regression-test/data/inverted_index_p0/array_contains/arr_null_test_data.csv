@@ -1,0 +1,200 @@
+0|NULL|NULL
+1|[]|NULL
+2|NULL|[]
+3|[null, 'None', null, null, 'None', 'text5', null]|[]
+4|[null, 'None', 'None', null, 'text4', null, 'None']|NULL
+5|NULL|NULL
+6|NULL|[]
+7|NULL|NULL
+8|[null, 'None', 'None', null, 'text4', 'None', null, 'text7', null]|[]
+9|NULL|[]
+10|['None', 'text1', 'None', 'text3', 'text4', null, 'text6', null]|['text0', 'None', null, 'text3', 'None']
+11|[null, 'None', null, 'None', null, 'text5', null, null, 'text8']|[null, null, null, 'text3', null, 'text5', null]
+12|[]|['text0', 'text1', null, 'text3', 'text4', 'None', 'text6', null]
+13|[]|[]
+14|NULL|[null, null, null, 'None', 'None']
+15|NULL|NULL
+16|NULL|NULL
+17|NULL|['text0', null, null, null, 'text4', 'text5', null, null]
+18|[null, 'None', 'None', 'None', 'None', null, 'text6', 'text7', null, null]|NULL
+19|[]|[]
+20|NULL|[]
+21|NULL|NULL
+22|NULL|NULL
+23|NULL|NULL
+24|NULL|[]
+25|NULL|[]
+26|NULL|['text0', 'text1', 'text2', 'text3', null, null, null]
+27|[]|NULL
+28|NULL|NULL
+29|NULL|[]
+30|[]|[null, null, null, 'text3', 'None', 'None', null, null, null, null]
+31|NULL|NULL
+32|NULL|NULL
+33|[]|[]
+34|['None', null, null, 'text3', 'None', null, null, null, 'text8']|[null, 'None', 'None', 'None', 'None', 'None', null]
+35|[]|NULL
+36|NULL|[null, 'None', null, 'text3', 'text4', null, 'text6', null, 'None', 'text9']
+37|['text0', null, 'text2', null, 'text4', 'text5']|NULL
+38|[]|[null, null, null, 'None', 'text4']
+39|[]|['text0', 'text1', null, 'None', 'None']
+40|NULL|['None', null, 'text2', 'text3', 'text4', 'None', 'None', null, null, null]
+41|[null, 'text1', 'text2', 'None', 'None', 'None', null, null, null]|[null, 'None', null, null, 'text4', 'text5', null, 'text7', null, 'None']
+42|NULL|NULL
+43|NULL|NULL
+44|NULL|[]
+45|['None', null, null, 'None', null, 'None', 'None', 'None']|[]
+46|[null, null, 'text2', null, null, null, 'text6', null, 'text8']|NULL
+47|NULL|NULL
+48|NULL|[]
+49|NULL|NULL
+50|['text0', null, 'None', null, null, null, null, 'None']|[]
+51|NULL|NULL
+52|NULL|['text0', 'None', 'None', 'None', 'text4']
+53|[]|NULL
+54|['text0', 'None', 'text2', null, 'None', 'None', null, null]|NULL
+55|['None', null, null, null, null, 'None', null]|[]
+56|NULL|[]
+57|['None', 'text1', null, null, null, null, 'None', null]|[null, null, 'None', 'text3', 'None', null, 'None', 'None']
+58|NULL|[]
+59|NULL|NULL
+60|[]|NULL
+61|[null, 'text1', null, 'None', 'text4', null]|[]
+62|NULL|NULL
+63|[null, null, 'text2', null, 'None', null, null, null, null]|[null, 'text1', 'None', 'text3', null, null, 'text6']
+64|['text0', null, null, null, null, 'text5']|NULL
+65|NULL|['text0', 'None', 'None', 'None', null, 'None', null, 'None', 'text8', 'None']
+66|NULL|NULL
+67|[]|NULL
+68|['None', null, null, 'text3', 'None', null, 'text6', 'None']|NULL
+69|NULL|['text0', null, null, 'None', 'text4', 'text5', null]
+70|['text0', null, null, null, 'text4']|[]
+71|NULL|[null, 'text1', null, null, 'text4', 'text5']
+72|NULL|[]
+73|NULL|[]
+74|[null, 'None', null, 'None', null, null]|[null, 'text1', 'None', null, 'text4', null]
+75|NULL|NULL
+76|[]|[]
+77|[]|[]
+78|[null, null, 'None', 'None', null, null]|['None', 'text1', null, 'None', null, null, null, 'None', null]
+79|NULL|[]
+80|[]|[]
+81|[]|NULL
+82|NULL|NULL
+83|['None', 'None', null, 'None', 'None', 'text5', null, null, null, 'text9']|['None', null, 'None', null, 'text4', 'None', 'None', 'text7', 'None']
+84|NULL|['None', 'None', 'text2', null, 'None', null, null, 'None']
+85|NULL|[null, null, 'text2', 'text3', null, 'text5']
+86|[]|['text0', null, null, 'text3', null, 'text5']
+87|NULL|['None', null, null, null, 'None']
+88|NULL|[]
+89|[null, 'None', 'None', null, 'text4', null, 'text6']|[]
+90|NULL|['None', null, 'None', null, 'None', 'text5', 'text6', 'text7', null]
+91|NULL|[null, 'None', null, 'text3', null, null, 'text6', 'text7', 'None']
+92|NULL|['None', 'None', 'None', null, null, 'text5', null, null]
+93|[]|[]
+94|[null, null, 'None', 'text3', 'text4', null]|[]
+95|NULL|[null, 'None', 'None', null, 'None', null, null, 'None']
+96|NULL|NULL
+97|[]|NULL
+98|[]|NULL
+99|['text0', 'text1', null, 'text3', 'text4', null, null, null, null, 'None']|['None', 'text1', 'text2', 'text3', null, null, 'None', null]
+100|NULL|NULL
+101|NULL|[null, null, null, null, 'text4', null, 'None', 'None']
+102|[null, 'None', 'None', 'text3', 'None', null, null, null, null]|['None', null, null, 'text3', null]
+103|NULL|NULL
+104|NULL|[null, 'None', 'text2', null, 'None', null]
+105|[null, null, 'text2', 'text3', null]|NULL
+106|NULL|[]
+107|NULL|['text0', null, null, null, 'None']
+108|NULL|NULL
+109|NULL|[]
+110|[null, 'text1', 'None', null, 'None', null, 'text6', 'text7']|[]
+111|[null, null, 'None', 'text3', null, 'None']|[null, 'text1', null, null, 'None', null]
+112|NULL|[null, 'None', null, null, 'text4', 'text5', 'text6', 'None']
+113|NULL|[]
+114|NULL|['None', null, null, null, null, 'text5']
+115|[null, null, 'None', 'text3', null]|['text0', 'text1', null, null, null]
+116|NULL|NULL
+117|NULL|[]
+118|['text0', null, null, null, 'None', 'text5', 'text6', 'None', 'text8']|NULL
+119|[null, 'text1', 'text2', 'None', null, null, 'text6', 'None']|NULL
+120|[null, 'None', null, 'None', null, null, null, null, null]|['text0', 'text1', 'None', 'None', null, 'None', null, null]
+121|NULL|[null, null, 'text2', null, 'None']
+122|NULL|[]
+123|['None', 'text1', 'None', 'None', null, 'text5']|[null, 'None', null, null, 'None', 'None', null]
+124|[]|[null, 'None', null, null, null, null]
+125|NULL|NULL
+126|NULL|[]
+127|NULL|NULL
+128|NULL|[]
+129|['text0', 'None', 'None', 'text3', null, 'text5']|['None', 'text1', 'text2', 'None', null, null, 'None', null, 'None']
+130|NULL|NULL
+131|['text0', 'text1', 'text2', 'None', null, null, 'None']|NULL
+132|NULL|NULL
+133|NULL|NULL
+134|[]|[]
+135|NULL|NULL
+136|NULL|[null, null, null, null, null, 'None', 'text6', null]
+137|[]|NULL
+138|NULL|[]
+139|NULL|['text0', null, 'text2', null, 'text4', null, null, 'None', 'text8', null]
+140|[]|[]
+141|[]|[]
+142|NULL|NULL
+143|NULL|NULL
+144|[]|['None', 'text1', null, null, 'text4', null, 'text6', null, null, 'None']
+145|[]|NULL
+146|[]|['text0', 'None', null, null, null, 'None', null]
+147|NULL|NULL
+148|['None', 'None', null, 'None', 'text4', 'None']|['None', null, null, null, 'None']
+149|NULL|['None', null, null, 'None', 'None', null, null, 'text7']
+150|['text0', 'text1', 'None', 'text3', 'text4', 'None']|[]
+151|[]|[]
+152|NULL|NULL
+153|NULL|NULL
+154|[null, 'text1', null, null, null, 'None', 'None', 'text7']|[null, null, null, null, 'text4', 'text5', 'text6']
+155|NULL|['None', 'text1', 'text2', 'text3', 'None', null, 'None', 'text7', 'text8', 'None']
+156|[null, 'None', null, 'text3', null, 'text5', 'text6', null]|NULL
+157|NULL|['None', 'None', 'text2', null, null]
+158|[]|[]
+159|NULL|[]
+160|NULL|NULL
+161|[]|[]
+162|[null, 'None', null, 'None', 'text4']|NULL
+163|NULL|NULL
+164|['None', 'None', 'None', null, null, null, 'text6', null, null]|NULL
+165|[]|NULL
+166|NULL|[]
+167|NULL|NULL
+168|[]|[]
+169|[]|['text0', 'text1', null, null, 'text4', null]
+170|NULL|[null, null, 'None', 'None', 'None', 'text5', 'None', null, 'None', 'None']
+171|NULL|NULL
+172|[]|NULL
+173|NULL|[]
+174|['None', 'text1', null, 'None', 'text4', null, null, 'None', 'text8']|[]
+175|NULL|NULL
+176|[]|NULL
+177|NULL|[]
+178|[]|[]
+179|NULL|NULL
+180|[null, null, null, null, 'text4', null, null, null, 'text8']|NULL
+181|[]|[null, 'None', null, null, 'text4', null, 'text6', 'None']
+182|NULL|['None', 'text1', null, 'None', 'None', null, 'None', 'text7']
+183|NULL|[null, null, 'None', 'text3', null, 'None', null, 'None', null, null]
+184|[null, 'None', null, 'None', null, 'text5', 'None', 'text7']|NULL
+185|[]|NULL
+186|NULL|[null, null, null, 'text3', 'text4']
+187|[null, null, 'None', 'text3', 'text4']|NULL
+188|[]|[]
+189|[null, null, 'text2', null, 'None', null, null, 'None', 'text8']|NULL
+190|['None', null, 'None', null, 'None', 'text5', 'None', null, 'text8', null]|[]
+191|NULL|NULL
+192|NULL|NULL
+193|['None', null, 'text2', 'None', null]|NULL
+194|NULL|[]
+195|[]|NULL
+196|NULL|NULL
+197|[null, 'text1', 'text2', 'None', 'text4', null, null]|[null, 'None', 'None', 'None', null, null, null, 'text7', null, null]
+198|NULL|NULL
+199|[]|[null, 'None', 'None', null, null, null, null, null, null, 'text9']

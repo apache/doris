@@ -21,7 +21,6 @@ import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelation;
@@ -36,6 +35,7 @@ public class OlapTableFactory {
     public static class BuildParams {
         public long tableId;
         public String tableName;
+        public boolean isTemporary;
         public List<Column> schema;
         public KeysType keysType;
         public PartitionInfo partitionInfo;
@@ -44,11 +44,14 @@ public class OlapTableFactory {
 
     public static class OlapTableParams extends BuildParams {
         public TableIndexes indexes;
+
+        public OlapTableParams(boolean isTemporary) {
+            this.isTemporary = isTemporary;
+        }
     }
 
     public static class MTMVParams extends BuildParams {
         public MTMVRefreshInfo refreshInfo;
-        public EnvInfo envInfo;
         public String querySql;
         public Map<String, String> mvProperties;
         public MTMVPartitionInfo mvPartitionInfo;
@@ -67,8 +70,12 @@ public class OlapTableFactory {
         }
     }
 
-    public OlapTableFactory init(TableType type) {
-        params = (type == TableType.OLAP) ? new OlapTableParams() : new MTMVParams();
+    public OlapTableFactory init(TableType type, boolean isTemporary) {
+        if (type == TableType.OLAP) {
+            params = new OlapTableParams(isTemporary);
+        } else {
+            params = new MTMVParams();
+        }
         return this;
     }
 
@@ -80,6 +87,7 @@ public class OlapTableFactory {
             return new OlapTable(
                     olapTableParams.tableId,
                     olapTableParams.tableName,
+                    olapTableParams.isTemporary,
                     olapTableParams.schema,
                     olapTableParams.keysType,
                     olapTableParams.partitionInfo,
@@ -154,14 +162,6 @@ public class OlapTableFactory {
         return this;
     }
 
-    private OlapTableFactory withEnvInfo(EnvInfo envInfo) {
-        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
-                + params.getClass().getSimpleName());
-        MTMVParams mtmvParams = (MTMVParams) params;
-        mtmvParams.envInfo = envInfo;
-        return this;
-    }
-
     private OlapTableFactory withMvPartitionInfo(MTMVPartitionInfo mvPartitionInfo) {
         Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
@@ -189,8 +189,7 @@ public class OlapTableFactory {
                     .withQuerySql(createMTMVStmt.getQuerySql())
                     .withMvProperties(createMTMVStmt.getMvProperties())
                     .withMvPartitionInfo(createMTMVStmt.getMvPartitionInfo())
-                    .withMvRelation(createMTMVStmt.getRelation())
-                    .withEnvInfo(createMTMVStmt.getEnvInfo());
+                    .withMvRelation(createMTMVStmt.getRelation());
         }
     }
 }

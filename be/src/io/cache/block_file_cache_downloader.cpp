@@ -43,8 +43,8 @@ namespace doris::io {
 FileCacheBlockDownloader::FileCacheBlockDownloader(CloudStorageEngine& engine) : _engine(engine) {
     _poller = std::thread(&FileCacheBlockDownloader::polling_download_task, this);
     auto st = ThreadPoolBuilder("FileCacheBlockDownloader")
-                      .set_min_threads(4)
-                      .set_max_threads(16)
+                      .set_min_threads(config::file_cache_downloader_thread_num_min)
+                      .set_max_threads(config::file_cache_downloader_thread_num_max)
                       .build(&_workers);
     CHECK(st.ok()) << "failed to create FileCacheBlockDownloader";
 }
@@ -130,6 +130,16 @@ void FileCacheBlockDownloader::check_download_task(const std::vector<int64_t>& t
     }
 }
 
+std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTablet* tablet) {
+    std::unordered_map<std::string, RowsetMetaSharedPtr> id_to_rowset_meta_map;
+    auto visitor = [&id_to_rowset_meta_map](const RowsetSharedPtr& r) {
+        id_to_rowset_meta_map.emplace(r->rowset_meta()->rowset_id().to_string(), r->rowset_meta());
+    };
+    constexpr bool include_stale = false;
+    tablet->traverse_rowsets(visitor, include_stale);
+    return id_to_rowset_meta_map;
+}
+
 void FileCacheBlockDownloader::download_file_cache_block(
         const DownloadTask::FileCacheBlockMetaVec& metas) {
     std::ranges::for_each(metas, [&](const FileCacheBlockMeta& meta) {
@@ -141,7 +151,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
             tablet = std::move(res).value();
         }
 
-        auto id_to_rowset_meta_map = tablet->tablet_meta()->snapshot_rs_metas();
+        auto id_to_rowset_meta_map = snapshot_rs_metas(tablet.get());
         auto find_it = id_to_rowset_meta_map.find(meta.rowset_id());
         if (find_it == id_to_rowset_meta_map.end()) {
             return;
@@ -171,7 +181,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
         DownloadFileMeta download_meta {
                 .path = storage_resource.value()->remote_segment_path(*find_it->second,
                                                                       meta.segment_id()),
-                .file_size = meta.offset() + meta.size(), // To avoid trigger get file size IO
+                .file_size = meta.has_file_size() ? meta.file_size()
+                                                  : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
                 .download_size = meta.size(),
                 .file_system = storage_resource.value()->fs,
@@ -179,6 +190,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
                         {
                                 .is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX,
                                 .expiration_time = meta.expiration_time(),
+                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                         },
                 .download_done = std::move(download_done),
         };
@@ -191,6 +203,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     FileReaderOptions opts {
             .cache_type = FileCachePolicy::FILE_BLOCK_CACHE,
             .is_doris_table = true,
+            .cache_base_path {},
             .file_size = meta.file_size,
     };
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);
@@ -217,6 +230,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         // TODO(plat1ko):
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
+        DCHECK(meta.ctx.is_dryrun == config::enable_reader_dryrun_when_download_file_cache);
         auto st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
         if (!st.ok()) {
             LOG(WARNING) << "failed to download file: " << st;

@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS fulltext_t1_uk_array (
     a VARCHAR(200),
 	b ARRAY<TEXT>,
     INDEX a_idx (a) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'a_idx',
-    INDEX b_idx (b) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'b_idx'
+    INDEX b_idx (b) USING INVERTED PROPERTIES("parser"="none") COMMENT 'b_idx'
 )
 UNIQUE KEY(a)
 DISTRIBUTED BY HASH(a) BUCKETS 3

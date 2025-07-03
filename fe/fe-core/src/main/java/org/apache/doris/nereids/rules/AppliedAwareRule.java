@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.TransformException;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.pattern.ProxyPattern;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -52,7 +51,7 @@ public class AppliedAwareRule extends Rule {
     }
 
     @Override
-    public List<Plan> transform(Plan plan, CascadesContext context) throws TransformException {
+    public List<Plan> transform(Plan plan, CascadesContext context) {
         return rule.transform(plan, context);
     }
 
@@ -60,6 +59,11 @@ public class AppliedAwareRule extends Rule {
     public void acceptPlan(Plan plan) {
         BitSet appliedRules = plan.getOrInitMutableState(APPLIED_RULES_KEY, CREATE_APPLIED_RULES);
         appliedRules.set(ruleTypeIndex);
+    }
+
+    @Override
+    public String ruleName() {
+        return rule.ruleName();
     }
 
     /**
@@ -103,6 +107,11 @@ public class AppliedAwareRule extends Rule {
         @Override
         public boolean matchRoot(Plan plan) {
             return matchRootPredicate.test(plan) && super.matchRoot(plan);
+        }
+
+        @Override
+        public Class<TYPE> getMatchedType() {
+            return pattern.getMatchedType();
         }
     }
 }

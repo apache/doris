@@ -35,8 +35,8 @@ TEST(CodecTest, StringCodecTest) {
     std::mt19937 gen(std::random_device("/dev/urandom")());
     const int max_len = (2 << 16) + 10086;
     std::uniform_int_distribution<int> rd_len(0, max_len);
-    std::uniform_int_distribution<char> rd_char(std::numeric_limits<char>::min(),
-                                                std::numeric_limits<char>::max());
+    std::uniform_int_distribution<short> rd_char(std::numeric_limits<char>::min(),
+                                                 std::numeric_limits<char>::max());
 
     int ret = -1;
 

@@ -54,14 +54,14 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0]))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "First argument for function: " << name
                 << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
-        DCHECK(is_integer(arguments[1]))
+        DCHECK(is_int_or_bool(arguments[1]->get_primitive_type()))
                 << "Second argument for function: " << name << " should be Integer but it has type "
                 << arguments[1]->get_name() << ".";
         if (arguments.size() > 2) {
-            DCHECK(is_integer(arguments[2]))
+            DCHECK(is_int_or_bool(arguments[2]->get_primitive_type()))
                     << "Third argument for function: " << name
                     << " should be Integer but it has type " << arguments[2]->get_name() << ".";
         }
@@ -69,7 +69,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto array_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto offset_column =
@@ -89,7 +89,7 @@ public:
         }
         // prepare dst array column
         bool is_nullable = src.nested_nullmap_data ? true : false;
-        ColumnArrayMutableData dst = create_mutable_data(src.nested_col, is_nullable);
+        ColumnArrayMutableData dst = create_mutable_data(src.nested_col.get(), is_nullable);
         dst.offsets_ptr->reserve(input_rows_count);
         // execute
         slice_array(dst, src, *offset_column, length_column.get());

@@ -37,10 +37,11 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
 #include "olap/utils.h"
-#include "runtime/thread_context.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
@@ -49,11 +50,11 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
-
-static bvar::Adder<size_t> g_total_tablet_schema_num("doris_total_tablet_schema_num");
 
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
@@ -97,10 +98,8 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_HLL;
     case PrimitiveType::TYPE_DECIMALV2:
         return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
-    case PrimitiveType::TYPE_TIME:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-    case PrimitiveType::TYPE_OBJECT:
-        return FieldType::OLAP_FIELD_TYPE_OBJECT;
+    case PrimitiveType::TYPE_BITMAP:
+        return FieldType::OLAP_FIELD_TYPE_BITMAP;
     case PrimitiveType::TYPE_STRING:
         return FieldType::OLAP_FIELD_TYPE_STRING;
     case PrimitiveType::TYPE_QUANTILE_STATE:
@@ -203,7 +202,9 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     } else if (0 == upper_type_str.compare("MAP")) {
         type = FieldType::OLAP_FIELD_TYPE_MAP;
     } else if (0 == upper_type_str.compare("OBJECT")) {
-        type = FieldType::OLAP_FIELD_TYPE_OBJECT;
+        type = FieldType::OLAP_FIELD_TYPE_BITMAP;
+    } else if (0 == upper_type_str.compare("BITMAP")) {
+        type = FieldType::OLAP_FIELD_TYPE_BITMAP;
     } else if (0 == upper_type_str.compare("ARRAY")) {
         type = FieldType::OLAP_FIELD_TYPE_ARRAY;
     } else if (0 == upper_type_str.compare("QUANTILE_STATE")) {
@@ -352,7 +353,7 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_MAP:
         return "MAP";
 
-    case FieldType::OLAP_FIELD_TYPE_OBJECT:
+    case FieldType::OLAP_FIELD_TYPE_BITMAP:
         return "OBJECT";
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         return "QUANTILE_STATE";
@@ -427,7 +428,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DOUBLE:
         return 8;
     case TPrimitiveType::QUANTILE_STATE:
-    case TPrimitiveType::OBJECT:
+    case TPrimitiveType::BITMAP:
         return 16;
     case TPrimitiveType::CHAR:
         return string_length;
@@ -461,6 +462,22 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     default:
         LOG(WARNING) << "unknown field type. [type=" << type << "]";
         return 0;
+    }
+}
+
+bool TabletColumn::has_char_type() const {
+    switch (_type) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR: {
+        return true;
+    }
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
+    case FieldType::OLAP_FIELD_TYPE_MAP:
+    case FieldType::OLAP_FIELD_TYPE_STRUCT: {
+        return std::any_of(_sub_columns.begin(), _sub_columns.end(),
+                           [&](const auto& sub) -> bool { return sub->has_char_type(); });
+    }
+    default:
+        return false;
     }
 }
 
@@ -550,11 +567,18 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _visible = column.visible();
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        CHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
+        CHECK(column.children_columns_size() == 1)
+                << "ARRAY type should has 1 children types, but got "
+                << column.children_columns_size();
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        DCHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
-        LOG(WARNING) << "MAP type has more than 2 children types.";
+        DCHECK(column.children_columns_size() == 2)
+                << "MAP type should has 2 children types, but got "
+                << column.children_columns_size();
+        if (UNLIKELY(column.children_columns_size() != 2)) {
+            LOG(WARNING) << "MAP type should has 2 children types, but got "
+                         << column.children_columns_size();
+        }
     }
     for (size_t i = 0; i < column.children_columns_size(); i++) {
         TabletColumn child_column;
@@ -570,7 +594,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         // set path info for variant root column, to prevent from missing
         _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
     }
-    for (auto& column_pb : column.sparse_columns()) {
+    for (const auto& column_pb : column.sparse_columns()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
         _sparse_cols.emplace_back(std::make_shared<TabletColumn>(std::move(column)));
@@ -621,11 +645,15 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_visible(_visible);
 
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        CHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
+        CHECK(_sub_columns.size() == 1)
+                << "ARRAY type should has 1 children types, but got " << _sub_columns.size();
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        DCHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
-        LOG(WARNING) << "MAP type has more than 2 children types.";
+        DCHECK(_sub_columns.size() == 2)
+                << "MAP type should has 2 children types, but got " << _sub_columns.size();
+        if (UNLIKELY(_sub_columns.size() != 2)) {
+            LOG(WARNING) << "MAP type should has 2 children types, but got " << _sub_columns.size();
+        }
     }
 
     for (size_t i = 0; i < _sub_columns.size(); i++) {
@@ -662,24 +690,28 @@ bool TabletColumn::is_row_store_column() const {
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
-        vectorized::DataTypePtr type) const {
+        vectorized::DataTypePtr type, int current_be_exec_version) const {
     const auto* state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
+    BeExecVersionManager::check_function_compatibility(
+            current_be_exec_version, _be_exec_version,
+            state_type->get_nested_function()->get_name());
     return vectorized::AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
 }
 
-vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
+vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
+        std::string suffix, int current_be_exec_version) const {
     vectorized::AggregateFunctionPtr function = nullptr;
 
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
-        function = get_aggregate_function_union(type);
+    if (type && type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+        function = get_aggregate_function_union(type, current_be_exec_version);
     } else {
         std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
         std::string agg_name = origin_name + suffix;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
-        function = vectorized::AggregateFunctionSimpleFactory::instance().get(agg_name, {type},
-                                                                              type->is_nullable());
+        function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+                agg_name, {type}, type->is_nullable(), BeExecVersionManager::get_newest_version());
         if (!function) {
             LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
                          << ", column_type=" << type->get_name();
@@ -736,7 +768,14 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
         if (column_idx >= 0) {
             col_unique_ids[i] = tablet_schema.column(column_idx).unique_id();
         } else {
-            col_unique_ids[i] = -1;
+            // if column unique id not found by column name, find by column unique id
+            // column unique id can not found means this column is a new column added by light schema change
+            if (index.__isset.column_unique_ids && !index.column_unique_ids.empty() &&
+                tablet_schema.has_column_unique_id(index.column_unique_ids[i])) {
+                col_unique_ids[i] = index.column_unique_ids[i];
+            } else {
+                col_unique_ids[i] = -1;
+            }
         }
     }
     _col_unique_ids = std::move(col_unique_ids);
@@ -797,7 +836,7 @@ void TabletIndex::init_from_pb(const TabletIndexPB& index) {
         _col_unique_ids.push_back(col_unique_id);
     }
     _index_type = index.index_type();
-    for (auto& kv : index.properties()) {
+    for (const auto& kv : index.properties()) {
         _properties[kv.first] = kv.second;
     }
     _escaped_index_suffix_path = index.index_suffix_name();
@@ -832,12 +871,12 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     }
 }
 
-TabletSchema::TabletSchema() {
-    g_total_tablet_schema_num << 1;
-}
+TabletSchema::TabletSchema() = default;
 
-TabletSchema::~TabletSchema() {
-    g_total_tablet_schema_num << -1;
+TabletSchema::~TabletSchema() {}
+
+int64_t TabletSchema::get_metadata_size() const {
+    return sizeof(TabletSchema);
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
@@ -861,8 +900,10 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _sequence_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == VERSION_COL)) {
         _version_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == SKIP_BITMAP_COL)) {
+        _skip_bitmap_col_idx = _num_columns;
     }
-    _field_id_to_index[column.unique_id()] = _num_columns;
+    _field_uniqueid_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
     // The dropped column may have same name with exsiting column, so that
     // not add to name to index map, only for uid to index map
@@ -881,21 +922,26 @@ void TabletColumn::append_sparse_column(TabletColumn column) {
     _num_sparse_columns++;
 }
 
-void TabletSchema::append_index(TabletIndex index) {
-    _indexes.push_back(std::move(index));
+void TabletSchema::append_index(TabletIndex&& index) {
+    for (int32_t id : index.col_unique_ids()) {
+        _col_id_suffix_to_index.emplace(
+                std::make_tuple(index.index_type(), id, index.get_index_suffix()), _indexes.size());
+    }
+    _indexes.push_back(std::make_shared<TabletIndex>(index));
 }
 
-void TabletSchema::update_index(const TabletColumn& col, TabletIndex index) {
-    int32_t col_unique_id = col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        for (int32_t id : _indexes[i].col_unique_ids()) {
-            if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
-                _indexes[i] = index;
-            }
-        }
+void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_type,
+                                TabletIndex&& index) {
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
+    const std::string& suffix_path = escape_for_path_name(col.suffix_path());
+    IndexKey key(index_type, col_unique_id, suffix_path);
+    auto iter = _col_id_suffix_to_index.find(key);
+    if (iter != _col_id_suffix_to_index.end()) {
+        _indexes[iter->second] = std::make_shared<TabletIndex>(std::move(index));
+        return;
     }
+    LOG(WARNING) << " failed to update_index: " << index_type << " " << col_unique_id << " "
+                 << suffix_path;
 }
 
 void TabletSchema::replace_column(size_t pos, TabletColumn new_col) {
@@ -905,23 +951,31 @@ void TabletSchema::replace_column(size_t pos, TabletColumn new_col) {
 
 void TabletSchema::clear_index() {
     _indexes.clear();
+    _col_id_suffix_to_index.clear();
 }
 
 void TabletSchema::remove_index(int64_t index_id) {
-    std::vector<TabletIndex> indexes;
+    std::vector<TabletIndexPtr> indexes;
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> col_id_suffix_to_index;
     for (auto index : _indexes) {
-        if (index.index_id() == index_id) {
+        if (index->index_id() == index_id) {
             continue;
+        }
+        for (int32_t col_uid : index->col_unique_ids()) {
+            col_id_suffix_to_index.emplace(
+                    std::make_tuple(index->index_type(), col_uid, index->get_index_suffix()),
+                    indexes.size());
         }
         indexes.emplace_back(std::move(index));
     }
     _indexes = std::move(indexes);
+    _col_id_suffix_to_index = std::move(col_id_suffix_to_index);
 }
 
 void TabletSchema::clear_columns() {
     _field_path_to_index.clear();
     _field_name_to_index.clear();
-    _field_id_to_index.clear();
+    _field_uniqueid_to_index.clear();
     _num_columns = 0;
     _num_variant_columns = 0;
     _num_null_columns = 0;
@@ -929,7 +983,8 @@ void TabletSchema::clear_columns() {
     _cols.clear();
 }
 
-void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns) {
+void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns,
+                                bool reuse_cache_column) {
     _keys_type = schema.keys_type();
     _num_columns = 0;
     _num_variant_columns = 0;
@@ -937,35 +992,65 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _num_null_columns = 0;
     _cols.clear();
     _indexes.clear();
+    _col_id_suffix_to_index.clear();
     _field_name_to_index.clear();
-    _field_id_to_index.clear();
-    _cluster_key_idxes.clear();
-    for (const auto& i : schema.cluster_key_idxes()) {
-        _cluster_key_idxes.push_back(i);
+    _field_uniqueid_to_index.clear();
+    _cluster_key_uids.clear();
+    for (const auto& i : schema.cluster_key_uids()) {
+        _cluster_key_uids.push_back(i);
     }
     for (auto& column_pb : schema.column()) {
-        TabletColumn column;
-        column.init_from_pb(column_pb);
-        if (ignore_extracted_columns && column.is_extracted_column()) {
+        TabletColumnPtr column;
+        if (reuse_cache_column) {
+            auto pair = TabletColumnObjectPool::instance()->insert(
+                    deterministic_string_serialize(column_pb));
+            column = pair.second;
+            // Release the handle quickly, because we use shared ptr to manage column.
+            // It often core during tablet schema copy to another schema because handle's
+            // reference count should be managed mannually.
+            TabletColumnObjectPool::instance()->release(pair.first);
+        } else {
+            column = std::make_shared<TabletColumn>();
+            column->init_from_pb(column_pb);
+        }
+        if (ignore_extracted_columns && column->is_extracted_column()) {
             continue;
         }
-        if (column.is_key()) {
+        if (column->is_key()) {
             _num_key_columns++;
         }
-        if (column.is_nullable()) {
+        if (column->is_nullable()) {
             _num_null_columns++;
         }
-        if (column.is_variant_type()) {
+        if (column->is_variant_type()) {
             ++_num_variant_columns;
         }
-        _cols.emplace_back(std::make_shared<TabletColumn>(std::move(column)));
-        _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
-        _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
+
+        _cols.emplace_back(std::move(column));
+        if (!_cols.back()->is_extracted_column()) {
+            _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
+            _field_uniqueid_to_index[_cols.back()->unique_id()] = _num_columns;
+        }
         _num_columns++;
     }
-    for (auto& index_pb : schema.index()) {
-        TabletIndex index;
-        index.init_from_pb(index_pb);
+    for (const auto& index_pb : schema.index()) {
+        TabletIndexPtr index;
+        if (reuse_cache_column) {
+            auto pair = TabletColumnObjectPool::instance()->insert_index(
+                    deterministic_string_serialize(index_pb));
+            index = pair.second;
+            //  Only need the value to be cached by the pool, release it quickly because the handle need
+            // record reference count mannually, or it will core during tablet schema copy method.
+            TabletColumnObjectPool::instance()->release(pair.first);
+        } else {
+            index = std::make_shared<TabletIndex>();
+            index->init_from_pb(index_pb);
+        }
+        for (int32_t col_uid : index->col_unique_ids()) {
+            _col_id_suffix_to_index.emplace(
+                    std::make_tuple(index->index_type(), col_uid, index->get_index_suffix()),
+                    _indexes.size());
+        }
         _indexes.emplace_back(std::move(index));
     }
     _num_short_key_columns = schema.num_short_key_columns();
@@ -987,10 +1072,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _version_col_idx = schema.version_col_idx();
+    _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _row_store_page_size = schema.row_store_page_size();
+    _storage_page_size = schema.storage_page_size();
     _schema_version = schema.schema_version();
     // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
     if (!schema.has_inverted_index_storage_format()) {
@@ -1001,6 +1088,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
 
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
+    _enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
+    update_metadata_size();
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -1010,13 +1099,25 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     _table_id = tablet_schema.table_id();
 }
 
+void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schema) {
+    *this = tablet_schema;
+    _field_path_to_index.clear();
+    _field_name_to_index.clear();
+    _field_uniqueid_to_index.clear();
+    _num_columns = 0;
+    _num_variant_columns = 0;
+    _num_null_columns = 0;
+    _num_key_columns = 0;
+    _cols.clear();
+}
+
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
     for (auto& col : _cols) {
         if (col->unique_id() < 0) {
             continue;
         }
-        const auto iter = tablet_schema._field_id_to_index.find(col->unique_id());
-        if (iter == tablet_schema._field_id_to_index.end()) {
+        const auto iter = tablet_schema._field_uniqueid_to_index.find(col->unique_id());
+        if (iter == tablet_schema._field_uniqueid_to_index.end()) {
             continue;
         }
         auto col_idx = iter->second;
@@ -1052,6 +1153,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
+    _storage_page_size = ori_tablet_schema.storage_page_size();
+    _enable_variant_flatten_nested = ori_tablet_schema.variant_flatten_nested();
 
     // copy from table_schema_param
     _schema_version = version;
@@ -1062,14 +1165,16 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     bool has_bf_columns = false;
     _cols.clear();
     _indexes.clear();
+    _col_id_suffix_to_index.clear();
     _field_name_to_index.clear();
-    _field_id_to_index.clear();
+    _field_uniqueid_to_index.clear();
     _delete_sign_idx = -1;
     _sequence_col_idx = -1;
     _version_col_idx = -1;
-    _cluster_key_idxes.clear();
-    for (const auto& i : ori_tablet_schema._cluster_key_idxes) {
-        _cluster_key_idxes.push_back(i);
+    _skip_bitmap_col_idx = -1;
+    _cluster_key_uids.clear();
+    for (const auto& i : ori_tablet_schema._cluster_key_uids) {
+        _cluster_key_uids.push_back(i);
     }
     for (auto& column : index->columns) {
         if (column->is_key()) {
@@ -1090,15 +1195,22 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _sequence_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == VERSION_COL)) {
             _version_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == SKIP_BITMAP_COL)) {
+            _skip_bitmap_col_idx = _num_columns;
         }
         _cols.emplace_back(std::make_shared<TabletColumn>(*column));
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
-        _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
+        _field_uniqueid_to_index[_cols.back()->unique_id()] = _num_columns;
         _num_columns++;
     }
 
-    for (auto& i : index->indexes) {
-        _indexes.emplace_back(*i);
+    for (const auto& i : index->indexes) {
+        for (int32_t col_uid : i->col_unique_ids()) {
+            _col_id_suffix_to_index.emplace(
+                    std::make_tuple(i->index_type(), col_uid, i->get_index_suffix()),
+                    _indexes.size());
+        }
+        _indexes.emplace_back(std::make_shared<TabletIndex>(*i));
     }
 
     if (has_bf_columns) {
@@ -1116,7 +1228,7 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
         return;
     }
     for (const auto& src_col : src_schema.columns()) {
-        if (_field_id_to_index.find(src_col->unique_id()) == _field_id_to_index.end()) {
+        if (_field_uniqueid_to_index.find(src_col->unique_id()) == _field_uniqueid_to_index.end()) {
             CHECK(!src_col->is_key())
                     << src_col->name() << " is key column, should not be dropped.";
             ColumnPB src_col_pb;
@@ -1137,10 +1249,10 @@ TabletSchemaSPtr TabletSchema::copy_without_variant_extracted_columns() {
     return copy;
 }
 
-// Dropped column is in _field_id_to_index but not in _field_name_to_index
+// Dropped column is in _field_uniqueid_to_index but not in _field_name_to_index
 // Could refer to append_column method
 bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
-    CHECK(_field_id_to_index.find(col.unique_id()) != _field_id_to_index.end())
+    CHECK(_field_uniqueid_to_index.find(col.unique_id()) != _field_uniqueid_to_index.end())
             << "could not find col with unique id = " << col.unique_id()
             << " and name = " << col.name() << " table_id=" << _table_id;
     auto it = _field_name_to_index.find(StringRef {col.name()});
@@ -1175,8 +1287,8 @@ void TabletSchema::reserve_extracted_columns() {
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
-    for (const auto& i : _cluster_key_idxes) {
-        tablet_schema_pb->add_cluster_key_idxes(i);
+    for (const auto& i : _cluster_key_uids) {
+        tablet_schema_pb->add_cluster_key_uids(i);
     }
     tablet_schema_pb->set_keys_type(_keys_type);
     for (const auto& col : _cols) {
@@ -1185,7 +1297,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     }
     for (const auto& index : _indexes) {
         auto* index_pb = tablet_schema_pb->add_index();
-        index.to_schema_pb(index_pb);
+        index->to_schema_pb(index_pb);
     }
     tablet_schema_pb->set_num_short_key_columns(_num_short_key_columns);
     tablet_schema_pb->set_num_rows_per_row_block(_num_rows_per_row_block);
@@ -1206,10 +1318,13 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_row_store_page_size(_row_store_page_size);
+    tablet_schema_pb->set_storage_page_size(_storage_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
+    tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
+    tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1233,8 +1348,8 @@ int32_t TabletSchema::field_index(const vectorized::PathInData& path) const {
 }
 
 int32_t TabletSchema::field_index(int32_t col_unique_id) const {
-    const auto& found = _field_id_to_index.find(col_unique_id);
-    return (found == _field_id_to_index.end()) ? -1 : found->second;
+    const auto& found = _field_uniqueid_to_index.find(col_unique_id);
+    return (found == _field_uniqueid_to_index.end()) ? -1 : found->second;
 }
 
 const std::vector<TabletColumnPtr>& TabletSchema::columns() const {
@@ -1257,11 +1372,11 @@ const TabletColumn& TabletColumn::sparse_column_at(size_t ordinal) const {
 }
 
 const TabletColumn& TabletSchema::column_by_uid(int32_t col_unique_id) const {
-    return *_cols.at(_field_id_to_index.at(col_unique_id));
+    return *_cols.at(_field_uniqueid_to_index.at(col_unique_id));
 }
 
 TabletColumn& TabletSchema::mutable_column_by_uid(int32_t col_unique_id) {
-    return *_cols.at(_field_id_to_index.at(col_unique_id));
+    return *_cols.at(_field_uniqueid_to_index.at(col_unique_id));
 }
 
 TabletColumn& TabletSchema::mutable_column(size_t ordinal) {
@@ -1269,13 +1384,30 @@ TabletColumn& TabletSchema::mutable_column(size_t ordinal) {
 }
 
 void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& tindexes) {
-    std::vector<TabletIndex> indexes;
-    for (auto& tindex : tindexes) {
+    std::vector<TabletIndexPtr> indexes;
+    for (const auto& tindex : tindexes) {
         TabletIndex index;
         index.init_from_thrift(tindex, *this);
-        indexes.emplace_back(std::move(index));
+        indexes.emplace_back(std::make_shared<TabletIndex>(std::move(index)));
     }
     _indexes = std::move(indexes);
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> col_id_suffix_to_index;
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        for (int32_t col_uid : _indexes[i]->col_unique_ids()) {
+            col_id_suffix_to_index.emplace(std::make_tuple(_indexes[i]->index_type(), col_uid,
+                                                           _indexes[i]->get_index_suffix()),
+                                           i);
+        }
+    }
+    _col_id_suffix_to_index = std::move(col_id_suffix_to_index);
+}
+
+bool TabletSchema::exist_column(const std::string& field_name) const {
+    return _field_name_to_index.contains(StringRef {field_name});
+}
+
+bool TabletSchema::has_column_unique_id(int32_t col_unique_id) const {
+    return _field_uniqueid_to_index.contains(col_unique_id);
 }
 
 Status TabletSchema::have_column(const std::string& field_name) const {
@@ -1299,28 +1431,6 @@ Result<const TabletColumn*> TabletSchema::column(const std::string& field_name) 
     return _cols[it->second].get();
 }
 
-std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
-        const TabletColumn& col) const {
-    std::vector<const TabletIndex*> indexes_for_column;
-    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabltetIndex.
-    if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
-        return indexes_for_column;
-    }
-    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
-    // TODO use more efficient impl
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        for (int32_t id : _indexes[i].col_unique_ids()) {
-            if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
-                indexes_for_column.push_back(&(_indexes[i]));
-            }
-        }
-    }
-
-    return indexes_for_column;
-}
-
 void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
                                          const std::vector<TColumn>& t_columns) {
     copy_from(tablet_schema);
@@ -1332,104 +1442,51 @@ void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
     }
 }
 
-bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
-    // TODO use more efficient impl
-    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
+bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::INVERTED) {
-            for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
-bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id,
-                                                    const std::string& suffix_name) const {
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::INVERTED &&
-            _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {
+        if (_indexes[i]->index_type() == IndexType::INVERTED &&
+            _indexes[i]->index_id() == index_id) {
             return true;
         }
     }
     return false;
 }
 
-const TabletIndex* TabletSchema::get_inverted_index_with_index_id(
-        int64_t index_id, const std::string& suffix_name) const {
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::INVERTED &&
-            _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {
-            return &(_indexes[i]);
-        }
-    }
-
-    return nullptr;
-}
-
-const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
-                                                    const std::string& suffix_path) const {
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::INVERTED) {
-            for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id &&
-                    _indexes[i].get_index_suffix() == escape_for_path_name(suffix_path)) {
-                    return &(_indexes[i]);
-                }
-            }
-        }
+const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
+                                                const std::string& suffix_path) const {
+    const std::string escaped_suffix = escape_for_path_name(suffix_path);
+    auto it = _col_id_suffix_to_index.find(
+            std::make_tuple(IndexType::INVERTED, col_unique_id, escaped_suffix));
+    if (it != _col_id_suffix_to_index.end()) {
+        return _indexes[it->second].get();
     }
     return nullptr;
 }
 
-const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col,
-                                                    bool check_valid) const {
-    // With check_valid set to true by default
+const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {
     // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
-    if (check_valid && !segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
+    if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
         return nullptr;
     }
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
-    return get_inverted_index(col_unique_id, suffix_path);
+    return inverted_index(col_unique_id, escape_for_path_name(col.suffix_path()));
 }
 
 bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {
-    // TODO use more efficient impl
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::NGRAM_BF) {
-            for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
+    IndexKey index_key(IndexType::NGRAM_BF, col_unique_id, "");
+    auto it = _col_id_suffix_to_index.find(index_key);
+    return it != _col_id_suffix_to_index.end();
 }
 
 const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const {
-    // TODO use more efficient impl
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::NGRAM_BF) {
-            for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id) {
-                    return &(_indexes[i]);
-                }
-            }
-        }
+    // Get the ngram bf index for the given column unique id
+    IndexKey index_key(IndexType::NGRAM_BF, col_unique_id, "");
+    auto it = _col_id_suffix_to_index.find(index_key);
+    if (it != _col_id_suffix_to_index.end()) {
+        return _indexes[it->second].get();
     }
-
     return nullptr;
 }
 
@@ -1461,7 +1518,7 @@ vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
     return block;
 }
 
-vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>& cids) {
+vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>& cids) const {
     vectorized::Block block;
     for (const auto& cid : cids) {
         const auto& col = *_cols[cid];
@@ -1526,21 +1583,14 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._enable_single_replica_compaction != b._enable_single_replica_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
+    if (a._storage_page_size != b._storage_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
+    if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
     return true;
 }
 
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
-}
-
-std::string TabletSchema::deterministic_string_serialize(const TabletSchemaPB& schema_pb) {
-    std::string output;
-    google::protobuf::io::StringOutputStream string_output_stream(&output);
-    google::protobuf::io::CodedOutputStream output_stream(&string_output_stream);
-    output_stream.SetSerializationDeterministic(true);
-    schema_pb.SerializeToCodedStream(&output_stream);
-    return output;
 }
 
 } // namespace doris

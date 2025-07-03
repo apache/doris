@@ -140,7 +140,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
                 .getLogicalPlan())).getExplainPlan(connectContext);
-        PhysicalPlan plan = planner.plan(logicalPlan, PhysicalProperties.ANY);
+        PhysicalPlan plan = planner.planWithLock(logicalPlan, PhysicalProperties.ANY);
         return new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
     }
 }

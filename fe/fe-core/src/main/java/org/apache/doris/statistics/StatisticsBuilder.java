@@ -29,15 +29,21 @@ public class StatisticsBuilder {
     private int widthInJoinCluster = 1;
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
 
+    private double deltaRowCount = 0.0;
+
+    private boolean isFromHbo = false;
+
     public StatisticsBuilder() {
-        expressionToColumnStats = new HashMap<>();
+        this.expressionToColumnStats = new HashMap<>();
     }
 
     public StatisticsBuilder(Statistics statistics) {
         this.rowCount = statistics.getRowCount();
         this.widthInJoinCluster = statistics.getWidthInJoinCluster();
-        expressionToColumnStats = new HashMap<>();
-        expressionToColumnStats.putAll(statistics.columnStatistics());
+        this.deltaRowCount = statistics.getDeltaRowCount();
+        this.expressionToColumnStats = new HashMap<>();
+        this.expressionToColumnStats.putAll(statistics.columnStatistics());
+        this.isFromHbo = statistics.isFromHbo();
     }
 
     public StatisticsBuilder setRowCount(double rowCount) {
@@ -47,6 +53,11 @@ public class StatisticsBuilder {
 
     public StatisticsBuilder setWidthInJoinCluster(int widthInJoinCluster) {
         this.widthInJoinCluster = widthInJoinCluster;
+        return this;
+    }
+
+    public StatisticsBuilder setDeltaRowCount(double deltaRowCount) {
+        this.deltaRowCount = deltaRowCount;
         return this;
     }
 
@@ -66,6 +77,6 @@ public class StatisticsBuilder {
     }
 
     public Statistics build() {
-        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo);
     }
 }

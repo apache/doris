@@ -290,7 +290,6 @@ public class RoutineLoadJobTest {
         };
 
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
         routineLoadJob.update();
 
@@ -302,7 +301,7 @@ public class RoutineLoadJobTest {
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 0);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 0);
-        Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 1L, 1L, 0L, 1L, false);
+        Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 1L, 1L, 0L, 1L, 1L, false);
 
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, Deencapsulation.getField(routineLoadJob, "state"));
 
@@ -317,7 +316,7 @@ public class RoutineLoadJobTest {
         RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
         Deencapsulation.setField(jobStatistic, "currentErrorRows", 1);
         Deencapsulation.setField(jobStatistic, "currentTotalRows", 99);
-        Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 2L, 0L, 0L, 1L, false);
+        Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 2L, 0L, 0L, 1L, 1L, false);
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, Deencapsulation.getField(routineLoadJob, "state"));
         Assert.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
@@ -363,7 +362,7 @@ public class RoutineLoadJobTest {
                 + "\"desired_concurrent_number\" = \"0\",\n"
                 + "\"max_error_number\" = \"10\",\n"
                 + "\"max_filter_ratio\" = \"1.0\",\n"
-                + "\"max_batch_interval\" = \"10\",\n"
+                + "\"max_batch_interval\" = \"60\",\n"
                 + "\"max_batch_rows\" = \"10\",\n"
                 + "\"max_batch_size\" = \"1073741824\",\n"
                 + "\"format\" = \"csv\",\n"

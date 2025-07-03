@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -29,6 +30,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -50,17 +52,29 @@ public class ShowConstraintsCommand extends Command implements NoForward {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf tableIf = RelationUtil.getDbAndTable(
-                RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv()).value();
-        List<List<String>> res = tableIf.getConstraintsMap().entrySet().stream()
-                        .map(e -> Lists.newArrayList(e.getKey(),
-                                e.getValue().getType().getName(),
-                                e.getValue().toString()))
+                RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv(), Optional.empty()).value();
+        tableIf.readLock();
+        List<List<String>> res;
+        try {
+            res = tableIf.getConstraintsMap().entrySet().stream()
+                    .map(e -> Lists.newArrayList(e.getKey(),
+                            e.getValue().getType().getName(),
+                            e.getValue().toString()))
                     .collect(Collectors.toList());
+        } finally {
+            tableIf.readUnlock();
+        }
         executor.handleShowConstraintStmt(res);
+
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowConstraintsCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SHOW;
     }
 }

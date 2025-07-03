@@ -21,13 +21,17 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 
+#include "common/bvars.h"
+#include "meta-service/txn_lazy_committer.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 
@@ -40,6 +44,27 @@ class TxnKv;
 class InstanceRecycler;
 class StorageVaultAccessor;
 class Checker;
+class SimpleThreadPool;
+class RecyclerMetricsContext;
+struct RecyclerThreadPoolGroup {
+    RecyclerThreadPoolGroup() = default;
+    RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
+                            std::shared_ptr<SimpleThreadPool> recycle_tablet_pool,
+                            std::shared_ptr<SimpleThreadPool> group_recycle_function_pool)
+            : s3_producer_pool(std::move(s3_producer_pool)),
+              recycle_tablet_pool(std::move(recycle_tablet_pool)),
+              group_recycle_function_pool(std::move(group_recycle_function_pool)) {}
+    ~RecyclerThreadPoolGroup() = default;
+    RecyclerThreadPoolGroup(const RecyclerThreadPoolGroup&) = default;
+    RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup& other) = default;
+    RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup&& other) = default;
+    RecyclerThreadPoolGroup(RecyclerThreadPoolGroup&&) = default;
+    // used for accessor.delete_files, accessor.delete_directory
+    std::shared_ptr<SimpleThreadPool> s3_producer_pool;
+    // used for InstanceRecycler::recycle_tablet
+    std::shared_ptr<SimpleThreadPool> recycle_tablet_pool;
+    std::shared_ptr<SimpleThreadPool> group_recycle_function_pool;
+};
 
 class Recycler {
 public:
@@ -83,11 +108,22 @@ private:
 
     WhiteBlackList instance_filter_;
     std::unique_ptr<Checker> checker_;
+
+    RecyclerThreadPoolGroup _thread_pool_group;
+
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+};
+
+enum class RowsetRecyclingState {
+    FORMAL_ROWSET,
+    TMP_ROWSET,
 };
 
 class InstanceRecycler {
 public:
-    explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance);
+    explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
+                              RecyclerThreadPoolGroup thread_pool_group,
+                              std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
     ~InstanceRecycler();
 
     // returns 0 for success otherwise error
@@ -103,19 +139,26 @@ public:
     // returns 0 for success otherwise error
     int recycle_deleted_instance();
 
-    // scan and recycle expired indexes
+    // scan and recycle expired indexes:
+    // 1. dropped table, dropped mv
+    // 2. half-successtable/index when create
     // returns 0 for success otherwise error
     int recycle_indexes();
 
-    // scan and recycle expired partitions
+    // scan and recycle expired partitions:
+    // 1. dropped parttion
+    // 2. half-success partition when create
     // returns 0 for success otherwise error
     int recycle_partitions();
 
-    // scan and recycle expired rowsets
+    // scan and recycle expired rowsets:
+    // 1. prepare_rowset will produce recycle_rowset before uploading data to remote storage (memo)
+    // 2. compaction will change the input rowsets to recycle_rowset
     // returns 0 for success otherwise error
     int recycle_rowsets();
 
-    // scan and recycle expired tmp rowsets
+    // scan and recycle expired tmp rowsets:
+    // 1. commit_rowset will produce tmp_rowset when finish upload data (load or compaction) to remote storage
     // returns 0 for success otherwise error
     int recycle_tmp_rowsets();
 
@@ -126,15 +169,15 @@ public:
      * @param is_empty_tablet indicates whether the tablet has object files, can skip delete objects if tablet is empty
      * @return 0 for success otherwise error
      */
-    int recycle_tablets(int64_t table_id, int64_t index_id, int64_t partition_id = -1,
-                        bool is_empty_tablet = false);
+    int recycle_tablets(int64_t table_id, int64_t index_id, RecyclerMetricsContext& ctx,
+                        int64_t partition_id = -1, bool is_empty_tablet = false);
 
     /**
      * recycle all rowsets belonging to the tablet specified by `tablet_id`
      *
      * @return 0 for success otherwise error
      */
-    int recycle_tablet(int64_t tablet_id);
+    int recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
 
     // scan and recycle useless partition version kv
     int recycle_versions();
@@ -178,14 +221,25 @@ private:
     int scan_and_recycle(std::string begin, std::string_view end,
                          std::function<int(std::string_view k, std::string_view v)> recycle_func,
                          std::function<int()> loop_done = nullptr);
+
+    int scan_for_recycle_and_statistics(
+            std::string begin, std::string_view end, std::string task_name,
+            RecyclerMetricsContext& metrics_context,
+            std::function<int(std::string_view k, std::string_view v)> statistics_func,
+            std::function<int(std::string_view k, std::string_view v)> recycle_func,
+            std::function<int()> loop_done = nullptr);
+
     // return 0 for success otherwise error
     int delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta_pb);
+
     // return 0 for success otherwise error
     // NOTE: this function ONLY be called when the file paths cannot be calculated
     int delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
                            const std::string& rowset_id);
+
     // return 0 for success otherwise error
-    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets);
+    int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
+                           RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
@@ -198,6 +252,14 @@ private:
 
     void unregister_recycle_task(const std::string& task_name);
 
+    // for scan all tablets and statistics metrics
+    int scan_tablets_and_statistics(int64_t tablet_id, int64_t index_id,
+                                    RecyclerMetricsContext& metrics_context,
+                                    int64_t partition_id = -1, bool is_empty_tablet = false);
+
+    // for scan all rs of tablet and statistics metrics
+    int scan_tablet_and_statistics(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
+
 private:
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
@@ -206,6 +268,8 @@ private:
 
     // TODO(plat1ko): Add new accessor to map in runtime for new created storage vaults
     std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
+    using InvertedIndexInfo =
+            std::pair<InvertedIndexStorageFormatPB, std::vector<std::pair<int64_t, std::string>>>;
 
     class InvertedIndexIdCache;
     std::unique_ptr<InvertedIndexIdCache> inverted_index_id_cache_;
@@ -217,6 +281,115 @@ private:
     std::mutex recycle_tasks_mutex;
     // <task_name, start_time>>
     std::map<std::string, int64_t> running_recycle_tasks;
+
+    RecyclerThreadPoolGroup _thread_pool_group;
+
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+};
+
+class RecyclerMetricsContext {
+public:
+    RecyclerMetricsContext() = default;
+
+    RecyclerMetricsContext(std::string instance_id, std::string operation_type)
+            : operation_type(std::move(operation_type)), instance_id(std::move(instance_id)) {
+        start();
+    }
+
+    ~RecyclerMetricsContext() = default;
+
+    int64_t total_need_recycle_data_size = 0;
+    int64_t total_need_recycle_num = 0;
+
+    std::atomic_long total_recycled_data_size {0};
+    std::atomic_long total_recycled_num {0};
+
+    std::string operation_type {};
+    std::string instance_id {};
+
+    double start_time = 0;
+
+    void start() {
+        start_time = duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    }
+
+    double duration() const {
+        return duration_cast<std::chrono::milliseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count() -
+               start_time;
+    }
+
+    void reset() {
+        total_need_recycle_data_size = 0;
+        total_need_recycle_num = 0;
+        total_recycled_data_size.store(0);
+        total_recycled_num.store(0);
+        start_time = duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    }
+
+    void finish_report() {
+        if (!operation_type.empty()) {
+            double cost = duration();
+            g_bvar_recycler_instance_last_round_recycle_elpased_ts.put(
+                    {instance_id, operation_type}, cost);
+            g_bvar_recycler_instance_recycle_round.put({instance_id, operation_type}, 1);
+            LOG(INFO) << "recycle instance: " << instance_id
+                      << ", operation type: " << operation_type << ", cost: " << cost
+                      << " ms, total recycled num: " << total_recycled_num.load()
+                      << ", total recycled data size: " << total_recycled_data_size.load()
+                      << " bytes";
+            if (total_recycled_num.load()) {
+                g_bvar_recycler_instance_recycle_time_per_resource.put(
+                        {instance_id, operation_type}, cost / total_recycled_num.load());
+            } else {
+                g_bvar_recycler_instance_recycle_time_per_resource.put(
+                        {instance_id, operation_type}, -1);
+            }
+            if (total_recycled_data_size.load()) {
+                g_bvar_recycler_instance_recycle_bytes_per_ms.put(
+                        {instance_id, operation_type}, total_recycled_data_size.load() / cost);
+            } else {
+                g_bvar_recycler_instance_recycle_bytes_per_ms.put({instance_id, operation_type},
+                                                                  -1);
+            }
+        }
+    }
+
+    // `is_begin` is used to initialize total num of items need to be recycled
+    void report(bool is_begin = false) {
+        if (!operation_type.empty()) {
+            if (total_need_recycle_data_size > 0) {
+                // is init
+                if (is_begin) {
+                    g_bvar_recycler_instance_last_round_to_recycle_bytes.put(
+                            {instance_id, operation_type}, total_need_recycle_data_size);
+                } else {
+                    g_bvar_recycler_instance_last_round_recycled_bytes.put(
+                            {instance_id, operation_type}, total_recycled_data_size.load());
+                    g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
+                            {instance_id, operation_type}, total_recycled_data_size.load());
+                }
+            }
+
+            if (total_need_recycle_num > 0) {
+                // is init
+                if (is_begin) {
+                    g_bvar_recycler_instance_last_round_to_recycle_num.put(
+                            {instance_id, operation_type}, total_need_recycle_num);
+                } else {
+                    g_bvar_recycler_instance_last_round_recycled_num.put(
+                            {instance_id, operation_type}, total_recycled_num.load());
+                    g_bvar_recycler_instance_recycle_total_num_since_started.put(
+                            {instance_id, operation_type}, total_recycled_num.load());
+                }
+            }
+        }
+    }
 };
 
 } // namespace doris::cloud

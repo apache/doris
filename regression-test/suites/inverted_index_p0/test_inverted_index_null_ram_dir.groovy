@@ -82,7 +82,7 @@ suite("test_inverted_index_null_ram_dir") {
           `compy` varchar(20) NULL COMMENT "",
           `n` int NULL COMMENT "",
           INDEX idx_city(city) USING INVERTED,
-          INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="english"),
+          INDEX idx_addr(addr) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
           INDEX idx_n(n) USING INVERTED
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
@@ -105,6 +105,7 @@ suite("test_inverted_index_null_ram_dir") {
                 (7,'tengxun','qie','addr gg','lj',null),
                 (8,'tengxun2','qie',null,'lj',800)
         """
+        sql """ set enable_common_expr_pushdown = true """
 
         // select all data
         qt_select_0 "SELECT * FROM ${tableName} ORDER BY id"

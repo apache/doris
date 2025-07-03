@@ -18,7 +18,7 @@
 suite("test_join_14", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql 'set parallel_fragment_exec_instance_num = 2;'
+    sql 'set parallel_pipeline_task_num = 2;'
     sql "use nereids_test_query_db"
 
     def tbName1 = "test"
@@ -144,10 +144,10 @@ suite("test_join_14", "nereids_p0") {
            order by 1 limit 65535"""
     check2_doris(res63, res64)
 
-    sql"drop view if exists nullable"
-    sql"""create view nullable(n1, n2) as select a.k1, b.k2 from baseall 
+    sql"drop view if exists nullable_14"
+    sql"""create view nullable_14(n1, n2) as select a.k1, b.k2 from baseall 
             a left join bigtable b on a.k1 = b.k1 + 10 where b.k2 is null"""
-    qt_join_bug1"""select k1, n1 from baseall a right outer join nullable b on a.k1 % 2 = b.n1 % 2 
+    qt_join_bug1"""select k1, n1 from baseall a right outer join nullable_14 b on a.k1 % 2 = b.n1 % 2 
            order by a.k1, b.n1"""
     qt_join_bug2"""select n.k1, m.k1, m.k2, n.k2 from (select a.k1, a.k2, a.k3 from 
            baseall a join baseall b on (a.k1 = b.k1 and a.k2 = b.k2 and a.k3 = b.k3)) m 
@@ -168,6 +168,7 @@ suite("test_join_14", "nereids_p0") {
                    limit 60015"""
         }
     }
+
     for (c in columns){
         sql"""select * from ${tbName2} a full outer join ${tbName1} b on (a.${c} = b.${c}) 
                 order by isnull(a.k1), a.k1, a.k2, a.k3, a.k4, isnull(b.k1), b.k1, b.k2, b.k3, 
@@ -205,5 +206,22 @@ suite("test_join_14", "nereids_p0") {
         def res74 = sql"""select distinct b.* from ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where a.k1 is null order by b.k1, b.k2, b.k3"""
         check2_doris(res73, res74)
+    }
+
+    sql "set runtime_filter_type='IN_OR_BLOOM_FILTER',runtime_filter_max_in_num=1,parallel_pipeline_task_num=2;"
+    for (type in join_types) {
+        for (c in columns) {
+            qt_join_basic1"""select * from ${tbName2} a ${type} join ${tbName1} b on (a.${c} = b.${c}) 
+                   order by isnull(a.k1), a.k1, a.k2, a.k3, isnull(b.k1), b.k1, b.k2, b.k3 
+                   limit 60015"""
+        }
+    }
+	sql "set runtime_filter_type='IN',runtime_filter_max_in_num=1,parallel_pipeline_task_num=2;"
+    for (type in join_types) {
+        for (c in columns) {
+            qt_join_basic1"""select * from ${tbName2} a ${type} join ${tbName1} b on (a.${c} = b.${c}) 
+                   order by isnull(a.k1), a.k1, a.k2, a.k3, isnull(b.k1), b.k1, b.k2, b.k3 
+                   limit 60015"""
+        }
     }
 }

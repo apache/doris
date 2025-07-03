@@ -29,11 +29,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.qe.SessionVariable;
 
@@ -49,6 +51,7 @@ import java.util.Optional;
 
 public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
+    private static final long NOW = System.currentTimeMillis();
     private Env env;
     private CatalogMgr mgr;
 
@@ -97,10 +100,17 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
 
-        HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hms_db");
+        HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hms_db", "hms_db");
         Deencapsulation.setField(db, "initialized", true);
 
         Deencapsulation.setField(tbl, "objectCreated", true);
+        Deencapsulation.setField(tbl, "schemaUpdateTime", NOW);
+        Deencapsulation.setField(tbl, "eventUpdateTime", 0);
+        Deencapsulation.setField(tbl, "catalog", hmsCatalog);
+        Deencapsulation.setField(tbl, "dbName", "hms_db");
+        Deencapsulation.setField(tbl, "name", "hms_tbl");
+        Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
+        Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -131,6 +141,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 minTimes = 0;
                 result = TableIf.TableType.HMS_EXTERNAL_TABLE;
 
+                // mock initSchemaAndUpdateTime and do nothing
+                tbl.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey("hms_db", "hms_tbl"));
+                minTimes = 0;
+
                 tbl.getDatabase();
                 minTimes = 0;
                 result = db;
@@ -142,6 +156,12 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view1, "objectCreated", true);
+        Deencapsulation.setField(view1, "schemaUpdateTime", NOW);
+        Deencapsulation.setField(view1, "eventUpdateTime", 0);
+        Deencapsulation.setField(view1, "catalog", hmsCatalog);
+        Deencapsulation.setField(view1, "dbName", "hms_db");
+        Deencapsulation.setField(view1, "name", "hms_view1");
+        Deencapsulation.setField(view1, "dlaType", DLAType.HIVE);
 
         new Expectations(view1) {
             {
@@ -188,6 +208,13 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view2, "objectCreated", true);
+        Deencapsulation.setField(view2, "schemaUpdateTime", NOW);
+        Deencapsulation.setField(view2, "eventUpdateTime", 0);
+        Deencapsulation.setField(view2, "catalog", hmsCatalog);
+        Deencapsulation.setField(view2, "dbName", "hms_db");
+        Deencapsulation.setField(view2, "name", "hms_view2");
+        Deencapsulation.setField(view2, "dlaType", DLAType.HIVE);
+
         new Expectations(view2) {
             {
 
@@ -234,6 +261,13 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view3, "objectCreated", true);
+        Deencapsulation.setField(view3, "schemaUpdateTime", NOW);
+        Deencapsulation.setField(view3, "eventUpdateTime", 0);
+        Deencapsulation.setField(view3, "catalog", hmsCatalog);
+        Deencapsulation.setField(view3, "dbName", "hms_db");
+        Deencapsulation.setField(view3, "name", "hms_view3");
+        Deencapsulation.setField(view3, "dlaType", DLAType.HIVE);
+
         new Expectations(view3) {
             {
 
@@ -280,6 +314,13 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view4, "objectCreated", true);
+        Deencapsulation.setField(view4, "schemaUpdateTime", NOW);
+        Deencapsulation.setField(view4, "eventUpdateTime", 0);
+        Deencapsulation.setField(view4, "catalog", hmsCatalog);
+        Deencapsulation.setField(view4, "dbName", "hms_db");
+        Deencapsulation.setField(view4, "name", "hms_view4");
+        Deencapsulation.setField(view4, "dlaType", DLAType.HIVE);
+
         new Expectations(view4) {
             {
 
@@ -338,12 +379,8 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
     public void testQueryView() {
         SessionVariable sv = connectContext.getSessionVariable();
         Assertions.assertNotNull(sv);
-        sv.setEnableNereidsPlanner(true);
-        sv.enableFallbackToOriginalPlanner = false;
 
         createDbAndTableForHmsCatalog((HMSExternalCatalog) env.getCatalogMgr().getCatalog(HMS_CATALOG));
-        queryViews(false);
-
         // force use nereids planner to query hive views
         queryViews(true);
     }

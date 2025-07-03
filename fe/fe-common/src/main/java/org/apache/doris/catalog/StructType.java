@@ -58,6 +58,10 @@ public class StructType extends Type {
         }
     }
 
+    public StructType(StructField... fields) {
+        this(new ArrayList<>(Arrays.asList(fields)));
+    }
+
     public StructType(List<Type> types) {
         Preconditions.checkNotNull(types);
         ArrayList<StructField> newFields = new ArrayList<>();
@@ -78,13 +82,13 @@ public class StructType extends Type {
     @Override
     public String toSql(int depth) {
         if (depth >= MAX_NESTING_DEPTH) {
-            return "STRUCT<...>";
+            return "struct<...>";
         }
         ArrayList<String> fieldsSql = Lists.newArrayList();
         for (StructField f : fields) {
             fieldsSql.add(f.toSql(depth + 1));
         }
-        return String.format("STRUCT<%s>", Joiner.on(",").join(fieldsSql));
+        return String.format("struct<%s>", Joiner.on(",").join(fieldsSql));
     }
 
     @Override
@@ -331,7 +335,7 @@ public class StructType extends Type {
         for (StructField f : fields) {
             fieldsSql.add(f.toString());
         }
-        return String.format("STRUCT<%s>", Joiner.on(",").join(fieldsSql));
+        return String.format("struct<%s>", Joiner.on(",").join(fieldsSql));
     }
 
     @Override

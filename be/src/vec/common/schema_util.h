@@ -31,12 +31,11 @@
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/json/path_in_data.h"
 
 namespace doris {
 enum class FieldType;
@@ -45,6 +44,7 @@ namespace vectorized {
 class Block;
 class IColumn;
 struct ColumnWithTypeAndName;
+struct ParseConfig;
 } // namespace vectorized
 } // namespace doris
 
@@ -67,7 +67,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 /// If both of types are signed/unsigned integers and size of left field type
 /// is less than right type, we don't need to convert field,
 /// because all integer fields are stored in Int64/UInt64.
-bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeIndex& rhs);
+bool is_conversion_required_between_integers(const PrimitiveType& lhs, const PrimitiveType& rhs);
 
 struct ExtraInfo {
     // -1 indicates it's not a Frontend generated column
@@ -79,20 +79,13 @@ struct ExtraInfo {
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info);
 
-struct ParseContext {
-    // record an extract json column, used for encoding row store
-    bool record_raw_json_column = false;
-};
-
 // three steps to parse and encode variant columns into flatterned columns
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 3. encode sparse sub columns
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseContext& ctx);
-void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              bool ignore_sparse = true);
-Status encode_variant_sparse_subcolumns(ColumnObject& column);
+                             const ParseConfig& config);
+Status encode_variant_sparse_subcolumns(ColumnVariant& column);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
@@ -115,16 +108,21 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 // inherit attributes like index/agg info from it's parent column
 void inherit_column_attributes(TabletSchemaSPtr& schema);
 
+// source: variant column
+// target: extracted column from variant column
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema);
 
 // get sorted subcolumns of variant
-vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
-        const vectorized::ColumnObject::Subcolumns& subcolumns);
+vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(
+        const vectorized::ColumnVariant::Subcolumns& subcolumns);
 
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
 
 std::string dump_column(DataTypePtr type, const ColumnPtr& col);
+
+bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
+                           int32_t new_col_idx, int32_t old_col_idx);
 
 } // namespace  doris::vectorized::schema_util

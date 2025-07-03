@@ -45,10 +45,15 @@ under the License.
             <artifactId>HikariCP</artifactId>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>org.semver4j</groupId>
+            <artifactId>semver4j</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
         <finalName>jdbc-scanner</finalName>
+        <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

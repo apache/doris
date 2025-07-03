@@ -62,7 +62,7 @@ public:
 
     // Prepare for binary row buffer
     // init bitmap
-    void start_binary_row(uint32_t num_cols);
+    void start_binary_row(uint64_t num_cols);
 
     // TODO(zhaochun): add signed/unsigned support
     int push_tinyint(int8_t data);

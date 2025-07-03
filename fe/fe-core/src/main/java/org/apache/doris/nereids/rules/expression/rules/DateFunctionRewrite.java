@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -50,11 +51,16 @@ public class DateFunctionRewrite implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(EqualTo.class).then(DateFunctionRewrite::rewriteEqualTo),
-                matchesType(GreaterThan.class).then(DateFunctionRewrite::rewriteGreaterThan),
-                matchesType(GreaterThanEqual.class).then(DateFunctionRewrite::rewriteGreaterThanEqual),
-                matchesType(LessThan.class).then(DateFunctionRewrite::rewriteLessThan),
+                matchesType(EqualTo.class).then(DateFunctionRewrite::rewriteEqualTo)
+                        .toRule(ExpressionRuleType.DATE_FUNCTION_REWRITE),
+                matchesType(GreaterThan.class).then(DateFunctionRewrite::rewriteGreaterThan)
+                        .toRule(ExpressionRuleType.DATE_FUNCTION_REWRITE),
+                matchesType(GreaterThanEqual.class).then(DateFunctionRewrite::rewriteGreaterThanEqual)
+                        .toRule(ExpressionRuleType.DATE_FUNCTION_REWRITE),
+                matchesType(LessThan.class).then(DateFunctionRewrite::rewriteLessThan)
+                        .toRule(ExpressionRuleType.DATE_FUNCTION_REWRITE),
                 matchesType(LessThanEqual.class).then(DateFunctionRewrite::rewriteLessThanEqual)
+                        .toRule(ExpressionRuleType.DATE_FUNCTION_REWRITE)
         );
     }
 

@@ -96,26 +96,36 @@ suite("test_all_index_hit_fault_injection", "nonConcurrent") {
       load_httplogs_data.call(indexTbName2, 'test_all_index_hit_fault_injection_2', 'true', 'json', 'documents-1000.json')
 
       sql "sync"
-
+      sql """ set enable_common_expr_pushdown = true """
       try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [column_name: "clientip,request"])
-        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.fast_execute")
+        GetDebugPoint().enableDebugPointForAllBEs("VectorizedFnCall.must_in_slow_path", [column_name: "status,size"])
 
+        qt_sql """ select count(`@timestamp`) from ${indexTbName1} where (request match_phrase 'hm'); """
         qt_sql """ select count() from ${indexTbName1} where (request match_phrase 'hm'); """
         qt_sql """ select count() from ${indexTbName1} where (request match_phrase 'hm' and clientip = '126.1.0.0'); """
         qt_sql """ select count() from ${indexTbName1} where (request match_phrase 'hm' and clientip = '126.1.0.0') or (request match_phrase 'bg' and clientip = '201.0.0.0'); """
         qt_sql """ select count() from ${indexTbName1} where (request match_phrase 'hm' and clientip = '126.1.0.0' or clientip = '247.37.0.0') or (request match_phrase 'bg' and clientip = '201.0.0.0' or clientip = '232.0.0.0'); """
         qt_sql """ select count() from ${indexTbName1} where (request match_phrase 'hm' and clientip in ('126.1.0.0', '247.37.0.0')) or (request match_phrase 'bg' and clientip in ('201.0.0.0', '232.0.0.0')); """
+        qt_sql """ select count() from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455); """
+        qt_sql """ select count() from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm'); """
+        qt_sql """ select count() from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' or request match_phrase 'ag'); """
+        qt_sql """ select count() from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' or request match_phrase 'ag' or status = 304); """
 
+        qt_sql """ select count(`@timestamp`) from ${indexTbName2} where (request match_phrase 'hm'); """
         qt_sql """ select count() from ${indexTbName2} where (request match_phrase 'hm'); """
         qt_sql """ select count() from ${indexTbName2} where (request match_phrase 'hm' and clientip = '126.1.0.0'); """
         qt_sql """ select count() from ${indexTbName2} where (request match_phrase 'hm' and clientip = '126.1.0.0') or (request match_phrase 'bg' and clientip = '201.0.0.0'); """
         qt_sql """ select count() from ${indexTbName2} where (request match_phrase 'hm' and clientip = '126.1.0.0' or clientip = '247.37.0.0') or (request match_phrase 'bg' and clientip = '201.0.0.0' or clientip = '232.0.0.0'); """
         qt_sql """ select count() from ${indexTbName2} where (request match_phrase 'hm' and clientip in ('126.1.0.0', '247.37.0.0')) or (request match_phrase 'bg' and clientip in ('201.0.0.0', '232.0.0.0')); """
+        qt_sql """ select count() from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455); """
+        qt_sql """ select count() from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm'); """
+        qt_sql """ select count() from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' or request match_phrase 'ag'); """
+        qt_sql """ select count() from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' or request match_phrase 'ag' or status = 304); """
 
       } finally {
         GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
-        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.fast_execute")
+        GetDebugPoint().disableDebugPointForAllBEs("VectorizedFnCall.must_in_slow_path")
       }
     } finally {
     }

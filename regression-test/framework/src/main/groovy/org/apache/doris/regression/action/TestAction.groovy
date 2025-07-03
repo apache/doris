@@ -68,7 +68,7 @@ class TestAction implements SuiteAction {
             } else {
                 if (exception != null || result.exception != null) {
                     def msg = result.exception?.toString()
-                    log.info("Exception: ${msg}")
+                    log.error("Exception: ${msg}", exception != null ? exception : result.exception)
                     Assert.assertTrue("Expect exception msg contains '${exception}', but meet '${msg}'",
                             msg != null && exception != null && msg.contains(exception))
                 }
@@ -256,7 +256,7 @@ class TestAction implements SuiteAction {
         this.exception = exceptionMsgSupplier.call()
     }
 
-    void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
+    void check(@ClosureParams(value = FromString, options = ["List<List<Object>>,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
 

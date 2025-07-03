@@ -84,6 +84,8 @@ private:
     Status _set_upload_to_remote_less_than_buffer_size();
     void _put_object(UploadFileBuffer& buf);
     void _upload_one_part(int64_t part_num, UploadFileBuffer& buf);
+    bool _complete_part_task_callback(Status s);
+    Status _build_upload_buffer();
 
     ObjectStoragePathOptions _obj_storage_path_opts;
 

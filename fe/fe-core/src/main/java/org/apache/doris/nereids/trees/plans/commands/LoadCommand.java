@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -28,7 +29,7 @@ import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.extensions.insert.InsertJob;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -61,6 +63,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -81,7 +84,7 @@ import java.util.stream.Collectors;
 /**
  * load OLAP table data from external bulk file
  */
-public class LoadCommand extends Command implements ForwardWithSync {
+public class LoadCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
 
     public static final Logger LOG = LogManager.getLogger(LoadCommand.class);
 
@@ -125,12 +128,13 @@ public class LoadCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Config.enable_nereids_load) {
-            ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            throw new AnalysisException("Fallback to legacy planner temporary.");
+            throw new MustFallbackException("Fallback to legacy planner temporary.");
         }
-        this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile,
-                ctx.getSessionVariable().profileLevel);
-        profile.getSummaryProfile().setQueryBeginTime();
+        this.profile = new Profile(
+                ctx.getSessionVariable().enableProfile,
+                ctx.getSessionVariable().profileLevel,
+                ctx.getSessionVariable().getAutoProfileThresholdMs());
+        profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
                     Optional.of(labelName), Optional.empty(), Optional.empty()));
@@ -239,7 +243,8 @@ public class LoadCommand extends Command implements ForwardWithSync {
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
                 && sinkCols.size() < olapTable.getColumns().size();
         return UnboundTableSinkCreator.createUnboundTableSink(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
-                false, dataDesc.getPartitionNames(), isPartialUpdate, DMLCommandType.LOAD, tvfLogicalPlan);
+                false, dataDesc.getPartitionNames(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                        DMLCommandType.LOAD, tvfLogicalPlan);
     }
 
     private static void fillDeleteOnColumn(BulkLoadDataDesc dataDesc, OlapTable olapTable,
@@ -441,7 +446,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
     private static OlapTable getOlapTable(ConnectContext ctx, BulkLoadDataDesc dataDesc) throws AnalysisException {
         OlapTable targetTable;
-        TableIf table = RelationUtil.getTable(dataDesc.getNameParts(), ctx.getEnv());
+        TableIf table = RelationUtil.getTable(dataDesc.getNameParts(), ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("table must be olapTable in load command");
         }
@@ -465,10 +470,8 @@ public class LoadCommand extends Command implements ForwardWithSync {
         // TODO: support multi location by union
         String listFilePath = filePaths.get(0);
         if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.S3) {
-            S3Properties.convertToStdProperties(tvfProperties);
-            tvfProperties.keySet().removeIf(S3Properties.Env.FS_KEYS::contains);
             // TODO: check file path by s3 fs list status
-            tvfProperties.put(S3TableValuedFunction.PROP_URI, listFilePath);
+            tvfProperties.put("uri", listFilePath);
         }
 
         final Map<String, String> dataDescProps = dataDesc.getProperties();
@@ -499,5 +502,15 @@ public class LoadCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLoadCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.LOAD;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

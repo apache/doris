@@ -16,11 +16,7 @@
 // under the License.
 
 suite("test_iot_auto_detect_concurrent") {
-    // only nereids now
-    sql """set enable_nereids_planner = true"""
-    sql """set enable_fallback_to_original_planner = false"""
-    sql """set enable_nereids_dml = true"""
-
+    // only nereids now. default for 2.1 and later
     def db_name = "test_iot_auto_detect_concurrent"
     def table_name = "test_concurrent_write"
 
@@ -33,9 +29,6 @@ suite("test_iot_auto_detect_concurrent") {
     def load_data = { range, offset, expect_success ->
         try {
             sql " use test_iot_auto_detect_concurrent; "
-            sql """set enable_nereids_planner = true"""
-            sql """set enable_fallback_to_original_planner = false"""
-            sql """set enable_nereids_dml = true"""
             sql """ insert overwrite table test_concurrent_write partition(*)
                         select number*10+${offset} from numbers("number" = "${range}");
             """
@@ -83,11 +76,13 @@ suite("test_iot_auto_detect_concurrent") {
     thread5.join()
     // suppose result: success zero or one
     if (success_status) { // success zero
+        log.info("test 1: success zero")
         result = sql " select count(k0) from test_concurrent_write; "
         assertEquals(result[0][0], 1000)
         result = sql " select count(distinct k0) from test_concurrent_write; "
         assertEquals(result[0][0], 1000)
     } else { // success one
+        log.info("test 1: success one")
         result = sql " select count(k0) from test_concurrent_write; "
         assertEquals(result[0][0], 100)
         result = sql " select count(distinct k0) from test_concurrent_write; "

@@ -17,12 +17,22 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.system.SystemInfoService.HostInfo;
+
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 public class DecommissionBackendClause extends BackendClause {
 
     public DecommissionBackendClause(List<String> hostPorts) {
         super(hostPorts);
+    }
+
+    public DecommissionBackendClause(List<String> ids, List<HostInfo> hostPorts) {
+        super(ImmutableList.of());
+        this.ids = ids;
+        this.hostInfos = hostPorts;
     }
 
     @Override

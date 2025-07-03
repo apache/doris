@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to You under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<schema name="ranger-audit-schema" version="1.6">
+  <uniqueKey>id</uniqueKey>
+  <fieldType name="binary" class="solr.BinaryField"/>
+  <fieldType name="boolean" class="solr.BoolField" sortMissingLast="true"/>
+  <fieldType name="booleans" class="solr.BoolField" multiValued="true" sortMissingLast="true"/>
+  <fieldType name="date" class="solr.TrieDateField" docValues="true" precisionStep="0" positionIncrementGap="0"/>
+  <fieldType name="double" class="solr.TrieDoubleField" docValues="true" precisionStep="0" positionIncrementGap="0"/>
+  <fieldType name="float" class="solr.TrieFloatField" docValues="true" precisionStep="0" positionIncrementGap="0"/>
+  <fieldType name="ignored" class="solr.StrField" multiValued="true" indexed="false" stored="false"/>
+  <fieldType name="int" class="solr.TrieIntField" docValues="true" precisionStep="0" positionIncrementGap="0"/>
+  <fieldType name="key_lower_case" class="solr.TextField" sortMissingLast="true" omitNorms="true">
+    <analyzer>
+      <tokenizer class="solr.KeywordTokenizerFactory"/>
+      <filter class="solr.LowerCaseFilterFactory"/>
+      <filter class="solr.LengthFilterFactory" min="0" max="2500"/>
+    </analyzer>
+  </fieldType>
+  <fieldType name="long" class="solr.TrieLongField" docValues="true" precisionStep="0" positionIncrementGap="0"/>
+  <fieldType name="random" class="solr.RandomSortField" indexed="true"/>
+  <fieldType name="string" class="solr.StrField" sortMissingLast="true"/>
+  <fieldType name="tdate" class="solr.TrieDateField" docValues="true" precisionStep="6" positionIncrementGap="0"/>
+  <fieldType name="tdates" class="solr.TrieDateField" docValues="true" precisionStep="6" multiValued="true" positionIncrementGap="0"/>
+  <fieldType name="tdouble" class="solr.TrieDoubleField" docValues="true" precisionStep="8" positionIncrementGap="0"/>
+  <fieldType name="tdoubles" class="solr.TrieDoubleField" docValues="true" precisionStep="8" multiValued="true" positionIncrementGap="0"/>
+  <fieldType name="text_std_token_lower_case" class="solr.TextField" multiValued="true" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer class="solr.StandardTokenizerFactory"/>
+      <filter class="solr.LowerCaseFilterFactory"/>
+    </analyzer>
+  </fieldType>
+  <fieldType name="text_ws" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer class="solr.WhitespaceTokenizerFactory"/>
+    </analyzer>
+  </fieldType>
+  <fieldType name="tfloat" class="solr.TrieFloatField" docValues="true" precisionStep="8" positionIncrementGap="0"/>
+  <fieldType name="tfloats" class="solr.TrieFloatField" docValues="true" precisionStep="8" multiValued="true" positionIncrementGap="0"/>
+  <fieldType name="tint" class="solr.TrieIntField" docValues="true" precisionStep="8" positionIncrementGap="0"/>
+  <fieldType name="tints" class="solr.TrieIntField" docValues="true" precisionStep="8" multiValued="true" positionIncrementGap="0"/>
+  <fieldType name="tlong" class="solr.TrieLongField" docValues="true" precisionStep="8" positionIncrementGap="0"/>
+  <fieldType name="tlongs" class="solr.TrieLongField" docValues="true" precisionStep="8" multiValued="true" positionIncrementGap="0"/>
+  <field name="_expire_at_" type="tdate" multiValued="false" stored="true" docValues="true"/>
+  <field name="_ttl_" type="string" multiValued="false" indexed="true" stored="true"/>
+  <field name="_version_" type="long" indexed="false" stored="true"/>
+  <field name="access" type="key_lower_case" multiValued="false"/>
+  <field name="action" type="key_lower_case" multiValued="false"/>
+  <field name="agent" type="key_lower_case" multiValued="false"/>
+  <field name="agentHost" type="key_lower_case" multiValued="false"/>
+  <field name="cliIP" type="key_lower_case" multiValued="false"/>
+  <field name="cliType" type="key_lower_case" multiValued="false"/>
+  <field name="cluster" type="key_lower_case" multiValued="false"/>
+  <field name="reqContext" type="key_lower_case" multiValued="true"/>
+  <field name="enforcer" type="key_lower_case" multiValued="false"/>
+  <field name="event_count" type="tlong" multiValued="false" docValues="true" default="1"/>
+  <field name="event_dur_ms" type="tlong" multiValued="false" docValues="true"/>
+  <field name="evtTime" type="tdate" docValues="true"/>
+  <field name="id" type="string" multiValued="false" indexed="true" required="true" stored="true"/>
+  <field name="logType" type="key_lower_case" multiValued="false"/>
+  <field name="policy" type="tlong" docValues="true"/>
+  <field name="proxyUsers" type="key_lower_case" multiValued="true"/>
+  <field name="reason" type="text_std_token_lower_case" multiValued="false" omitNorms="false"/>
+  <field name="repo" type="key_lower_case" multiValued="false"/>
+  <field name="repoType" type="tint" multiValued="false" docValues="true"/>
+  <field name="req_caller_id" type="key_lower_case" multiValued="false"/>
+  <field name="req_self_id" type="key_lower_case" multiValued="false"/>
+  <field name="reqData" type="text_std_token_lower_case" multiValued="false"/>
+  <field name="reqUser" type="key_lower_case" multiValued="false"/>
+  <field name="resType" type="key_lower_case" multiValued="false"/>
+  <field name="resource" type="key_lower_case" multiValued="false"/>
+  <field name="result" type="tint" multiValued="false"/>
+  <field name="seq_num" type="tlong" multiValued="false" docValues="true" default="0"/>
+  <field name="sess" type="key_lower_case" multiValued="false"/>
+  <field name="tags" type="key_lower_case" multiValued="true"/>
+  <field name="tags_str" type="text_std_token_lower_case" multiValued="false"/>
+  <field name="text" type="text_std_token_lower_case" multiValued="true" indexed="true" stored="false"/>
+  <field name="zoneName" type="key_lower_case" multiValued="false"/>
+  <field name="policyVersion" type="tlong" multiValued="false"/>
+</schema>

@@ -89,7 +89,7 @@ suite("test_map_load_and_compaction", "p0") {
         for (int i = 0; i < 5; ++i) {
             streamLoadJson.call(4063, dataFile1)
         }
-        
+
         sql """sync"""
 
         // check result
@@ -105,33 +105,11 @@ suite("test_map_load_and_compaction", "p0") {
         checkCompactionStatus.call(compactionStatus, 6)
 
         // trigger compaction
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId
-        def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        assertEquals("success", compactJson.status.toLowerCase())
-
-        // wait compactions done
-        do {
-            Thread.sleep(1000)
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def cs = parseJson(out.trim())
-            assertEquals("success", cs.status.toLowerCase())
-            running = cs.run_status
-        } while (running)
-
+        trigger_and_wait_compaction(testTable, "cumulative")
         checkCompactionStatus.call(compactionStatus, 1)
 
         // finally check backend alive
-        backends = sql """ show backends; """
+        def backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
         for (String[] b : backends) {
             assertEquals("true", b[9])

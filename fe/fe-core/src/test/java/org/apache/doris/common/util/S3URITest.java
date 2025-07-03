@@ -215,4 +215,49 @@ public class S3URITest {
         Assert.assertEquals("foo", uri1.getQueryParams().get().get("query").get(0));
 
     }
+
+    @Test
+    public void testS3DirectoryBucket() throws UserException {
+        // Valid directory bucket
+        String validDirBucket = "my-bucket--usw2-az1--x-s3";
+        Assert.assertTrue(S3URI.isS3DirectoryBucket(validDirBucket));
+        S3URI uriWithDirBucket = S3URI.create("s3://" + validDirBucket + "/some/file.csv");
+        Assert.assertTrue(uriWithDirBucket.useS3DirectoryBucket());
+        Assert.assertEquals(validDirBucket, uriWithDirBucket.getBucket());
+
+        // Another valid one
+        String validDirBucket2 = "another-bucket--use1-az4--x-s3";
+        Assert.assertTrue(S3URI.isS3DirectoryBucket(validDirBucket2));
+
+        // Invalid directory buckets
+        Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket")); // regular bucket
+        Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket--x-s3")); // missing azid
+        Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket--usw2-az1--x-s4")); // wrong suffix
+        Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket-usw2-az1--x-s3")); // incorrect format
+        Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket--usw2az1--x-s3")); // azid without hyphen
+        Assert.assertFalse(S3URI.isS3DirectoryBucket("my-bucket---x-s3")); // empty azid
+        Assert.assertFalse(S3URI.isS3DirectoryBucket(null));
+        Assert.assertFalse(S3URI.isS3DirectoryBucket(""));
+
+        S3URI uriWithRegularBucket = S3URI.create("s3://my-bucket/some/file.csv");
+        Assert.assertFalse(uriWithRegularBucket.useS3DirectoryBucket());
+    }
+
+    @Test
+    public void testGetDirectoryPrefixForGlob() {
+        // Case 1: Standard glob prefix
+        Assert.assertEquals("path/to/", S3URI.getDirectoryPrefixForGlob("path/to/file.csv"));
+        // Case 2: Prefix already ends with a slash
+        Assert.assertEquals("path/to/", S3URI.getDirectoryPrefixForGlob("path/to/"));
+        // Case 3: No slashes in prefix
+        Assert.assertEquals("", S3URI.getDirectoryPrefixForGlob("file.csv"));
+        // Case 4: Empty prefix
+        Assert.assertEquals("", S3URI.getDirectoryPrefixForGlob(""));
+        // Case 5: Null prefix
+        Assert.assertNull(S3URI.getDirectoryPrefixForGlob(null));
+        // Case 6: Prefix is just a slash
+        Assert.assertEquals("/", S3URI.getDirectoryPrefixForGlob("/"));
+        // Case 7: Starts with slash
+        Assert.assertEquals("/path/to/", S3URI.getDirectoryPrefixForGlob("/path/to/file.csv"));
+    }
 }

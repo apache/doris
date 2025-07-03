@@ -39,10 +39,10 @@
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/olap/vcollect_iterator.h"
@@ -71,54 +71,36 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
-    std::string cur_max_key;
+bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params) {
+    std::string pre_rs_last_key;
+    bool pre_rs_key_bounds_truncated {false};
     const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
     for (const auto& rs_split : rs_splits) {
-        // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_split.rs_reader->rowset()->version().second == 1) {
-            continue;
-        }
         if (rs_split.rs_reader->rowset()->num_rows() == 0) {
             continue;
         }
         if (rs_split.rs_reader->rowset()->is_segments_overlapping()) {
             return true;
         }
-        std::string min_key;
-        bool has_min_key = rs_split.rs_reader->rowset()->min_key(&min_key);
-        if (!has_min_key) {
+        std::string rs_first_key;
+        bool has_first_key = rs_split.rs_reader->rowset()->first_key(&rs_first_key);
+        if (!has_first_key) {
             return true;
         }
-        if (min_key <= cur_max_key) {
+        bool cur_rs_key_bounds_truncated {
+                rs_split.rs_reader->rowset()->is_segments_key_bounds_truncated()};
+        if (!Slice::lhs_is_strictly_less_than_rhs(Slice {pre_rs_last_key},
+                                                  pre_rs_key_bounds_truncated, Slice {rs_first_key},
+                                                  cur_rs_key_bounds_truncated)) {
             return true;
         }
-        CHECK(rs_split.rs_reader->rowset()->max_key(&cur_max_key));
-    }
-
-    for (const auto& rs_reader : rs_splits) {
-        // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_reader.rs_reader->rowset()->version().second == 1) {
-            continue;
-        }
-        if (rs_reader.rs_reader->rowset()->num_rows() == 0) {
-            continue;
-        }
-        if (rs_reader.rs_reader->rowset()->is_segments_overlapping()) {
-            return true;
-        }
-        std::string min_key;
-        bool has_min_key = rs_reader.rs_reader->rowset()->min_key(&min_key);
-        if (!has_min_key) {
-            return true;
-        }
-        if (min_key <= cur_max_key) {
-            return true;
-        }
-        CHECK(rs_reader.rs_reader->rowset()->max_key(&cur_max_key));
+        bool has_last_key = rs_split.rs_reader->rowset()->last_key(&pre_rs_last_key);
+        pre_rs_key_bounds_truncated = cur_rs_key_bounds_truncated;
+        CHECK(has_last_key);
     }
     return false;
 }
+
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
@@ -130,35 +112,49 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         return res;
     }
     // check if rowsets are noneoverlapping
-    _is_rowsets_overlapping = _rowsets_overlapping(read_params);
-    _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
-                        read_params.read_orderby_key_reverse);
+    {
+        SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
+        _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
+        _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
+                            read_params.read_orderby_key_reverse);
+    }
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
+    RuntimeState* runtime_state = read_params.runtime_state;
 
-    for (int i = 0; i < read_params.rs_splits.size(); ++i) {
-        auto& rs_split = read_params.rs_splits[i];
+    {
+        SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
+        for (int i = 0; i < read_params.rs_splits.size(); ++i) {
+            if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+                return runtime_state->cancel_reason();
+            }
 
-        // _vcollect_iter.topn_next() will init rs_reader by itself
-        if (!_vcollect_iter.use_topn_next()) {
-            RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
-        }
+            auto& rs_split = read_params.rs_splits[i];
 
-        Status res = _vcollect_iter.add_child(rs_split);
-        if (!res.ok() && !res.is<END_OF_FILE>()) {
-            LOG(WARNING) << "failed to add child to iterator, err=" << res;
-            return res;
-        }
-        if (res.ok()) {
-            valid_rs_readers.push_back(rs_split.rs_reader);
+            // _vcollect_iter.topn_next() will init rs_reader by itself
+            if (!_vcollect_iter.use_topn_next()) {
+                RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
+            }
+
+            Status res = _vcollect_iter.add_child(rs_split);
+            if (!res.ok() && !res.is<END_OF_FILE>()) {
+                LOG(WARNING) << "failed to add child to iterator, err=" << res;
+                return res;
+            }
+            if (res.ok()) {
+                valid_rs_readers.push_back(rs_split.rs_reader);
+            }
         }
     }
 
-    RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
-    // _vcollect_iter.topn_next() can not use current_row
-    if (!_vcollect_iter.use_topn_next()) {
-        auto status = _vcollect_iter.current_row(&_next_row);
-        _eof = status.is<END_OF_FILE>();
+    {
+        SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
+        RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
+        // _vcollect_iter.topn_next() can not use current_row
+        if (!_vcollect_iter.use_topn_next()) {
+            auto status = _vcollect_iter.current_row(&_next_row);
+            _eof = status.is<END_OF_FILE>();
+        }
     }
 
     return Status::OK();
@@ -179,8 +175,8 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     for (auto idx : _agg_columns_idx) {
         auto column = tablet_schema.column(
                 read_params.origin_return_columns->at(_return_columns_loc[idx]));
-        AggregateFunctionPtr function =
-                column.get_aggregate_function(vectorized::AGG_READER_SUFFIX);
+        AggregateFunctionPtr function = column.get_aggregate_function(
+                vectorized::AGG_READER_SUFFIX, read_params.get_be_exec_version());
 
         // to avoid coredump when something goes wrong(i.e. column missmatch)
         if (!function) {
@@ -377,8 +373,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
     } while (target_block_row < _reader_context.batch_size);
 
-    // do filter delete row in base compaction, only base compaction need to do the job
-    if (_filter_delete) {
+    if (_delete_sign_available) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);
         if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {

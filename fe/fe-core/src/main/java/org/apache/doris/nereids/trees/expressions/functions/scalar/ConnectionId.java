@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -33,7 +32,7 @@ import java.util.List;
  * ScalarFunction 'ConnectionId'.
  */
 public class ConnectionId extends ScalarFunction
-        implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable, Nondeterministic {
+        implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args()
@@ -51,5 +50,10 @@ public class ConnectionId extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitConnectionId(this, context);
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        return false;
     }
 }

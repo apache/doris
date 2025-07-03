@@ -30,6 +30,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -44,6 +45,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -72,11 +74,14 @@ public class PlanTranslatorContext {
     private final DescriptorTable descTable = new DescriptorTable();
 
     private final RuntimeFilterTranslator translator;
+
     private final TopnFilterContext topnFilterContext;
     /**
      * index from Nereids' slot to legacy slot.
      */
     private final Map<ExprId, SlotRef> exprIdToSlotRef = Maps.newHashMap();
+
+    private final Map<Integer, PlanNodeId> nereidsIdToPlanNodeIdMap = Maps.newHashMap();
 
     /**
      * Inverted index from legacy slot to Nereids' slot.
@@ -113,11 +118,15 @@ public class PlanTranslatorContext {
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
+    private final RuntimeFilterContextV2 runtimeFilterV2Context;
+
+    private boolean isTopMaterializeNode = true;
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
+        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
     }
 
     @VisibleForTesting
@@ -125,6 +134,8 @@ public class PlanTranslatorContext {
         this.connectContext = null;
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
+        IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
+        this.runtimeFilterV2Context = new RuntimeFilterContextV2(runtimeFilterIdGen);
     }
 
     /**
@@ -216,6 +227,10 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
+    public Map<Integer, PlanNodeId> getNereidsIdToPlanNodeIdMap() {
+        return nereidsIdToPlanNodeIdMap;
+    }
+
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
         exprIdToColumnRef.put(exprId, columnRefExpr);
     }
@@ -280,7 +295,7 @@ public class PlanTranslatorContext {
             @Nullable TableIf table) {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
-        Optional<Column> column = slotReference.getColumn();
+        Optional<Column> column = slotReference.getOriginalColumn();
         column.ifPresent(slotDescriptor::setColumn);
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
@@ -293,7 +308,7 @@ public class PlanTranslatorContext {
             slotDescriptor.setLabel(slotReference.getName());
         } else {
             slotRef = new SlotRef(slotDescriptor);
-            if (slotReference.hasSubColPath() && slotReference.getColumn().isPresent()) {
+            if (slotReference.hasSubColPath() && slotReference.getOriginalColumn().isPresent()) {
                 slotDescriptor.setSubColLables(slotReference.getSubPath());
                 // use lower case name for variant's root, since backend treat parent column as lower case
                 // see issue: https://github.com/apache/doris/pull/32999/commits
@@ -303,6 +318,9 @@ public class PlanTranslatorContext {
         }
         slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
+        if (column.isPresent()) {
+            slotDescriptor.setAutoInc(column.get().isAutoInc());
+        }
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
         return slotDescriptor;
@@ -333,5 +351,17 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public boolean isTopMaterializeNode() {
+        return isTopMaterializeNode;
+    }
+
+    public void setTopMaterializeNode(boolean topMaterializeNode) {
+        isTopMaterializeNode = topMaterializeNode;
+    }
+
+    public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
+        return runtimeFilterV2Context;
     }
 }

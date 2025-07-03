@@ -24,9 +24,11 @@ import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -35,11 +37,13 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -48,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -149,6 +154,21 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         } else {
             addRequestPropertyToChildren(icebergTableSink.getRequirePhysicalProperties());
         }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalJdbcTableSink(
+            PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, PlanContext context) {
+        // Always use gather properties for jdbcTableSink
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalDictionarySink(PhysicalDictionarySink<? extends Plan> dictionarySink,
+            PlanContext context) {
+        addRequestPropertyToChildren(dictionarySink.getRequirePhysicalProperties());
         return null;
     }
 
@@ -261,30 +281,24 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalUnion(PhysicalUnion union, PlanContext context) {
+        List<PhysicalProperties> requestAny = Lists.newArrayListWithCapacity(context.arity());
+        for (int i = context.arity(); i > 0; --i) {
+            requestAny.add(PhysicalProperties.ANY);
+        }
+        addRequestPropertyToChildren(requestAny);
+
         // TODO: we do not generate gather union until we could do better cost computation on set operation
-        List<PhysicalProperties> requiredPropertyList =
-                Lists.newArrayListWithCapacity(context.arity());
         if (union.getConstantExprsList().isEmpty()) {
             // translate requestPropertyFromParent to other children's request.
             DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
             if (distributionRequestFromParent instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
-                requiredPropertyList = createHashRequestAccordingToParent(union, distributionSpecHash, context);
-            } else {
-                for (int i = context.arity(); i > 0; --i) {
-                    requiredPropertyList.add(PhysicalProperties.ANY);
-                }
-            }
-
-        } else {
-            // current be could not run const expr on appropriate node,
-            // so if we have constant exprs on union, the output of union always any
-            // then any other request on children is useless.
-            for (int i = context.arity(); i > 0; --i) {
-                requiredPropertyList.add(PhysicalProperties.ANY);
+                List<PhysicalProperties> requestHash
+                        = createHashRequestAccordingToParent(union, distributionSpecHash, context);
+                addRequestPropertyToChildren(requestHash);
             }
         }
-        addRequestPropertyToChildren(requiredPropertyList);
+
         return null;
     }
 
@@ -360,6 +374,40 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
         addRequestPropertyToChildren(fileSink.requestProperties(connectContext));
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalWindow(PhysicalWindow<? extends Plan> window, PlanContext context) {
+        // requiredProperties:
+        //  Distribution: partitionKeys
+        //  Order: requiredOrderKeys
+        WindowFrameGroup windowFrameGroup = window.getWindowFrameGroup();
+        // all keys that need to be sorted, which includes BOTH partitionKeys and orderKeys from this group
+        List<OrderKey> keysNeedToBeSorted = Lists.newArrayList();
+        if (!windowFrameGroup.getPartitionKeys().isEmpty()) {
+            keysNeedToBeSorted.addAll(windowFrameGroup.getPartitionKeys().stream().map(partitionKey -> {
+                // todo: haven't support isNullFirst, and its default value is false(see AnalyticPlanner,
+                //  but in LogicalPlanBuilder, its default value is true)
+                return new OrderKey(partitionKey, true, false);
+            }).collect(Collectors.toList()));
+        }
+        if (!windowFrameGroup.getOrderKeys().isEmpty()) {
+            keysNeedToBeSorted.addAll(windowFrameGroup.getOrderKeys().stream()
+                    .map(OrderExpression::getOrderKey)
+                    .collect(Collectors.toList())
+            );
+        }
+
+        if (windowFrameGroup.getPartitionKeys().isEmpty() && windowFrameGroup.getOrderKeys().isEmpty()) {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        } else if (windowFrameGroup.getPartitionKeys().isEmpty() && !windowFrameGroup.getOrderKeys().isEmpty()) {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
+        } else if (!windowFrameGroup.getPartitionKeys().isEmpty()) {
+            addRequestPropertyToChildren(PhysicalProperties.createHash(
+                    windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE)
+                    .withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
+        }
         return null;
     }
 

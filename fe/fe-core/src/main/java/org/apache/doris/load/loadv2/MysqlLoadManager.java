@@ -19,10 +19,10 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -31,6 +31,8 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -47,6 +49,7 @@ import com.google.common.collect.EvictingQueue;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.ContentType;
@@ -60,9 +63,11 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,7 +81,6 @@ public class MysqlLoadManager {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadManager.class);
 
     private  ThreadPoolExecutor mysqlLoadPool;
-    private final TokenManager tokenManager;
 
     private static class MySqlLoadContext {
         private boolean finished;
@@ -143,8 +147,7 @@ public class MysqlLoadManager {
     private  EvictingQueue<MySqlLoadFailRecord> failedRecords;
     private ScheduledExecutorService periodScheduler;
 
-    public MysqlLoadManager(TokenManager tokenManager) {
-        this.tokenManager = tokenManager;
+    public MysqlLoadManager() {
     }
 
     public void start() {
@@ -169,7 +172,7 @@ public class MysqlLoadManager {
         List<String> filePaths = dataDesc.getFilePaths();
         String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
         String table = dataDesc.getTableName();
-        int oldTimeout = context.getExecTimeout();
+        int oldTimeout = context.getExecTimeoutS();
         int newTimeOut = extractTimeOut(dataDesc);
         if (newTimeOut > oldTimeout) {
             // set query timeout avoid by killed TimeoutChecker
@@ -178,7 +181,7 @@ public class MysqlLoadManager {
             VariableMgr.setVar(sessionVariable,
                     new SetVar(SessionVariable.QUERY_TIMEOUT, new StringLiteral(String.valueOf(newTimeOut))));
         }
-        String token = tokenManager.acquireToken();
+        String token = Env.getCurrentEnv().getTokenManager().acquireToken();
         boolean clientLocal = dataDesc.isClientLocal();
         MySqlLoadContext loadContext = new MySqlLoadContext();
         loadContextMap.put(loadId, loadContext);
@@ -228,11 +231,6 @@ public class MysqlLoadManager {
             loadContextMap.remove(loadId);
         }
         return loadResult;
-    }
-
-    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, InsertStmt insertStmt, String loadId)
-            throws UserException, IOException {
-        return executeMySqlLoadJobFromStmt(context, (DataDescription) insertStmt.getDataDescList().get(0), loadId);
     }
 
     public void cancelMySqlLoad(String loadId) {
@@ -348,7 +346,18 @@ public class MysqlLoadManager {
         httpPut.addHeader("Content-Type", "text/plain");
         httpPut.addHeader("token", token);
 
+        UserIdentity uid = ConnectContext.get().getCurrentUserIdentity();
+        if (uid == null || StringUtils.isEmpty(uid.getQualifiedUser())) {
+            throw new LoadException("user is null");
+        }
+        // NOTE: set pass word empty here because password is only used when login from mysql client.
+        // All authentication actions after login in do not require a password
+        String auth = String.format("%s:%s", uid.getQualifiedUser(), "");
+        String authEncoding = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
+        httpPut.addHeader("Authorization", "Basic " + authEncoding);
+
         Map<String, String> props = desc.getProperties();
+        FileFormatProperties fileFormatProperties = desc.getFileFormatProperties();
         if (props != null) {
             // max_filter_ratio
             if (props.containsKey(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
@@ -380,38 +389,20 @@ public class MysqlLoadManager {
                 httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
             }
 
-            // trim quotes
-            if (props.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
-                String trimQuotes = props.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES);
-                httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES, trimQuotes);
-            }
-
-            // enclose
-            if (props.containsKey(LoadStmt.KEY_ENCLOSE)) {
-                String enclose = props.get(LoadStmt.KEY_ENCLOSE);
-                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, enclose);
-            }
-
-            //escape
-            if (props.containsKey(LoadStmt.KEY_ESCAPE)) {
-                String escape = props.get(LoadStmt.KEY_ESCAPE);
-                httpPut.addHeader(LoadStmt.KEY_ESCAPE, escape);
+            if (fileFormatProperties instanceof CsvFileFormatProperties) {
+                CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+                httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES,
+                        String.valueOf(csvFileFormatProperties.isTrimDoubleQuotes()));
+                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+                httpPut.addHeader(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
             }
         }
 
-        // skip_lines
-        if (desc.getSkipLines() != 0) {
-            httpPut.addHeader(LoadStmt.KEY_SKIP_LINES, Integer.toString(desc.getSkipLines()));
-        }
-
-        // column_separator
-        if (desc.getColumnSeparator() != null) {
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, desc.getColumnSeparator());
-        }
-
-        // line_delimiter
-        if (desc.getLineDelimiter() != null) {
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, desc.getLineDelimiter());
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+            httpPut.addHeader(LoadStmt.KEY_SKIP_LINES, Integer.toString(csvFileFormatProperties.getSkipLines()));
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, csvFileFormatProperties.getColumnSeparator());
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, csvFileFormatProperties.getLineDelimiter());
         }
 
         // columns
@@ -433,9 +424,15 @@ public class MysqlLoadManager {
 
         // cloud cluster
         if (Config.isCloudMode()) {
-            String clusterName = ConnectContext.get().getCloudCluster();
+            String clusterName = "";
+            try {
+                clusterName = ConnectContext.get().getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get compute group: " + e.getMessage());
+                throw new LoadException("failed to get compute group: " + e.getMessage());
+            }
             if (Strings.isNullOrEmpty(clusterName)) {
-                throw new LoadException("cloud cluster is empty");
+                throw new LoadException("cloud compute group is empty");
             }
             httpPut.addHeader(LoadStmt.KEY_CLOUD_CLUSTER, clusterName);
         }
@@ -447,7 +444,14 @@ public class MysqlLoadManager {
     private String selectBackendForMySqlLoad(String database, String table) throws LoadException {
         Backend backend = null;
         if (Config.isCloudMode()) {
-            backend = StreamLoadHandler.selectBackend(ConnectContext.get().getCloudCluster(), false);
+            String clusterName = "";
+            try {
+                clusterName = ConnectContext.get().getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get cloud cluster: " + e.getMessage());
+                throw new LoadException("failed to get cloud cluster: " + e);
+            }
+            backend = StreamLoadHandler.selectBackend(clusterName);
         } else {
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
             List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);

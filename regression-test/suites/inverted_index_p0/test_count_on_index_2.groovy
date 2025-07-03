@@ -153,6 +153,7 @@ suite("test_count_on_index_2", "p0"){
         load_httplogs_data.call(indexTbName2, indexTbName2, 'true', 'json', 'documents-1000.json')
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_sql """ select count() from ${indexTbName1} where `@timestamp` >= 893964736 and `@timestamp` <= 893966453; """
         qt_sql """ select count() from ${indexTbName2} where `@timestamp` >= 893964736 and `@timestamp` <= 893966453; """
@@ -201,6 +202,35 @@ suite("test_count_on_index_2", "p0"){
         qt_sql """ select count() from ${indexTbName3} where (a >= 10 and a < 20) and (b >= 5 and b < 14) and (c >= 16 and c < 25); """
         qt_sql """ select count() from ${indexTbName3} where (a >= 10 and a < 20) and (b >= 5 and b < 16) and (c >= 13 and c < 25); """
 
+        sql """ DROP TABLE IF EXISTS tt """
+        sql """
+            CREATE TABLE `tt` (
+                `a` int NULL,
+                `b` int NULL,
+                `c` int NULL,
+                INDEX col_c (`b`) USING INVERTED,
+                INDEX col_b (`c`) USING INVERTED
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`a`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+
+        sql """ insert into tt values (20, 23, 30); """
+        sql """ insert into tt values (20, null, 30); """
+        qt_sql """ select count(b) from tt where b = 23 or c = 30; """
+        qt_sql """ select count(b) from tt where b = 23  and (c = 20 or c = 30); """
+        explain {
+            sql("select count(b) from tt where b = 23  and (c = 20 or c = 30);")
+            contains "COUNT_ON_INDEX"
+        }
+        explain {
+            sql("select count(b) from tt where b = 23 or b = 30;")
+            contains "COUNT_ON_INDEX"
+        }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

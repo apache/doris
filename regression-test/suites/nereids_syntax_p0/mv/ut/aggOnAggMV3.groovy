@@ -34,7 +34,10 @@ suite ("aggOnAggMV3") {
         """
 
     sql """insert into aggOnAggMV3 values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into aggOnAggMV3 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into aggOnAggMV3 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV3 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV3 values("2020-01-03",3,"c",3,3,10);"""
     sql """insert into aggOnAggMV3 values("2020-01-03",3,"c",3,3,10);"""
     sql """insert into aggOnAggMV3 values("2020-01-04",4,"d",21,4,4);"""
     sql """insert into aggOnAggMV3 values("2020-01-04",4,"d",21,4,4);"""
@@ -46,30 +49,20 @@ suite ("aggOnAggMV3") {
     sleep(3000)
 
     sql "analyze table aggOnAggMV3 with sync;"
+    sql """alter table aggOnAggMV3 modify column time_col set stats ('row_count'='8');"""
+
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from aggOnAggMV3 order by empid;")
-        contains "(aggOnAggMV3)"
-    }
+    mv_rewrite_fail("select * from aggOnAggMV3 order by empid;", "aggOnAggMV3_mv")
     order_qt_select_star "select * from aggOnAggMV3 order by empid;"
 
-
-   explain {
-        sql("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;")
-        contains "(aggOnAggMV3_mv)"
-    }
+    mv_rewrite_success("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;",
+            "aggOnAggMV3_mv")
     order_qt_select_mv "select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from aggOnAggMV3 order by empid;")
-        contains "(aggOnAggMV3)"
-    }
+    mv_rewrite_fail("select * from aggOnAggMV3 order by empid;", "aggOnAggMV3_mv")
 
-    explain {
-        sql("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;")
-        contains "(aggOnAggMV3_mv)"
-    }
-
+    mv_rewrite_success("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;",
+            "aggOnAggMV3_mv")
 }

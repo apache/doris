@@ -74,10 +74,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     GroupingScalarFunction.class,
                     TableGeneratingFunction.class,
                     WindowExpression.class))
-            .put(LogicalOneRowRelation.class, ImmutableSet.of(
-                    GroupingScalarFunction.class,
-                    TableGeneratingFunction.class,
-                    WindowExpression.class))
+            .put(LogicalOneRowRelation.class, LogicalOneRowRelation.FORBIDDEN_EXPRESSIONS)
             .put(LogicalProject.class, ImmutableSet.of(
                     TableGeneratingFunction.class))
             .put(LogicalSort.class, ImmutableSet.of(
@@ -138,36 +135,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     }
 
     private void checkAggregate(LogicalAggregate<? extends Plan> aggregate) {
-        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
-        boolean distinctMultiColumns = false;
-        for (AggregateFunction func : aggregateFunctions) {
-            if (!func.isDistinct()) {
-                continue;
-            }
-            if (func.arity() <= 1) {
-                continue;
-            }
-            for (int i = 1; i < func.arity(); i++) {
-                if (!func.child(i).getInputSlots().isEmpty()) {
-                    // think about group_concat(distinct col_1, ',')
-                    distinctMultiColumns = true;
-                    break;
-                }
-            }
-            if (distinctMultiColumns) {
-                break;
-            }
-        }
-
-        long distinctFunctionNum = 0;
-        for (AggregateFunction aggregateFunction : aggregateFunctions) {
-            distinctFunctionNum += aggregateFunction.isDistinct() ? 1 : 0;
-        }
-
-        if (distinctMultiColumns && distinctFunctionNum > 1) {
-            throw new AnalysisException(
-                    "The query contains multi count distinct or sum distinct, each can't have multi columns");
-        }
         for (Expression expr : aggregate.getGroupByExpressions()) {
             if (expr.anyMatch(AggregateFunction.class::isInstance)) {
                 throw new AnalysisException(

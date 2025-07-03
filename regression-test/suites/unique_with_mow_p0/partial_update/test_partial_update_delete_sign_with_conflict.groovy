@@ -35,6 +35,10 @@ import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 
 suite("test_partial_update_delete_sign_with_conflict") {
+    if (isCloudMode()) {
+        return
+    }
+
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_partial_update_delete_sign_with_conflict"
 
@@ -65,9 +69,9 @@ suite("test_partial_update_delete_sign_with_conflict") {
         log.info("http_stream execute 2pc: ${command}")
 
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
-        json2pc = parseJson(out)
+        def code = process.waitFor()
+        def out = process.text
+        def json2pc = parseJson(out)
         log.info("http_stream 2pc result: ${out}".toString())
         assertEquals(code, 0)
         assertEquals("success", json2pc.status.toLowerCase())

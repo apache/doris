@@ -23,7 +23,15 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
+import org.apache.iceberg.view.View;
+
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -36,14 +44,53 @@ public interface ExternalMetadataOps {
      * @param stmt
      * @throws DdlException
      */
-    void createDb(CreateDbStmt stmt) throws DdlException;
+    default void createDb(CreateDbStmt stmt) throws DdlException {
+        createDbImpl(stmt);
+        afterCreateDb(stmt.getFullDbName());
+    }
+
+    /**
+     * create db in external metastore
+     * @param command
+     * @throws DdlException
+     */
+    default void createDb(CreateDatabaseCommand command) throws DdlException {
+        createDbImpl(command);
+        afterCreateDb(command.getDbName());
+    }
+
+    void createDbImpl(CreateDbStmt stmt) throws DdlException;
+
+    void createDbImpl(CreateDatabaseCommand command) throws DdlException;
+
+    default void afterCreateDb(String dbName) {
+    }
 
     /**
      * drop db in external metastore
      * @param stmt
      * @throws DdlException
      */
-    void dropDb(DropDbStmt stmt) throws DdlException;
+    default void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDbImpl(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+        afterDropDb(stmt.getCtlName());
+    }
+
+    default void dropDb(String ctlName, String dbName, boolean ifExists, boolean force) throws DdlException {
+        dropDbImpl(dbName, ifExists, force);
+        afterDropDb(ctlName);
+    }
+
+    /**
+     * drop db in external metastore for nereids
+     * @param dbName
+     * @param ifExists
+     * @param force
+     * @throws DdlException
+     */
+    void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException;
+
+    void afterDropDb(String dbName);
 
     /**
      *
@@ -51,22 +98,126 @@ public interface ExternalMetadataOps {
      * @return if set isExists is true, return true if table exists, otherwise return false
      * @throws UserException
      */
-    boolean createTable(CreateTableStmt stmt) throws UserException;
+    default boolean createTable(CreateTableStmt stmt) throws UserException {
+        boolean res = createTableImpl(stmt);
+        if (!res) {
+            afterCreateTable(stmt.getDbName(), stmt.getTableName());
+        }
+        return res;
+    }
+
+    boolean createTableImpl(CreateTableStmt stmt) throws UserException;
+
+    default void afterCreateTable(String dbName, String tblName) {
+    }
 
     /**
      *
      * @param stmt
      * @throws DdlException
      */
-    void dropTable(DropTableStmt stmt) throws DdlException;
+    default void dropTable(DropTableStmt stmt) throws DdlException {
+        dropTableImpl(stmt);
+        afterDropTable(stmt.getDbName(), stmt.getTableName());
+    }
+
+    default void dropTable(String dbName, String tableName, boolean ifExists) throws DdlException {
+        dropTableImpl(dbName, tableName, ifExists);
+        afterDropTable(dbName, tableName);
+    }
+
+    void dropTableImpl(DropTableStmt stmt) throws DdlException;
+
+    void dropTableImpl(String dbName, String tableName, boolean ifExists) throws DdlException;
+
+    default void afterDropTable(String dbName, String tblName) {
+    }
 
     /**
+     * truncate table in external metastore
      *
      * @param dbName
      * @param tblName
      * @param partitions
      */
-    void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException;
+    default void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException {
+        truncateTableImpl(dbName, tblName, partitions);
+        afterTruncateTable(dbName, tblName);
+    }
+
+    void truncateTableImpl(String dbName, String tblName, List<String> partitions) throws DdlException;
+
+    default void afterTruncateTable(String dbName, String tblName) {
+    }
+
+    /**
+     * create or replace branch in external metastore
+     *
+     * @param dbName
+     * @param tblName
+     * @param branchInfo
+     * @throws UserException
+     */
+    default void createOrReplaceBranch(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        createOrReplaceBranchImpl(dbName, tblName, branchInfo);
+        afterOperateOnBranchOrTag(dbName, tblName);
+    }
+
+    void createOrReplaceBranchImpl(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException;
+
+    default void afterOperateOnBranchOrTag(String dbName, String tblName) {
+    }
+
+    /**
+     * create or replace tag in external metastore
+     *
+     * @param dbName
+     * @param tblName
+     * @param tagInfo
+     * @throws UserException
+     */
+    default void createOrReplaceTag(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
+            throws UserException {
+        createOrReplaceTagImpl(dbName, tblName, tagInfo);
+        afterOperateOnBranchOrTag(dbName, tblName);
+    }
+
+    void createOrReplaceTagImpl(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
+            throws UserException;
+
+    /**
+     * drop tag in external metastore
+     *
+     * @param dbName
+     * @param tblName
+     * @param tagInfo
+     * @throws UserException
+     */
+    default void dropTag(String dbName, String tblName, DropTagInfo tagInfo)
+            throws UserException {
+        dropTagImpl(dbName, tblName, tagInfo);
+        afterOperateOnBranchOrTag(dbName, tblName);
+    }
+
+    void dropTagImpl(String dbName, String tblName, DropTagInfo tagInfo) throws UserException;
+
+    /**
+     * drop branch in external metastore
+     *
+     * @param dbName
+     * @param tblName
+     * @param branchInfo
+     * @throws UserException
+     */
+    default void dropBranch(String dbName, String tblName, DropBranchInfo branchInfo)
+            throws UserException {
+        dropBranchImpl(dbName, tblName, branchInfo);
+        afterOperateOnBranchOrTag(dbName, tblName);
+    }
+
+    void dropBranchImpl(String dbName, String tblName, DropBranchInfo branchInfo) throws UserException;
 
     /**
      *
@@ -91,8 +242,42 @@ public interface ExternalMetadataOps {
 
     boolean databaseExist(String dbName);
 
+    default Object loadTable(String dbName, String tblName) {
+        throw new UnsupportedOperationException("Load table is not supported.");
+    }
+
     /**
      * close the connection, eg, to hms
      */
     void close();
+
+    /**
+     * load an iceberg view.
+     * @param dbName
+     * @param viewName
+     * @return
+     */
+    default View loadView(String dbName, String viewName) {
+        throw new UnsupportedOperationException("Load view is not supported.");
+    }
+
+    /**
+     * Check if an Iceberg view exists.
+     * @param dbName
+     * @param viewName
+     * @return
+     */
+    default boolean viewExists(String dbName, String viewName) {
+        throw new UnsupportedOperationException("View is not supported.");
+    }
+
+    /**
+     * List all views under a specific database.
+     * @param db
+     * @return
+     */
+    default List<String> listViewNames(String db) {
+        return Collections.emptyList();
+    }
+
 }

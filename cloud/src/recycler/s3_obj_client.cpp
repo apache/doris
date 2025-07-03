@@ -30,9 +30,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stopwatch.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/util.h"
 
 namespace doris::cloud {
 
@@ -89,7 +91,10 @@ public:
             return false;
         }
 
-        auto outcome = s3_get_rate_limit([&]() { return client_->ListObjectsV2(req_); });
+        auto outcome = s3_get_rate_limit([&]() {
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+            return client_->ListObjectsV2(req_);
+        });
 
         if (!outcome.IsSuccess()) {
             LOG_WARNING("failed to list objects")
@@ -98,6 +103,17 @@ public:
                     .tag("prefix", req_.GetPrefix())
                     .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
                     .tag("error", outcome.GetError().GetMessage());
+            is_valid_ = false;
+            return false;
+        }
+
+        if (outcome.GetResult().GetIsTruncated() &&
+            outcome.GetResult().GetNextContinuationToken().empty()) {
+            LOG_WARNING("failed to list objects, isTruncated but no continuation token")
+                    .tag("endpoint", endpoint_)
+                    .tag("bucket", req_.GetBucket())
+                    .tag("prefix", req_.GetPrefix());
+
             is_valid_ = false;
             return false;
         }
@@ -152,7 +168,10 @@ ObjectStorageResponse S3ObjClient::put_object(ObjectStoragePathRef path, std::st
     auto input = Aws::MakeShared<Aws::StringStream>("S3Accessor");
     *input << stream;
     request.SetBody(input);
-    auto outcome = s3_put_rate_limit([&]() { return s3_client_->PutObject(request); });
+    auto outcome = s3_put_rate_limit([&]() {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
+        return s3_client_->PutObject(request);
+    });
     if (!outcome.IsSuccess()) {
         LOG_WARNING("failed to put object")
                 .tag("endpoint", endpoint_)
@@ -168,7 +187,10 @@ ObjectStorageResponse S3ObjClient::put_object(ObjectStoragePathRef path, std::st
 ObjectStorageResponse S3ObjClient::head_object(ObjectStoragePathRef path, ObjectMeta* res) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(path.bucket).WithKey(path.key);
-    auto outcome = s3_get_rate_limit([&]() { return s3_client_->HeadObject(request); });
+    auto outcome = s3_get_rate_limit([&]() {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
+        return s3_client_->HeadObject(request);
+    });
     if (outcome.IsSuccess()) {
         res->key = path.key;
         res->size = outcome.GetResult().GetContentLength();
@@ -192,7 +214,8 @@ std::unique_ptr<ObjectListIterator> S3ObjClient::list_objects(ObjectStoragePathR
 }
 
 ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
-                                                  std::vector<std::string> keys) {
+                                                  std::vector<std::string> keys,
+                                                  ObjClientOptions option) {
     if (keys.empty()) {
         return {0};
     }
@@ -209,8 +232,10 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
         Aws::S3::Model::Delete del;
         del.WithObjects(std::move(objects)).SetQuiet(true);
         delete_request.SetDelete(std::move(del));
-        auto delete_outcome =
-                s3_put_rate_limit([&]() { return s3_client_->DeleteObjects(delete_request); });
+        auto delete_outcome = s3_put_rate_limit([&]() {
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
+            return s3_client_->DeleteObjects(delete_request);
+        });
         if (!delete_outcome.IsSuccess()) {
             LOG_WARNING("failed to delete objects")
                     .tag("endpoint", endpoint_)
@@ -266,7 +291,11 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
 ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(path.bucket).WithKey(path.key);
-    auto outcome = s3_put_rate_limit([&]() { return s3_client_->DeleteObject(request); });
+    auto outcome = s3_put_rate_limit([&]() {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
+        return s3_client_->DeleteObject(request);
+    });
+    TEST_SYNC_POINT_CALLBACK("S3ObjClient::delete_object", &outcome);
     if (!outcome.IsSuccess()) {
         LOG_WARNING("failed to delete object")
                 .tag("endpoint", endpoint_)
@@ -275,14 +304,18 @@ ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
                 .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
                 .tag("error", outcome.GetError().GetMessage())
                 .tag("exception", outcome.GetError().GetExceptionName());
-        return -1;
+        if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+            return {ObjectStorageResponse::NOT_FOUND, outcome.GetError().GetMessage()};
+        }
+        return {ObjectStorageResponse::UNDEFINED, outcome.GetError().GetMessage()};
     }
-    return 0;
+    return {ObjectStorageResponse::OK};
 }
 
 ObjectStorageResponse S3ObjClient::delete_objects_recursively(ObjectStoragePathRef path,
+                                                              ObjClientOptions option,
                                                               int64_t expiration_time) {
-    return delete_objects_recursively_(path, expiration_time, MaxDeleteBatch);
+    return delete_objects_recursively_(path, option, expiration_time, MaxDeleteBatch);
 }
 
 ObjectStorageResponse S3ObjClient::get_life_cycle(const std::string& bucket,

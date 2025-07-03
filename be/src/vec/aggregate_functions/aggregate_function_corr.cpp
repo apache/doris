@@ -15,78 +15,74 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_binary.h"
+#include "aggregate_function_corr.h"
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/core/types.h"
-
 namespace doris::vectorized {
-
-template <typename T>
-struct CorrMoment {
-    T m0 {};
-    T x1 {};
-    T y1 {};
-    T xy {};
-    T x2 {};
-    T y2 {};
-
-    void add(T x, T y) {
-        ++m0;
-        x1 += x;
-        y1 += y;
-        xy += x * y;
-        x2 += x * x;
-        y2 += y * y;
-    }
-
-    void merge(const CorrMoment& rhs) {
-        m0 += rhs.m0;
-        x1 += rhs.x1;
-        y1 += rhs.y1;
-        xy += rhs.xy;
-        x2 += rhs.x2;
-        y2 += rhs.y2;
-    }
-
-    void write(BufferWritable& buf) const {
-        write_binary(m0, buf);
-        write_binary(x1, buf);
-        write_binary(y1, buf);
-        write_binary(xy, buf);
-        write_binary(x2, buf);
-        write_binary(y2, buf);
-    }
-
-    void read(BufferReadable& buf) {
-        read_binary(m0, buf);
-        read_binary(x1, buf);
-        read_binary(y1, buf);
-        read_binary(xy, buf);
-        read_binary(x2, buf);
-        read_binary(y2, buf);
-    }
-
-    T get() const {
-        if ((m0 * x2 - x1 * x1) * (m0 * y2 - y1 * y1) == 0) [[unlikely]] {
-            return 0;
-        }
-        return (m0 * xy - x1 * y1) / sqrt((m0 * x2 - x1 * x1) * (m0 * y2 - y1 * y1));
-    }
-
-    static String name() { return "corr"; }
-};
 
 AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
     assert_binary(name, argument_types);
-    return create_with_two_basic_numeric_types<CorrMoment>(argument_types[0], argument_types[1],
-                                                           argument_types, result_is_nullable);
+
+    DCHECK(argument_types[0]->get_primitive_type() == argument_types[1]->get_primitive_type());
+
+    switch ((argument_types[0]->get_primitive_type())) {
+    case PrimitiveType::TYPE_TINYINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_TINYINT, TYPE_TINYINT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_SMALLINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_SMALLINT, TYPE_SMALLINT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_INT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_INT, TYPE_INT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_BIGINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_BIGINT, TYPE_BIGINT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_FLOAT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_FLOAT, TYPE_FLOAT, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DOUBLE:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, TYPE_DOUBLE, CorrMoment>>>(
+                argument_types, result_is_nullable);
+    default:
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Aggregate function {} only support numeric types", name);
+    }
+    return nullptr;
 }
 
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("corr", create_aggregate_corr_function);
+}
+
+AggregateFunctionPtr create_aggregate_corr_welford_function(const std::string& name,
+                                                            const DataTypes& argument_types,
+                                                            const bool result_is_nullable,
+                                                            const AggregateFunctionAttr& attr) {
+    assert_binary(name, argument_types);
+
+    if (argument_types[0]->get_primitive_type() != TYPE_DOUBLE ||
+        argument_types[1]->get_primitive_type() != TYPE_DOUBLE) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Aggregate function {} only support double", name);
+    }
+
+    return creator_without_type::create<
+            AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, TYPE_DOUBLE, CorrMomentWelford>>>(
+            argument_types, result_is_nullable);
+}
+
+void register_aggregate_functions_corr_welford(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both("corr_welford", create_aggregate_corr_welford_function);
 }
 
 } // namespace doris::vectorized

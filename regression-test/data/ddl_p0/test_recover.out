@@ -28,31 +28,39 @@ test_recover_tb
 test_recover_tb_new
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
+test_recover_tb_2
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb_2
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
 
 -- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+test_recover_tb
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
 
 -- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
 
 -- !select --
 test_recover_tb
@@ -90,31 +98,39 @@ test_recover_tb
 test_recover_tb_new
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
+test_recover_tb_2
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb_2
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
 
 -- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+test_recover_tb
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
 
 -- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
 
 -- !select --
 test_recover_tb
@@ -152,31 +168,39 @@ test_recover_tb
 test_recover_tb_new
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
+test_recover_tb_2
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb_2
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
 
 -- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+test_recover_tb
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
+test_recover_tb
 
 -- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
 
 -- !select --
 test_recover_tb
@@ -214,33 +238,6 @@ test_recover_tb
 test_recover_tb_new
 
 -- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
-
--- !select --
 test_recover_tb
 test_recover_tb_2
 
@@ -274,219 +271,6 @@ test_recover_tb_new
 -- !select --
 test_recover_tb
 test_recover_tb_new
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
-
--- !select --
-test_recover_tb
-test_recover_tb_2
-
--- !select --
-test_recover_tb_2
-
--- !select --
-
--- !select --
-test_recover_tb
-
--- !select --
-
--- !select --
-test_recover_tb
-
--- !select --
-test_recover_tb
-
--- !select --
-test_recover_tb
-
--- !select --
-test_recover_tb
-
--- !select --
-
--- !select --
-test_recover_tb_new
-
--- !select --
-test_recover_tb
-test_recover_tb_new
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
-
--- !select --
-test_recover_tb
-test_recover_tb_2
-
--- !select --
-test_recover_tb_2
-
--- !select --
-
--- !select --
-test_recover_tb
-
--- !select --
-
--- !select --
-test_recover_tb
-
--- !select --
-test_recover_tb
-
--- !select --
-test_recover_tb
-
--- !select --
-test_recover_tb
-
--- !select --
-
--- !select --
-test_recover_tb_new
-
--- !select --
-test_recover_tb
-test_recover_tb_new
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
-
--- !select --
-test_recover_tb
-test_recover_tb_2
-
--- !select --
-test_recover_tb_2
-
--- !select --
-
--- !select --
-test_recover_tb
-
--- !select --
-
--- !select --
-test_recover_tb
-
--- !select --
-test_recover_tb
-
--- !select --
-test_recover_tb
-
--- !select --
-test_recover_tb
-
--- !select --
-
--- !select --
-test_recover_tb_new
-
--- !select --
-test_recover_tb
-test_recover_tb_new
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
-
--- !select --
-test_recover_db	CREATE DATABASE `test_recover_db`
-
--- !select --
-test_recover_db_new	CREATE DATABASE `test_recover_db_new`
 
 -- !select --
 test_recover_tb

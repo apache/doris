@@ -127,8 +127,8 @@ public class MetaWriter {
         MetaFooter.write(imageFile, metaIndices, checksum.getRef());
 
         long saveImageEndTime = System.currentTimeMillis();
-        LOG.info("finished save image {} in {} ms. checksum is {}", imageFile.getAbsolutePath(),
-                (saveImageEndTime - saveImageStartTime), checksum.getRef());
+        LOG.info("finished save image {} in {} ms. checksum is {}, size is {}", imageFile.getAbsolutePath(),
+                (saveImageEndTime - saveImageStartTime), checksum.getRef(), imageFile.length());
     }
 
 }

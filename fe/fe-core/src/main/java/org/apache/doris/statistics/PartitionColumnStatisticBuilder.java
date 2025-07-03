@@ -50,9 +50,9 @@ public class PartitionColumnStatisticBuilder {
         this.updatedTime = statistic.updatedTime;
     }
 
-    public PartitionColumnStatisticBuilder setCount(double count) {
+    // ATTENTION: DON'T USE FOLLOWING TWO DURING STATS DERIVING EXCEPT FOR INITIALIZATION
+    public PartitionColumnStatisticBuilder(double count) {
         this.count = count;
-        return this;
     }
 
     public PartitionColumnStatisticBuilder setNdv(Hll128 ndv) {
@@ -174,6 +174,6 @@ public class PartitionColumnStatisticBuilder {
 
     public ColumnStatistic toColumnStatistics() {
         return new ColumnStatistic(count, ndv.estimateCardinality(), null,
-                avgSizeByte, numNulls, dataSize, minValue, maxValue, minExpr, maxExpr, isUnknown, updatedTime);
+                avgSizeByte, numNulls, dataSize, minValue, maxValue, minExpr, maxExpr, isUnknown, updatedTime, null);
     }
 }

@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nereids_match_select") {
+import java.util.stream.Collectors
+
+suite("match") {
     sql """
         SET enable_nereids_planner=true
     """
@@ -35,11 +37,11 @@ suite("test_nereids_match_select") {
             `fatherName`     varchar(50),
             `matherName`     varchar(50),
             `selfComment`    text,
-            INDEX name_idx(name) USING INVERTED PROPERTIES("parser"="english") COMMENT 'name index',
+            INDEX name_idx(name) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'name index',
             INDEX age_idx(age) USING INVERTED COMMENT 'age index',
             INDEX grade_idx(grade) USING INVERTED PROPERTIES("parser"="none") COMMENT 'grade index',
-            INDEX fatherName_idx(fatherName) USING INVERTED PROPERTIES("parser"="english") COMMENT 'fatherName index',
-            INDEX matherName_idx(matherName) USING INVERTED PROPERTIES("parser"="english") COMMENT 'matherName index',
+            INDEX fatherName_idx(fatherName) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'fatherName index',
+            INDEX matherName_idx(matherName) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'matherName index',
             INDEX selfComment_idx(selfComment) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'selfComment index'
         ) ENGINE=OLAP
         DUPLICATE KEY(`name`)
@@ -171,6 +173,36 @@ suite("test_nereids_match_select") {
 
     order_qt_match_phrase_7 """
         SELECT * FROM test_nereids_match_select WHERE name match_phrase 'zhang' and selfComment match_phrase 'want go outside';
+    """
+
+    def variables = sql "show variables"
+    def variableString = variables.stream()
+            .map { it.toString() }
+            .collect(Collectors.joining("\n"))
+    logger.info("Variables:\n${variableString}")
+
+    sql "set enable_fold_constant_by_be=false"
+
+    explain {
+        sql """
+        select *
+        from test_nereids_match_select a
+        left join
+        test_nereids_match_select b
+        on a.age = b.age
+        where b.name match_any 'zhang'
+        """
+
+        contains("INNER JOIN")
+    }
+
+    order_qt_match_join """
+        select *
+        from test_nereids_match_select a
+        left join
+        test_nereids_match_select b
+        on a.age = b.age
+        where b.name match_any 'zhang'
     """
 }
 

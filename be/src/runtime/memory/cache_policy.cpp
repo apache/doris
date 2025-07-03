@@ -20,10 +20,14 @@
 #include "runtime/memory/cache_manager.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
-CachePolicy::CachePolicy(CacheType type, uint32_t stale_sweep_time_s, bool enable_prune)
-        : _type(type), _stale_sweep_time_s(stale_sweep_time_s), _enable_prune(enable_prune) {
-    CacheManager::instance()->register_cache(this);
+CachePolicy::CachePolicy(CacheType type, size_t capacity, uint32_t stale_sweep_time_s,
+                         bool enable_prune)
+        : _type(type),
+          _initial_capacity(capacity),
+          _stale_sweep_time_s(stale_sweep_time_s),
+          _enable_prune(enable_prune) {
     init_profile();
 }
 
@@ -31,4 +35,5 @@ CachePolicy::~CachePolicy() {
     CacheManager::instance()->unregister_cache(_type);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

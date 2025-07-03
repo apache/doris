@@ -22,6 +22,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -47,8 +48,6 @@ import java.util.Optional;
  */
 public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(BaseExternalTableInsertExecutor.class);
-    private static final long INVALID_TXN_ID = -1L;
-    protected long txnId = INVALID_TXN_ID;
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
     protected final TransactionManager transactionManager;
     protected final String catalogName;
@@ -70,15 +69,6 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         }
     }
 
-    public long getTxnId() {
-        return txnId;
-    }
-
-    /**
-     * collect commit infos from BEs
-     */
-    protected abstract void setCollectCommitInfoFunc();
-
     /**
      * At this time, FE has successfully collected all commit information from BEs.
      * Before commit this txn, commit information need to be analyzed and processed.
@@ -93,7 +83,6 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     @Override
     public void beginTransaction() {
         txnId = transactionManager.begin();
-        setCollectCommitInfoFunc();
     }
 
     @Override
@@ -125,7 +114,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
 
     @Override
     protected void onFail(Throwable t) {
-        errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
+        errMsg = Util.getRootCauseMessage(t);
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);

@@ -50,8 +50,35 @@ suite ("multi_slot") {
 
     order_qt_select_star "select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3 from multi_slot;"
     order_qt_select_star "select * from multi_slot order by cast(v['k1'] as int);"
-    // TODO fix and remove enable_rewrite_element_at_to_slot
-    order_qt_select_star "select /*+SET_VAR(enable_rewrite_element_at_to_slot=false) */ abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k4']['k44'] as int))"
+    order_qt_select_star "select abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k4']['k44'] as int))"
+
+    sql "drop table if exists test_mv"
+    sql """
+    CREATE TABLE `test_mv` (
+        `handle_time` datetime NOT NULL ,
+        `client_request` variant NULL,
+        `status` int NULL
+    )  
+    DISTRIBUTED BY HASH(`handle_time`)
+    BUCKETS 10 PROPERTIES (
+      "is_being_synced" = "false",
+      "storage_medium" = "hdd",
+      "storage_format" = "V2",
+      "inverted_index_storage_format" = "V1",
+      "light_schema_change" = "true",
+      "disable_auto_compaction" = "false",
+      "enable_single_replica_compaction" = "false",
+      "replication_num" = "1"
+    );  
+    """
+    sql """insert into test_mv values ('2021-01-01 11:11:11', '{"url" : "http://xxx.xxx.xxx"}', 12)"""
+    createMV("create materialized view mv_1 as select `handle_time`, `client_request`['url'] as `uri`, `status` from test_mv")
+    qt_sql "select `handle_time`, `client_request`['url'] as `uri`, `status` from test_mv"
+    test {
+        sql "create materialized view mv_x as select `client_request`['url'] as `uri`, `status` from test_mv"
+        exception("The first column could not be float, double or complex type like array, struct, map, json, variant.")
+    }
+
 
     // def retry_times = 60
     // for (def i = 0; i < retry_times; ++i) {

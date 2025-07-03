@@ -17,6 +17,7 @@
 
 #include "util/uid_util.h"
 
+#include <fmt/compile.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
@@ -43,16 +44,18 @@ std::ostream& operator<<(std::ostream& os, const UniqueId& uid) {
     return os;
 }
 
+std::string print_id(const UniqueId& id) {
+    return id.to_string();
+}
+
 std::string print_id(const TUniqueId& id) {
-    std::stringstream out;
-    out << std::hex << id.hi << "-" << id.lo;
-    return out.str();
+    return fmt::format(FMT_COMPILE("{:x}-{:x}"), static_cast<uint64_t>(id.hi),
+                       static_cast<uint64_t>(id.lo));
 }
 
 std::string print_id(const PUniqueId& id) {
-    std::stringstream out;
-    out << std::hex << id.hi() << "-" << id.lo();
-    return out.str();
+    return fmt::format(FMT_COMPILE("{:x}-{:x}"), static_cast<uint64_t>(id.hi()),
+                       static_cast<uint64_t>(id.lo()));
 }
 
 bool parse_id(const std::string& s, TUniqueId* id) {

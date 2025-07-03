@@ -17,12 +17,12 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.qe.InternalQueryExecutionException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,7 +33,7 @@ public class PartitionColumnStatisticCacheLoader extends
 
     @Override
     protected Optional<PartitionColumnStatistic> doLoad(PartitionColumnStatisticCacheKey key) {
-        Optional<PartitionColumnStatistic> partitionStatistic = Optional.empty();
+        Optional<PartitionColumnStatistic> partitionStatistic;
         try {
             partitionStatistic = loadFromPartitionStatsTable(key);
         } catch (Throwable t) {
@@ -42,6 +42,7 @@ public class PartitionColumnStatisticCacheLoader extends
             if (LOG.isDebugEnabled()) {
                 LOG.debug(t);
             }
+            return null;
         }
         if (partitionStatistic.isPresent()) {
             // For non-empty table, return UNKNOWN if we can't collect ndv value.
@@ -54,24 +55,11 @@ public class PartitionColumnStatisticCacheLoader extends
         return partitionStatistic;
     }
 
-    private Optional<PartitionColumnStatistic> loadFromPartitionStatsTable(PartitionColumnStatisticCacheKey key) {
-        List<ResultRow> partitionResults;
-        try {
-            String partName = "'" + StatisticsUtil.escapeSQL(key.partId) + "'";
-            partitionResults = StatisticsRepository.loadPartitionColumnStats(
+    private Optional<PartitionColumnStatistic> loadFromPartitionStatsTable(PartitionColumnStatisticCacheKey key)
+            throws IOException {
+        String partName = "'" + StatisticsUtil.escapeSQL(key.partId) + "'";
+        List<ResultRow> partitionResults = StatisticsRepository.loadPartitionColumnStats(
                 key.catalogId, key.dbId, key.tableId, key.idxId, partName, key.colName);
-        } catch (InternalQueryExecutionException e) {
-            LOG.info("Failed to load stats for table {} column {}. Reason:{}",
-                    key.tableId, key.colName, e.getMessage());
-            return Optional.empty();
-        }
-        PartitionColumnStatistic partitionStatistic;
-        try {
-            partitionStatistic = StatisticsUtil.deserializeToPartitionStatistics(partitionResults);
-        } catch (Exception e) {
-            LOG.warn("Exception to deserialize partition statistics", e);
-            return Optional.empty();
-        }
-        return Optional.ofNullable(partitionStatistic);
+        return Optional.ofNullable(StatisticsUtil.deserializeToPartitionStatistics(partitionResults));
     }
 }

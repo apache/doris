@@ -24,16 +24,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/port.h"
-#include "gutil/strings/substitute.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
-
-using strings::Substitute;
 
 Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
     DCHECK(!_finished);
@@ -88,18 +84,21 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
     return Status::OK();
 }
 
-OwnedSlice BinaryPrefixPageBuilder::finish() {
+Status BinaryPrefixPageBuilder::finish(OwnedSlice* slice) {
     DCHECK(!_finished);
     _finished = true;
-    put_fixed32_le(&_buffer, (uint32_t)_count);
-    uint8_t restart_point_internal = RESTART_POINT_INTERVAL;
-    _buffer.append(&restart_point_internal, 1);
-    auto restart_point_size = _restart_points_offset.size();
-    for (uint32_t i = 0; i < restart_point_size; ++i) {
-        put_fixed32_le(&_buffer, _restart_points_offset[i]);
-    }
-    put_fixed32_le(&_buffer, restart_point_size);
-    return _buffer.build();
+    RETURN_IF_CATCH_EXCEPTION({
+        put_fixed32_le(&_buffer, (uint32_t)_count);
+        uint8_t restart_point_internal = RESTART_POINT_INTERVAL;
+        _buffer.append(&restart_point_internal, 1);
+        auto restart_point_size = _restart_points_offset.size();
+        for (uint32_t i = 0; i < restart_point_size; ++i) {
+            put_fixed32_le(&_buffer, _restart_points_offset[i]);
+        }
+        put_fixed32_le(&_buffer, restart_point_size);
+        *slice = _buffer.build();
+    });
+    return Status::OK();
 }
 
 const uint8_t* BinaryPrefixPageDecoder::_decode_value_lengths(const uint8_t* ptr, uint32_t* shared,
@@ -156,7 +155,12 @@ Status BinaryPrefixPageDecoder::init() {
 Status BinaryPrefixPageDecoder::seek_to_position_in_page(size_t pos) {
     DCHECK(_parsed);
     DCHECK_LE(pos, _num_values);
-
+    if (_num_values == 0) [[unlikely]] {
+        if (pos != 0) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                    "seek pos {} is larger than total elements  {}", pos, _num_values);
+        }
+    }
     // seek past the last value is valid
     if (pos == _num_values) {
         _cur_pos = _num_values;
@@ -217,7 +221,7 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
 
 Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
     DCHECK(_parsed);
-    if (PREDICT_FALSE(*n == 0 || _cur_pos >= _num_values)) {
+    if (*n == 0 || _cur_pos >= _num_values) [[unlikely]] {
         *n = 0;
         return Status::OK();
     }

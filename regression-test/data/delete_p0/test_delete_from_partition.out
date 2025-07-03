@@ -94,3 +94,10 @@ i	i	9	9
 -- !sql --
 i	i	9	9
 
+-- !sql --
+1	2	test1
+2	2	test
+
+-- !sql --
+2	2	test
+

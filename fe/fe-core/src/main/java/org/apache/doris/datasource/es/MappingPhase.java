@@ -130,6 +130,16 @@ public class MappingPhase implements SearchPhase {
                         if (docValue) {
                             docValueField = colName;
                         }
+                    } else if (innerTypeObject.has("ignore_above")) {
+                        // reference:
+                        // https://www.elastic.co/guide/en/elasticsearch/reference/current/keyword.html#keyword-params
+                        // > ignore_above
+                        // > Do not index any string longer than this value. Defaults to 2147483647 so that all values
+                        // > would be accepted. Please however note that default dynamic mapping rules create a sub
+                        // > keyword field that overrides this default by setting ignore_above: 256.
+                        // this field has `ignore_above` param
+                        // Strings longer than the ignore_above setting will not be indexed or stored
+                        // so we cannot rely on its doc_values
                     } else {
                         // a : {c : {}} -> a -> a.c
                         docValueField = colName + "." + fieldName;
@@ -145,6 +155,17 @@ public class MappingPhase implements SearchPhase {
                 }
             } else if (fieldType == null || "nested".equals(fieldType)) {
                 // The object field has no type, and nested not support doc value.
+                return;
+            } else if (fieldObject.has("ignore_above")) {
+                // reference:
+                // https://www.elastic.co/guide/en/elasticsearch/reference/current/keyword.html#keyword-params
+                // > ignore_above
+                // > Do not index any string longer than this value. Defaults to 2147483647 so that all values
+                // > would be accepted. Please however note that default dynamic mapping rules create a sub
+                // > keyword field that overrides this default by setting ignore_above: 256.
+                // this field has `ignore_above` param
+                // Strings longer than the ignore_above setting will not be indexed or stored
+                // so we cannot rely on its doc_values
                 return;
             }
             docValueField = colName;

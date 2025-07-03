@@ -20,6 +20,7 @@
 #include <string>
 
 #include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "util/easy_json.h"
 
 namespace doris {
@@ -28,9 +29,9 @@ class HttpRequest;
 class ExecEnv;
 
 // Get BE load stream info from http API.
-class LoadStreamAction final : public HttpHandler {
+class LoadStreamAction final : public HttpHandlerWithAuth {
 public:
-    LoadStreamAction() = default;
+    LoadStreamAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
     ~LoadStreamAction() override = default;
 

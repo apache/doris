@@ -21,9 +21,9 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
-import org.apache.hadoop.hive.common.ValidWriteIdList;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * HiveTransaction is used to save info of a hive transaction.
@@ -40,7 +40,7 @@ public class HiveTransaction {
     private long txnId;
     private List<String> partitionNames = Lists.newArrayList();
 
-    ValidWriteIdList validWriteIdList = null;
+    Map<String, String> txnValidIds = null;
 
     public HiveTransaction(String queryId, String user, HMSExternalTable hiveTable, boolean isFullAcid) {
         this.queryId = queryId;
@@ -61,14 +61,14 @@ public class HiveTransaction {
         return isFullAcid;
     }
 
-    public ValidWriteIdList getValidWriteIds(HMSCachedClient client) {
-        if (validWriteIdList == null) {
+    public Map<String, String> getValidWriteIds(HMSCachedClient client) {
+        if (txnValidIds == null) {
             TableName tableName = new TableName(hiveTable.getCatalog().getName(), hiveTable.getDbName(),
                     hiveTable.getName());
             client.acquireSharedLock(queryId, txnId, user, tableName, partitionNames, 5000);
-            validWriteIdList = client.getValidWriteIds(tableName.getDb() + "." + tableName.getTbl(), txnId);
+            txnValidIds = client.getValidWriteIds(tableName.getDb() + "." + tableName.getTbl(), txnId);
         }
-        return validWriteIdList;
+        return txnValidIds;
     }
 
     public void begin() throws UserException {

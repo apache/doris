@@ -25,6 +25,7 @@
 #include <string>
 #include <typeinfo>
 
+#include "agent/be_exec_version_manager.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
@@ -48,9 +49,9 @@ Field DataTypeMap::get_default() const {
     Array key, val;
     key.push_back(key_type->get_default());
     val.push_back(value_type->get_default());
-    m.push_back(key);
-    m.push_back(val);
-    return m;
+    m.push_back(Field::create_field<TYPE_ARRAY>(key));
+    m.push_back(Field::create_field<TYPE_ARRAY>(val));
+    return Field::create_field<TYPE_MAP>(m);
 };
 
 std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {
@@ -75,7 +76,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
         }
         if (nested_keys_column.is_null_at(i)) {
             str += "null";
-        } else if (WhichDataType(remove_nullable(key_type)).is_string_or_fixed_string()) {
+        } else if (is_string_type(key_type->get_primitive_type())) {
             str += "\"" + key_type->to_string(nested_keys_column, i) + "\"";
         } else {
             str += key_type->to_string(nested_keys_column, i);
@@ -83,7 +84,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
         str += ":";
         if (nested_values_column.is_null_at(i)) {
             str += "null";
-        } else if (WhichDataType(remove_nullable(value_type)).is_string_or_fixed_string()) {
+        } else if (is_string_type(value_type->get_primitive_type())) {
             str += "\"" + value_type->to_string(nested_values_column, i) + "\"";
         } else {
             str += value_type->to_string(nested_values_column, i);
@@ -279,47 +280,104 @@ bool DataTypeMap::equals(const IDataType& rhs) const {
     return true;
 }
 
+// binary : const flag| row num | real saved num | offset | key_col | val_col
+// offset : off1 | off2 ...
+// key_col: key1 | key1 ...
+// val_col: val1 | val2 ...
 int64_t DataTypeMap::get_uncompressed_serialized_bytes(const IColumn& column,
                                                        int data_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& data_column = assert_cast<const ColumnMap&>(*ptr.get());
-    return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
-           get_key_type()->get_uncompressed_serialized_bytes(data_column.get_keys(), data_version) +
-           get_value_type()->get_uncompressed_serialized_bytes(data_column.get_values(),
-                                                               data_version);
+    if (data_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
+        bool is_const_column = is_column_const(column);
+        auto real_need_copy_num = is_const_column ? 1 : column.size();
+
+        const IColumn* data_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            data_column = &(const_column.get_data_column());
+        }
+        const auto& map_column = assert_cast<const ColumnMap&>(*data_column);
+        size = size + sizeof(ColumnArray::Offset64) * real_need_copy_num;
+        size = size + get_key_type()->get_uncompressed_serialized_bytes(map_column.get_keys(),
+                                                                        data_version);
+        size = size + get_value_type()->get_uncompressed_serialized_bytes(map_column.get_values(),
+                                                                          data_version);
+        return size;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& data_column = assert_cast<const ColumnMap&>(*ptr.get());
+        return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
+               get_key_type()->get_uncompressed_serialized_bytes(data_column.get_keys(),
+                                                                 data_version) +
+               get_value_type()->get_uncompressed_serialized_bytes(data_column.get_values(),
+                                                                   data_version);
+    }
 }
 
 // serialize to binary
-char* DataTypeMap::serialize(const IColumn& column, char* buf, int data_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& map_column = assert_cast<const ColumnMap&>(*ptr.get());
+char* DataTypeMap::serialize(const IColumn& column, char* buf, int be_exec_version) const {
+    if (be_exec_version >= USE_CONST_SERDE) {
+        const auto* data_column = &column;
+        size_t real_need_copy_num = 0;
+        buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
-    // row num
-    *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
-    buf += sizeof(ColumnArray::Offset64);
-    // offsets
-    memcpy(buf, map_column.get_offsets().data(), column.size() * sizeof(ColumnArray::Offset64));
-    buf += column.size() * sizeof(ColumnArray::Offset64);
-    // key value
-    buf = get_key_type()->serialize(map_column.get_keys(), buf, data_version);
-    return get_value_type()->serialize(map_column.get_values(), buf, data_version);
+        const auto& map_column = assert_cast<const ColumnMap&>(*data_column);
+        // offsets
+        memcpy(buf, map_column.get_offsets().data(),
+               real_need_copy_num * sizeof(ColumnArray::Offset64));
+        buf += real_need_copy_num * sizeof(ColumnArray::Offset64);
+        // key value
+        buf = get_key_type()->serialize(map_column.get_keys(), buf, be_exec_version);
+        return get_value_type()->serialize(map_column.get_values(), buf, be_exec_version);
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& map_column = assert_cast<const ColumnMap&>(*ptr.get());
+
+        // row num
+        *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
+        buf += sizeof(ColumnArray::Offset64);
+        // offsets
+        memcpy(buf, map_column.get_offsets().data(), column.size() * sizeof(ColumnArray::Offset64));
+        buf += column.size() * sizeof(ColumnArray::Offset64);
+        // key value
+        buf = get_key_type()->serialize(map_column.get_keys(), buf, be_exec_version);
+        return get_value_type()->serialize(map_column.get_values(), buf, be_exec_version);
+    }
 }
+const char* DataTypeMap::deserialize(const char* buf, MutableColumnPtr* column,
+                                     int be_exec_version) const {
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto* origin_column = column->get();
+        size_t real_have_saved_num = 0;
+        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-const char* DataTypeMap::deserialize(const char* buf, IColumn* column, int data_version) const {
-    auto* map_column = assert_cast<ColumnMap*>(column);
-    auto& map_offsets = map_column->get_offsets();
-    // row num
-    ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
-    buf += sizeof(ColumnArray::Offset64);
-    // offsets
-    map_offsets.resize(row_num);
-    memcpy(map_offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
-    buf += sizeof(ColumnArray::Offset64) * row_num;
-    // key value
-    buf = get_key_type()->deserialize(buf, map_column->get_keys_ptr()->assume_mutable(),
-                                      data_version);
-    return get_value_type()->deserialize(buf, map_column->get_values_ptr()->assume_mutable(),
-                                         data_version);
+        auto* map_column = assert_cast<ColumnMap*>(origin_column);
+        auto& map_offsets = map_column->get_offsets();
+        // offsets
+        map_offsets.resize(real_have_saved_num);
+        memcpy(map_offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
+        buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;
+        // key value
+        auto nested_keys_column = map_column->get_keys_ptr()->assume_mutable();
+        auto nested_values_column = map_column->get_values_ptr()->assume_mutable();
+        buf = get_key_type()->deserialize(buf, &nested_keys_column, be_exec_version);
+        buf = get_value_type()->deserialize(buf, &nested_values_column, be_exec_version);
+        return buf;
+    } else {
+        auto* map_column = assert_cast<ColumnMap*>(column->get());
+        auto& map_offsets = map_column->get_offsets();
+        // row num
+        ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
+        buf += sizeof(ColumnArray::Offset64);
+        // offsets
+        map_offsets.resize(row_num);
+        memcpy(map_offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
+        buf += sizeof(ColumnArray::Offset64) * row_num;
+        // key value
+        auto nested_keys_column = map_column->get_keys_ptr()->assume_mutable();
+        auto nested_values_column = map_column->get_values_ptr()->assume_mutable();
+        buf = get_key_type()->deserialize(buf, &nested_keys_column, be_exec_version);
+        return get_value_type()->deserialize(buf, &nested_values_column, be_exec_version);
+    }
 }
-
 } // namespace doris::vectorized

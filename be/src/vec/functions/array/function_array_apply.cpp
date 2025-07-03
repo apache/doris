@@ -24,6 +24,7 @@
 #include <string>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/thread_context.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -32,7 +33,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -65,14 +65,14 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2}; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0]))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "first argument for function: " << name << " should be DataTypeArray"
                 << " and arguments[0] is " << arguments[0]->get_name();
         return arguments[0];
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
@@ -130,8 +130,7 @@ private:
         if constexpr (op == ApplyOp::GE) {
             return data >= comp;
         }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 
     // need exception safety
@@ -173,48 +172,61 @@ private:
     }
 
 // need exception safety
-#define APPLY_ALL_TYPES(src_column, src_offsets, OP, cmp, dst)                      \
-    do {                                                                            \
-        WhichDataType which(remove_nullable(nested_type));                          \
-        if (which.is_uint8()) {                                                     \
-            *dst = _apply_internal<UInt8, OP>(src_column, src_offsets, cmp);        \
-        } else if (which.is_int8()) {                                               \
-            *dst = _apply_internal<Int8, OP>(src_column, src_offsets, cmp);         \
-        } else if (which.is_int16()) {                                              \
-            *dst = _apply_internal<Int16, OP>(src_column, src_offsets, cmp);        \
-        } else if (which.is_int32()) {                                              \
-            *dst = _apply_internal<Int32, OP>(src_column, src_offsets, cmp);        \
-        } else if (which.is_int64()) {                                              \
-            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);        \
-        } else if (which.is_int128()) {                                             \
-            *dst = _apply_internal<Int128, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_float32()) {                                            \
-            *dst = _apply_internal<Float32, OP>(src_column, src_offsets, cmp);      \
-        } else if (which.is_float64()) {                                            \
-            *dst = _apply_internal<Float64, OP>(src_column, src_offsets, cmp);      \
-        } else if (which.is_date()) {                                               \
-            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);        \
-        } else if (which.is_date_time()) {                                          \
-            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);        \
-        } else if (which.is_date_v2()) {                                            \
-            *dst = _apply_internal<UInt32, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_date_time_v2()) {                                       \
-            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_date_time_v2()) {                                       \
-            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);       \
-        } else if (which.is_decimal32()) {                                          \
-            *dst = _apply_internal<Decimal32, OP>(src_column, src_offsets, cmp);    \
-        } else if (which.is_decimal64()) {                                          \
-            *dst = _apply_internal<Decimal64, OP>(src_column, src_offsets, cmp);    \
-        } else if (which.is_decimal128v2()) {                                       \
-            *dst = _apply_internal<Decimal128V2, OP>(src_column, src_offsets, cmp); \
-        } else if (which.is_decimal128v3()) {                                       \
-            *dst = _apply_internal<Decimal128V3, OP>(src_column, src_offsets, cmp); \
-        } else if (which.is_decimal256()) {                                         \
-            *dst = _apply_internal<Decimal256, OP>(src_column, src_offsets, cmp);   \
-        } else {                                                                    \
-            LOG(FATAL) << "unsupported type " << nested_type->get_name();           \
-        }                                                                           \
+#define APPLY_ALL_TYPES(src_column, src_offsets, OP, cmp, dst)                                \
+    do {                                                                                      \
+        switch (nested_type->get_primitive_type()) {                                          \
+        case PrimitiveType::TYPE_BOOLEAN:                                                     \
+            *dst = _apply_internal<UInt8, OP>(src_column, src_offsets, cmp);                  \
+            break;                                                                            \
+        case PrimitiveType::TYPE_TINYINT:                                                     \
+            *dst = _apply_internal<Int8, OP>(src_column, src_offsets, cmp);                   \
+            break;                                                                            \
+        case PrimitiveType::TYPE_SMALLINT:                                                    \
+            *dst = _apply_internal<Int16, OP>(src_column, src_offsets, cmp);                  \
+            break;                                                                            \
+        case PrimitiveType::TYPE_INT:                                                         \
+            *dst = _apply_internal<Int32, OP>(src_column, src_offsets, cmp);                  \
+            break;                                                                            \
+        case PrimitiveType::TYPE_BIGINT:                                                      \
+            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);                  \
+            break;                                                                            \
+        case PrimitiveType::TYPE_FLOAT:                                                       \
+            *dst = _apply_internal<Float32, OP>(src_column, src_offsets, cmp);                \
+            break;                                                                            \
+        case PrimitiveType::TYPE_DOUBLE:                                                      \
+            *dst = _apply_internal<Float64, OP>(src_column, src_offsets, cmp);                \
+            break;                                                                            \
+        case PrimitiveType::TYPE_DATETIME:                                                    \
+        case PrimitiveType::TYPE_DATE:                                                        \
+            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);                  \
+            break;                                                                            \
+        case PrimitiveType::TYPE_DATEV2:                                                      \
+            *dst = _apply_internal<UInt32, OP>(src_column, src_offsets, cmp);                 \
+            break;                                                                            \
+        case PrimitiveType::TYPE_DATETIMEV2:                                                  \
+            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);                 \
+            break;                                                                            \
+        case PrimitiveType::TYPE_DECIMAL32:                                                   \
+            *dst = _apply_internal<Decimal32, OP>(src_column, src_offsets, cmp);              \
+            break;                                                                            \
+        case PrimitiveType::TYPE_DECIMAL64:                                                   \
+            *dst = _apply_internal<Decimal64, OP>(src_column, src_offsets, cmp);              \
+            break;                                                                            \
+        case PrimitiveType::TYPE_DECIMALV2:                                                   \
+            *dst = _apply_internal<Decimal128V2, OP>(src_column, src_offsets, cmp);           \
+            break;                                                                            \
+        case PrimitiveType::TYPE_DECIMAL128I:                                                 \
+            *dst = _apply_internal<Decimal128V3, OP>(src_column, src_offsets, cmp);           \
+            break;                                                                            \
+        case PrimitiveType::TYPE_DECIMAL256:                                                  \
+            *dst = _apply_internal<Decimal256, OP>(src_column, src_offsets, cmp);             \
+            break;                                                                            \
+        default:                                                                              \
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,                               \
+                                   "array_apply only accept array with nested type which is " \
+                                   "uint/int/decimal/float/date but got : " +                 \
+                                           nested_type->get_name());                          \
+        }                                                                                     \
     } while (0)
 
     // need exception safety

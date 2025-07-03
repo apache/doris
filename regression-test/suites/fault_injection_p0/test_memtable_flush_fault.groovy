@@ -55,6 +55,7 @@ suite("test_memtable_flush_fault", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("FlushToken.submit_flush_error")
         sql insert_sql
         sql "sync"
+        assertTrue(false, "Expected Exception dbug_be_memtable_submit_flush_error")
     } catch (Exception e){
         logger.info(e.getMessage())
         assertTrue(e.getMessage().contains("dbug_be_memtable_submit_flush_error"))

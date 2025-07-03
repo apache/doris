@@ -16,11 +16,8 @@
 // under the License.
 
 suite("test_map_select_with_limit", "query") {
-    // define a sql table
-    def testTable = "test_map_select_with_limit"
-
     sql """
-            CREATE TABLE IF NOT EXISTS ${testTable} (
+            CREATE TABLE IF NOT EXISTS test_map_select_with_limit (
               `k1` INT(11) NULL,
               `k2` MAP<SMALLINT(6), STRING> NULL
             ) ENGINE=OLAP
@@ -35,15 +32,17 @@ suite("test_map_select_with_limit", "query") {
             )
             """
     // prepare data
-    sql """ INSERT INTO ${testTable} VALUES (100, {1: "amory", 2: "is", 3: "better"}) """
+    sql """ 
+        INSERT INTO test_map_select_with_limit VALUES (100, {1: "amory", 2: "is", 3: "better"}), (101, {1: "amory", 2: "is", 3: "better"});
+        alter table test_map_select_with_limit modify column k1 set stats ('ndv'='41700404', 'num_nulls'='0', 'min_value'='810', 'max_value'='602901', 'row_count'='1500000000');
+        """
     // set topn_opt_limit_threshold = 1024 to make sure _internal_service to be request with proto request
     sql """ set topn_opt_limit_threshold = 1024 """
-
     explain{
-        sql("select * from ${testTable} order by k1 limit 1")
+        sql("select * from test_map_select_with_limit order by k1 limit 1")
         contains "TOPN"
     }
 
 
-    qt_select """ select * from ${testTable} order by k1 limit 1 """
+    qt_select """ select * from test_map_select_with_limit order by k1 limit 1 """
 }

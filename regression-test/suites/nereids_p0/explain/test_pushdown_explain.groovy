@@ -84,6 +84,7 @@ suite("test_pushdown_explain") {
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES (
+        "enable_mow_light_delete" = "false",
         "replication_allocation" = "tag.location.default: 1",
         "disable_auto_compaction" = "true"
         );
@@ -125,6 +126,7 @@ suite("test_pushdown_explain") {
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES (
+        "enable_mow_light_delete" = "false",
         "replication_allocation" = "tag.location.default: 1",
         "disable_auto_compaction" = "true"
         );
@@ -212,6 +214,7 @@ suite("test_pushdown_explain") {
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "disable_auto_compaction" = "true",
+        "enable_mow_light_delete" = "false",
         "enable_unique_key_merge_on_write" = "false"
         );
     """

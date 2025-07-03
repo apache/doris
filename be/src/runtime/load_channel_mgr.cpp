@@ -94,9 +94,13 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t channel_timeout_s = calc_channel_timeout_s(timeout_in_req_s);
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
 
+            int64_t wg_id = -1;
+            if (params.has_workload_group_id()) {
+                wg_id = params.workload_group_id();
+            }
             channel.reset(new LoadChannel(load_id, channel_timeout_s, is_high_priority,
                                           params.sender_ip(), params.backend_id(),
-                                          params.enable_profile()));
+                                          params.enable_profile(), wg_id));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -122,8 +126,10 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                 return Status::OK();
             }
         }
-        return Status::InternalError("fail to add batch in load channel. unknown load_id={}",
-                                     load_id.to_string());
+        return Status::InternalError<false>(
+                "Fail to add batch in load channel: unknown load_id={}. "
+                "This may be due to a BE restart. Please retry the load.",
+                load_id.to_string());
     }
     channel = it->second;
     return Status::OK();
@@ -146,7 +152,8 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
         SCOPED_TIMER(channel->get_handle_mem_limit_timer());
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
+                channel->workload_group());
     }
 
     // 3. add batch to load channel

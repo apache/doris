@@ -171,7 +171,7 @@ def generate_fe_registry_init(filename):
     for category, functions in doris_builtins_functions.visible_functions.items():
         java_registry_file.write("        init{0}Builtins(functionSet);\n".format(category.capitalize()))
 
-    # add non_null_result_with_null_param_functions
+    # add null_result_with_one_null_param_functions
     java_registry_file.write("        Set<String> funcNames = Sets.newHashSet();\n")
     for entry in doris_builtins_functions.null_result_with_one_null_param_functions:
         java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
@@ -183,10 +183,11 @@ def generate_fe_registry_init(filename):
         java_registry_file.write("        nondeterministicFuncNames.add(\"%s\");\n" % entry)
     java_registry_file.write("        functionSet.buildNondeterministicFunctions(nondeterministicFuncNames);\n");
 
-    java_registry_file.write("        funcNames = Sets.newHashSet();\n")
-    for entry in doris_builtins_functions.null_result_with_one_null_param_functions:
-        java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
-    java_registry_file.write("        functionSet.buildNullResultWithOneNullParamFunction(funcNames);\n");
+    # add null_result_with_one_null_param_functions
+    # java_registry_file.write("        funcNames = Sets.newHashSet();\n")
+    # for entry in doris_builtins_functions.null_result_with_one_null_param_functions:
+    #     java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
+    # java_registry_file.write("        functionSet.buildNullResultWithOneNullParamFunction(funcNames);\n");
 
     java_registry_file.write("    }\n")
     java_registry_file.write("\n")

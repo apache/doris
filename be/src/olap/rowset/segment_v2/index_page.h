@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/metadata_adder.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/faststring.h"
 #include "util/slice.h"
@@ -79,7 +80,7 @@ private:
     uint32_t _count = 0;
 };
 
-class IndexPageReader {
+class IndexPageReader : public MetadataAdder<IndexPageReader> {
 public:
     IndexPageReader() : _parsed(false) {}
 
@@ -110,6 +111,8 @@ public:
     void reset();
 
 private:
+    int64_t get_metadata_size() const override;
+
     bool _parsed;
 
     IndexPageFooterPB _footer;

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -31,10 +32,12 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * NormalizeSortTest ut
@@ -69,5 +72,28 @@ class NormalizeSortTest implements MemoPatternMatchSupported {
                 .matches(logicalProject(logicalSort(logicalProject().when(p -> p.getProjects().stream().anyMatch(e -> e.toSql().contains(
                         alias.toSql())))))
                         .when(p -> p.getOutput().equals(plan.getOutput())));
+    }
+
+    @Test
+    void testOrderByOneSlotOneNot() {
+        Expression add = new Add(score.getOutput().get(0), new IntegerLiteral(1));
+        List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(add, true, true),
+                new OrderKey(score.getOutput().get(2), true, true));
+        LogicalPlan plan = new LogicalPlanBuilder(score).sort(orderKeys).build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new NormalizeSort())
+                .matches(logicalProject(logicalSort(logicalProject().when(p -> p.getProjects().stream().map(Expression::toSql).collect(Collectors.toList()).equals(
+                        ImmutableList.<NamedExpression>builder().addAll(score.getOutput()).add(new Alias(add)).build().stream().map(Expression::toSql).collect(Collectors.toList())))))
+                .when(p -> p.getOutput().equals(plan.getOutput())));
+    }
+
+    @Test
+    void testOrderByAllKeySlot() {
+        List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(score.getOutput().get(2), true, true),
+                new OrderKey(score.getOutput().get(0), true, true));
+        LogicalPlan plan = new LogicalPlanBuilder(score).sort(orderKeys).build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new NormalizeSort())
+                .matchesFromRoot(logicalSort(logicalOlapScan().when(scan -> scan.equals(score))));
     }
 }

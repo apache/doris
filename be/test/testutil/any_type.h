@@ -28,8 +28,10 @@ struct AnyType : public std::variant<std::any, __int128_t> {
     AnyType() = default;
 
     template <typename T>
-    AnyType(T value) {
+    AnyType(T value, int scale = -1, int precision = -1) {
         this->emplace<std::any>(std::move(value));
+        this->_scale = scale;
+        this->_precision = precision;
     }
 
     AnyType(__int128_t value) { this->emplace<__int128_t>(value); }
@@ -54,6 +56,13 @@ struct AnyType : public std::variant<std::any, __int128_t> {
     friend ValueType any_cast(AnyType& operand);
     template <class ValueType>
     friend ValueType any_cast(AnyType&& operand);
+
+    int _scale = -1;
+    int _precision = -1;
+    int scale_or(int default_value) const { return _scale == -1 ? default_value : _scale; }
+    int precision_or(int default_value) const {
+        return _precision == -1 ? default_value : _precision;
+    }
 };
 
 template <class ValueType>

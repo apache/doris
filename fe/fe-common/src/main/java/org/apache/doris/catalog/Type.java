@@ -36,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -308,6 +309,8 @@ public abstract class Type {
         structSubTypes.add(STRUCT);
     }
 
+    public static final Set<Class> ARRAY_SUPPORTED_JAVA_TYPE = Sets.newHashSet(ArrayList.class, List.class);
+    public static final Set<Class> MAP_SUPPORTED_JAVA_TYPE = Sets.newHashSet(HashMap.class, Map.class);
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
             org.joda.time.LocalDate.class);
     public static final Set<Class> DATETIME_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class,
@@ -321,9 +324,8 @@ public abstract class Type {
                     .put(PrimitiveType.FLOAT, Sets.newHashSet(Float.class, float.class))
                     .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
                     .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
-                    .put(PrimitiveType.IPV4, Sets.newHashSet(Integer.class, int.class))
-                    .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
+                    .put(PrimitiveType.IPV4, Sets.newHashSet(InetAddress.class))
+                    .put(PrimitiveType.IPV6, Sets.newHashSet(InetAddress.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
                     .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
@@ -334,9 +336,9 @@ public abstract class Type {
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
-                    .put(PrimitiveType.MAP, Sets.newHashSet(HashMap.class))
-                    .put(PrimitiveType.STRUCT, Sets.newHashSet(ArrayList.class))
+                    .put(PrimitiveType.ARRAY, ARRAY_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.MAP, MAP_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.STRUCT, ARRAY_SUPPORTED_JAVA_TYPE)
                     .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -380,6 +382,18 @@ public abstract class Type {
      */
     public boolean supportSubType(Type subType) {
         return false;
+    }
+
+    /**
+    * Return true if this type can be as short key
+    */
+    public boolean couldBeShortKey() {
+        return !(isFloatingPointType()
+                        || getPrimitiveType() == PrimitiveType.STRING
+                        || isJsonbType()
+                        || isComplexType()
+                        || isObjectStored()
+                        || isVariantType());
     }
 
     /**
@@ -452,32 +466,34 @@ public abstract class Type {
     }
 
     public String hideVersionForVersionColumn(Boolean isToSql) {
-        if (isDatetimeV2()) {
-            StringBuilder typeStr = new StringBuilder("DATETIME");
+        if (isDatetime() || isDatetimeV2()) {
+            StringBuilder typeStr = new StringBuilder("datetime");
             if (((ScalarType) this).getScalarScale() > 0) {
                 typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
             return typeStr.toString();
-        } else if (isDateV2()) {
-            return "DATE";
-        } else if (isDecimalV3()) {
-            StringBuilder typeStr = new StringBuilder("DECIMAL");
+        } else if (isDate() || isDateV2()) {
+            return "date";
+        } else if (isDecimalV2() || isDecimalV3()) {
+            StringBuilder typeStr = new StringBuilder("decimal");
             ScalarType sType = (ScalarType) this;
             int scale = sType.getScalarScale();
             int precision = sType.getScalarPrecision();
-            // not default
-            if (!sType.isDefaultDecimal()) {
-                typeStr.append("(").append(precision).append(", ").append(scale)
-                        .append(")");
+            typeStr.append("(").append(precision).append(",").append(scale).append(")");
+            return typeStr.toString();
+        } else if (isTime() || isTimeV2()) {
+            StringBuilder typeStr = new StringBuilder("time");
+            if (((ScalarType) this).getScalarScale() > 0) {
+                typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
             return typeStr.toString();
         } else if (isArrayType()) {
             String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql);
-            return "ARRAY<" + nestedDesc + ">";
+            return "array<" + nestedDesc + ">";
         } else if (isMapType()) {
             String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql);
             String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql);
-            return "MAP<" + keyDesc + "," + valueDesc + ">";
+            return "map<" + keyDesc + "," + valueDesc + ">";
         } else if (isStructType()) {
             List<String> fieldDesc = new ArrayList<>();
             StructType structType = (StructType) this;
@@ -485,7 +501,7 @@ public abstract class Type {
                 StructField field = structType.getFields().get(i);
                 fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql));
             }
-            return "STRUCT<" + StringUtils.join(fieldDesc, ",") + ">";
+            return "struct<" + StringUtils.join(fieldDesc, ",") + ">";
         } else if (isToSql) {
             return this.toSql();
         }
@@ -564,6 +580,10 @@ public abstract class Type {
     // 4. don't support index
     public boolean isOnlyMetricType() {
         return isObjectStored() || isComplexType() || isJsonbType() || isVariantType();
+    }
+
+    public boolean isArrayTypeNestedBaseType() {
+        return isArrayType() && !((ArrayType) this).getItemType().isOnlyMetricType();
     }
 
     public static final String OnlyObjectTypeErrorMsg =
@@ -656,6 +676,10 @@ public abstract class Type {
 
     public boolean isTime() {
         return isScalarType(PrimitiveType.TIME);
+    }
+
+    public boolean isTimeType() {
+        return isTime() || isTimeV2();
     }
 
     public boolean isComplexType() {
@@ -866,10 +890,6 @@ public abstract class Type {
                 return false;
             }
             for (int i = 0; i < sourceAggState.getSubTypes().size(); i++) {
-                // target subtype is not null but source subtype is nullable
-                if (!targetAggState.getSubTypeNullables().get(i) && sourceAggState.getSubTypeNullables().get(i)) {
-                    return false;
-                }
                 if (!canCastTo(sourceAggState.getSubTypes().get(i), targetAggState.getSubTypes().get(i))) {
                     return false;
                 }

@@ -43,6 +43,10 @@ public:
         }
     }
 
+#ifdef BE_TEST
+    VLiteral() = default;
+#endif
+
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 
@@ -52,8 +56,11 @@ public:
     std::string value() const;
 
     const ColumnPtr& get_column_ptr() const { return _column_ptr; }
+    const DataTypePtr& get_data_type() const { return _data_type; }
 
     bool is_literal() const override { return true; }
+
+    bool equals(const VExpr& other) override;
 
 protected:
     ColumnPtr _column_ptr;

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.analyzer.PlaceholderExpression;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -53,7 +52,6 @@ import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.MatchAll;
@@ -116,6 +114,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
@@ -330,12 +329,16 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(mapLiteral, context);
     }
 
+    public R visitTimeV2Literal(TimeV2Literal timev2Literal, C context) {
+        return visitLiteral(timev2Literal, context);
+    }
+
     public R visitStructLiteral(StructLiteral structLiteral, C context) {
         return visitLiteral(structLiteral, context);
     }
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
-        return visitBinaryOperator(compoundPredicate, context);
+        return visit(compoundPredicate, context);
     }
 
     public R visitAnd(And and, C context) {
@@ -428,10 +431,6 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitScalarSubquery(ScalarSubquery scalar, C context) {
         return visitSubqueryExpr(scalar, context);
-    }
-
-    public R visitListQuery(ListQuery listQuery, C context) {
-        return visitSubqueryExpr(listQuery, context);
     }
 
     public R visitGroupingScalarFunction(GroupingScalarFunction groupingScalarFunction, C context) {
@@ -536,13 +535,5 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitUnboundVariable(UnboundVariable unboundVariable, C context) {
         return visit(unboundVariable, context);
-    }
-
-    /* ********************************************************************************************
-     * Placeholder expressions
-     * ********************************************************************************************/
-
-    public R visitPlaceholderExpression(PlaceholderExpression placeholderExpression, C context) {
-        return visit(placeholderExpression, context);
     }
 }

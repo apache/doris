@@ -77,7 +77,7 @@ public class MappingSlot extends Slot {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return slot.toSql();
     }
 
@@ -89,11 +89,6 @@ public class MappingSlot extends Slot {
     @Override
     public DataType getDataType() throws UnboundException {
         return slot.getDataType();
-    }
-
-    @Override
-    public String getInternalName() {
-        return slot.getInternalName();
     }
 
     @Override

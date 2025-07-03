@@ -36,27 +36,23 @@
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeNumber;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
-
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionSumData {
-    T sum {};
+    typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
 
-    void add(T value) {
+    void add(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
@@ -69,19 +65,17 @@ struct AggregateFunctionSumData {
 
     void read(BufferReadable& buf) { read_binary(sum, buf); }
 
-    T get() const { return sum; }
+    typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return sum; }
 };
 
 /// Counts the sum of the numbers.
-template <typename T, typename TResult, typename Data>
+template <PrimitiveType T, PrimitiveType TResult, typename Data>
 class AggregateFunctionSum final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>> {
 public:
-    using ResultDataType = std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<TResult>,
-                                              DataTypeNumber<TResult>>;
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
-    using ColVecResult =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<TResult>, ColumnVector<TResult>>;
+    using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using ColVecResult = typename PrimitiveTypeTraits<TResult>::ColumnType;
 
     String get_name() const override { return "sum"; }
 
@@ -91,7 +85,7 @@ public:
               scale(get_decimal_scale(*argument_types_[0])) {}
 
     DataTypePtr get_return_type() const override {
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (is_decimal(T)) {
             return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
         } else {
             return std::make_shared<ResultDataType>();
@@ -100,8 +94,10 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
-        this->data(place).add(TResult(column.get_data()[row_num]));
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        this->data(place).add(
+                typename PrimitiveTypeTraits<TResult>::ColumnItemType(column.get_data()[row_num]));
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
@@ -125,7 +121,7 @@ public:
         column.get_data().push_back(this->data(place).get());
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
                                  size_t num_rows) const override {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = col.get_data().data();
@@ -146,7 +142,7 @@ public:
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena* arena) const override {
+                                           const size_t num_rows, Arena*) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
         auto& src = assert_cast<const ColVecType&>(*columns[0]);
         DCHECK(col.item_size() == sizeof(Data))
@@ -156,12 +152,12 @@ public:
         auto* dst_data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
-            state.sum = TResult(src_data[i]);
+            state.sum = typename PrimitiveTypeTraits<TResult>::ColumnItemType(src_data[i]);
         }
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena* arena) const override {
+                                           Arena*) const override {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         const size_t num_rows = column.size();
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
@@ -172,7 +168,7 @@ public:
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
-                                                 Arena* arena) const override {
+                                                 Arena*) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
@@ -183,19 +179,19 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena*,
                                    const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        this->deserialize_from_column(rhs, *column, nullptr, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec(places, offset, rhs, arena, num_rows);
+        this->merge_vec(places, offset, rhs, nullptr, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const IColumn* column,
-                                            Arena* arena, const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
+                                            AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                            const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, nullptr, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+        this->merge_vec_selected(places, offset, rhs, nullptr, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
@@ -220,31 +216,42 @@ private:
     UInt32 scale;
 };
 
-template <typename T, bool level_up>
+template <PrimitiveType T, bool level_up>
 struct SumSimple {
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    using ResultType = std::conditional_t<level_up, DisposeDecimal<T, NearestFieldType<T>>, T>;
+    static constexpr PrimitiveType ResultType =
+            level_up ? (T == TYPE_DECIMALV2
+                                ? TYPE_DECIMALV2
+                                : (is_decimal(T) ? TYPE_DECIMAL128I
+                                                 : PrimitiveTypeTraits<T>::NearestPrimitiveType))
+                     : T;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
     using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
 
-const static std::string DECIMAL256_SUFFIX {"_decimal256"};
-template <typename T, bool level_up>
+template <PrimitiveType T, bool level_up>
 struct SumSimpleDecimal256 {
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    using ResultType = std::conditional_t<level_up, DisposeDecimal256<T, NearestFieldType<T>>, T>;
+    static constexpr PrimitiveType ResultType =
+            level_up ? (T == TYPE_DECIMALV2
+                                ? TYPE_DECIMALV2
+                                : (is_decimal(T) ? TYPE_DECIMAL256
+                                                 : PrimitiveTypeTraits<T>::NearestPrimitiveType))
+                     : T;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
     using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFunctionSumSimpleDecimal256 = typename SumSimpleDecimal256<T, true>::Function;
 
 // do not level up return type for agg reader
-template <typename T>
+template <PrimitiveType T>
 using AggregateFunctionSumSimpleReader = typename SumSimple<T, false>::Function;
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

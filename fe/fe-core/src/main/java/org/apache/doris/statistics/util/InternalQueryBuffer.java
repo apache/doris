@@ -19,6 +19,7 @@ package org.apache.doris.statistics.util;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Parse the MySQL protocol result data returned by BE,
@@ -127,7 +128,7 @@ public class InternalQueryBuffer {
     public String readStringWithLength() {
         byte[] bytes = readBytesWithLength();
         if (bytes != null) {
-            return new String(bytes);
+            return new String(bytes, StandardCharsets.UTF_8);
         }
         return null;
     }

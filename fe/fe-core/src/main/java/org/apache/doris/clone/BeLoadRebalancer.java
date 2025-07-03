@@ -17,9 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.CatalogRecycleBin;
-import org.apache.doris.catalog.ColocateTableIndex;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -31,7 +28,6 @@ import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -117,21 +113,16 @@ public class BeLoadRebalancer extends Rebalancer {
                 numOfLowPaths += pathSlot.getTotalAvailBalanceSlotNum();
             }
         }
-        LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
+        LOG.info("get number of low load paths: {}, with medium: {}, tag: {}, isUrgent {}",
+                numOfLowPaths, medium, clusterStat.getTag(), isUrgent);
 
         List<String> alternativeTabletInfos = Lists.newArrayList();
-
-        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
-        // so in clone ut recycleBin need to set to null.
-        CatalogRecycleBin recycleBin = null;
-        if (!FeConstants.runningUnitTest) {
-            recycleBin = Env.getCurrentRecycleBin();
-        }
         int clusterAvailableBEnum = infoService.getAllBackendIds(true).size();
-        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         List<Set<Long>> lowBETablets = lowBEs.stream()
                 .map(beStat -> Sets.newHashSet(invertedIndex.getTabletIdsByBackendId(beStat.getBeId())))
                 .collect(Collectors.toList());
+
+        boolean hasCandidateTablet = false;
 
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
@@ -230,23 +221,16 @@ public class BeLoadRebalancer extends Rebalancer {
                 long replicaDataSize = replica.getDataSize();
                 if (remainingPaths.containsKey(replicaPathHash)) {
                     TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                    if (tabletMeta == null) {
+                    if (!canBalanceTablet(tabletMeta)) {
                         continue;
                     }
 
-                    if (colocateTableIndex.isColocateTable(tabletMeta.getTableId())) {
-                        continue;
-                    }
+                    hasCandidateTablet = true;
 
                     // for urgent disk, pick tablets order by size,
                     // then it may always pick tablets that was on the low backends.
                     if (!lowBETablets.isEmpty()
                             && lowBETablets.stream().allMatch(tablets -> tablets.contains(tabletId))) {
-                        continue;
-                    }
-
-                    if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
-                            tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
                         continue;
                     }
 
@@ -291,6 +275,9 @@ public class BeLoadRebalancer extends Rebalancer {
         if (!alternativeTablets.isEmpty()) {
             LOG.info("select alternative tablets, medium: {}, is urgent: {}, num: {}, detail: {}",
                     medium, isUrgent, alternativeTablets.size(), alternativeTabletInfos);
+        } else if (isUrgent && !hasCandidateTablet) {
+            LOG.info("urgent balance cann't found candidate tablets. medium: {}, tag: {}",
+                    medium, clusterStat.getTag());
         }
         return alternativeTablets;
     }
@@ -332,7 +319,7 @@ public class BeLoadRebalancer extends Rebalancer {
         Set<String> hosts = Sets.newHashSet();
         List<BackendLoadStatistic> replicaHighBEs = Lists.newArrayList();
         for (BackendLoadStatistic beStat : highBEs) {
-            if (replicas.stream().anyMatch(replica -> beStat.getBeId() == replica.getBackendId())) {
+            if (replicas.stream().anyMatch(replica -> beStat.getBeId() == replica.getBackendIdWithoutException())) {
                 replicaHighBEs.add(beStat);
             }
             Backend be = infoService.getBackend(beStat.getBeId());
@@ -350,7 +337,7 @@ public class BeLoadRebalancer extends Rebalancer {
         // select a replica as source
         boolean setSource = false;
         for (Replica replica : replicas) {
-            PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
+            PathSlot slot = backendsWorkingSlots.get(replica.getBackendIdWithoutException());
             if (slot == null) {
                 continue;
             }
@@ -368,7 +355,8 @@ public class BeLoadRebalancer extends Rebalancer {
         // Select a low load backend as destination.
         List<BackendLoadStatistic> candidates = Lists.newArrayList();
         for (BackendLoadStatistic beStat : lowBEs) {
-            if (beStat.isAvailable() && replicas.stream().noneMatch(r -> r.getBackendId() == beStat.getBeId())) {
+            if (beStat.isAvailable() && replicas.stream()
+                    .noneMatch(r -> r.getBackendIdWithoutException() == beStat.getBeId())) {
                 // check if on same host.
                 Backend lowBackend = infoService.getBackend(beStat.getBeId());
                 if (lowBackend == null) {

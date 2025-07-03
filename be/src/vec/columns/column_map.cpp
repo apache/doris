@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/common/arena.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
@@ -47,24 +48,23 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
         : keys_column(std::move(keys)),
           values_column(std::move(values)),
           offsets_column(std::move(offsets)) {
-    const COffsets* offsets_concrete = typeid_cast<const COffsets*>(offsets_column.get());
-
-    if (!offsets_concrete) {
-        LOG(FATAL) << "offsets_column must be a ColumnUInt64";
-        __builtin_unreachable();
-    }
+    const auto* offsets_concrete = assert_cast<const COffsets*>(offsets_column.get());
 
     if (!offsets_concrete->empty() && keys_column && values_column) {
         auto last_offset = offsets_concrete->get_data().back();
 
         /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with key_column "
-                       << keys_column->size() << " " << last_offset;
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "offsets_column size {} has data inconsistent with key_column {}", last_offset,
+                    keys_column->size());
         }
         if (values_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with value_column "
-                       << values_column->size() << " " << last_offset;
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "offsets_column size {} has data inconsistent with value_column {}",
+                    last_offset, values_column->size());
         }
     }
 }
@@ -106,9 +106,10 @@ Field ColumnMap::operator[](size_t n) const {
     size_t element_size = size_at(n);
 
     if (element_size > max_array_size_as_field) {
-        LOG(FATAL) << "element size " << start_offset
-                   << " is too large to be manipulated as single map field,"
-                   << "maximum size " << max_array_size_as_field;
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                               "element size {} is too large to be manipulated as single map "
+                               "field, maximum size {}",
+                               element_size, max_array_size_as_field);
     }
 
     Array k(element_size), v(element_size);
@@ -118,7 +119,8 @@ Field ColumnMap::operator[](size_t n) const {
         v[i] = get_values()[start_offset + i];
     }
 
-    return Map {k, v};
+    return Field::create_field<TYPE_MAP>(
+            Map {Field::create_field<TYPE_ARRAY>(k), Field::create_field<TYPE_ARRAY>(v)});
 }
 
 // here to compare to below
@@ -126,15 +128,8 @@ void ColumnMap::get(size_t n, Field& res) const {
     res = operator[](n);
 }
 
-StringRef ColumnMap::get_data_at(size_t n) const {
-    LOG(FATAL) << "Method get_data_at is not supported for " << get_name();
-}
-
-void ColumnMap::insert_data(const char*, size_t) {
-    LOG(FATAL) << "Method insert_data is not supported for " << get_name();
-}
-
 void ColumnMap::insert(const Field& x) {
+    DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_MAP);
     const auto& map = doris::vectorized::get<const Map&>(x);
     CHECK_EQ(map.size(), 2);
     const auto& k_f = doris::vectorized::get<const Array&>(map[0]);
@@ -195,6 +190,12 @@ void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* indices_
     }
 }
 
+void ColumnMap::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    for (auto x = 0; x != length; ++x) {
+        ColumnMap::insert_from(src, position);
+    }
+}
+
 StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
     size_t array_size = size_at(n);
     size_t offset = offset_at(n);
@@ -235,7 +236,7 @@ const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
 }
 
 int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
-    const auto& rhs = assert_cast<const ColumnMap&>(rhs_);
+    const auto& rhs = assert_cast<const ColumnMap&, TypeCheckOnRelease::DISABLE>(rhs_);
 
     size_t lhs_size = size_at(n);
     size_t rhs_size = rhs.size_at(m);
@@ -466,7 +467,7 @@ size_t ColumnMap::filter(const Filter& filter) {
     return get_offsets().size();
 }
 
-ColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
     // Make a temp column array
     auto k_arr =
             ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
@@ -494,27 +495,9 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
-bool ColumnMap::could_shrinked_column() {
-    return keys_column->could_shrinked_column() || values_column->could_shrinked_column();
-}
-
-MutableColumnPtr ColumnMap::get_shrinked_column() {
-    MutableColumns new_columns(2);
-
-    if (keys_column->could_shrinked_column()) {
-        new_columns[0] = keys_column->get_shrinked_column();
-    } else {
-        new_columns[0] = keys_column->get_ptr();
-    }
-
-    if (values_column->could_shrinked_column()) {
-        new_columns[1] = values_column->get_shrinked_column();
-    } else {
-        new_columns[1] = values_column->get_ptr();
-    }
-
-    return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
-                             offsets_column->assume_mutable());
+void ColumnMap::shrink_padding_chars() {
+    keys_column->shrink_padding_chars();
+    values_column->shrink_padding_chars();
 }
 
 void ColumnMap::reserve(size_t n) {
@@ -526,6 +509,9 @@ void ColumnMap::reserve(size_t n) {
 void ColumnMap::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
+    // make new size of data column
+    get_keys().resize(get_offsets().back());
+    get_values().resize(get_offsets().back());
 }
 
 size_t ColumnMap::byte_size() const {
@@ -538,10 +524,37 @@ size_t ColumnMap::allocated_bytes() const {
            get_offsets().allocated_bytes();
 }
 
+bool ColumnMap::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnMap&>(src);
+    return keys_column->has_enough_capacity(*src_concrete.keys_column) &&
+           values_column->has_enough_capacity(*src_concrete.values_column) &&
+           offsets_column->has_enough_capacity(*src_concrete.offsets_column);
+}
+
 ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
     return ColumnMap::create(keys_column->convert_to_full_column_if_const(),
                              values_column->convert_to_full_column_if_const(),
                              offsets_column->convert_to_full_column_if_const());
+}
+
+void ColumnMap::erase(size_t start, size_t length) {
+    if (start >= size() || length == 0) {
+        return;
+    }
+    length = std::min(length, size() - start);
+
+    const auto& offsets_data = get_offsets();
+    auto entry_start = offsets_data[start - 1];
+    auto entry_end = offsets_data[start + length - 1];
+    auto entry_length = entry_end - entry_start;
+
+    keys_column->erase(entry_start, entry_length);
+    values_column->erase(entry_start, entry_length);
+    offsets_column->erase(start, length);
+
+    for (auto i = start; i < size(); ++i) {
+        get_offsets()[i] -= entry_length;
+    }
 }
 
 } // namespace doris::vectorized

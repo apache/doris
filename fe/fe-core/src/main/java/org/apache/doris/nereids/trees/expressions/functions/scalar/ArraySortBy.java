@@ -48,7 +48,7 @@ public class ArraySortBy extends ScalarFunction
      * array_sortby(lambda, a1, ...) = array_sortby(a1, array_map(lambda, a1, ...))
      */
     public ArraySortBy(Expression arg) {
-        super("array_sortby", arg.child(1).child(0), new ArrayMap(arg));
+        super("array_sortby", arg instanceof Lambda ? arg.child(1).child(0) : arg, new ArrayMap(arg));
         if (!(arg instanceof Lambda)) {
             throw new AnalysisException(
                     String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));

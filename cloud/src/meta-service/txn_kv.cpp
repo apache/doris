@@ -27,12 +27,14 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
 
 #include "common/bvars.h"
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
@@ -78,10 +80,69 @@ TxnErrorCode FdbTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
     return ret;
 }
 
+TxnErrorCode FdbTxnKv::create_txn_with_system_access(std::unique_ptr<Transaction>* txn) {
+    auto t = std::make_unique<fdb::Transaction>(database_);
+    TxnErrorCode code = t->init();
+    if (code == TxnErrorCode::TXN_OK) {
+        code = t->enable_access_system_keys();
+    }
+    if (code != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn, ret=" << code;
+        return code;
+    }
+
+    *txn = std::move(t);
+    return TxnErrorCode::TXN_OK;
+}
+
 std::unique_ptr<FullRangeGetIterator> FdbTxnKv::full_range_get(std::string begin, std::string end,
-                                                               FullRangeGetIteratorOptions opts) {
+                                                               FullRangeGetOptions opts) {
     return std::make_unique<fdb::FullRangeGetIterator>(std::move(begin), std::move(end),
                                                        std::move(opts));
+}
+
+TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* boundaries) {
+    boundaries->clear();
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode code = create_txn_with_system_access(&txn);
+    if (code != TxnErrorCode::TXN_OK) {
+        return code;
+    }
+
+    std::string begin_key(fdb_partition_key_prefix());
+    std::string end_key(fdb_partition_key_end());
+
+    std::unique_ptr<RangeGetIterator> iter;
+    do {
+        code = txn->get(begin_key, end_key, &iter, true);
+        if (code != TxnErrorCode::TXN_OK) {
+            if (code == TxnErrorCode::TXN_TOO_OLD) {
+                code = create_txn_with_system_access(&txn);
+                if (code == TxnErrorCode::TXN_OK) {
+                    continue;
+                }
+            }
+            LOG_WARNING("failed to get fdb boundaries")
+                    .tag("code", code)
+                    .tag("begin_key", hex(begin_key))
+                    .tag("end_key", hex(end_key));
+            return code;
+        }
+
+        while (iter->has_next()) {
+            auto&& [key, value] = iter->next();
+            boundaries->emplace_back(key);
+        }
+
+        begin_key = iter->next_begin_key();
+    } while (iter->more());
+
+    return TxnErrorCode::TXN_OK;
+}
+
+double FdbTxnKv::get_client_thread_busyness() const {
+    return fdb_database_get_main_thread_busyness(database_->db());
 }
 
 } // namespace doris::cloud
@@ -199,6 +260,7 @@ int Network::init() {
                 bool expected = true;
                 Network::working.compare_exchange_strong(expected, false);
             });
+    pthread_setname_np(network_thread_->native_handle(), "fdb_network_thread");
 
     return 0;
 }
@@ -258,6 +320,19 @@ TxnErrorCode Transaction::init() {
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode Transaction::enable_access_system_keys() {
+    fdb_error_t err = fdb_transaction_set_option(
+            txn_, FDBTransactionOption::FDB_TR_OPTION_ACCESS_SYSTEM_KEYS, nullptr, 0);
+    if (err) {
+        LOG_WARNING("fdb_transaction_set_option error: ")
+                .tag("option", "FDB_TR_OPTION_ACCESS_SYSTEM_KEYS")
+                .tag("code", err)
+                .tag("msg", fdb_get_error(err));
+        return cast_as_txn_code(err);
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
 void Transaction::put(std::string_view key, std::string_view val) {
     StopWatch sw;
     fdb_transaction_set(txn_, (uint8_t*)key.data(), key.size(), (uint8_t*)val.data(), val.size());
@@ -304,6 +379,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     approximate_bytes_ += key.size() * 2; // See fdbclient/ReadYourWrites.actor.cpp for details
     auto* fut = fdb_transaction_get(txn_, (uint8_t*)key.data(), key.size(), snapshot);
 
+    g_bvar_txn_kv_get_count_normalized << 1;
     auto release_fut = [fut, &sw](int*) {
         fdb_future_destroy(fut);
         g_bvar_txn_kv_get << sw.elapsed_us();
@@ -323,6 +399,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     const uint8_t* ret;
     int len;
     err = fdb_future_get_value(fut, &found, &ret, &len);
+    num_get_keys_++;
 
     if (err) {
         LOG(WARNING) << __PRETTY_FUNCTION__
@@ -341,8 +418,9 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
                               int limit) {
     StopWatch sw;
     approximate_bytes_ += begin.size() + end.size();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [&sw](int*) { g_bvar_txn_kv_range_get << sw.elapsed_us(); });
+    DORIS_CLOUD_DEFER {
+        g_bvar_txn_kv_range_get << sw.elapsed_us();
+    };
 
     FDBFuture* fut = fdb_transaction_get_range(
             txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)begin.data(), begin.size()),
@@ -361,6 +439,8 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
 
     std::unique_ptr<RangeGetIterator> ret(new RangeGetIterator(fut));
     RETURN_IF_ERROR(ret->init());
+    num_get_keys_ += ret->size();
+    g_bvar_txn_kv_get_count_normalized << ret->size();
 
     *(iter) = std::move(ret);
 
@@ -453,6 +533,7 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
 
 TxnErrorCode Transaction::commit() {
     fdb_error_t err = 0;
+    TEST_INJECTION_POINT_CALLBACK("Transaction::commit.inject_random_fault", &err);
     TEST_SYNC_POINT_CALLBACK("transaction:commit:get_err", &err);
     if (err == 0) [[likely]] {
         StopWatch sw;
@@ -478,10 +559,10 @@ TxnErrorCode Transaction::commit() {
 TxnErrorCode Transaction::get_read_version(int64_t* version) {
     StopWatch sw;
     auto* fut = fdb_transaction_get_read_version(txn_);
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [fut, &sw](...) {
+    DORIS_CLOUD_DEFER {
         fdb_future_destroy(fut);
         g_bvar_txn_kv_get_read_version << sw.elapsed_us();
-    });
+    };
     RETURN_IF_ERROR(await_future(fut));
     auto err = fdb_future_get_error(fut);
     TEST_SYNC_POINT_CALLBACK("transaction:get_read_version:get_err", &err);
@@ -546,6 +627,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
 
     size_t num_keys = keys.size();
     res->reserve(keys.size());
+    g_bvar_txn_kv_get_count_normalized << keys.size();
     std::vector<std::unique_ptr<FDBFuture, FDBFutureDelete>> futures;
     futures.reserve(opts.concurrency);
     for (size_t i = 0; i < num_keys; i += opts.concurrency) {
@@ -588,11 +670,12 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         futures.clear();
     }
     DCHECK_EQ(res->size(), num_keys);
+    num_get_keys_ += num_keys;
     return TxnErrorCode::TXN_OK;
 }
 
 FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
-                                           FullRangeGetIteratorOptions opts)
+                                           FullRangeGetOptions opts)
         : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {
     DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
     DCHECK(!opts_.txn || dynamic_cast<fdb::Transaction*>(opts_.txn)) << opts_.txn;
@@ -606,14 +689,18 @@ FullRangeGetIterator::~FullRangeGetIterator() {
 }
 
 bool FullRangeGetIterator::has_next() {
-    if (!is_valid_) {
+    if (!is_valid()) {
+        return false;
+    }
+
+    if (opts_.exact_limit > 0 && num_consumed_ >= opts_.exact_limit) {
         return false;
     }
 
     if (!inner_iter_) {
         // The first call
         init();
-        if (!is_valid_) {
+        if (!is_valid()) {
             return false;
         }
 
@@ -634,13 +721,13 @@ bool FullRangeGetIterator::has_next() {
 
     if (!fut_) {
         async_inner_get(inner_iter_->next_begin_key());
-        if (!is_valid_) {
+        if (!is_valid()) {
             return false;
         }
     }
 
     await_future();
-    return is_valid_ ? inner_iter_->has_next() : false;
+    return is_valid() ? inner_iter_->has_next() : false;
 }
 
 std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::next() {
@@ -648,19 +735,28 @@ std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterato
         return std::nullopt;
     }
 
+    num_consumed_++;
     return inner_iter_->next();
+}
+
+std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::peek() {
+    if (!has_next()) {
+        return std::nullopt;
+    }
+
+    return inner_iter_->peek();
 }
 
 void FullRangeGetIterator::await_future() {
     auto ret = fdb::await_future(fut_);
     if (ret != TxnErrorCode::TXN_OK) {
-        is_valid_ = false;
+        code_ = ret;
         return;
     }
 
     auto err = fdb_future_get_error(fut_);
     if (err) {
-        is_valid_ = false;
+        code_ = cast_as_txn_code(err);
         LOG(WARNING) << fdb_get_error(err);
         return;
     }
@@ -670,15 +766,12 @@ void FullRangeGetIterator::await_future() {
     }
     inner_iter_ = std::make_unique<RangeGetIterator>(fut_);
     fut_ = nullptr;
-
-    if (inner_iter_->init() != TxnErrorCode::TXN_OK) {
-        is_valid_ = false;
-    }
+    code_ = inner_iter_->init();
 }
 
 void FullRangeGetIterator::init() {
     async_inner_get(begin_);
-    if (!is_valid_) {
+    if (!is_valid()) {
         return;
     }
 
@@ -686,7 +779,8 @@ void FullRangeGetIterator::init() {
 }
 
 bool FullRangeGetIterator::prefetch() {
-    return opts_.prefetch && is_valid_ && !fut_ && inner_iter_->more();
+    return opts_.prefetch && is_valid() && !fut_ && inner_iter_->more() &&
+           (opts_.exact_limit <= 0 || num_consumed_ + inner_iter_->remaining() < opts_.exact_limit);
 }
 
 void FullRangeGetIterator::async_inner_get(std::string_view begin) {
@@ -699,7 +793,7 @@ void FullRangeGetIterator::async_inner_get(std::string_view begin) {
         // TODO(plat1ko): Async create txn
         TxnErrorCode err = opts_.txn_kv->create_txn(&txn1);
         if (err != TxnErrorCode::TXN_OK) {
-            is_valid_ = false;
+            code_ = err;
             return;
         }
 
@@ -708,9 +802,15 @@ void FullRangeGetIterator::async_inner_get(std::string_view begin) {
     }
 
     // TODO(plat1ko): Support `Transaction::async_get` api
+    int limit = std::max(opts_.batch_limit, 0);
+    if (opts_.exact_limit > 0) {
+        // If we have consumed some keys, we need to adjust the remaining limit.
+        int consumed = num_consumed_ + (inner_iter_ ? inner_iter_->remaining() : 0);
+        limit = std::min(limit, std::max(0, opts_.exact_limit - consumed));
+    }
     fut_ = fdb_transaction_get_range(
             txn->txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)begin.data(), begin.size()),
-            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end_.data(), end_.size()), opts_.limit,
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end_.data(), end_.size()), limit,
             0 /*target_bytes, unlimited*/, FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
             //       FDBStreamingMode::FDB_STREAMING_MODE_ITERATOR,
             0 /*iteration*/, opts_.snapshot, false /*reverse*/);

@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_phrase_prefix_1", "p0"){
+suite("test_index_match_phrase_prefix_1", "nonConcurrent"){
     def indexTbName1 = "test_index_match_phrase_prefix_1"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -47,8 +47,12 @@ suite("test_index_match_phrase_prefix_1", "p0"){
     sql """ INSERT INTO ${indexTbName1} VALUES (6, "O1704361998540E2Cemx9S 123456789", "O1704361998540E2Cemx9S 123456789", "O1704361998540E2Cemx9S 123456789"); """
     sql """ INSERT INTO ${indexTbName1} VALUES (7, "O1704361998540E2Cemx9S*123456789", "O1704361998540E2Cemx9S*123456789", "O1704361998540E2Cemx9S*123456789"); """
 
+    sql """ INSERT INTO ${indexTbName1} VALUES (1, "", "s1", ""), (2, "", "s2", ""), (3, "", "s3", ""), (4, "", "s4", ""), (5, "", "tv s5", ""); """
+
     try {
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select count() from ${indexTbName1} where c match_phrase_prefix 'O1704361998540E2Cemx9S'; """
         qt_sql """ select count() from ${indexTbName1} where d match_phrase_prefix 'O1704361998540E2Cemx9S'; """
@@ -56,7 +60,14 @@ suite("test_index_match_phrase_prefix_1", "p0"){
         qt_sql """ select count() from ${indexTbName1} where c match_phrase_prefix 'O1704361998540E2Cemx9S=123456789'; """
         qt_sql """ select count() from ${indexTbName1} where d match_phrase_prefix 'O1704361998540E2Cemx9S=123456789'; """
 
+        sql """ set inverted_index_max_expansions = 3; """
+        qt_sql """ select count() from ${indexTbName1} where c match_phrase_prefix 'tv s'; """
+
+        sql """ set inverted_index_max_expansions = 5; """
+        qt_sql """ select count() from ${indexTbName1} where c match_phrase_prefix 'tv s'; """
+
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        sql """ set inverted_index_max_expansions = 50; """
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

@@ -264,7 +264,7 @@ suite("test_list_partition_datatype", "p0") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception "Invalid list value format: errCode = 2, detailMessage = Number out of range[2147483648]. type: INT"
+        exception "Invalid list value format: errCode = 2, detailMessage = Number out of range[2147483648]. type: int"
     }
     test {
         sql """

@@ -22,6 +22,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -40,8 +42,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.sql.Timestamp;
@@ -110,6 +110,7 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
     private static Set<Character> TIME_PART_SET = Sets.newHashSet();
+    private static String MICRO_SECOND_FORMATTER = "%f";
     private static final int[] DAYS_IN_MONTH = new int[]{0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     private static final WeekFields weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
 
@@ -669,11 +670,17 @@ public class DateLiteral extends LiteralExpr {
             return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
         }
         // date time will not overflow when doing addition and subtraction
-        return getStringValue().compareTo(expr.getStringValue());
+        return Integer.signum(getStringValue().compareTo(expr.getStringValue()));
     }
 
     @Override
     public String toSqlImpl() {
+        return "'" + getStringValue() + "'";
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return "'" + getStringValue() + "'";
     }
 
@@ -730,9 +737,42 @@ public class DateLiteral extends LiteralExpr {
         return new String(dateTimeChars, 0, 19);
     }
 
+    public String getStringValue(Type type) {
+        char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
+
+        // Populate the date part
+        fillPaddedValue(dateTimeChars, 0, year, 4);
+        dateTimeChars[4] = '-';
+        fillPaddedValue(dateTimeChars, 5, month, 2);
+        dateTimeChars[7] = '-';
+        fillPaddedValue(dateTimeChars, 8, day, 2);
+
+        if (type.isDate() || type.isDateV2()) {
+            return new String(dateTimeChars, 0, 10);
+        }
+
+        // Populate the time part
+        dateTimeChars[10] = ' ';
+        fillPaddedValue(dateTimeChars, 11, hour, 2);
+        dateTimeChars[13] = ':';
+        fillPaddedValue(dateTimeChars, 14, minute, 2);
+        dateTimeChars[16] = ':';
+        fillPaddedValue(dateTimeChars, 17, second, 2);
+
+        if (type.isDatetimeV2()) {
+            int scale = ((ScalarType) type).getScalarScale();
+            long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
+            dateTimeChars[19] = '.';
+            fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+            return new String(dateTimeChars, 0, 20 + scale);
+        }
+
+        return new String(dateTimeChars, 0, 19);
+    }
+
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 
     public void roundCeiling(int newScale) {
@@ -910,26 +950,6 @@ public class DateLiteral extends LiteralExpr {
         this.type = Type.DATETIME;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        short dateLiteralType = in.readShort();
-        if (dateLiteralType == DateLiteralType.DATETIME.value()) {
-            fromPackedDatetime(in.readLong());
-            this.type = Type.DATETIME;
-        } else if (dateLiteralType == DateLiteralType.DATE.value()) {
-            fromPackedDatetime(in.readLong());
-            this.type = Type.DATE;
-        } else if (dateLiteralType == DateLiteralType.DATETIMEV2.value()) {
-            fromPackedDatetimeV2(in.readLong());
-            this.type = ScalarType.createDatetimeV2Type(in.readInt());
-        } else if (dateLiteralType == DateLiteralType.DATEV2.value()) {
-            fromPackedDateV2(in.readLong());
-            this.type = Type.DATEV2;
-        } else {
-            throw new IOException("Error date literal type : " + type);
-        }
-    }
-
     private boolean isLeapYear() {
         return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year > 0));
     }
@@ -964,12 +984,6 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
-    public static DateLiteral read(DataInput in) throws IOException {
-        DateLiteral literal = new DateLiteral();
-        literal.readFields(in);
-        return literal;
-    }
-
     public long unixTimestamp(TimeZone timeZone) {
         Timestamp timestamp = getTimestamp(timeZone);
         return timestamp.getTime();
@@ -992,6 +1006,10 @@ public class DateLiteral extends LiteralExpr {
 
     public static boolean hasTimePart(String format) {
         return format.chars().anyMatch(c -> TIME_PART_SET.contains((char) c));
+    }
+
+    public static boolean hasMicroSecondPart(String format) {
+        return format.indexOf(MICRO_SECOND_FORMATTER) != -1;
     }
 
     // Return the date stored in the dateliteral as pattern format.

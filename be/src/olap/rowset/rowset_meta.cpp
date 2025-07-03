@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <memory>
+#include <random>
 
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
@@ -199,6 +200,7 @@ void RowsetMeta::_init() {
     } else {
         _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
     }
+    update_metadata_size();
 }
 
 void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size) {
@@ -219,11 +221,43 @@ int64_t RowsetMeta::segment_file_size(int seg_id) {
                    : -1;
 }
 
+void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
+    for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
+        KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
+        *new_key_bounds = key_bounds;
+    }
+
+    int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
+    if (config::random_segments_key_bounds_truncation) {
+        static thread_local std::mt19937 generator(std::random_device {}());
+        std::uniform_int_distribution<int> distribution(-10, 40);
+        truncation_threshold = distribution(generator);
+    }
+    bool really_do_truncation {false};
+    if (truncation_threshold > 0) {
+        for (auto& segment_key_bounds : *_rowset_meta_pb.mutable_segments_key_bounds()) {
+            if (segment_key_bounds.min_key().size() > truncation_threshold) {
+                really_do_truncation = true;
+                segment_key_bounds.mutable_min_key()->resize(truncation_threshold);
+            }
+            if (segment_key_bounds.max_key().size() > truncation_threshold) {
+                really_do_truncation = true;
+                segment_key_bounds.mutable_max_key()->resize(truncation_threshold);
+            }
+        }
+    }
+    set_segments_key_bounds_truncated(really_do_truncation || is_segments_key_bounds_truncated());
+}
+
 void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     set_num_segments(num_segments() + other.num_segments());
     set_num_rows(num_rows() + other.num_rows());
     set_data_disk_size(data_disk_size() + other.data_disk_size());
+    set_total_disk_size(total_disk_size() + other.total_disk_size());
     set_index_disk_size(index_disk_size() + other.index_disk_size());
+    set_total_disk_size(data_disk_size() + index_disk_size());
+    set_segments_key_bounds_truncated(is_segments_key_bounds_truncated() ||
+                                      other.is_segments_key_bounds_truncated());
     for (auto&& key_bound : other.get_segments_key_bounds()) {
         add_segment_key_bounds(key_bound);
     }
@@ -231,6 +265,13 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
         other._rowset_meta_pb.enable_segments_file_size()) {
         for (auto fsize : other.segments_file_size()) {
             _rowset_meta_pb.add_segments_file_size(fsize);
+        }
+    }
+    if (_rowset_meta_pb.enable_inverted_index_file_info() &&
+        other._rowset_meta_pb.enable_inverted_index_file_info()) {
+        for (auto finfo : other.inverted_index_file_info()) {
+            InvertedIndexFileInfo* new_file_info = _rowset_meta_pb.add_inverted_index_file_info();
+            *new_file_info = finfo;
         }
     }
     // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
@@ -246,6 +287,29 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     }
     if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
         set_rowset_state(RowsetStatePB::COMMITTED);
+    }
+
+    update_metadata_size();
+}
+
+int64_t RowsetMeta::get_metadata_size() const {
+    return sizeof(RowsetMeta) + _rowset_meta_pb.ByteSizeLong();
+}
+
+InvertedIndexFileInfo RowsetMeta::inverted_index_file_info(int seg_id) {
+    return _rowset_meta_pb.enable_inverted_index_file_info()
+                   ? (_rowset_meta_pb.inverted_index_file_info_size() > seg_id
+                              ? _rowset_meta_pb.inverted_index_file_info(seg_id)
+                              : InvertedIndexFileInfo())
+                   : InvertedIndexFileInfo();
+}
+
+void RowsetMeta::add_inverted_index_files_info(
+        const std::vector<const InvertedIndexFileInfo*>& idx_file_info) {
+    _rowset_meta_pb.set_enable_inverted_index_file_info(true);
+    for (auto finfo : idx_file_info) {
+        auto* new_file_info = _rowset_meta_pb.add_inverted_index_file_info();
+        *new_file_info = *finfo;
     }
 }
 

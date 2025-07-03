@@ -38,5 +38,7 @@ fi
 trap exit INT
 
 echo "Running services with supervisord"
+rm -rf /etc/supervisord.d/socks-proxy.conf
+rm -rf /etc/supervisord.d/sshd.conf
 
 supervisord -c /etc/supervisord.conf

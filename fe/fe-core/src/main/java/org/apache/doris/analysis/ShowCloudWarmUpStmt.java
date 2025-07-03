@@ -28,15 +28,15 @@ import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class ShowCloudWarmUpStmt extends ShowStmt {
+public class ShowCloudWarmUpStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowCloudWarmUpStmt.class);
     private Expr whereClause;
     private boolean showAllJobs = false;
     private long jobId = -1;
 
-    private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+    private static final ImmutableList<String> WARM_UP_JOB_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId")
-            .add("ClusterName")
+            .add("ComputeGroup")
             .add("Status")
             .add("Type")
             .add("CreateTime")
@@ -116,7 +116,7 @@ public class ShowCloudWarmUpStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : ShowCloudWarmUpStmt.TITLE_NAMES) {
+        for (String title : ShowCloudWarmUpStmt.WARM_UP_JOB_TITLE_NAMES) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();

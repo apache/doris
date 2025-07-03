@@ -17,11 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.ExprFdItem;
-import org.apache.doris.nereids.properties.FdFactory;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -31,11 +29,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -57,18 +58,21 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     // it is necessary to keep the filter on the agg and push the filter down to each child of the union.
     private final boolean hasPushedFilter;
 
+    /** LogicalUnion */
     public LogicalUnion(Qualifier qualifier, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, children);
         this.hasPushedFilter = false;
         this.constantExprsList = ImmutableList.of();
     }
 
+    /** LogicalUnion */
     public LogicalUnion(Qualifier qualifier, List<List<NamedExpression>> constantExprsList, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, children);
         this.hasPushedFilter = false;
         this.constantExprsList = constantExprsList;
     }
 
+    /** LogicalUnion */
     public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
             List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs, children);
@@ -77,6 +81,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
+    /** LogicalUnion */
     public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
             List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
@@ -208,6 +213,14 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         // don't propagate uniform slots
     }
 
+    @Override
+    public boolean hasUnboundExpression() {
+        if (!constantExprsList.isEmpty() && children.isEmpty()) {
+            return false;
+        }
+        return super.hasUnboundExpression();
+    }
+
     private List<BitSet> mapSlotToIndex(Plan plan, List<Set<Slot>> equalSlotsList) {
         Map<Slot, Integer> slotToIndex = new HashMap<>();
         for (int i = 0; i < plan.getOutput().size(); i++) {
@@ -284,21 +297,72 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         // don't generate
     }
 
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+    /** castCommonDataTypeAndNullableByConstants */
+    public static Pair<List<List<NamedExpression>>, List<Boolean>> castCommonDataTypeAndNullableByConstants(
+            List<List<NamedExpression>> constantExprsList) {
+        int columnCount = constantExprsList.isEmpty() ? 0 : constantExprsList.get(0).size();
+        Pair<List<DataType>, List<Boolean>> commonInfo
+                = computeCommonDataTypeAndNullable(constantExprsList, columnCount);
+        List<List<NamedExpression>> castedRows = castToCommonType(constantExprsList, commonInfo.key(), columnCount);
+        List<Boolean> nullables = commonInfo.second;
+        return Pair.of(castedRows, nullables);
+    }
 
-        ImmutableSet<SlotReference> exprs = output.stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .collect(ImmutableSet.toImmutableSet());
-
-        if (qualifier == Qualifier.DISTINCT) {
-            ExprFdItem fdItem = FdFactory.INSTANCE.createExprFdItem(exprs, true, exprs);
-            builder.add(fdItem);
+    private static Pair<List<DataType>, List<Boolean>> computeCommonDataTypeAndNullable(
+            List<List<NamedExpression>> constantExprsList, int columnCount) {
+        List<Boolean> nullables = Lists.newArrayListWithCapacity(columnCount);
+        List<DataType> commonDataTypes = Lists.newArrayListWithCapacity(columnCount);
+        List<NamedExpression> firstRow = constantExprsList.get(0);
+        for (int columnId = 0; columnId < columnCount; columnId++) {
+            Expression constant = firstRow.get(columnId).child(0);
+            Pair<DataType, Boolean> commonDataTypeAndNullable
+                    = computeCommonDataTypeAndNullable(constant, columnId, constantExprsList);
+            commonDataTypes.add(commonDataTypeAndNullable.first);
+            nullables.add(commonDataTypeAndNullable.second);
         }
+        return Pair.of(commonDataTypes, nullables);
+    }
 
-        return builder.build();
+    private static Pair<DataType, Boolean> computeCommonDataTypeAndNullable(
+            Expression firstRowExpr, int columnId, List<List<NamedExpression>> constantExprsList) {
+        DataType commonDataType = firstRowExpr.getDataType();
+        boolean nullable = firstRowExpr.nullable();
+        for (int rowId = 1; rowId < constantExprsList.size(); rowId++) {
+            NamedExpression namedExpression = constantExprsList.get(rowId).get(columnId);
+            Expression otherConstant = namedExpression.child(0);
+            nullable |= otherConstant.nullable();
+            DataType otherDataType = otherConstant.getDataType();
+            commonDataType = getAssignmentCompatibleType(commonDataType, otherDataType);
+        }
+        return Pair.of(commonDataType, nullable);
+    }
+
+    private static List<List<NamedExpression>> castToCommonType(
+            List<List<NamedExpression>> rows, List<DataType> commonDataTypes, int columnCount) {
+        ImmutableList.Builder<List<NamedExpression>> castedConstants
+                = ImmutableList.builderWithExpectedSize(rows.size());
+        for (List<NamedExpression> row : rows) {
+            castedConstants.add(castToCommonType(row, commonDataTypes));
+        }
+        return castedConstants.build();
+    }
+
+    private static List<NamedExpression> castToCommonType(List<NamedExpression> row, List<DataType> commonTypes) {
+        ImmutableList.Builder<NamedExpression> castedRow = ImmutableList.builderWithExpectedSize(row.size());
+        boolean changed = false;
+        for (int columnId = 0; columnId < row.size(); columnId++) {
+            NamedExpression constantAlias = row.get(columnId);
+            Expression constant = constantAlias.child(0);
+            DataType commonType = commonTypes.get(columnId);
+            if (commonType.equals(constant.getDataType())) {
+                castedRow.add(constantAlias);
+            } else {
+                changed = true;
+                Expression expression
+                        = TypeCoercionUtils.castIfNotSameTypeStrict(constant, commonType);
+                castedRow.add((NamedExpression) constantAlias.withChildren(expression));
+            }
+        }
+        return changed ? castedRow.build() : row;
     }
 }

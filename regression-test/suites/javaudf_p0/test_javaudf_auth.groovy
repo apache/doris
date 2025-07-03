@@ -49,7 +49,7 @@ suite("test_javaudf_auth") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }    
 
     sql """USE ${dbName}"""
@@ -58,7 +58,7 @@ suite("test_javaudf_auth") {
         "symbol"="org.apache.doris.udf.IntTest",
         "type"="JAVA_UDF"
     ); """
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
         try {
             sql "select ${dbName}.java_udf_auth_test(1)"
             fail()
@@ -68,7 +68,7 @@ suite("test_javaudf_auth") {
     }
 
     sql """GRANT SELECT_PRIV ON ${dbName}.* TO ${user}"""
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
         try {
             sql "select ${dbName}.java_udf_auth_test(1)"
         } catch (Exception e) {

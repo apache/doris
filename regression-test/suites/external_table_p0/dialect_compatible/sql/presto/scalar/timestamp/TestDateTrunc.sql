@@ -1,0 +1,238 @@
+set sql_dialect='presto';
+set enable_fallback_to_original_planner=false;
+set debug_skip_fold_constant=false;
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234567'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345678'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+set debug_skip_fold_constant=true;
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234567'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345678'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456789'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456789012'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234567'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345678'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234567890'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345678901'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789012') # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second

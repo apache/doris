@@ -27,9 +27,9 @@
 #include <string>
 #include <type_traits>
 
+#include "absl/strings/substitute.h"
 #include "common/status.h"
 #include "gutil/endian.h"
-#include "gutil/strings/substitute.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
@@ -37,8 +37,6 @@
 #include "vec/core/types.h"
 
 namespace doris {
-
-using strings::Substitute;
 
 using FullEncodeAscendingFunc = void (*)(const void* value, std::string* buf);
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
@@ -91,31 +89,6 @@ public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
 
-private:
-    // Swap value's endian from/to big endian
-    static UnsignedCppType swap_big_endian(UnsignedCppType val) {
-        if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256) {
-            return BigEndian::FromHost256(val);
-        } else {
-            switch (sizeof(UnsignedCppType)) {
-            case 1:
-                return val;
-            case 2:
-                return BigEndian::FromHost16(val);
-            case 4:
-                return BigEndian::FromHost32(val);
-            case 8:
-                return BigEndian::FromHost64(val);
-            case 16:
-                return BigEndian::FromHost128(val);
-            default:
-                LOG(FATAL) << "Invalid type to big endian, type=" << int(field_type)
-                           << ", size=" << sizeof(UnsignedCppType);
-            }
-        }
-    }
-
-public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
@@ -125,7 +98,7 @@ public:
                     (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
         }
         // make it bigendian
-        unsigned_val = swap_big_endian(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
 
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
@@ -143,7 +116,7 @@ public:
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = swap_big_endian(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         if (std::is_signed<CppType>::value) {
             unsigned_val ^=
                     (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
@@ -166,7 +139,7 @@ public:
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // make it bigendian
-        unsigned_val = BigEndian::FromHost24(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
 
@@ -181,7 +154,7 @@ public:
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost24(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();
@@ -200,7 +173,7 @@ public:
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // make it bigendian
-        unsigned_val = BigEndian::FromHost32(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
 
@@ -210,12 +183,13 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument(absl::Substitute("Key too short, need=$0 vs real=$1",
+                                                            sizeof(UnsignedCppType),
+                                                            encoded_key->size));
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost32(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();
@@ -234,7 +208,7 @@ public:
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // make it bigendian
-        unsigned_val = BigEndian::FromHost64(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
 
@@ -244,12 +218,13 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument(absl::Substitute("Key too short, need=$0 vs real=$1",
+                                                            sizeof(UnsignedCppType),
+                                                            encoded_key->size));
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost64(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();
@@ -300,8 +275,7 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
-        LOG(FATAL) << "decode_ascending is not implemented";
-        return Status::OK();
+        throw Exception(Status::FatalError("decode_ascending is not implemented"));
     }
 };
 
@@ -320,8 +294,7 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
-        LOG(FATAL) << "decode_ascending is not implemented";
-        return Status::OK();
+        throw Exception(Status::FatalError("decode_ascending is not implemented"));
     }
 };
 
@@ -340,8 +313,7 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
-        LOG(FATAL) << "decode_ascending is not implemented";
-        return Status::OK();
+        throw Exception(Status::FatalError("decode_ascending is not implemented"));
     }
 };
 

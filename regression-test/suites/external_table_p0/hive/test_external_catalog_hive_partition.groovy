@@ -65,9 +65,18 @@ suite("test_external_catalog_hive_partition", "p0,external,hive,external_docker,
             qt_q06 """ select * from multi_catalog.text_partitioned_columns where t_int is not null order by t_float """
         }
         sql """ use `multi_catalog`; """
+        sql """ set hive_parquet_use_column_names = true; """ 
+        sql """ set hive_orc_use_column_names = true"""
+        
         q01_parquet()
         q01_orc()
         q01_text()
+
+        sql """ set hive_parquet_use_column_names = false; """ 
+        sql """ set hive_orc_use_column_names = false"""
+        q01_parquet()
+        q01_orc()
+
     }
 }
 

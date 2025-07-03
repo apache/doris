@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.thrift.TFileType;
+
 /**
  * For Hive Table
  */
 public class HiveInsertCommandContext extends BaseExternalTableInsertCommandContext {
     private String writePath;
     private String queryId;
+    private TFileType fileType;
 
     public String getWritePath() {
         return writePath;
@@ -38,5 +41,13 @@ public class HiveInsertCommandContext extends BaseExternalTableInsertCommandCont
 
     public void setQueryId(String queryId) {
         this.queryId = queryId;
+    }
+
+    public TFileType getFileType() {
+        return fileType;
+    }
+
+    public void setFileType(TFileType fileType) {
+        this.fileType = fileType;
     }
 }

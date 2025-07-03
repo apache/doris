@@ -25,12 +25,23 @@
 
 namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_stream_endpoint_stub_count, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_function_endpoint_stub_count, MetricUnit::NOUNIT);
 
 template <>
-BrpcClientCache<PBackendService_Stub>::BrpcClientCache() {
-    REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return _stub_map.size(); });
+BrpcClientCache<PBackendService_Stub>::BrpcClientCache(std::string protocol,
+                                                       std::string connection_type,
+                                                       std::string connection_group)
+        : _protocol(protocol),
+          _connection_type(connection_type),
+          _connection_group(connection_group) {
+    if (connection_group == "streaming") {
+        REGISTER_HOOK_METRIC(brpc_stream_endpoint_stub_count,
+                             [this]() { return _stub_map.size(); });
+    } else {
+        REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return _stub_map.size(); });
+    }
 }
 
 template <>
@@ -39,7 +50,12 @@ BrpcClientCache<PBackendService_Stub>::~BrpcClientCache() {
 }
 
 template <>
-BrpcClientCache<PFunctionService_Stub>::BrpcClientCache() {
+BrpcClientCache<PFunctionService_Stub>::BrpcClientCache(std::string protocol,
+                                                        std::string connection_type,
+                                                        std::string connection_group)
+        : _protocol(protocol),
+          _connection_type(connection_type),
+          _connection_group(connection_group) {
     REGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count, [this]() { return _stub_map.size(); });
 }
 

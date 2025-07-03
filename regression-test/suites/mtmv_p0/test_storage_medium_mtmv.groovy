@@ -18,6 +18,13 @@
 import org.junit.Assert;
 
 suite("test_storage_medium_mtmv","mtmv") {
+    // current, can not support extend storage medium from table
+    return;
+    // cloud not support set storage medium
+    if (isCloudMode()) {
+        return;
+    }
+
     String suiteName = "test_storage_medium_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"

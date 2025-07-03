@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
@@ -33,7 +34,7 @@ import java.util.Map;
 class PathSlotTest {
 
     @Test
-    public void test() {
+    public void test() throws Exception {
         Config.balance_slot_num_per_path = 2;
         Map<Long, TStorageMedium> paths = Maps.newHashMap();
         List<Long> availPathHashs = Lists.newArrayList();
@@ -57,7 +58,8 @@ class PathSlotTest {
         PathSlot ps = new PathSlot(paths, 1L);
         for (int i = 0; i < expectPathHashs.size(); i++) {
             Collections.shuffle(availPathHashs);
-            gotPathHashs.add(ps.takeAnAvailBalanceSlotFrom(availPathHashs, medium));
+            gotPathHashs.add(ps.takeAnAvailBalanceSlotFrom(availPathHashs,
+                    Tag.create(Tag.TYPE_LOCATION, "zone1"), medium));
         }
         Assert.assertEquals(expectPathHashs, gotPathHashs);
     }

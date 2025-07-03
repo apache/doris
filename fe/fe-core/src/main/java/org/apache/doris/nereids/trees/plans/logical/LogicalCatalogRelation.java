@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -31,8 +32,10 @@ import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -43,6 +46,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -57,17 +61,24 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     // [catalogName, databaseName]
     protected final ImmutableList<String> qualifier;
 
+    protected final ImmutableList<Slot> operativeSlots;
+
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier) {
-        super(relationId, type);
-        this.table = Objects.requireNonNull(table, "table can not be null");
-        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this(relationId, type, table, qualifier, Optional.empty(), Optional.empty());
     }
 
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        this(relationId, type, table, qualifier, groupExpression, logicalProperties, ImmutableList.of());
+    }
+
+    public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Collection<Slot> operativeSlots) {
         super(relationId, type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
-        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.qualifier = Utils.fastToImmutableList(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.operativeSlots = Utils.fastToImmutableList(operativeSlots);
     }
 
     @Override
@@ -100,12 +111,14 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     @Override
     public List<Slot> computeOutput() {
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(table, col, qualified()))
+                .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
     public List<String> getQualifier() {
         return qualifier;
     }
@@ -141,11 +154,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
         // No uniform slot for catalog relation
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        return computeFdItems(Utils.fastToImmutableSet(getOutputSet()));
     }
 
     private ImmutableSet<FdItem> computeFdItems(Set<Slot> outputSet) {
@@ -185,7 +193,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                 continue;
             }
             SlotReference slotRef = (SlotReference) slot;
-            if (slotRef.getColumn().isPresent() && columns.contains(slotRef.getColumn().get())) {
+            if (slotRef.getOriginalColumn().isPresent() && columns.contains(slotRef.getOriginalColumn().get())) {
                 slotSet.add(slotRef);
             }
         }

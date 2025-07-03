@@ -24,6 +24,8 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -152,6 +154,9 @@ public class MatchPredicate extends Predicate {
     private String invertedIndexParser;
     private String invertedIndexParserMode;
     private Map<String, String> invertedIndexCharFilter;
+    private boolean invertedIndexParserLowercase = true;
+    private String invertedIndexParserStopwords = "";
+    private String invertedIndexCustomAnalyzer = "";
 
     private MatchPredicate() {
         // use for serde only
@@ -178,23 +183,24 @@ public class MatchPredicate extends Predicate {
         invertedIndexParser = other.invertedIndexParser;
         invertedIndexParserMode = other.invertedIndexParserMode;
         invertedIndexCharFilter = other.invertedIndexCharFilter;
+        invertedIndexParserLowercase = other.invertedIndexParserLowercase;
+        invertedIndexParserStopwords = other.invertedIndexParserStopwords;
+        invertedIndexCustomAnalyzer = other.invertedIndexCustomAnalyzer;
     }
 
     /**
      * use for Nereids ONLY
      */
     public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
-            NullableMode nullableMode, String invertedIndexParser, String invertedIndexParserMode,
-            Map<String, String> invertedIndexCharFilter) {
+            NullableMode nullableMode, Index invertedIndex) {
         this(op, e1, e2);
-        if (invertedIndexParser != null) {
-            this.invertedIndexParser = invertedIndexParser;
-        }
-        if (invertedIndexParserMode != null) {
-            this.invertedIndexParserMode = invertedIndexParserMode;
-        }
-        if (invertedIndexParserMode != null) {
-            this.invertedIndexCharFilter = invertedIndexCharFilter;
+        if (invertedIndex != null) {
+            this.invertedIndexParser = invertedIndex.getInvertedIndexParser();
+            this.invertedIndexParserMode = invertedIndex.getInvertedIndexParserMode();
+            this.invertedIndexCharFilter = invertedIndex.getInvertedIndexCharFilter();
+            this.invertedIndexParserLowercase = invertedIndex.getInvertedIndexParserLowercase();
+            this.invertedIndexParserStopwords = invertedIndex.getInvertedIndexParserStopwords();
+            this.invertedIndexCustomAnalyzer = invertedIndex.getInvertedIndexCustomAnalyzer();
         }
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
@@ -223,11 +229,21 @@ public class MatchPredicate extends Predicate {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString() + " "
+                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table);
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.MATCH_PRED;
         msg.setOpcode(op.getOpcode());
         msg.match_predicate = new TMatchPredicate(invertedIndexParser, invertedIndexParserMode);
         msg.match_predicate.setCharFilterMap(invertedIndexCharFilter);
+        msg.match_predicate.setParserLowercase(invertedIndexParserLowercase);
+        msg.match_predicate.setParserStopwords(invertedIndexParserStopwords);
+        msg.match_predicate.setCustomAnalyzer(invertedIndexCustomAnalyzer);
     }
 
     @Override
@@ -272,6 +288,9 @@ public class MatchPredicate extends Predicate {
                             invertedIndexParser = index.getInvertedIndexParser();
                             invertedIndexParserMode = index.getInvertedIndexParserMode();
                             invertedIndexCharFilter = index.getInvertedIndexCharFilter();
+                            invertedIndexParserLowercase = index.getInvertedIndexParserLowercase();
+                            invertedIndexParserStopwords = index.getInvertedIndexParserStopwords();
+                            invertedIndexCustomAnalyzer = index.getInvertedIndexCustomAnalyzer();
                             break;
                         }
                     }

@@ -32,10 +32,22 @@ import groovy.util.logging.Slf4j
 
 import java.sql.Connection
 
+class TabletMeta {
+    public TreeMap<Long, Long> replicas
+
+    TabletMeta() {
+        this.replicas = new TreeMap<Long, Long>()
+    }
+
+    String toString() {
+        return "TabletMeta: { replicas: " + replicas.toString() + " }"
+    }
+}
+
 class PartitionMeta {
     public long version
     public long indexId
-    public TreeMap<Long, Long> tabletMeta
+    public TreeMap<Long, TabletMeta> tabletMeta
 
     PartitionMeta(long indexId, long version) {
         this.indexId = indexId
@@ -218,6 +230,19 @@ class SyncerContext {
                     return false
                 } else if (srcTabletMeta.size() != tarTabletMeta.size()) {
                     return false
+                }
+
+                Iterator srcTabletIter = srcTabletMeta.iterator()
+                Iterator tarTabletIter = tarTabletMeta.iterator()
+                while (srcTabletIter.hasNext()) {
+                    Map srcReplicaMap = srcTabletIter.next().value.replicas
+                    Map tarReplicaMap = tarTabletIter.next().value.replicas
+
+                    if (srcReplicaMap.isEmpty() || tarReplicaMap.isEmpty()) {
+                        return false
+                    } else if (srcReplicaMap.size() != tarReplicaMap.size()) {
+                        return false
+                    }
                 }
             }
         })

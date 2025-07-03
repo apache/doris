@@ -50,7 +50,7 @@ if [[ -d ${TPCH_DBGEN_DIR} ]]; then
     echo "Dir ${TPCH_DBGEN_DIR} already exists. No need to download."
     echo "If you want to download TPC-H_Tools_v3.0.0new again, please delete this dir first."
 else
-    wget "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/tools/TPC-H_Tools_v3.0.0new.zip"
+    wget "https://qa-build.oss-cn-beijing.aliyuncs.com/tools/TPC-H_Tools_v3.0.0new.zip"
     unzip TPC-H_Tools_v3.0.0new.zip -d "${CURDIR}/"
 fi
 

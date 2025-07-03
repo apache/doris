@@ -29,7 +29,7 @@ suite("ssb_sf1_q2_2_nereids") {
 
     test {
         // sql(new File(context.file.parentFile, "../sql/q2.2.sql").text)
-        sql """SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/  
+        sql """SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/
         SUM(lo_revenue), d_year, p_brand
         FROM lineorder, date, part, supplier
         WHERE lo_orderdate = d_datekey
@@ -42,6 +42,6 @@ suite("ssb_sf1_q2_2_nereids") {
         ORDER BY d_year, p_brand;
         """
 
-        resultFile(file = "../sql/q2.2.out", tag = "q2.2")
+        resultFile("../sql/q2.2.out", "q2.2")
     }
 }

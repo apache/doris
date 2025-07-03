@@ -29,7 +29,8 @@
 namespace doris::io {
 
 Status RemoteFileSystem::upload(const Path& local_file, const Path& dest_file) {
-    auto dest_path = absolute_path(dest_file);
+    Path dest_path;
+    RETURN_IF_ERROR(absolute_path(dest_file, dest_path));
     FILESYSTEM_M(upload_impl(local_file, dest_path));
 }
 
@@ -37,13 +38,16 @@ Status RemoteFileSystem::batch_upload(const std::vector<Path>& local_files,
                                       const std::vector<Path>& remote_files) {
     std::vector<Path> remote_paths;
     for (auto& path : remote_files) {
-        remote_paths.push_back(absolute_path(path));
+        Path abs_path;
+        RETURN_IF_ERROR(absolute_path(path, abs_path));
+        remote_paths.push_back(abs_path);
     }
     FILESYSTEM_M(batch_upload_impl(local_files, remote_paths));
 }
 
 Status RemoteFileSystem::download(const Path& remote_file, const Path& local) {
-    auto remote_path = absolute_path(remote_file);
+    Path remote_path;
+    RETURN_IF_ERROR(absolute_path(remote_file, remote_path));
     FILESYSTEM_M(download_impl(remote_path, local));
 }
 

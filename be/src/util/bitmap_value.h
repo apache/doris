@@ -38,7 +38,6 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
 #include "udf/udf.h"
 #include "util/coding.h"
 #include "vec/common/pod_array.h"
@@ -2519,8 +2518,7 @@ public:
             }
             break;
         case BitmapValue::BitmapDataType::SET: {
-            LOG(FATAL) << "BitmapValue with set do not support move";
-            break;
+            throw Exception(Status::FatalError("BitmapValue with set do not support move"));
         }
         default:
             break;

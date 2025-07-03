@@ -19,7 +19,6 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.BDBHA;
@@ -47,6 +46,9 @@ public class Frontend implements Writable {
     // used for getIpByHostname
     @SerializedName("editLogPort")
     private int editLogPort;
+    @SerializedName("cloudUniqueId")
+    private String cloudUniqueId;
+
     private String version;
 
     private int queryPort;
@@ -141,6 +143,14 @@ public class Frontend implements Writable {
         return diskInfos;
     }
 
+    public void setCloudUniqueId(String cloudUniqueId) {
+        this.cloudUniqueId = cloudUniqueId;
+    }
+
+    public String getCloudUniqueId() {
+        return cloudUniqueId;
+    }
+
     /**
      * handle Frontend's heartbeat response. Because the replayed journal id is very likely to be
      * changed at each heartbeat response, so we simple return true if the heartbeat status is OK.
@@ -187,25 +197,7 @@ public class Frontend implements Writable {
         Text.writeString(out, json);
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        role = FrontendNodeType.valueOf(Text.readString(in));
-        if (role == FrontendNodeType.REPLICA) {
-            // this is for compatibility.
-            // we changed REPLICA to FOLLOWER
-            role = FrontendNodeType.FOLLOWER;
-        }
-        host = Text.readString(in);
-        editLogPort = in.readInt();
-        nodeName = Text.readString(in);
-    }
-
     public static Frontend read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_118) {
-            Frontend frontend = new Frontend();
-            frontend.readFields(in);
-            return frontend;
-        }
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Frontend.class);
     }

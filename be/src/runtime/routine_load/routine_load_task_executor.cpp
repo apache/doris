@@ -42,6 +42,7 @@
 #include "io/fs/multi_table_pipe.h"
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/memory_profile.h"
 #include "runtime/message_body_sink.h"
 #include "runtime/routine_load/data_consumer.h"
 #include "runtime/routine_load/data_consumer_group.h"
@@ -61,6 +62,9 @@ using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
+bvar::LatencyRecorder g_routine_load_commit_and_publish_latency_ms("routine_load",
+                                                                   "commit_and_publish_ms");
+
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {
     REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);
@@ -75,7 +79,8 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
     _task_map.clear();
 }
 
-Status RoutineLoadTaskExecutor::init() {
+Status RoutineLoadTaskExecutor::init(int64_t process_mem_limit) {
+    _load_mem_limit = process_mem_limit * config::load_process_max_memory_limit_percent / 100;
     return ThreadPoolBuilder("routine_load")
             .set_min_threads(0)
             .set_max_threads(config::max_routine_load_thread_pool_size)
@@ -204,12 +209,13 @@ Status RoutineLoadTaskExecutor::get_kafka_real_offsets_for_partitions(
 
 Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     std::unique_lock<std::mutex> l(_lock);
+    // check if already submitted
     if (_task_map.find(task.id) != _task_map.end()) {
-        // already submitted
         LOG(INFO) << "routine load task " << UniqueId(task.id) << " has already been submitted";
         return Status::OK();
     }
 
+    // check task num limit
     if (_task_map.size() >= config::max_routine_load_thread_pool_size) {
         LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id)
                   << ", job id: " << task.job_id
@@ -217,6 +223,18 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
                   << ", current tasks num: " << _task_map.size();
         return Status::TooManyTasks("{}_{}", UniqueId(task.id).to_string(),
                                     BackendOptions::get_localhost());
+    }
+
+    // check memory limit
+    std::string reason;
+    DBUG_EXECUTE_IF("RoutineLoadTaskExecutor.submit_task.memory_limit", {
+        _reach_memory_limit(reason);
+        return Status::MemoryLimitExceeded("fake reason: " + reason);
+    });
+    if (_reach_memory_limit(reason)) {
+        LOG(INFO) << "reach memory limit. reject task: " << UniqueId(task.id)
+                  << ", job id: " << task.job_id << ", reason: " << reason;
+        return Status::MemoryLimitExceeded(reason);
     }
 
     // create the context
@@ -229,7 +247,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     ctx->db = task.db;
     ctx->table = task.tbl;
     ctx->label = task.label;
+    // deprecated, removed in 3.1, use auth token instead.
     ctx->auth.auth_code = task.auth_code;
+    ctx->auth.token = _exec_env->cluster_info()->curr_auth_token;
 
     if (task.__isset.max_interval_s) {
         ctx->max_interval_s = task.max_interval_s;
@@ -311,6 +331,22 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     }
 }
 
+bool RoutineLoadTaskExecutor::_reach_memory_limit(std::string& reason) {
+    DBUG_EXECUTE_IF("RoutineLoadTaskExecutor.submit_task.memory_limit", {
+        reason = "reach memory limit";
+        return true;
+    });
+    bool is_exceed_soft_mem_limit = GlobalMemoryArbitrator::is_exceed_soft_mem_limit();
+    auto current_load_mem_value = MemoryProfile::load_current_usage();
+    if (is_exceed_soft_mem_limit || current_load_mem_value > _load_mem_limit) {
+        reason = "is_exceed_soft_mem_limit: " + std::to_string(is_exceed_soft_mem_limit) +
+                 " current_load_mem_value: " + std::to_string(current_load_mem_value) +
+                 " _load_mem_limit: " + std::to_string(_load_mem_limit);
+        return true;
+    }
+    return false;
+}
+
 void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
                                         DataConsumerPool* consumer_pool, ExecFinishCallback cb) {
 #define HANDLE_ERROR(stmt, err_msg)                                        \
@@ -380,7 +416,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         // only for normal load, single-stream-multi-table load will be planned during consuming
 #ifndef BE_TEST
         // execute plan fragment, async
-        HANDLE_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx),
+        TPipelineFragmentParamsList mocked;
+        HANDLE_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked),
                      "failed to execute plan fragment");
 #else
         // only for test
@@ -424,7 +461,10 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     consumer_pool->return_consumers(consumer_grp.get());
 
     // commit txn
+    int64_t commit_and_publish_start_time = MonotonicNanos();
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()), "commit failed");
+    g_routine_load_commit_and_publish_latency_ms
+            << (MonotonicNanos() - commit_and_publish_start_time) / 1000000;
     // commit kafka offset
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {

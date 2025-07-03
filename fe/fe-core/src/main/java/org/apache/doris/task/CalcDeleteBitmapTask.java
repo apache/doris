@@ -39,9 +39,9 @@ public class CalcDeleteBitmapTask extends AgentTask  {
     private List<Long> errorTablets;
 
     public CalcDeleteBitmapTask(long backendId, long transactionId, long dbId,
-            List<TCalcDeleteBitmapPartitionInfo> partitionInfos,
+            List<TCalcDeleteBitmapPartitionInfo> partitionInfos, long signature,
             MarkedCountDownLatch<Long, Long> latch) {
-        super(null, backendId, TTaskType.CALCULATE_DELETE_BITMAP, dbId, -1L, -1L, -1L, -1L, transactionId);
+        super(null, backendId, TTaskType.CALCULATE_DELETE_BITMAP, dbId, -1L, -1L, -1L, -1L, signature);
         this.transactionId = transactionId;
         this.partitionInfos = partitionInfos;
         this.errorTablets = new ArrayList<Long>();
@@ -77,6 +77,10 @@ public class CalcDeleteBitmapTask extends AgentTask  {
                 LOG.debug("CalcDeleteBitmapTask download to zero. error msg: {}", errMsg);
             }
         }
+    }
+
+    public boolean isFinishRequestStale(List<TCalcDeleteBitmapPartitionInfo> respPartitionInfos) {
+        return !respPartitionInfos.equals(partitionInfos);
     }
 
     public void setLatch(MarkedCountDownLatch<Long, Long> latch) {

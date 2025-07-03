@@ -38,6 +38,8 @@
 #include <ios>
 #include <limits>
 #include <memory>
+#include <numeric>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -49,12 +51,14 @@
 #include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "common/stopwatch.h"
 #include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "keys.h"
 #include "meta-service/codec.h"
+#include "meta-service/delete_bitmap_lock_white_list.h"
 #include "meta-service/doris_txn.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
@@ -75,6 +79,9 @@ MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
     resource_mgr_ = resource_mgr;
     rate_limiter_ = rate_limiter;
     rate_limiter_->init(this);
+    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
+    delete_bitmap_lock_white_list_ = std::make_shared<DeleteBitmapLockWhiteList>();
+    delete_bitmap_lock_white_list_->init();
 }
 
 MetaServiceImpl::~MetaServiceImpl() = default;
@@ -87,46 +94,54 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
     { TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err); }
+    std::string instance_id;
     if (!err.empty()) {
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
         // cloud_unique_id encode: ${version}:${instance_id}:${unique_id}
         // check it split by ':' c
-        auto vec = split(cloud_unique_id, ':');
-        std::stringstream ss;
-        for (int i = 0; i < vec.size(); ++i) {
-            ss << "idx " << i << "= [" << vec[i] << "] ";
-        }
-        LOG(INFO) << "degraded to get instance_id, cloud_unique_id: " << cloud_unique_id
-                  << "after split: " << ss.str();
-        if (vec.size() != 3) {
-            LOG(WARNING) << "cloud unique id is not degraded format, failed to check instance "
-                            "info, cloud_unique_id="
-                         << cloud_unique_id << " , err=" << err;
+        auto [valid, id] = ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id);
+        if (!valid) {
+            LOG(WARNING) << "use degraded format cloud_unique_id, but cloud_unique_id not degrade "
+                            "format, cloud_unique_id="
+                         << cloud_unique_id;
             return "";
         }
-        // version: vec[0], instance_id: vec[1], unique_id: vec[2]
-        switch (std::atoi(vec[0].c_str())) {
-        case 1:
-            // just return instance id;
-            return vec[1];
-        default:
-            LOG(WARNING) << "cloud unique id degraded state, but version not eq configure, "
+
+        // check instance_id valid by get fdb
+        if (config::enable_check_instance_id && !rc_mgr->is_instance_id_registered(id)) {
+            LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed, "
                             "cloud_unique_id="
-                         << cloud_unique_id << ", err=" << err;
+                         << cloud_unique_id;
             return "";
         }
+        return id;
     }
 
-    std::string instance_id;
-    for (auto& i : nodes) {
-        if (!instance_id.empty() && instance_id != i.instance_id) {
+    for (auto& node : nodes) {
+        if (!instance_id.empty() && instance_id != node.instance_id) {
             LOG(WARNING) << "cloud_unique_id is one-to-many instance_id, "
                          << " cloud_unique_id=" << cloud_unique_id
                          << " current_instance_id=" << instance_id
-                         << " later_instance_id=" << i.instance_id;
+                         << " later_instance_id=" << node.instance_id;
         }
-        instance_id = i.instance_id; // The last wins
+        instance_id = node.instance_id; // The last wins
+        // check cache unique_id
+        std::string cloud_unique_id_in_cache = node.node_info.cloud_unique_id();
+        auto [valid, id] =
+                ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id_in_cache);
+        if (!valid) {
+            continue;
+        }
+
+        if (id != node.instance_id || id != instance_id) {
+            LOG(WARNING) << "in cache, node=" << node.node_info.DebugString()
+                         << ", cloud_unique_id=" << cloud_unique_id
+                         << " current_instance_id=" << instance_id
+                         << ", later_instance_id=" << node.instance_id;
+            continue;
+        }
     }
+
     return instance_id;
 }
 
@@ -198,7 +213,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         return;
     }
 
-    RPC_PREPROCESS(get_version);
+    RPC_PREPROCESS(get_version, get);
     std::string cloud_unique_id;
     if (request->has_cloud_unique_id()) {
         cloud_unique_id = request->cloud_unique_id();
@@ -237,7 +252,8 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
     }
 
-    std::unique_ptr<Transaction> txn;
+    code = MetaServiceCode::OK;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         msg = "failed to create txn";
@@ -265,6 +281,12 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 msg = "malformed version value";
                 return;
             }
+            if (!version_pb.has_version()) {
+                msg = "not found";
+                code = MetaServiceCode::VERSION_NOT_FOUND;
+                return;
+            }
+
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
@@ -283,7 +305,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                                         const GetVersionRequest* request,
                                         GetVersionResponse* response,
                                         ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_version);
+    RPC_PREPROCESS(get_version, get);
 
     std::string cloud_unique_id;
     if (request->has_cloud_unique_id()) {
@@ -315,19 +337,23 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         return;
     }
 
-    size_t num_acquired = request->partition_ids_size();
+    size_t num_acquired =
+            is_table_version ? request->table_ids_size() : request->partition_ids_size();
     response->mutable_versions()->Reserve(num_acquired);
     response->mutable_db_ids()->CopyFrom(request->db_ids());
     response->mutable_table_ids()->CopyFrom(request->table_ids());
-    response->mutable_partition_ids()->CopyFrom(request->partition_ids());
+    if (!is_table_version) {
+        response->mutable_partition_ids()->CopyFrom(request->partition_ids());
+    }
 
     constexpr size_t BATCH_SIZE = 500;
     std::vector<std::string> version_keys;
     std::vector<std::optional<std::string>> version_values;
     version_keys.reserve(BATCH_SIZE);
     version_values.reserve(BATCH_SIZE);
+
     while ((code == MetaServiceCode::OK || code == MetaServiceCode::KV_TXN_TOO_OLD) &&
-           response->versions_size() < response->partition_ids_size()) {
+           response->versions_size() < num_acquired) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -335,7 +361,10 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             code = cast_as<ErrCategory::CREATE>(err);
             break;
         }
-
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_counter += txn->num_get_keys();
+        };
         for (size_t i = response->versions_size(); i < num_acquired; i += BATCH_SIZE) {
             size_t limit = (i + BATCH_SIZE < num_acquired) ? i + BATCH_SIZE : num_acquired;
             version_keys.clear();
@@ -343,11 +372,11 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             for (size_t j = i; j < limit; j++) {
                 int64_t db_id = request->db_ids(j);
                 int64_t table_id = request->table_ids(j);
-                int64_t partition_id = request->partition_ids(j);
                 std::string ver_key;
                 if (is_table_version) {
                     table_version_key({instance_id, db_id, table_id}, &ver_key);
                 } else {
+                    int64_t partition_id = request->partition_ids(j);
                     partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
                 }
                 version_keys.push_back(std::move(ver_key));
@@ -387,8 +416,15 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         msg = "malformed version value";
                         break;
                     }
-                    response->add_versions(version_pb.version());
-                    response->add_version_update_time_ms(version_pb.update_time_ms());
+
+                    if (!version_pb.has_version()) {
+                        // return -1 if the target version is not exists.
+                        response->add_versions(-1);
+                        response->add_version_update_time_ms(-1);
+                    } else {
+                        response->add_versions(version_pb.version());
+                        response->add_version_update_time_ms(version_pb.update_time_ms());
+                    }
                 }
             }
         }
@@ -400,10 +436,10 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
     }
 }
 
-void internal_create_tablet(MetaServiceCode& code, std::string& msg,
-                            const doris::TabletMetaCloudPB& meta, std::shared_ptr<TxnKv> txn_kv,
-                            const std::string& instance_id,
-                            std::set<std::pair<int64_t, int32_t>>& saved_schema) {
+void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode& code,
+                            std::string& msg, const doris::TabletMetaCloudPB& meta,
+                            std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                            std::set<std::pair<int64_t, int32_t>>& saved_schema, KVStats& stats) {
     doris::TabletMetaCloudPB tablet_meta(meta);
     bool has_first_rowset = tablet_meta.rs_metas_size() > 0;
 
@@ -426,6 +462,11 @@ void internal_create_tablet(MetaServiceCode& code, std::string& msg,
         msg = "failed to init txn";
         return;
     }
+    DORIS_CLOUD_DEFER {
+        if (txn == nullptr) return;
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+    };
 
     std::string rs_key, rs_val;
     if (has_first_rowset) {
@@ -493,7 +534,9 @@ void internal_create_tablet(MetaServiceCode& code, std::string& msg,
     MetaTabletIdxKeyInfo key_info1 {instance_id, tablet_id};
     meta_tablet_idx_key(key_info1, &key1);
     TabletIndexPB tablet_table;
-    // tablet_table.set_db_id(db_id);
+    if (request->has_db_id()) {
+        tablet_table.set_db_id(request->db_id());
+    }
     tablet_table.set_table_id(table_id);
     tablet_table.set_index_id(index_id);
     tablet_table.set_partition_id(partition_id);
@@ -537,7 +580,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
                                      const CreateTabletsRequest* request,
                                      CreateTabletsResponse* response,
                                      ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(create_tablets);
+    RPC_PREPROCESS(create_tablets, get, put);
 
     if (request->tablet_metas_size() == 0) {
         msg = "no tablet meta";
@@ -568,6 +611,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         instance_key(key_info, &key);
 
         err = txn0->get(key, &val);
+        stats.get_counter++;
         LOG(INFO) << "get instance_key=" << hex(key);
 
         if (err != TxnErrorCode::TXN_OK) {
@@ -576,7 +620,6 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             msg = ss.str();
             return;
         }
-
         if (!instance.ParseFromString(val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = "failed to parse InstanceInfoPB";
@@ -615,11 +658,13 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         msg = fmt::format("failed to get vault id, vault name={}", name);
         return;
     }
+
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
     TEST_SYNC_POINT_RETURN_WITH_VOID("create_tablets");
     for (auto& tablet_meta : request->tablet_metas()) {
-        internal_create_tablet(code, msg, tablet_meta, txn_kv_, instance_id, saved_schema);
+        internal_create_tablet(request, code, msg, tablet_meta, txn_kv_, instance_id, saved_schema,
+                               stats);
         if (code != MetaServiceCode::OK) {
             return;
         }
@@ -655,10 +700,14 @@ void internal_get_tablet(MetaServiceCode& code, std::string& msg, const std::str
         return;
     }
 
-    if (tablet_meta->has_schema()) { // tablet meta saved before detach schema kv
+    if (tablet_meta->has_schema() &&
+        tablet_meta->schema().column_size() > 0) { // tablet meta saved before detach schema kv
         tablet_meta->set_schema_version(tablet_meta->schema().schema_version());
     }
-    if (!tablet_meta->has_schema() && !skip_schema) {
+
+    if ((!tablet_meta->has_schema() ||
+         (tablet_meta->has_schema() && tablet_meta->schema().column_size() <= 0)) &&
+        !skip_schema) {
         if (!tablet_meta->has_schema_version()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "tablet_meta must have either schema or schema_version";
@@ -667,7 +716,7 @@ void internal_get_tablet(MetaServiceCode& code, std::string& msg, const std::str
         auto key = meta_schema_key(
                 {instance_id, tablet_meta->index_id(), tablet_meta->schema_version()});
         ValueBuf val_buf;
-        err = cloud::get(txn, key, &val_buf);
+        err = cloud::blob_get(txn, key, &val_buf);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get schema, err={}", err == TxnErrorCode::TXN_KEY_NOT_FOUND
@@ -687,7 +736,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                                     const UpdateTabletRequest* request,
                                     UpdateTabletResponse* response,
                                     ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(update_tablet);
+    RPC_PREPROCESS(update_tablet, get, put);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -696,7 +745,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         return;
     }
     RPC_RATE_LIMIT(update_tablet)
-    std::unique_ptr<Transaction> txn;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -716,10 +765,6 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
             tablet_meta.set_is_persistent(tablet_meta_info.is_persistent());
         } else if (tablet_meta_info.has_ttl_seconds()) {
             tablet_meta.set_ttl_seconds(tablet_meta_info.ttl_seconds());
-        } else if (tablet_meta_info.has_group_commit_interval_ms()) {
-            tablet_meta.set_group_commit_interval_ms(tablet_meta_info.group_commit_interval_ms());
-        } else if (tablet_meta_info.has_group_commit_data_bytes()) {
-            tablet_meta.set_group_commit_data_bytes(tablet_meta_info.group_commit_data_bytes());
         } else if (tablet_meta_info.has_compaction_policy()) {
             tablet_meta.set_compaction_policy(tablet_meta_info.compaction_policy());
         } else if (tablet_meta_info.has_time_series_compaction_goal_size_mbytes()) {
@@ -738,8 +783,32 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
             tablet_meta.set_time_series_compaction_level_threshold(
                     tablet_meta_info.time_series_compaction_level_threshold());
         } else if (tablet_meta_info.has_disable_auto_compaction()) {
-            tablet_meta.mutable_schema()->set_disable_auto_compaction(
-                    tablet_meta_info.disable_auto_compaction());
+            if (tablet_meta.has_schema() && tablet_meta.schema().column_size() > 0) {
+                tablet_meta.mutable_schema()->set_disable_auto_compaction(
+                        tablet_meta_info.disable_auto_compaction());
+            } else {
+                auto key = meta_schema_key(
+                        {instance_id, tablet_meta.index_id(), tablet_meta.schema_version()});
+                ValueBuf val_buf;
+                err = cloud::blob_get(txn.get(), key, &val_buf);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format("failed to get schema, err={}",
+                                      err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "not found"
+                                                                             : "internal error");
+                    return;
+                }
+                doris::TabletSchemaCloudPB schema_pb;
+                if (!parse_schema_value(val_buf, &schema_pb)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = fmt::format("malformed schema value, key={}", key);
+                    return;
+                }
+
+                schema_pb.set_disable_auto_compaction(tablet_meta_info.disable_auto_compaction());
+                put_schema_kv(code, msg, txn.get(), key, schema_pb);
+                if (code != MetaServiceCode::OK) return;
+            }
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();
@@ -772,7 +841,7 @@ void MetaServiceImpl::update_tablet_schema(::google::protobuf::RpcController* co
                                            UpdateTabletSchemaResponse* response,
                                            ::google::protobuf::Closure* done) {
     DCHECK(false) << "should not call update_tablet_schema";
-    RPC_PREPROCESS(update_tablet_schema);
+    RPC_PREPROCESS(update_tablet_schema, get, put);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -783,7 +852,6 @@ void MetaServiceImpl::update_tablet_schema(::google::protobuf::RpcController* co
 
     RPC_RATE_LIMIT(update_tablet_schema)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -845,7 +913,7 @@ void MetaServiceImpl::update_tablet_schema(::google::protobuf::RpcController* co
 void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
                                  const GetTabletRequest* request, GetTabletResponse* response,
                                  ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_tablet);
+    RPC_PREPROCESS(get_tablet, get);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -854,7 +922,7 @@ void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
         return;
     }
     RPC_RATE_LIMIT(get_tablet)
-    std::unique_ptr<Transaction> txn;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -893,7 +961,7 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
         std::string schema_key = meta_schema_key({instance_id, existed_rowset_meta.index_id(),
                                                   existed_rowset_meta.schema_version()});
         ValueBuf val_buf;
-        TxnErrorCode err = cloud::get(txn, schema_key, &val_buf, true);
+        TxnErrorCode err = cloud::blob_get(txn, schema_key, &val_buf, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format(
@@ -910,6 +978,151 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
 }
 
 /**
+ * Fills schema information into the rowset meta from the dictionary.
+ * Handles schemas with variant types by retrieving the complete schema from the dictionary.
+ *
+ * @param code Result code indicating the operation status.
+ * @param msg Error description for failed operations.
+ * @param instance_id Identifier for the specific instance.
+ * @param txn Pointer to the transaction object for transactional operations.
+ * @param existed_rowset_meta Rowset meta object to be updated with schema information.
+ */
+static void fill_schema_from_dict(MetaServiceCode& code, std::string& msg,
+                                  const std::string& instance_id, Transaction* txn,
+                                  doris::RowsetMetaCloudPB* existed_rowset_meta) {
+    google::protobuf::RepeatedPtrField<doris::RowsetMetaCloudPB> metas;
+    metas.Add()->CopyFrom(*existed_rowset_meta);
+    // Retrieve schema from the dictionary and update metas.
+    read_schema_dict(code, msg, instance_id, existed_rowset_meta->index_id(), txn, &metas, nullptr);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+    // Update the original rowset meta with the complete schema from metas.
+    existed_rowset_meta->CopyFrom(metas.Get(0));
+}
+
+bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg,
+                       const std::string& instance_id, int64_t tablet_id,
+                       const std::string& rowset_id, const std::string& job_id) {
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return false;
+    }
+
+    std::string job_key = job_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                          tablet_idx.partition_id(), tablet_id});
+    std::string job_val;
+    auto err = txn->get(job_key, &job_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::stringstream ss;
+        ss << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "job not found," : "internal error,")
+           << " instance_id=" << instance_id << " tablet_id=" << tablet_id
+           << " rowset_id=" << rowset_id << " err=" << err;
+        msg = ss.str();
+        code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::STALE_PREPARE_ROWSET
+                                                      : cast_as<ErrCategory::READ>(err);
+        return false;
+    }
+
+    TabletJobInfoPB job_pb;
+    job_pb.ParseFromString(job_val);
+    bool match = false;
+    if (!job_pb.compaction().empty()) {
+        for (auto c : job_pb.compaction()) {
+            if (c.id() == job_id) {
+                match = true;
+            }
+        }
+    }
+
+    if (job_pb.has_schema_change()) {
+        if (job_pb.schema_change().id() == job_id) {
+            match = true;
+        }
+    }
+
+    if (!match) {
+        std::stringstream ss;
+        ss << " stale perpare rowset request,"
+           << " instance_id=" << instance_id << " tablet_id=" << tablet_id << " job id=" << job_id
+           << " rowset_id=" << rowset_id;
+        msg = ss.str();
+        code = MetaServiceCode::STALE_PREPARE_ROWSET;
+        return false;
+    }
+
+    return true;
+}
+
+/**
+* Check if the transaction status is as expected.
+* If the transaction is not in the expected state, return false and set the error code and message.
+*
+* @param expect_status The expected transaction status.
+* @param txn Pointer to the transaction object.
+* @param instance_id The instance ID associated with the transaction.
+* @param txn_id The transaction ID to check.
+* @param code Reference to the error code to be set in case of failure.
+* @param msg Reference to the error message to be set in case of failure.
+* @return true if the transaction status matches the expected status, false otherwise.  
+ */
+static bool check_transaction_status(TxnStatusPB expect_status, Transaction* txn,
+                                     const std::string& instance_id, int64_t txn_id,
+                                     MetaServiceCode& code, std::string& msg) {
+    // Get db id with txn id
+    std::string index_val;
+    const std::string index_key = txn_index_key({instance_id, txn_id});
+    TxnErrorCode err = txn->get(index_key, &index_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get db id, txn_id={} err={}", txn_id, err);
+        return false;
+    }
+
+    TxnIndexPB index_pb;
+    if (!index_pb.ParseFromString(index_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse txn_index_pb, txn_id={}", txn_id);
+        return false;
+    }
+
+    DCHECK(index_pb.has_tablet_index() == true);
+    DCHECK(index_pb.tablet_index().has_db_id() == true);
+    if (!index_pb.has_tablet_index() || !index_pb.tablet_index().has_db_id()) {
+        LOG(WARNING) << fmt::format(
+                "txn_index_pb is malformed, tablet_index has no db_id, txn_id={}", txn_id);
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("has no db_id in TxnIndexPB, txn_id={}", txn_id);
+        return false;
+    }
+    auto db_id = index_pb.tablet_index().db_id();
+    txn_id = index_pb.has_parent_txn_id() ? index_pb.parent_txn_id() : txn_id;
+
+    const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+    std::string info_val;
+    err = txn->get(info_key, &info_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get txn, txn_id={}, err={}", txn_id, err);
+        return false;
+    }
+    TxnInfoPB txn_info;
+    if (!txn_info.ParseFromString(info_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse txn_info, db_id={} txn_id={}", db_id, txn_id);
+        return false;
+    }
+    if (txn_info.status() != expect_status) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("txn is not in {} state, txn_id={}, txn_status={}", expect_status, txn_id,
+                          txn_info.status());
+        return false;
+    }
+    return true;
+}
+
+/**
  * 1. Check and confirm tmp rowset kv does not exist
  * 2. Construct recycle rowset kv which contains object path
  * 3. Put recycle rowset kv
@@ -918,7 +1131,7 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
                                      const CreateRowsetRequest* request,
                                      CreateRowsetResponse* response,
                                      ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(prepare_rowset);
+    RPC_PREPROCESS(prepare_rowset, get, put);
     if (!request->has_rowset_meta()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "no rowset meta";
@@ -943,11 +1156,34 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     int64_t tablet_id = rowset_meta.tablet_id();
     const auto& rowset_id = rowset_meta.rowset_id_v2();
     auto tmp_rs_key = meta_rowset_tmp_key({instance_id, rowset_meta.txn_id(), tablet_id});
-    std::unique_ptr<Transaction> txn;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
+        return;
+    }
+
+    // Check if the compaction/sc tablet job has finished
+    if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty()) {
+        if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
+                               request->tablet_job_id())) {
+            return;
+        }
+    }
+
+    // Check if the prepare rowset request is invalid.
+    // If the transaction has been finished, it means this prepare rowset is a timeout retry request.
+    // In this case, do not write the recycle key again, otherwise it may cause data loss.
+    // If the rowset had load id, it means it is a load request, otherwise it is a
+    // compaction/sc request.
+    if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
+        !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn.get(), instance_id,
+                                  rowset_meta.txn_id(), code, msg)) {
+        LOG(WARNING) << "prepare rowset failed, txn_id=" << rowset_meta.txn_id()
+                     << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
+                     << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
         return;
     }
 
@@ -980,6 +1216,10 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
             existed_rowset_meta->set_schema_version(
                     existed_rowset_meta->tablet_schema().schema_version());
         }
+        if (existed_rowset_meta->has_variant_type_in_schema()) {
+            fill_schema_from_dict(code, msg, instance_id, txn.get(), existed_rowset_meta);
+            if (code != MetaServiceCode::OK) return;
+        }
         code = MetaServiceCode::ALREADY_EXISTED;
         msg = "rowset already exists";
         return;
@@ -1003,10 +1243,20 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     prepare_rowset.SerializeToString(&val);
     DCHECK_GT(prepare_rowset.expiration(), 0);
     txn->put(prepare_rs_key, val);
+    std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
     LOG(INFO) << "put prepare_rs_key " << hex(prepare_rs_key) << " value_size " << val.size()
-              << " txn_id " << request->txn_id();
+              << " txn_id " << request->txn_id() << " segment_key_bounds_bytes "
+              << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
+            LOG(WARNING) << "failed to prepare rowset, err=value too large"
+                         << ", txn_id=" << request->txn_id() << ", tablet_id=" << tablet_id
+                         << ", rowset_id=" << rowset_id
+                         << ", rowset_meta_bytes=" << rowset_meta.ByteSizeLong()
+                         << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
+                         << ", rowset_meta=" << rowset_meta.ShortDebugString();
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to save recycle rowset, err={}", err);
         return;
@@ -1026,7 +1276,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
                                     const CreateRowsetRequest* request,
                                     CreateRowsetResponse* response,
                                     ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(commit_rowset);
+    RPC_PREPROCESS(commit_rowset, get, put, del);
     if (!request->has_rowset_meta()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "no rowset meta";
@@ -1052,11 +1302,33 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
 
     auto tmp_rs_key = meta_rowset_tmp_key({instance_id, rowset_meta.txn_id(), tablet_id});
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
+        return;
+    }
+
+    // Check if the compaction/sc tablet job has finished
+    if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty()) {
+        if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
+                               request->tablet_job_id())) {
+            return;
+        }
+    }
+
+    // Check if the commit rowset request is invalid.
+    // If the transaction has been finished, it means this commit rowset is a timeout retry request.
+    // In this case, do not write the recycle key again, otherwise it may cause data loss.
+    // If the rowset has load id, it means it is a load request, otherwise it is a
+    // compaction/sc request.
+    if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
+        !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn.get(), instance_id,
+                                  rowset_meta.txn_id(), code, msg)) {
+        LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
+                     << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
+                     << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
         return;
     }
 
@@ -1093,6 +1365,10 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         } else {
             existed_rowset_meta->set_schema_version(
                     existed_rowset_meta->tablet_schema().schema_version());
+        }
+        if (existed_rowset_meta->has_variant_type_in_schema()) {
+            fill_schema_from_dict(code, msg, instance_id, txn.get(), existed_rowset_meta);
+            if (code != MetaServiceCode::OK) return;
         }
         code = MetaServiceCode::ALREADY_EXISTED;
         msg = "rowset already exists";
@@ -1131,13 +1407,26 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();
     txn->put(tmp_rs_key, tmp_rs_val);
+    std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
     LOG(INFO) << "put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
               << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " txn_id "
-              << request->txn_id();
+              << request->txn_id() << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to save rowset meta, err=" << err;
+        if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
+            LOG(WARNING) << "failed to commit rowset, err=value too large"
+                         << ", txn_id=" << request->txn_id() << ", tablet_id=" << tablet_id
+                         << ", rowset_id=" << rowset_id
+                         << ", rowset_meta_bytes=" << rowset_meta.ByteSizeLong()
+                         << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
+                         << ", num_segments=" << rowset_meta.num_segments()
+                         << ", rowset_meta=" << rowset_meta.ShortDebugString();
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
+        }
         msg = ss.str();
         return;
     }
@@ -1147,7 +1436,7 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
                                         const CreateRowsetRequest* request,
                                         CreateRowsetResponse* response,
                                         ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(update_tmp_rowset);
+    RPC_PREPROCESS(update_tmp_rowset, get, put);
     if (!request->has_rowset_meta()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "no rowset meta";
@@ -1176,7 +1465,6 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
     MetaRowsetTmpKeyInfo key_info {instance_id, txn_id, tablet_id};
     meta_rowset_tmp_key(key_info, &update_key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1225,12 +1513,26 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
     }
 
     txn->put(update_key, update_val);
+    std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
     LOG(INFO) << "xxx put "
-              << "update_rowset_key " << hex(update_key) << " value_size " << update_val.size();
+              << "update_rowset_key " << hex(update_key) << " value_size " << update_val.size()
+              << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to update rowset meta, err=" << err;
+        if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
+            const auto& rowset_id = rowset_meta.rowset_id_v2();
+            LOG(WARNING) << "failed to update tmp rowset, err=value too large"
+                         << ", txn_id=" << request->txn_id() << ", tablet_id=" << tablet_id
+                         << ", rowset_id=" << rowset_id
+                         << ", rowset_meta_bytes=" << rowset_meta.ByteSizeLong()
+                         << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
+                         << ", rowset_meta=" << rowset_meta.ShortDebugString();
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
+        }
         msg = ss.str();
         return;
     }
@@ -1249,11 +1551,10 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
     std::unique_ptr<RangeGetIterator> it;
 
     int num_rowsets = 0;
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-            (int*)0x01, [key0, key1, &num_rowsets](int*) {
-                LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=["
-                          << hex(key0) << "," << hex(key1) << "]";
-            });
+    DORIS_CLOUD_DEFER_COPY(key0, key1) {
+        LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=[" << hex(key0)
+                  << "," << hex(key1) << "]";
+    };
 
     std::stringstream ss;
     do {
@@ -1268,15 +1569,27 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
 
         while (it->has_next()) {
             auto [k, v] = it->next();
-            auto rs = response->add_rowset_meta();
+            auto* rs = response->add_rowset_meta();
+            auto byte_size = rs->ByteSizeLong();
+            TEST_SYNC_POINT_CALLBACK("get_rowset:meta_exceed_limit", &byte_size);
+            if (byte_size + v.size() > std::numeric_limits<int32_t>::max()) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format(
+                        "rowset meta exceeded 2G, unable to serialize, key={}. byte_size={}",
+                        hex(k), byte_size);
+                LOG(WARNING) << msg;
+                return;
+            }
             if (!rs->ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "malformed rowset meta, unable to deserialize";
+                msg = "malformed rowset meta, unable to serialize";
                 LOG(WARNING) << msg << " key=" << hex(k);
                 return;
             }
             ++num_rowsets;
-            if (!it->has_next()) key0 = k;
+            if (!it->has_next()) {
+                key0 = k;
+            }
         }
         key0.push_back('\x00'); // Update to next smallest key for iteration
     } while (it->more());
@@ -1359,7 +1672,7 @@ static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rows
                                        const std::string& key, MetaServiceCode& code,
                                        std::string& msg) {
     ValueBuf val_buf;
-    TxnErrorCode err = cloud::get(txn, key, &val_buf);
+    TxnErrorCode err = cloud::blob_get(txn, key, &val_buf);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get schema, schema_version={}, rowset_version=[{}-{}]: {}",
@@ -1379,7 +1692,7 @@ static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rows
 void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                                  const GetRowsetRequest* request, GetRowsetResponse* response,
                                  ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_rowset);
+    RPC_PREPROCESS(get_rowset, get);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1405,111 +1718,173 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     int64_t req_cc_cnt = request->cumulative_compaction_cnt();
     int64_t req_cp = request->cumulative_point();
 
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to create txn";
-        return;
-    }
-
-    TabletIndexPB idx(request->idx());
-    // Get tablet id index from kv
-    if (!idx.has_table_id() || !idx.has_index_id() || !idx.has_partition_id()) {
+    do {
+        TEST_SYNC_POINT_CALLBACK("get_rowset:begin", &tablet_id);
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to create txn";
+            LOG(WARNING) << msg;
+            return;
+        }
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_counter += txn->num_get_keys();
+        };
+        TabletIndexPB idx;
+        // Get tablet id index from kv
         get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, idx);
-        if (code != MetaServiceCode::OK) return;
-    }
-    // TODO(plat1ko): Judge if tablet has been dropped (in dropped index/partition)
-
-    TabletStatsPB tablet_stat;
-    internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, true);
-    if (code != MetaServiceCode::OK) return;
-    VLOG_DEBUG << "tablet_id=" << tablet_id << " stats=" << proto_to_json(tablet_stat);
-
-    int64_t bc_cnt = tablet_stat.base_compaction_cnt();
-    int64_t cc_cnt = tablet_stat.cumulative_compaction_cnt();
-    int64_t cp = tablet_stat.cumulative_point();
-
-    response->mutable_stats()->CopyFrom(tablet_stat);
-
-    int64_t req_start = request->start_version();
-    int64_t req_end = request->end_version();
-    req_end = req_end < 0 ? std::numeric_limits<int64_t>::max() - 1 : req_end;
-
-    //==========================================================================
-    //      Find version ranges to be synchronized due to compaction
-    //==========================================================================
-    if (req_bc_cnt > bc_cnt || req_cc_cnt > cc_cnt || req_cp > cp) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "no valid compaction_cnt or cumulative_point given. req_bc_cnt=" << req_bc_cnt
-           << ", bc_cnt=" << bc_cnt << ", req_cc_cnt=" << req_cc_cnt << ", cc_cnt=" << cc_cnt
-           << ", req_cp=" << req_cp << ", cp=" << cp;
-        msg = ss.str();
-        return;
-    }
-    auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
-                                       req_start, req_end);
-    for (auto [start, end] : versions) {
-        internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg, response);
         if (code != MetaServiceCode::OK) {
             return;
         }
-    }
+        DCHECK(request->has_idx());
 
-    // get referenced schema
-    std::unordered_map<int32_t, doris::TabletSchemaCloudPB*> version_to_schema;
-    for (auto& rowset_meta : *response->mutable_rowset_meta()) {
-        if (rowset_meta.has_tablet_schema()) {
-            version_to_schema.emplace(rowset_meta.tablet_schema().schema_version(),
-                                      rowset_meta.mutable_tablet_schema());
-            rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
-        }
-        rowset_meta.set_index_id(idx.index_id());
-    }
-    bool need_read_schema_dict = false;
-    auto arena = response->GetArena();
-    for (auto& rowset_meta : *response->mutable_rowset_meta()) {
-        if (rowset_meta.has_schema_dict_key_list()) {
-            need_read_schema_dict = true;
-        }
-        if (rowset_meta.has_tablet_schema()) continue;
-        if (!rowset_meta.has_schema_version()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = fmt::format(
-                    "rowset_meta must have either schema or schema_version, "
-                    "rowset_version=[{}-{}]",
-                    rowset_meta.start_version(), rowset_meta.end_version());
-            return;
-        }
-        if (auto it = version_to_schema.find(rowset_meta.schema_version());
-            it != version_to_schema.end()) {
-            if (arena != nullptr) {
-                rowset_meta.set_allocated_tablet_schema(it->second);
-            } else {
-                rowset_meta.mutable_tablet_schema()->CopyFrom(*it->second);
-            }
-        } else {
-            auto key = meta_schema_key({instance_id, idx.index_id(), rowset_meta.schema_version()});
-            if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
+        if (idx.has_db_id()) {
+            // there is maybe a lazy commit txn when call get_rowset
+            // we need advance lazy commit txn here
+            std::string ver_val;
+            std::string ver_key = partition_version_key(
+                    {instance_id, idx.db_id(), idx.table_id(), idx.partition_id()});
+            err = txn->get(ver_key, &ver_val);
+            if (TxnErrorCode::TXN_OK != err && TxnErrorCode::TXN_KEY_NOT_FOUND != err) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get partiton version, tablet_id=" << tablet_id
+                   << " key=" << hex(ver_key) << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
                 return;
             }
-            version_to_schema.emplace(rowset_meta.schema_version(),
-                                      rowset_meta.mutable_tablet_schema());
-        }
-    }
 
-    if (need_read_schema_dict) {
-        read_schema_from_dict(code, msg, instance_id, idx.index_id(), txn.get(),
-                              response->mutable_rowset_meta());
+            if (TxnErrorCode::TXN_OK == err) {
+                VersionPB version_pb;
+                if (!version_pb.ParseFromString(ver_val)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    ss << "failed to parse version pb db_id=" << idx.db_id()
+                       << " table_id=" << idx.table_id() << " partition_id" << idx.partition_id()
+                       << " key=" << hex(ver_key);
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+
+                if (version_pb.pending_txn_ids_size() > 0) {
+                    DCHECK(version_pb.pending_txn_ids_size() == 1);
+                    stats.get_counter += txn->num_get_keys();
+                    txn.reset();
+                    TEST_SYNC_POINT_CALLBACK("get_rowset::advance_last_pending_txn_id",
+                                             &version_pb);
+                    std::shared_ptr<TxnLazyCommitTask> task =
+                            txn_lazy_committer_->submit(instance_id, version_pb.pending_txn_ids(0));
+
+                    std::tie(code, msg) = task->wait();
+                    if (code != MetaServiceCode::OK) {
+                        LOG(WARNING) << "advance_last_txn failed last_txn="
+                                     << version_pb.pending_txn_ids(0) << " code=" << code
+                                     << " msg=" << msg;
+                        return;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // TODO(plat1ko): Judge if tablet has been dropped (in dropped index/partition)
+
+        TabletStatsPB tablet_stat;
+        internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, true);
         if (code != MetaServiceCode::OK) return;
-    }
+        VLOG_DEBUG << "tablet_id=" << tablet_id << " stats=" << proto_to_json(tablet_stat);
+
+        int64_t bc_cnt = tablet_stat.base_compaction_cnt();
+        int64_t cc_cnt = tablet_stat.cumulative_compaction_cnt();
+        int64_t cp = tablet_stat.cumulative_point();
+
+        response->mutable_stats()->CopyFrom(tablet_stat);
+
+        int64_t req_start = request->start_version();
+        int64_t req_end = request->end_version();
+        req_end = req_end < 0 ? std::numeric_limits<int64_t>::max() - 1 : req_end;
+
+        //==========================================================================
+        //      Find version ranges to be synchronized due to compaction
+        //==========================================================================
+        if (req_bc_cnt > bc_cnt || req_cc_cnt > cc_cnt || req_cp > cp) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "no valid compaction_cnt or cumulative_point given. req_bc_cnt=" << req_bc_cnt
+               << ", bc_cnt=" << bc_cnt << ", req_cc_cnt=" << req_cc_cnt << ", cc_cnt=" << cc_cnt
+               << ", req_cp=" << req_cp << ", cp=" << cp;
+            msg = ss.str();
+            return;
+        }
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+                                           req_start, req_end);
+        for (auto [start, end] : versions) {
+            internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg, response);
+            if (code != MetaServiceCode::OK) {
+                return;
+            }
+        }
+
+        // get referenced schema
+        std::unordered_map<int32_t, doris::TabletSchemaCloudPB*> version_to_schema;
+        for (auto& rowset_meta : *response->mutable_rowset_meta()) {
+            if (rowset_meta.has_tablet_schema()) {
+                version_to_schema.emplace(rowset_meta.tablet_schema().schema_version(),
+                                          rowset_meta.mutable_tablet_schema());
+                rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
+            }
+            rowset_meta.set_index_id(idx.index_id());
+        }
+        bool need_read_schema_dict = false;
+        auto arena = response->GetArena();
+        for (auto& rowset_meta : *response->mutable_rowset_meta()) {
+            if (rowset_meta.has_schema_dict_key_list()) {
+                need_read_schema_dict = true;
+            }
+            if (rowset_meta.has_tablet_schema()) continue;
+            if (!rowset_meta.has_schema_version()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format(
+                        "rowset_meta must have either schema or schema_version, "
+                        "rowset_version=[{}-{}]",
+                        rowset_meta.start_version(), rowset_meta.end_version());
+                return;
+            }
+            if (auto it = version_to_schema.find(rowset_meta.schema_version());
+                it != version_to_schema.end()) {
+                if (arena != nullptr) {
+                    rowset_meta.set_allocated_tablet_schema(it->second);
+                } else {
+                    rowset_meta.mutable_tablet_schema()->CopyFrom(*it->second);
+                }
+            } else {
+                auto key = meta_schema_key(
+                        {instance_id, idx.index_id(), rowset_meta.schema_version()});
+                if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
+                    return;
+                }
+                version_to_schema.emplace(rowset_meta.schema_version(),
+                                          rowset_meta.mutable_tablet_schema());
+            }
+        }
+
+        if (need_read_schema_dict && request->schema_op() != GetRowsetRequest::NO_DICT) {
+            read_schema_dict(code, msg, instance_id, idx.index_id(), txn.get(),
+                             response->mutable_rowset_meta(), response->mutable_schema_dict(),
+                             request->schema_op());
+            if (code != MetaServiceCode::OK) return;
+        }
+        TEST_SYNC_POINT_CALLBACK("get_rowset::finish", &response);
+        break;
+    } while (true);
 }
 
 void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* controller,
                                        const GetTabletStatsRequest* request,
                                        GetTabletStatsResponse* response,
                                        ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_tablet_stats);
+    RPC_PREPROCESS(get_tablet_stats, get);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1519,7 +1894,6 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
     }
     RPC_RATE_LIMIT(get_tablet_stats)
 
-    std::unique_ptr<Transaction> txn;
     for (auto& i : request->tablet_idx()) {
         TabletIndexPB idx(i);
         // FIXME(plat1ko): Get all tablet stats in one txn
@@ -1529,6 +1903,11 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             msg = fmt::format("failed to create txn, tablet_id={}", idx.tablet_id());
             return;
         }
+        DORIS_CLOUD_DEFER {
+            stats.get_counter += txn->num_get_keys();
+            // the txn is not a local variable, if not reset will count last res twice
+            txn.reset(nullptr);
+        };
         if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
               idx.has_partition_id() && i.has_tablet_id())) {
             get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
@@ -1543,17 +1922,23 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
 #ifdef NDEBUG
         // Force data size >= 0 to reduce the losses caused by bugs
         if (tablet_stats->data_size() < 0) tablet_stats->set_data_size(0);
+        if (tablet_stats->index_size() < 0) tablet_stats->set_index_size(0);
+        if (tablet_stats->segment_size() < 0) tablet_stats->set_segment_size(0);
 #endif
     }
 }
 
 static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                                      std::unique_ptr<Transaction>& txn, std::string& instance_id,
-                                     int64_t table_id, int64_t lock_id, int64_t lock_initiator) {
-    std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+                                     int64_t table_id, int64_t lock_id, int64_t lock_initiator,
+                                     std::string& lock_key, DeleteBitmapUpdateLockPB& lock_info,
+                                     std::string use_version, std::string log = "") {
     std::string lock_val;
-    DeleteBitmapUpdateLockPB lock_info;
+    LOG(INFO) << "check_delete_bitmap_lock, table_id=" << table_id << " lock_id=" << lock_id
+              << " initiator=" << lock_initiator << " key=" << hex(lock_key) << log
+              << " use_version=" << use_version;
     auto err = txn->get(lock_key, &lock_val);
+    TEST_SYNC_POINT_CALLBACK("check_delete_bitmap_lock.inject_get_lock_key_err", &err);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "lock id key not found";
         code = MetaServiceCode::LOCK_EXPIRED;
@@ -1570,30 +1955,58 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
         msg = "failed to parse DeleteBitmapUpdateLockPB";
         return false;
     }
+    TEST_SYNC_POINT_CALLBACK("check_delete_bitmap_lock.set_lock_info", &lock_info);
     if (lock_info.lock_id() != lock_id) {
         ss << "lock id not match, locked by lock_id=" << lock_info.lock_id();
         msg = ss.str();
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
-    bool found = false;
-    for (auto initiator : lock_info.initiators()) {
-        if (lock_initiator == initiator) {
-            found = true;
-            break;
+    if (use_version == "v2" && lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+        std::string tablet_compaction_key =
+                mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
+        std::string tablet_compaction_val;
+        err = txn->get(tablet_compaction_key, &tablet_compaction_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            ss << "tablet compaction key not found, table_id=" << table_id << " lock_id" << lock_id
+               << " initiator=" << lock_initiator;
+            msg = ss.str();
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return false;
         }
-    }
-    if (!found) {
-        msg = "lock initiator not exist";
-        code = MetaServiceCode::LOCK_EXPIRED;
-        return false;
+        if (err != TxnErrorCode::TXN_OK) {
+            ss << "failed to get tablet compaction info, err=" << err;
+            msg = ss.str();
+            code = cast_as<ErrCategory::READ>(err);
+            return false;
+        }
+        // not check expired time
+        return true;
+    } else {
+        bool found = false;
+        for (auto initiator : lock_info.initiators()) {
+            if (lock_initiator == initiator) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            msg = "lock initiator not exist";
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return false;
+        }
     }
     return true;
 }
 
-static bool process_pending_delete_bitmap(MetaServiceCode& code, std::string& msg,
-                                          std::stringstream& ss, std::unique_ptr<Transaction>& txn,
-                                          std::string& instance_id, int64_t tablet_id) {
+void MetaServiceImpl::get_delete_bitmap_lock_version(std::string& use_version,
+                                                     std::string& instance_id) {
+    use_version = delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+}
+
+static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg,
+                                         std::stringstream& ss, std::unique_ptr<Transaction>& txn,
+                                         std::string& instance_id, int64_t tablet_id) {
     std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
     std::string pending_val;
     auto err = txn->get(pending_key, &pending_val);
@@ -1628,11 +2041,150 @@ static bool process_pending_delete_bitmap(MetaServiceCode& code, std::string& ms
     return true;
 }
 
+// When a load txn retries in publish phase with different version to publish, it will gain delete bitmap lock
+// many times. these locks are *different*, but they are the same in the current implementation because they have
+// the same lock_id and initiator and don't have version info. If some delete bitmap calculation task with version X
+// on BE lasts long and try to update delete bitmaps on MS when the txn gains the lock in later retries
+// with version Y(Y > X) to publish. It may wrongly update version X's delete bitmaps because the lock don't have version info.
+//
+// This function checks whether the partition version is correct when updating the delete bitmap
+// to avoid wrongly update an visible version's delete bitmaps.
+// 1. get the db id with txn id
+// 2. get the partition version with db id, table id and partition id
+// 3. check if the partition version matches the updating version
+static bool check_partition_version_when_update_delete_bitmap(
+        MetaServiceCode& code, std::string& msg, std::unique_ptr<Transaction>& txn,
+        std::string& instance_id, int64_t table_id, int64_t partition_id, int64_t tablet_id,
+        int64_t txn_id, int64_t next_visible_version) {
+    if (partition_id <= 0) {
+        LOG(WARNING) << fmt::format(
+                "invalid partition_id, skip to check partition version. txn={}, "
+                "table_id={}, partition_id={}, tablet_id={}",
+                txn_id, table_id, partition_id, tablet_id);
+        return true;
+    }
+    // Get db id with txn id
+    std::string index_val;
+    const std::string index_key = txn_index_key({instance_id, txn_id});
+    auto err = txn->get(index_key, &index_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get db id, txn_id={} err={}", txn_id, err);
+        LOG(WARNING) << msg;
+        return false;
+    }
+
+    TxnIndexPB index_pb;
+    if (!index_pb.ParseFromString(index_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse txn_index_pb, txn_id={}", txn_id);
+        LOG(WARNING) << msg;
+        return false;
+    }
+
+    DCHECK(index_pb.has_tablet_index())
+            << fmt::format("txn={}, table_id={}, partition_id={}, tablet_id={}, index_pb={}",
+                           txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
+    DCHECK(index_pb.tablet_index().has_db_id())
+            << fmt::format("txn={}, table_id={}, partition_id={}, tablet_id={}, index_pb={}",
+                           txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
+    if (!index_pb.has_tablet_index() || !index_pb.tablet_index().has_db_id()) {
+        LOG(WARNING) << fmt::format(
+                "has no db_id in TxnIndexPB, skip to check partition version. txn={}, "
+                "table_id={}, partition_id={}, tablet_id={}, index_pb={}",
+                txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
+        return true;
+    }
+    int64_t db_id = index_pb.tablet_index().db_id();
+
+    std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
+    std::string ver_val;
+    err = txn->get(ver_key, &ver_val);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get partition version, txn_id={}, tablet={}, err={}", txn_id,
+                          tablet_id, err);
+        LOG(WARNING) << msg;
+        return false;
+    }
+
+    int64_t cur_max_version {-1};
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        cur_max_version = 1;
+    } else {
+        VersionPB version_pb;
+        if (!version_pb.ParseFromString(ver_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("failed to parse version_pb, txn_id={}, tablet={}, key={}", txn_id,
+                              tablet_id, hex(ver_key));
+            LOG(WARNING) << msg;
+            return false;
+        }
+        DCHECK(version_pb.has_version());
+        cur_max_version = version_pb.version();
+
+        if (version_pb.pending_txn_ids_size() > 0) {
+            DCHECK(version_pb.pending_txn_ids_size() == 1);
+            cur_max_version += version_pb.pending_txn_ids_size();
+        }
+    }
+
+    if (cur_max_version + 1 != next_visible_version) {
+        code = MetaServiceCode::VERSION_NOT_MATCH;
+        msg = fmt::format(
+                "check version failed when update_delete_bitmap, txn={}, table_id={}, "
+                "partition_id={}, tablet_id={}, found partition's max version is {}, but "
+                "request next_visible_version is {}",
+                txn_id, table_id, partition_id, tablet_id, cur_max_version, next_visible_version);
+        return false;
+    }
+    return true;
+}
+
+// return false if the delete bitmap key already exists
+[[maybe_unused]] static bool check_delete_bitmap_kv_exists(MetaServiceCode& code, std::string& msg,
+                                                           std::unique_ptr<Transaction>& txn,
+                                                           const std::string& key,
+                                                           std::string& instance_id,
+                                                           int64_t tablet_id, int64_t lock_id) {
+    std::string start_key {key};
+    std::string end_key {start_key};
+    encode_int64(INT64_MAX, &end_key);
+    std::unique_ptr<RangeGetIterator> it;
+    TxnErrorCode err = txn->get(start_key, end_key, &it);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get delete bitmap, err={}, tablet_id={}, lock_id={}", err,
+                          tablet_id, lock_id);
+        return true; // skip to check if failed to get delete bitmap
+    }
+    if (it->has_next()) {
+        auto [k, v] = it->next();
+        std::string_view k1 = k;
+        k1.remove_prefix(1);
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        decode_key(&k1, &out);
+        // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+        auto rowset_id = std::get<std::string>(std::get<0>(out[4]));
+        auto version = std::get<std::int64_t>(std::get<0>(out[5]));
+        auto segment_id = std::get<std::int64_t>(std::get<0>(out[6]));
+
+        code = MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV;
+        msg = fmt::format(
+                "trying to update a existing delete bitmap KV, tablet_id={}, rowset_id={}, "
+                "version={}, segment_id={}, lock_id={}, instance_id={}",
+                tablet_id, rowset_id, version, segment_id, lock_id, instance_id);
+        LOG_WARNING(msg);
+        return false;
+    }
+    return true;
+}
+
 void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* controller,
                                            const UpdateDeleteBitmapRequest* request,
                                            UpdateDeleteBitmapResponse* response,
                                            ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(update_delete_bitmap);
+    RPC_PREPROCESS(update_delete_bitmap, get, put, del);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1647,13 +2199,25 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    if (request->without_lock() && request->has_pre_rowset_agg_end_version() &&
+        request->pre_rowset_agg_end_version() > 0) {
+        if (request->rowset_ids_size() != request->pre_rowset_versions_size()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "pre rowset version size=" << request->pre_rowset_versions_size()
+               << " not equal to rowset size=" << request->rowset_ids_size();
+            msg = ss.str();
+            return;
+        }
+    }
+
+    std::string use_version =
+            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
     RPC_RATE_LIMIT(update_delete_bitmap)
 
-    uint32_t fdb_txn_size = 0;
+    uint64_t fdb_txn_size = 0;
     auto table_id = request->table_id();
     auto tablet_id = request->tablet_id();
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1661,21 +2225,44 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         return;
     }
 
-    // 1. Check whether the lock expires
-    if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, request->lock_id(),
-                                  request->initiator())) {
-        LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
-                     << " request lock_id=" << request->lock_id()
-                     << " request initiator=" << request->initiator() << " msg" << msg;
-        return;
+    bool is_explicit_txn = (request->has_is_explicit_txn() && request->is_explicit_txn());
+    bool is_first_sub_txn = (is_explicit_txn && request->txn_id() == request->lock_id());
+    bool without_lock = request->has_without_lock() ? request->without_lock() : false;
+    std::string log = ", update delete bitmap for tablet " + std::to_string(tablet_id);
+    if (!without_lock) {
+        // 1. Check whether the lock expires
+        std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+        DeleteBitmapUpdateLockPB lock_info;
+        if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, request->lock_id(),
+                                      request->initiator(), lock_key, lock_info, use_version,
+                                      log)) {
+            LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
+                         << " request lock_id=" << request->lock_id()
+                         << " request initiator=" << request->initiator() << " msg " << msg;
+            return;
+        }
+        // 2. Process pending delete bitmap
+
+        // if this is a txn load and is not the first sub txn, we should not remove
+        // the pending delete bitmaps written by previous sub txns
+        if (!is_explicit_txn || is_first_sub_txn) {
+            if (!remove_pending_delete_bitmap(code, msg, ss, txn, instance_id, tablet_id)) {
+                return;
+            }
+        }
     }
 
-    // 2. Process pending delete bitmap
-    if (!process_pending_delete_bitmap(code, msg, ss, txn, instance_id, tablet_id)) {
-        return;
+    // 3. check if partition's version matches
+    if (request->lock_id() > 0 && request->has_txn_id() && request->partition_id() &&
+        request->has_next_visible_version()) {
+        if (!check_partition_version_when_update_delete_bitmap(
+                    code, msg, txn, instance_id, table_id, request->partition_id(), tablet_id,
+                    request->txn_id(), request->next_visible_version())) {
+            return;
+        }
     }
 
-    // 3. store all pending delete bitmap for this txn
+    // 4. store all pending delete bitmap for this txn
     PendingDeleteBitmapPB delete_bitmap_keys;
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         MetaDeleteBitmapInfo key_info {instance_id, tablet_id, request->rowset_ids(i),
@@ -1684,78 +2271,269 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         meta_delete_bitmap_key(key_info, &key);
         delete_bitmap_keys.add_delete_bitmap_keys(key);
     }
-    // no need to record pending key for compaction or schema change,
+
+    PendingDeleteBitmapPB previous_pending_info;
+    if (is_explicit_txn && !is_first_sub_txn) {
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+        std::string pending_val;
+        auto err = txn->get(pending_key, &pending_val);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            ss << "failed to get delete bitmap pending info, instance_id=" << instance_id
+               << " tablet_id=" << tablet_id << " key=" << hex(pending_key) << " err=" << err;
+            msg = ss.str();
+            code = cast_as<ErrCategory::READ>(err);
+            return;
+        }
+
+        if (err == TxnErrorCode::TXN_OK) {
+            // pending delete bitmaps of previous sub txns
+            if (!previous_pending_info.ParseFromString(pending_val)) [[unlikely]] {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse PendingDeleteBitmapPB";
+                return;
+            }
+        }
+    }
+
+    // no need to record pending key for compaction,
     // because delete bitmap will attach to new rowset, just delete new rowset if failed
     // lock_id > 0 : load
     // lock_id = -1 : compaction
     // lock_id = -2 : schema change
-    if (request->lock_id() > 0) {
+    // lock_id = -3 : compaction update delete bitmap without lock
+    if (request->lock_id() > 0 || request->lock_id() == -2) {
         std::string pending_val;
-        if (!delete_bitmap_keys.SerializeToString(&pending_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize pending delete bitmap";
-            return;
+        if (is_explicit_txn && !is_first_sub_txn) {
+            // put current delete bitmap keys and previous sub txns' into tablet's pending delete bitmap KV
+            PendingDeleteBitmapPB total_pending_info {std::move(previous_pending_info)};
+            auto* cur_pending_keys = delete_bitmap_keys.mutable_delete_bitmap_keys();
+            total_pending_info.mutable_delete_bitmap_keys()->Add(cur_pending_keys->begin(),
+                                                                 cur_pending_keys->end());
+            if (!total_pending_info.SerializeToString(&pending_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = "failed to serialize pending delete bitmap";
+                return;
+            }
+        } else {
+            if (!delete_bitmap_keys.SerializeToString(&pending_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = "failed to serialize pending delete bitmap";
+                return;
+            }
         }
         std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
         txn->put(pending_key, pending_val);
         fdb_txn_size = fdb_txn_size + pending_key.size() + pending_val.size();
         LOG(INFO) << "xxx update delete bitmap put pending_key=" << hex(pending_key)
-                  << " lock_id=" << request->lock_id() << " value_size: " << pending_val.size();
+                  << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                  << " value_size: " << pending_val.size();
     }
 
-    // 4. Update delete bitmap for curent txn
+    // 5. Update delete bitmap for curent txn
+    size_t current_key_count = 0;
+    size_t current_value_count = 0;
+    size_t total_key_count = 0;
+    size_t total_value_count = 0;
+    size_t total_txn_put_keys = 0;
+    size_t total_txn_put_bytes = 0;
+    size_t total_txn_size = 0;
+    size_t total_txn_count = 0;
+    std::set<std::string> non_exist_rowset_ids;
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         auto& key = delete_bitmap_keys.delete_bitmap_keys(i);
         auto& val = request->segment_delete_bitmaps(i);
 
         // Split into multiple fdb transactions, because the size of one fdb
         // transaction can't exceed 10MB.
-        if (fdb_txn_size + key.size() + val.size() > 9 * 1024 * 1024) {
-            LOG(INFO) << "fdb txn size more than 9MB, current size: " << fdb_txn_size
-                      << " lock_id=" << request->lock_id();
+        if (txn->approximate_bytes() + key.size() * 3 + val.size() > config::max_txn_commit_byte) {
+            LOG(INFO) << "fdb txn size more than " << config::max_txn_commit_byte
+                      << ", current size: " << txn->approximate_bytes()
+                      << ", tablet_id: " << tablet_id << " lock_id=" << request->lock_id()
+                      << " initiator=" << request->initiator() << ", need to commit";
             err = txn->commit();
+            TEST_SYNC_POINT_CALLBACK("update_delete_bitmap:commit:err", request->initiator(), i,
+                                     &err);
+            total_txn_put_keys += txn->num_put_keys();
+            total_txn_put_bytes += txn->put_bytes();
+            total_txn_size += txn->approximate_bytes();
+            total_txn_count++;
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::COMMIT>(err);
-                ss << "failed to update delete bitmap, err=" << err;
+                ss << "failed to update delete bitmap, err=" << err << " tablet_id=" << tablet_id
+                   << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                   << " delete_bitmap_key=" << current_key_count
+                   << " delete_bitmap_value=" << current_value_count
+                   << " put_size=" << txn->put_bytes() << " num_put_keys=" << txn->num_put_keys()
+                   << " txn_size=" << txn->approximate_bytes();
                 msg = ss.str();
+                g_bvar_update_delete_bitmap_fail_counter << 1;
                 return;
             }
-            fdb_txn_size = 0;
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
+            current_key_count = 0;
+            current_value_count = 0;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::CREATE>(err);
                 msg = "failed to init txn";
                 return;
             }
-            if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id,
-                                          request->lock_id(), request->initiator())) {
-                LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
-                             << " request lock_id=" << request->lock_id()
-                             << " request initiator=" << request->initiator() << " msg" << msg;
+            if (!without_lock) {
+                std::string lock_key =
+                        meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+                DeleteBitmapUpdateLockPB lock_info;
+                if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id,
+                                              request->lock_id(), request->initiator(), lock_key,
+                                              lock_info, use_version, log)) {
+                    LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
+                                 << " request lock_id=" << request->lock_id()
+                                 << " request initiator=" << request->initiator() << " msg " << msg;
+                    return;
+                }
+            }
+        }
+
+#ifdef ENABLE_INJECTION_POINT
+        if (config::enable_update_delete_bitmap_kv_check) {
+            if (!check_delete_bitmap_kv_exists(code, msg, txn, key, instance_id, tablet_id,
+                                               request->lock_id())) {
                 return;
             }
         }
+#endif
+
+        if (without_lock && request->has_pre_rowset_agg_end_version() &&
+            request->pre_rowset_agg_end_version() > 0) {
+            // check the rowset exists
+            if (non_exist_rowset_ids.contains(request->rowset_ids(i))) {
+                LOG(INFO) << "skip update delete bitmap, rowset_id=" << request->rowset_ids(i)
+                          << " version=" << request->pre_rowset_versions(i)
+                          << " tablet_id=" << tablet_id << " because the rowset does not exist";
+                continue;
+            }
+            auto rowset_key =
+                    meta_rowset_key({instance_id, tablet_id, request->pre_rowset_versions(i)});
+            std::string rowset_val;
+            err = txn->get(rowset_key, &rowset_val);
+            if (err != TxnErrorCode::TXN_OK && TxnErrorCode::TXN_KEY_NOT_FOUND != err) {
+                ss << "failed to get rowset, instance_id=" << instance_id
+                   << " tablet_id=" << tablet_id << " version=" << request->pre_rowset_versions(i)
+                   << " err=" << err;
+                msg = ss.str();
+                code = cast_as<ErrCategory::READ>(err);
+                return;
+            }
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                non_exist_rowset_ids.emplace(request->rowset_ids(i));
+                LOG(INFO) << "skip update delete bitmap, rowset_id=" << request->rowset_ids(i)
+                          << " version=" << request->pre_rowset_versions(i)
+                          << " tablet_id=" << tablet_id << " because the rowset is not exist";
+                continue;
+            }
+            doris::RowsetMetaCloudPB rs;
+            if (!rs.ParseFromArray(rowset_val.data(), rowset_val.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "malformed rowset meta, unable to deserialize, tablet_id=" << tablet_id
+                   << " key=" << hex(rowset_key);
+                msg = ss.str();
+                return;
+            }
+            if (rs.rowset_id_v2() != request->rowset_ids(i)) {
+                LOG(INFO) << "skip update delete bitmap, rowset_id=" << request->rowset_ids(i)
+                          << " version=" << request->pre_rowset_versions(i)
+                          << " tablet_id=" << tablet_id << " because the rowset is not exist";
+                non_exist_rowset_ids.emplace(request->rowset_ids(i));
+                continue;
+            }
+        }
+        // remove first
+        if (request->lock_id() == COMPACTION_WITHOUT_LOCK_DELETE_BITMAP_LOCK_ID) {
+            auto& start_key = key;
+            std::string end_key {start_key};
+            encode_int64(INT64_MAX, &end_key);
+            txn->remove(start_key, end_key);
+            LOG(INFO) << "xxx remove delete_bitmap_key=" << hex(start_key)
+                      << " tablet_id=" << tablet_id << " lock_id=" << request->lock_id()
+                      << " initiator=" << request->initiator();
+        }
         // splitting large values (>90*1000) into multiple KVs
-        cloud::put(txn.get(), key, val, 0);
-        fdb_txn_size = fdb_txn_size + key.size() + val.size();
-        LOG(INFO) << "xxx update delete bitmap put delete_bitmap_key=" << hex(key)
-                  << " lock_id=" << request->lock_id() << " value_size: " << val.size();
+        cloud::blob_put(txn.get(), key, val, 0);
+        current_key_count++;
+        current_value_count += val.size();
+        total_key_count++;
+        total_value_count += val.size();
+        VLOG_DEBUG << "xxx update delete bitmap put delete_bitmap_key=" << hex(key)
+                   << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                   << " key_size: " << key.size() << " value_size: " << val.size();
     }
 
+    // remove pre rowset delete bitmap
+    if (request->has_pre_rowset_agg_start_version() && request->has_pre_rowset_agg_end_version() &&
+        request->pre_rowset_agg_start_version() < request->pre_rowset_agg_end_version()) {
+        std::string pre_rowset_id = "";
+        for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
+            if (request->rowset_ids(i) == pre_rowset_id) {
+                continue;
+            }
+            if (non_exist_rowset_ids.contains(request->rowset_ids(i))) {
+                LOG(INFO) << "skip remove pre rowsets delete bitmap, rowset_id="
+                          << request->rowset_ids(i) << " tablet_id=" << tablet_id
+                          << " because the rowset does not exist";
+                continue;
+            }
+            pre_rowset_id = request->rowset_ids(i);
+            auto delete_bitmap_start =
+                    meta_delete_bitmap_key({instance_id, tablet_id, request->rowset_ids(i),
+                                            request->pre_rowset_agg_start_version(), 0});
+            auto delete_bitmap_end =
+                    meta_delete_bitmap_key({instance_id, tablet_id, request->rowset_ids(i),
+                                            request->pre_rowset_agg_end_version(), 0});
+            txn->remove(delete_bitmap_start, delete_bitmap_end);
+            LOG(INFO) << "remove pre rowsets delete bitmap, tablet_id=" << tablet_id
+                      << ", rowset=" << request->rowset_ids(i)
+                      << ", start_version=" << request->pre_rowset_agg_start_version()
+                      << ", end_version=" << request->pre_rowset_agg_end_version()
+                      << ", start_key=" << hex(delete_bitmap_start)
+                      << ", end_key=" << hex(delete_bitmap_end);
+        }
+    }
     err = txn->commit();
+    total_txn_put_keys += txn->num_put_keys();
+    total_txn_put_bytes += txn->put_bytes();
+    total_txn_size += txn->approximate_bytes();
+    total_txn_count++;
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to update delete bitmap, err=" << err;
+        ss << "failed to update delete bitmap, err=" << err << " tablet_id=" << tablet_id
+           << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+           << " delete_bitmap_key=" << current_key_count
+           << " delete_bitmap_value=" << current_value_count << " put_size=" << txn->put_bytes()
+           << " num_put_keys=" << txn->num_put_keys() << " txn_size=" << txn->approximate_bytes();
         msg = ss.str();
+        g_bvar_update_delete_bitmap_fail_counter << 1;
         return;
     }
+    LOG(INFO) << "update_delete_bitmap tablet_id=" << tablet_id << " lock_id=" << request->lock_id()
+              << " initiator=" << request->initiator()
+              << " rowset_num=" << request->rowset_ids_size()
+              << " total_key_count=" << total_key_count
+              << " total_value_count=" << total_value_count << " without_lock=" << without_lock
+              << " total_txn_put_keys=" << total_txn_put_keys
+              << " total_txn_put_bytes=" << total_txn_put_bytes
+              << " total_txn_size=" << total_txn_size << " total_txn_count=" << total_txn_count
+              << " instance_id=" << instance_id << " use_version=" << use_version;
 }
 
 void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* controller,
                                         const GetDeleteBitmapRequest* request,
                                         GetDeleteBitmapResponse* response,
                                         ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_delete_bitmap);
+    RPC_PREPROCESS(get_delete_bitmap, get);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1786,6 +2564,12 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         return;
     }
 
+    response->set_tablet_id(tablet_id);
+    int64_t delete_bitmap_num = 0;
+    int64_t delete_bitmap_byte = 0;
+    bool test = false;
+    TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_test", &test);
+
     for (size_t i = 0; i < rowset_ids.size(); i++) {
         // create a new transaction every time, avoid using one transaction that takes too long
         std::unique_ptr<Transaction> txn;
@@ -1795,6 +2579,10 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             msg = "failed to init txn";
             return;
         }
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_counter += txn->num_get_keys();
+        };
         MetaDeleteBitmapInfo start_key_info {instance_id, tablet_id, rowset_ids[i],
                                              begin_versions[i], 0};
         MetaDeleteBitmapInfo end_key_info {instance_id, tablet_id, rowset_ids[i], end_versions[i],
@@ -1810,12 +2598,43 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         std::unique_ptr<RangeGetIterator> it;
         int64_t last_ver = -1;
         int64_t last_seg_id = -1;
+        int64_t round = 0;
         do {
-            err = txn->get(start_key, end_key, &it);
+            if (test) {
+                LOG(INFO) << "test";
+                err = txn->get(start_key, end_key, &it, false, 2);
+            } else {
+                err = txn->get(start_key, end_key, &it);
+            }
+            TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &round, &err);
+            int64_t retry = 0;
+            while (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
+                stats.get_counter += txn->num_get_keys();
+                txn = nullptr;
+                err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::CREATE>(err);
+                    ss << "failed to init txn, retry=" << retry << ", internal round=" << round;
+                    msg = ss.str();
+                    return;
+                }
+                if (test) {
+                    err = txn->get(start_key, end_key, &it, false, 2);
+                } else {
+                    err = txn->get(start_key, end_key, &it);
+                }
+                retry++;
+                LOG(INFO) << "retry get delete bitmap, tablet=" << tablet_id << ", retry=" << retry
+                          << ", internal round=" << round
+                          << ", delete_bitmap_num=" << delete_bitmap_num
+                          << ", delete_bitmap_byte=" << delete_bitmap_byte;
+            }
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
-                ss << "internal error, failed to get delete bitmap, ret=" << err;
+                ss << "internal error, failed to get delete bitmap, internal round=" << round
+                   << ", ret=" << err;
                 msg = ss.str();
+                g_bvar_get_delete_bitmap_fail_counter << 1;
                 return;
             }
 
@@ -1839,13 +2658,40 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     response->add_segment_delete_bitmaps(std::string(v));
                     last_ver = ver;
                     last_seg_id = seg_id;
+                    delete_bitmap_num++;
+                    delete_bitmap_byte += v.length();
                 } else {
+                    TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_code", &code);
+                    if (code != MetaServiceCode::OK) {
+                        ss << "test get get_delete_bitmap fail, code=" << MetaServiceCode_Name(code)
+                           << ", internal round=" << round;
+                        msg = ss.str();
+                        return;
+                    }
+                    delete_bitmap_byte += v.length();
                     response->mutable_segment_delete_bitmaps()->rbegin()->append(v);
                 }
             }
+            if (delete_bitmap_byte > config::max_get_delete_bitmap_byte) {
+                code = MetaServiceCode::KV_TXN_GET_ERR;
+                ss << "tablet=" << tablet_id << ", get_delete_bitmap_byte=" << delete_bitmap_byte
+                   << ",exceed max byte";
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                g_bvar_get_delete_bitmap_fail_counter << 1;
+                return;
+            }
+            round++;
             start_key = it->next_begin_key(); // Update to next smallest key for iteration
         } while (it->more());
+        LOG(INFO) << "get delete bitmap for tablet=" << tablet_id << ", rowset=" << rowset_ids[i]
+                  << ", start version=" << begin_versions[i] << ", end version=" << end_versions[i]
+                  << ", internal round=" << round << ", delete_bitmap_num=" << delete_bitmap_num
+                  << ", delete_bitmap_byte=" << delete_bitmap_byte;
     }
+    LOG(INFO) << "finish get delete bitmap for tablet=" << tablet_id
+              << ", delete_bitmap_num=" << delete_bitmap_num
+              << ", delete_bitmap_byte=" << delete_bitmap_byte;
 
     if (request->has_idx()) {
         std::unique_ptr<Transaction> txn;
@@ -1855,6 +2701,10 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             msg = "failed to init txn";
             return;
         }
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_counter += txn->num_get_keys();
+        };
         TabletIndexPB idx(request->idx());
         TabletStatsPB tablet_stat;
         internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat,
@@ -1874,27 +2724,503 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     }
 }
 
-void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcController* controller,
+static bool put_mow_tablet_compaction_key(MetaServiceCode& code, std::string& msg,
+                                          std::unique_ptr<Transaction>& txn,
+                                          std::string& instance_id, int64_t table_id,
+                                          int64_t lock_id, int64_t initiator, int64_t expiration,
+                                          std::string& current_lock_msg) {
+    std::string tablet_compaction_key =
+            mow_tablet_compaction_key({instance_id, table_id, initiator});
+    std::string tablet_compaction_val;
+    MowTabletCompactionPB mow_tablet_compaction;
+    mow_tablet_compaction.set_expiration(expiration);
+    mow_tablet_compaction.SerializeToString(&tablet_compaction_val);
+    if (tablet_compaction_val.empty()) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "MowTabletCompactionPB serialization error";
+        return false;
+    }
+    txn->put(tablet_compaction_key, tablet_compaction_val);
+    LOG(INFO) << "xxx put tablet compaction key=" << hex(tablet_compaction_key)
+              << " table_id=" << table_id << " lock_id=" << lock_id << " initiator=" << initiator
+              << " expiration=" << expiration << ", " << current_lock_msg;
+    return true;
+}
+
+static bool put_delete_bitmap_update_lock_key(MetaServiceCode& code, std::string& msg,
+                                              std::unique_ptr<Transaction>& txn, int64_t table_id,
+                                              int64_t lock_id, int64_t initiator,
+                                              std::string& lock_key,
+                                              DeleteBitmapUpdateLockPB& lock_info,
+                                              std::string& current_lock_msg) {
+    std::string lock_val;
+    lock_info.SerializeToString(&lock_val);
+    if (lock_val.empty()) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "DeleteBitmapUpdateLockPB serialization error";
+        return false;
+    }
+    txn->put(lock_key, lock_val);
+    LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " table_id=" << table_id
+              << " lock_id=" << lock_id << " initiator=" << initiator
+              << " initiators_size=" << lock_info.initiators_size() << ", " << current_lock_msg;
+    return true;
+}
+
+bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
                                                     const GetDeleteBitmapUpdateLockRequest* request,
                                                     GetDeleteBitmapUpdateLockResponse* response,
-                                                    ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_delete_bitmap_update_lock);
-    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
-    if (cloud_unique_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "cloud unique id not set";
-        return;
+                                                    std::string& instance_id, std::string& lock_key,
+                                                    std::string lock_use_version, KVStats& stats) {
+    bool require_tablet_stats =
+            request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
+    if (!require_tablet_stats) return true;
+    // this request is from fe when it commits txn for MOW table, we send the compaction stats
+    // along with the GetDeleteBitmapUpdateLockResponse which will be sent to BE later to let
+    // BE eliminate unnecessary sync_rowsets() calls if possible
+    // 1. hold the delete bitmap update lock in MS(update lock_info.lock_id to current load's txn id)
+    // 2. read tablets' stats
+    // 3. check whether we still hold the delete bitmap update lock
+    // these steps can be done in different fdb txns
+
+    StopWatch read_stats_sw;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return false;
+    }
+    DORIS_CLOUD_DEFER {
+        if (txn == nullptr) return;
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
+    };
+    auto table_id = request->table_id();
+    std::stringstream ss;
+    if (!config::enable_batch_get_mow_tablet_stats_and_meta) {
+        for (const auto& tablet_idx : request->tablet_indexes()) {
+            // 1. get compaction cnts
+            TabletStatsPB tablet_stat;
+            std::string stats_key =
+                    stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                      tablet_idx.partition_id(), tablet_idx.tablet_id()});
+            std::string stats_val;
+            TxnErrorCode err = txn->get(stats_key, &stats_val);
+            TEST_SYNC_POINT_CALLBACK(
+                    "get_delete_bitmap_update_lock.get_compaction_cnts_inject_error", &err);
+            if (err == TxnErrorCode::TXN_TOO_OLD) {
+                code = MetaServiceCode::OK;
+                err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::CREATE>(err);
+                    ss << "failed to init txn when get tablet stats";
+                    msg = ss.str();
+                    return false;
+                }
+                err = txn->get(stats_key, &stats_val);
+            }
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err,
+                                  tablet_idx.tablet_id());
+                return false;
+            }
+            if (!tablet_stat.ParseFromArray(stats_val.data(), stats_val.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("marformed tablet stats value, key={}", hex(stats_key));
+                return false;
+            }
+            response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
+            response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
+            response->add_cumulative_points(tablet_stat.cumulative_point());
+
+            // 2. get tablet states
+            std::string tablet_meta_key =
+                    meta_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                     tablet_idx.partition_id(), tablet_idx.tablet_id()});
+            std::string tablet_meta_val;
+            err = txn->get(tablet_meta_key, &tablet_meta_val);
+            if (err != TxnErrorCode::TXN_OK) {
+                ss << "failed to get tablet meta"
+                   << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
+                   << " instance_id=" << instance_id << " tablet_id=" << tablet_idx.tablet_id()
+                   << " key=" << hex(tablet_meta_key) << " err=" << err;
+                msg = ss.str();
+                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                              : cast_as<ErrCategory::READ>(err);
+                return false;
+            }
+            doris::TabletMetaCloudPB tablet_meta;
+            if (!tablet_meta.ParseFromString(tablet_meta_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "malformed tablet meta";
+                return false;
+            }
+            response->add_tablet_states(
+                    static_cast<std::underlying_type_t<TabletStatePB>>(tablet_meta.tablet_state()));
+        }
+    } else {
+        // 1. get compaction cnts
+        std::vector<std::string> stats_tablet_keys;
+        for (const auto& tablet_idx : request->tablet_indexes()) {
+            stats_tablet_keys.push_back(
+                    stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                      tablet_idx.partition_id(), tablet_idx.tablet_id()}));
+        }
+        std::vector<std::optional<std::string>> stats_tablet_values;
+        err = txn->batch_get(&stats_tablet_values, stats_tablet_keys);
+        TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock.get_compaction_cnts_inject_error",
+                                 &err);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet stats, err={} table_id={} lock_id={}", err,
+                              table_id, request->lock_id());
+            return false;
+        }
+        for (size_t i = 0; i < stats_tablet_keys.size(); i++) {
+            if (!stats_tablet_values[i].has_value()) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err,
+                                  request->tablet_indexes(i).tablet_id());
+                return false;
+            }
+            TabletStatsPB tablet_stat;
+            if (!tablet_stat.ParseFromString(stats_tablet_values[i].value())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("marformed tablet stats value");
+                return false;
+            }
+            response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
+            response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
+            response->add_cumulative_points(tablet_stat.cumulative_point());
+        }
+        stats_tablet_keys.clear();
+        stats_tablet_values.clear();
+        DCHECK(request->tablet_indexes_size() == response->base_compaction_cnts_size());
+        DCHECK(request->tablet_indexes_size() == response->cumulative_compaction_cnts_size());
+        DCHECK(request->tablet_indexes_size() == response->cumulative_points_size());
+
+        // 2. get tablet states
+        std::vector<std::string> tablet_meta_keys;
+        for (const auto& tablet_idx : request->tablet_indexes()) {
+            tablet_meta_keys.push_back(
+                    meta_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                     tablet_idx.partition_id(), tablet_idx.tablet_id()}));
+        }
+        std::vector<std::optional<std::string>> tablet_meta_values;
+        err = txn->batch_get(&tablet_meta_values, tablet_meta_keys);
+        if (err == TxnErrorCode::TXN_TOO_OLD) {
+            code = MetaServiceCode::OK;
+            err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::CREATE>(err);
+                ss << "failed to init txn when get tablet meta";
+                msg = ss.str();
+                return false;
+            }
+            err = txn->batch_get(&tablet_meta_values, tablet_meta_keys);
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet meta, err={} table_id={} lock_id={}", err,
+                              table_id, request->lock_id());
+            return false;
+        }
+        for (size_t i = 0; i < tablet_meta_keys.size(); i++) {
+            if (!tablet_meta_values[i].has_value()) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet meta, err={} tablet_id={}", err,
+                                  request->tablet_indexes(i).tablet_id());
+                return false;
+            }
+            doris::TabletMetaCloudPB tablet_meta;
+            if (!tablet_meta.ParseFromString(tablet_meta_values[i].value())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("marformed tablet meta value");
+                return false;
+            }
+            response->add_tablet_states(
+                    static_cast<std::underlying_type_t<TabletStatePB>>(tablet_meta.tablet_state()));
+        }
+        DCHECK(request->tablet_indexes_size() == response->tablet_states_size());
     }
 
-    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
-        return;
+    read_stats_sw.pause();
+    LOG(INFO) << fmt::format(
+            "table_id={}, tablet_idxes.size()={}, read tablet compaction cnts and tablet states "
+            "cost={} ms",
+            table_id, request->tablet_indexes().size(), read_stats_sw.elapsed_us() / 1000);
+
+    DeleteBitmapUpdateLockPB lock_info_tmp;
+    if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, request->lock_id(),
+                                  request->initiator(), lock_key, lock_info_tmp,
+                                  lock_use_version)) {
+        LOG(WARNING) << "failed to check delete bitmap lock after get tablet stats and tablet "
+                        "states, table_id="
+                     << table_id << " request lock_id=" << request->lock_id()
+                     << " request initiator=" << request->initiator() << " code=" << code
+                     << " msg=" << msg;
+        return false;
+    }
+    return true;
+}
+
+void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
+        google::protobuf::RpcController* controller,
+        const GetDeleteBitmapUpdateLockRequest* request,
+        GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        KVStats& stats) {
+    VLOG_DEBUG << "get delete bitmap update lock in v2 for table=" << request->table_id()
+               << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
+    auto table_id = request->table_id();
+    std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+    bool first_retry = true;
+    int64_t retry = 0;
+    while (retry <= 1) {
+        retry++;
+        response->Clear();
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to init txn";
+            return;
+        }
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
+        };
+        std::string lock_val;
+        DeleteBitmapUpdateLockPB lock_info;
+        err = txn->get(lock_key, &lock_val);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            ss << "failed to get delete bitmap update lock, instance_id=" << instance_id
+               << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
+            msg = ss.str();
+            code = MetaServiceCode::KV_TXN_GET_ERR;
+            return;
+        }
+        using namespace std::chrono;
+        int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+        int64_t expiration = now + request->expiration();
+        bool lock_key_not_found = false;
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            lock_key_not_found = true;
+            std::string current_lock_msg = "lock key not found";
+            lock_info.set_lock_id(request->lock_id());
+            // compaction does not use this expiration, only used when upgrade ms
+            lock_info.set_expiration(expiration);
+            if (request->lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                lock_info.add_initiators(request->initiator());
+            } else {
+                // in normal case, this should remove 0 kvs
+                // but when upgrade ms, if there are ms with old and new versions, it works
+                std::string tablet_compaction_key_begin =
+                        mow_tablet_compaction_key({instance_id, table_id, 0});
+                std::string tablet_compaction_key_end =
+                        mow_tablet_compaction_key({instance_id, table_id, INT64_MAX});
+                txn->remove(tablet_compaction_key_begin, tablet_compaction_key_end);
+                LOG(INFO) << "remove mow tablet compaction kv, begin="
+                          << hex(tablet_compaction_key_begin)
+                          << " end=" << hex(tablet_compaction_key_end) << " table_id=" << table_id;
+                if (!put_mow_tablet_compaction_key(code, msg, txn, instance_id, table_id,
+                                                   request->lock_id(), request->initiator(),
+                                                   expiration, current_lock_msg)) {
+                    return;
+                }
+            }
+            if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id, request->lock_id(),
+                                                   request->initiator(), lock_key, lock_info,
+                                                   current_lock_msg)) {
+                return;
+            }
+        } else if (err == TxnErrorCode::TXN_OK) {
+            if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse DeleteBitmapUpdateLockPB";
+                return;
+            }
+            if (lock_info.lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
+                    LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
+                              << lock_info.lock_id() << " table_id=" << table_id
+                              << " expiration=" << lock_info.expiration() << " now=" << now
+                              << " initiator_size=" << lock_info.initiators_size();
+                    lock_info.clear_initiators();
+                } else if (lock_info.lock_id() != request->lock_id()) {
+                    ss << "already be locked by lock_id=" << lock_info.lock_id()
+                       << " expiration=" << lock_info.expiration() << " now=" << now
+                       << ", request lock_id=" << request->lock_id() << " table_id=" << table_id
+                       << " initiator=" << request->initiator();
+                    msg = ss.str();
+                    code = MetaServiceCode::LOCK_CONFLICT;
+                    return;
+                }
+                std::string current_lock_msg =
+                        "original lock_id=" + std::to_string(lock_info.lock_id());
+                lock_info.set_lock_id(request->lock_id());
+                // compaction does not use the expiration, only used when upgrade ms
+                lock_info.set_expiration(expiration);
+                if (request->lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                    bool found = false;
+                    for (auto initiator : lock_info.initiators()) {
+                        if (request->initiator() == initiator) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        lock_info.add_initiators(request->initiator());
+                    }
+                } else {
+                    lock_key_not_found = true;
+                    // in normal case, this should remove 0 kvs
+                    // but when upgrade ms, if there are ms with old and new versions, it works
+                    std::string tablet_compaction_key_begin =
+                            mow_tablet_compaction_key({instance_id, table_id, 0});
+                    std::string tablet_compaction_key_end =
+                            mow_tablet_compaction_key({instance_id, table_id, INT64_MAX});
+                    txn->remove(tablet_compaction_key_begin, tablet_compaction_key_end);
+                    LOG(INFO) << "remove mow tablet compaction kv, begin="
+                              << hex(tablet_compaction_key_begin)
+                              << " end=" << hex(tablet_compaction_key_end)
+                              << " table_id=" << table_id;
+                    if (!put_mow_tablet_compaction_key(code, msg, txn, instance_id, table_id,
+                                                       request->lock_id(), request->initiator(),
+                                                       expiration, current_lock_msg)) {
+                        return;
+                    }
+                }
+                if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id, request->lock_id(),
+                                                       request->initiator(), lock_key, lock_info,
+                                                       current_lock_msg)) {
+                    return;
+                }
+            } else {
+                if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                    std::string current_lock_msg = "locked by lock_id=-1";
+                    if (!put_mow_tablet_compaction_key(code, msg, txn, instance_id, table_id,
+                                                       request->lock_id(), request->initiator(),
+                                                       expiration, current_lock_msg)) {
+                        return;
+                    }
+                } else {
+                    // check if compaction key is expired
+                    bool has_unexpired_compaction = false;
+                    int64_t unexpired_expiration = 0;
+                    std::string key0 = mow_tablet_compaction_key({instance_id, table_id, 0});
+                    std::string key1 = mow_tablet_compaction_key({instance_id, table_id + 1, 0});
+                    MowTabletCompactionPB mow_tablet_compaction;
+                    std::unique_ptr<RangeGetIterator> it;
+                    int64_t expired_compaction_num = 0;
+                    do {
+                        err = txn->get(key0, key1, &it);
+                        if (err != TxnErrorCode::TXN_OK) {
+                            code = cast_as<ErrCategory::READ>(err);
+                            ss << "internal error, failed to get mow tablet compaction, err="
+                               << err;
+                            msg = ss.str();
+                            LOG(WARNING) << msg;
+                            return;
+                        }
+
+                        while (it->has_next() && !has_unexpired_compaction) {
+                            auto [k, v] = it->next();
+                            if (!mow_tablet_compaction.ParseFromArray(v.data(), v.size()))
+                                    [[unlikely]] {
+                                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                                msg = "failed to parse MowTabletCompactionPB";
+                                return;
+                            }
+                            if (mow_tablet_compaction.expiration() > 0 &&
+                                mow_tablet_compaction.expiration() < now) {
+                                LOG(INFO) << "remove mow tablet compaction lock. table_id="
+                                          << table_id << " lock_id=" << lock_info.lock_id()
+                                          << " expiration=" << mow_tablet_compaction.expiration()
+                                          << " now=" << now << " key=" << hex(k);
+                                txn->remove(k);
+                                expired_compaction_num++;
+                            } else {
+                                has_unexpired_compaction = true;
+                                unexpired_expiration = mow_tablet_compaction.expiration();
+                            }
+                        }
+                        key0 = it->next_begin_key(); // Update to next smallest key for iteration
+                    } while (it->more() && !has_unexpired_compaction);
+                    if (has_unexpired_compaction) {
+                        // TODO print initiator
+                        ss << "already be locked by lock_id=" << lock_info.lock_id()
+                           << " expiration=" << unexpired_expiration << " now=" << now
+                           << ". request lock_id=" << request->lock_id() << " table_id=" << table_id
+                           << " initiator=" << request->initiator();
+                        msg = ss.str();
+                        code = MetaServiceCode::LOCK_CONFLICT;
+                        return;
+                    }
+                    // all compaction is expired
+                    lock_info.set_lock_id(request->lock_id());
+                    lock_info.set_expiration(expiration);
+                    lock_info.clear_initiators();
+                    lock_info.add_initiators(request->initiator());
+                    std::string current_lock_msg =
+                            std::to_string(expired_compaction_num) + " compaction is expired";
+                    if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id,
+                                                           request->lock_id(), request->initiator(),
+                                                           lock_key, lock_info, current_lock_msg)) {
+                        return;
+                    }
+                }
+            }
+        }
+
+        err = txn->commit();
+        TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock:commit:conflict", &first_retry,
+                                 &err);
+        if (err == TxnErrorCode::TXN_OK) {
+            break;
+        } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
+                   request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID &&
+                   config::delete_bitmap_enable_retry_txn_conflict && first_retry) {
+            // if err is TXN_CONFLICT, and the lock id is -1, do a fast retry
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+            }
+            LOG(INFO) << "fast retry to get_delete_bitmap_update_lock, tablet_id="
+                      << request->table_id() << " lock_id=" << request->lock_id()
+                      << ", initiator=" << request->initiator() << ", err=" << err;
+            first_retry = false;
+            continue;
+        } else {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+            }
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to get_delete_bitmap_update_lock, lock_id=" << request->lock_id()
+               << ", initiator=" << request->initiator() << ", err=" << err;
+            msg = ss.str();
+            return;
+        }
     }
 
-    RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
+    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v2",
+                                       stats)) {
+        return;
+    }
+}
+
+void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
+        google::protobuf::RpcController* controller,
+        const GetDeleteBitmapUpdateLockRequest* request,
+        GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        KVStats& stats) {
+    VLOG_DEBUG << "get delete bitmap update lock in v1 for table=" << request->table_id()
+               << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -1902,6 +3228,12 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         msg = "failed to init txn";
         return;
     }
+    DORIS_CLOUD_DEFER {
+        if (txn == nullptr) return;
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
+    };
     auto table_id = request->table_id();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
@@ -1936,32 +3268,6 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         }
     }
 
-    bool require_tablet_stats =
-            request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
-    if (require_tablet_stats) {
-        // this request is from fe when it commits txn for MOW table, we send the compaction stats
-        // along with the GetDeleteBitmapUpdateLockResponse which will be sent to BE later to let
-        // BE eliminate unnecessary sync_rowsets() calls if possible
-        for (const auto& tablet_index : request->tablet_indexes()) {
-            TabletIndexPB idx(tablet_index);
-            TabletStatsPB tablet_stat;
-            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, true);
-            if (code != MetaServiceCode::OK) {
-                response->clear_base_compaction_cnts();
-                response->clear_cumulative_compaction_cnts();
-                response->clear_cumulative_points();
-                LOG_WARNING(
-                        "failed to get tablet stats when get_delete_bitmap_update_lock, "
-                        "lock_id={}, initiator={}, tablet_id={}",
-                        request->lock_id(), request->initiator(), tablet_index.tablet_id());
-                return;
-            }
-            response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
-            response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
-            response->add_cumulative_points(tablet_stat.cumulative_point());
-        }
-    }
-
     lock_info.set_lock_id(request->lock_id());
     lock_info.set_expiration(now + request->expiration());
     bool found = false;
@@ -1981,8 +3287,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         return;
     }
     txn->put(lock_key, lock_val);
-    LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " lock_id=" << request->lock_id()
-              << " initiators_size: " << lock_info.initiators_size();
+    LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " table_id=" << table_id
+              << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+              << " initiators_size=" << lock_info.initiators_size();
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -1991,6 +3298,295 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         msg = ss.str();
         return;
     }
+
+    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v1",
+                                       stats)) {
+        return;
+    };
+}
+
+void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
+        google::protobuf::RpcController* controller,
+        const RemoveDeleteBitmapUpdateLockRequest* request,
+        RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        KVStats& stats) {
+    VLOG_DEBUG << "remove delete bitmap update lock in v2 for table=" << request->table_id()
+               << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+    DORIS_CLOUD_DEFER {
+        if (txn == nullptr) return;
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
+    };
+    if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+        std::string tablet_compaction_key =
+                mow_tablet_compaction_key({instance_id, request->table_id(), request->initiator()});
+        txn->remove(tablet_compaction_key);
+        LOG(INFO) << "remove tablet compaction lock, table_id=" << request->table_id()
+                  << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                  << " key=" << hex(tablet_compaction_key);
+    } else {
+        std::string lock_key =
+                meta_delete_bitmap_update_lock_key({instance_id, request->table_id(), -1});
+        std::string lock_val;
+        DeleteBitmapUpdateLockPB lock_info;
+        if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->table_id(),
+                                      request->lock_id(), request->initiator(), lock_key, lock_info,
+                                      "v2", ", remove lock")) {
+            LOG(WARNING) << "failed to check delete bitmap tablet lock"
+                         << " table_id=" << request->table_id()
+                         << " tablet_id=" << request->tablet_id()
+                         << " request lock_id=" << request->lock_id()
+                         << " request initiator=" << request->initiator() << " msg " << msg;
+            return;
+        }
+        bool modify_initiators = false;
+        auto initiators = lock_info.mutable_initiators();
+        for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {
+            if (*iter == request->initiator()) {
+                initiators->erase(iter);
+                modify_initiators = true;
+                break;
+            }
+        }
+        if (!modify_initiators) {
+            LOG(INFO) << "initiators don't have initiator=" << request->initiator()
+                      << ",initiators_size=" << lock_info.initiators_size() << ",just return";
+            return;
+        } else if (initiators->empty()) {
+            LOG(INFO) << "remove delete bitmap lock, table_id=" << request->table_id()
+                      << " lock_id=" << request->lock_id() << " key=" << hex(lock_key);
+            txn->remove(lock_key);
+        } else {
+            lock_info.SerializeToString(&lock_val);
+            if (lock_val.empty()) {
+                LOG(WARNING) << "failed to seiralize lock_info, table_id=" << request->table_id()
+                             << " key=" << hex(lock_key);
+                return;
+            }
+            LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << request->table_id()
+                      << ", key=" << hex(lock_key) << " lock_id=" << request->lock_id()
+                      << " initiator=" << request->initiator()
+                      << " initiators_size=" << lock_info.initiators_size();
+            txn->put(lock_key, lock_val);
+        }
+    }
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter << 1;
+        }
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to remove delete bitmap tablet lock , err=" << err;
+        msg = ss.str();
+        return;
+    }
+}
+
+void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
+        google::protobuf::RpcController* controller,
+        const RemoveDeleteBitmapUpdateLockRequest* request,
+        RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        KVStats& stats) {
+    VLOG_DEBUG << "remove delete bitmap update lock in v1 for table=" << request->table_id()
+               << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+    DORIS_CLOUD_DEFER {
+        if (txn == nullptr) return;
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
+    };
+    std::string lock_key =
+            meta_delete_bitmap_update_lock_key({instance_id, request->table_id(), -1});
+    std::string lock_val;
+    DeleteBitmapUpdateLockPB lock_info;
+    if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->table_id(),
+                                  request->lock_id(), request->initiator(), lock_key, lock_info,
+                                  "v1")) {
+        LOG(WARNING) << "failed to check delete bitmap tablet lock"
+                     << " table_id=" << request->table_id() << " tablet_id=" << request->tablet_id()
+                     << " request lock_id=" << request->lock_id()
+                     << " request initiator=" << request->initiator() << " msg " << msg;
+        return;
+    }
+    bool modify_initiators = false;
+    auto initiators = lock_info.mutable_initiators();
+    for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {
+        if (*iter == request->initiator()) {
+            initiators->erase(iter);
+            modify_initiators = true;
+            break;
+        }
+    }
+    if (!modify_initiators) {
+        LOG(INFO) << "initiators don't have initiator=" << request->initiator()
+                  << ",initiators_size=" << lock_info.initiators_size() << ",just return";
+        return;
+    } else if (initiators->empty()) {
+        LOG(INFO) << "remove delete bitmap lock, table_id=" << request->table_id()
+                  << " lock_id=" << request->lock_id() << " key=" << hex(lock_key);
+        txn->remove(lock_key);
+    } else {
+        lock_info.SerializeToString(&lock_val);
+        if (lock_val.empty()) {
+            LOG(WARNING) << "failed to seiralize lock_info, table_id=" << request->table_id()
+                         << " key=" << hex(lock_key);
+            return;
+        }
+        LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << request->table_id()
+                  << ", key=" << hex(lock_key) << " lock_id=" << request->lock_id()
+                  << " initiator=" << request->initiator()
+                  << " initiators_size=" << lock_info.initiators_size();
+        txn->put(lock_key, lock_val);
+    }
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to remove delete bitmap tablet lock , err=" << err;
+        msg = ss.str();
+        return;
+    }
+}
+
+void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcController* controller,
+                                                    const GetDeleteBitmapUpdateLockRequest* request,
+                                                    GetDeleteBitmapUpdateLockResponse* response,
+                                                    ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_delete_bitmap_update_lock, get, put, del);
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    if (cloud_unique_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud unique id not set";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
+    std::string use_version =
+            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+    LOG(INFO) << "get_delete_bitmap_update_lock instance_id=" << instance_id
+              << " use_version=" << use_version;
+    if (use_version == "v2") {
+        get_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
+                                         msg, ss, stats);
+    } else {
+        get_delete_bitmap_update_lock_v1(controller, request, response, done, instance_id, code,
+                                         msg, ss, stats);
+    }
+
+    if (request->lock_id() > 0 && code == MetaServiceCode::KV_TXN_CONFLICT) {
+        // For load, the only fdb txn conflict here is due to compaction(sc) job.
+        // We turn it into a lock conflict error to skip the MS RPC backoff becasue it's too long
+        // and totally let FE to control the retry backoff sleep time
+        code = MetaServiceCode::LOCK_CONFLICT;
+    }
+}
+
+void MetaServiceImpl::remove_delete_bitmap_update_lock(
+        google::protobuf::RpcController* controller,
+        const RemoveDeleteBitmapUpdateLockRequest* request,
+        RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(remove_delete_bitmap_update_lock, get, put, del);
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    if (cloud_unique_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud unique id not set";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    RPC_RATE_LIMIT(remove_delete_bitmap_update_lock)
+    std::string use_version =
+            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+    LOG(INFO) << "remove_delete_bitmap_update_lock instance_id=" << instance_id
+              << " use_version=" << use_version;
+    if (use_version == "v2") {
+        remove_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
+                                            msg, ss, stats);
+    } else {
+        remove_delete_bitmap_update_lock_v1(controller, request, response, done, instance_id, code,
+                                            msg, ss, stats);
+    }
+}
+
+void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* controller,
+                                           const RemoveDeleteBitmapRequest* request,
+                                           RemoveDeleteBitmapResponse* response,
+                                           ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(remove_delete_bitmap, del);
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    if (cloud_unique_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud unique id not set";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(remove_delete_bitmap)
+    auto tablet_id = request->tablet_id();
+    auto& rowset_ids = request->rowset_ids();
+    auto& begin_versions = request->begin_versions();
+    auto& end_versions = request->end_versions();
+    if (rowset_ids.size() != begin_versions.size() || rowset_ids.size() != end_versions.size()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        ss << "rowset and version size not match. "
+           << " rowset_size=" << rowset_ids.size()
+           << " begin_version_size=" << begin_versions.size()
+           << " end_version_size=" << end_versions.size();
+        msg = ss.str();
+        return;
+    }
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn";
+        return;
+    }
+    for (size_t i = 0; i < rowset_ids.size(); i++) {
+        auto delete_bitmap_start = meta_delete_bitmap_key(
+                {instance_id, tablet_id, rowset_ids[i], begin_versions[i], 0});
+        auto delete_bitmap_end = meta_delete_bitmap_key(
+                {instance_id, tablet_id, rowset_ids[i], end_versions[i], INT64_MAX});
+        txn->remove(delete_bitmap_start, delete_bitmap_end);
+    }
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to commit job kv, err=" << err;
+        msg = ss.str();
+        return;
+    }
+    LOG(INFO) << "remove_delete_bitmap,tablet_id=" << tablet_id
+              << ",rowset_num=" << rowset_ids.size();
 }
 
 std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
@@ -2027,6 +3623,116 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     std::string msg;
     decrypt_instance_info(*instance, cloned_instance_id, code, msg, txn);
     return {code, std::move(msg)};
+}
+
+std::pair<std::string, std::string> init_key_pair(std::string instance_id, int64_t table_id) {
+    std::string begin_key = stats_tablet_key({instance_id, table_id, 0, 0, 0});
+    std::string end_key = stats_tablet_key({instance_id, table_id + 1, 0, 0, 0});
+    return std::make_pair(begin_key, end_key);
+}
+
+MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_unique_id_str,
+                                                            std::string table_id_str) {
+    // parse params
+    int64_t table_id;
+    std::string instance_id;
+    MetaServiceResponseStatus st = parse_fix_tablet_stats_param(
+            resource_mgr_, table_id_str, cloud_unique_id_str, table_id, instance_id);
+    if (st.code() != MetaServiceCode::OK) {
+        return st;
+    }
+
+    std::pair<std::string, std::string> key_pair = init_key_pair(instance_id, table_id);
+    std::string old_begin_key;
+    while (old_begin_key < key_pair.first) {
+        // get tablet stats
+        std::vector<std::shared_ptr<TabletStatsPB>> tablet_stat_shared_ptr_vec_batch;
+        old_begin_key = key_pair.first;
+
+        // fix tablet stats
+        size_t retry = 0;
+        do {
+            st = fix_tablet_stats_internal(txn_kv_, key_pair, tablet_stat_shared_ptr_vec_batch,
+                                           instance_id);
+            if (st.code() != MetaServiceCode::OK) {
+                LOG_WARNING("failed to fix tablet stats")
+                        .tag("err", st.msg())
+                        .tag("table id", table_id)
+                        .tag("retry time", retry);
+            }
+            retry++;
+        } while (st.code() != MetaServiceCode::OK && retry < 3);
+        if (st.code() != MetaServiceCode::OK) {
+            return st;
+        }
+
+        // Check tablet stats
+        st = check_new_tablet_stats(txn_kv_, instance_id, tablet_stat_shared_ptr_vec_batch);
+        if (st.code() != MetaServiceCode::OK) {
+            return st;
+        }
+    }
+    return st;
+}
+
+std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset_meta) {
+    size_t ret {0};
+    for (const auto& key_bounds : rowset_meta.segments_key_bounds()) {
+        ret += key_bounds.ByteSizeLong();
+    }
+    return ret;
+}
+
+void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* controller,
+                                      const GetSchemaDictRequest* request,
+                                      GetSchemaDictResponse* response,
+                                      ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_schema_dict, get);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    if (!request->has_index_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing index_id in request";
+        return;
+    }
+
+    RPC_RATE_LIMIT(get_schema_dict)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    std::string dict_key = meta_schema_pb_dictionary_key({instance_id, request->index_id()});
+    ValueBuf dict_val;
+    err = cloud::blob_get(txn.get(), dict_key, &dict_val);
+    LOG(INFO) << "Retrieved column pb dictionary, index_id=" << request->index_id()
+              << " key=" << hex(dict_key) << " error=" << err;
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
+        // Handle retrieval error.
+        ss << "Failed to retrieve column pb dictionary, instance_id=" << instance_id
+           << " table_id=" << request->index_id() << " key=" << hex(dict_key) << " error=" << err;
+        msg = ss.str();
+        code = cast_as<ErrCategory::READ>(err);
+        return;
+    }
+    SchemaCloudDictionary schema_dict;
+    if (err == TxnErrorCode::TXN_OK && !dict_val.to_pb(&schema_dict)) {
+        // Handle parse error.
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("Malformed tablet dictionary value, key={}", hex(dict_key));
+        return;
+    }
+
+    response->mutable_schema_dict()->Swap(&schema_dict);
 }
 
 } // namespace doris::cloud

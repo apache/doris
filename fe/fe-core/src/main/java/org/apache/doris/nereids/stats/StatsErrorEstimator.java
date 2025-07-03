@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNode;

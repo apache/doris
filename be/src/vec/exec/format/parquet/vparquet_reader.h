@@ -64,11 +64,10 @@ class PageIndex;
 class ShardedKVCache;
 class VExprContext;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class ParquetReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
@@ -91,6 +90,8 @@ public:
         int64_t page_index_filter_time = 0;
         int64_t read_page_index_time = 0;
         int64_t parse_page_index_time = 0;
+        int64_t predicate_filter_time = 0;
+        int64_t dict_filter_rewrite_time = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -105,18 +106,16 @@ public:
     // for test
     void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
 
-    Status open();
-
     Status init_reader(
             const std::vector<std::string>& all_column_names,
             const std::vector<std::string>& missing_column_names,
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-            bool filter_groups = true);
+            bool filter_groups = true, const bool hive_use_column_names = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -129,11 +128,13 @@ public:
 
     int64_t size() const { return _file_reader->size(); }
 
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
+    Status init_schema_reader() override;
+
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
     Statistics& statistics() { return _statistics; }
 
@@ -147,9 +148,14 @@ public:
                     partition_columns,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
-    std::vector<tparquet::KeyValue> get_metadata_key_values();
+    const FieldDescriptor get_file_metadata_schema();
     void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {
         _table_col_to_file_col = map;
+    }
+
+    void set_row_id_column_iterator(
+            std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
     }
 
 protected:
@@ -188,6 +194,8 @@ private:
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
         RuntimeProfile::Counter* skip_page_header_num = nullptr;
         RuntimeProfile::Counter* parse_page_header_num = nullptr;
+        RuntimeProfile::Counter* predicate_filter_time = nullptr;
+        RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
     };
 
     Status _open_file();
@@ -203,13 +211,15 @@ private:
     // Page Index Filter
     bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
     Status _process_page_index(const tparquet::RowGroup& row_group,
+                               const RowGroupReader::RowGroupIndex& row_group_index,
                                std::vector<RowRange>& candidate_row_ranges);
 
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
     Status _process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& column_meta,
                                        bool* filter_group);
-    Status _process_row_group_filter(const tparquet::RowGroup& row_group, bool* filter_group);
+    Status _process_row_group_filter(const RowGroupReader::RowGroupIndex& row_group_index,
+                                     const tparquet::RowGroup& row_group, bool* filter_group);
     void _init_chunk_dicts();
     Status _process_dict_filter(bool* filter_group);
     void _init_bloom_filter();
@@ -219,6 +229,10 @@ private:
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
     void _collect_profile();
+
+    static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
+
+    Status _set_read_one_line_impl() override { return Status::OK(); }
 
 private:
     RuntimeProfile* _profile = nullptr;
@@ -243,10 +257,15 @@ private:
     std::unique_ptr<RowGroupReader> _current_group_reader;
     // read to the end of current reader
     bool _row_group_eof = true;
-    int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
+    size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
     // table column name to file column name map. For iceberg schema evolution.
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+
+    // During initialization, multiple vfile_scanner's _colname_to_value_range will point to the same object,
+    // so the content in the object cannot be modified (there is a multi-threading problem).
+    // _colname_to_value_range_index_read used when _hive_use_column_names = false.
+    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range_index_read;
     std::vector<std::string> _read_columns;
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
@@ -282,5 +301,13 @@ private:
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
+    bool _hive_use_column_names = false;
+    std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
+
+    std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
+                                                                                           -1};
 };
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

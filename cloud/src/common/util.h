@@ -39,7 +39,7 @@ std::string unhex(std::string_view str);
 
 /**
  * Prettifies the given key, the first byte must be key space tag, say 0x01, and
- * the remaining part must be the output of codec funtion family.
+ * the remaining part must be the output of codec function family.
  *
  * The result is like following:
  *
@@ -89,6 +89,12 @@ struct ValueBuf {
     // Return TXN_OK for success get a key, TXN_KEY_NOT_FOUND for key not found, otherwise for error.
     TxnErrorCode get(Transaction* txn, std::string_view key, bool snapshot = false);
 
+    // return the merged value in ValueBuf
+    std::string value() const;
+
+    // return all keys in ValueBuf, if the value is not splitted, size of keys is 1
+    std::vector<std::string> keys() const;
+
     std::vector<std::unique_ptr<RangeGetIterator>> iters;
     int8_t ver {-1};
 };
@@ -101,7 +107,7 @@ struct ValueBuf {
  * @param snapshot if true, `key` will not be included in txn conflict detection this time
  * @return return TXN_OK for success get a key, TXN_KEY_NOT_FOUND for key not found, otherwise for error.
  */
-TxnErrorCode get(Transaction* txn, std::string_view key, ValueBuf* val, bool snapshot = false);
+TxnErrorCode blob_get(Transaction* txn, std::string_view key, ValueBuf* val, bool snapshot = false);
 
 /**
  * Test whether key exists
@@ -121,8 +127,8 @@ TxnErrorCode key_exists(Transaction* txn, std::string_view key, bool snapshot = 
  * @param ver value version
  * @param split_size how many byte sized fragments are the value split into
  */
-void put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb, uint8_t ver,
-         size_t split_size = 90 * 1000);
+void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb,
+              uint8_t ver, size_t split_size = 90 * 1000);
 
 /**
  * Put a KV, it's value may be bigger than 100k
@@ -132,7 +138,7 @@ void put(Transaction* txn, std::string_view key, const google::protobuf::Message
  * @param ver value version
  * @param split_size how many byte sized fragments are the value split into
  */
-void put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
-         size_t split_size = 90 * 1000);
+void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
+              size_t split_size = 90 * 1000);
 
 } // namespace doris::cloud

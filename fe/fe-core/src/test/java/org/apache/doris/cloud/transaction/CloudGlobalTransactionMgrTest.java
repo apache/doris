@@ -194,8 +194,8 @@ public class CloudGlobalTransactionMgrTest {
         long transactionId = 123533;
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
-                transactionId, null);
+        masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
+                transactionId, null, null);
     }
 
     @Test
@@ -219,8 +219,8 @@ public class CloudGlobalTransactionMgrTest {
         long transactionId = 123533;
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
-                transactionId, null);
+        masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
+                transactionId, null, null);
     }
 
     @Test
@@ -246,8 +246,8 @@ public class CloudGlobalTransactionMgrTest {
                         long transactionId = 123533;
                         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-                        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
-                                transactionId, null);
+                        masterTransMgr.commitTransactionWithoutLock(
+                                CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, null, null);
             });
     }
 
@@ -278,8 +278,8 @@ public class CloudGlobalTransactionMgrTest {
         long transactionId = 123533;
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
-                transactionId, null);
+        masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
+                transactionId, null, null);
     }
 
     @Test

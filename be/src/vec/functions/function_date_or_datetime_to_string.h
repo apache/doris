@@ -31,7 +31,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -65,10 +64,9 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 1; }
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(DataTypeString);
+        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE_STRING);
     }
 
     bool is_variadic() const override { return true; }
@@ -81,28 +79,20 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
-        const auto* sources = check_and_get_column<ColumnVector<typename Transform::OpArgType>>(
+        const auto* sources = check_and_get_column<ColumnVector<Transform::OpArgType>>(
                 remove_nullable(source_col).get());
         auto col_res = ColumnString::create();
 
         // Support all input of datetime is valind to make sure not null return
         if (sources) {
             if (is_nullable) {
-                auto null_map = ColumnVector<UInt8>::create(input_rows_count);
+                auto null_map = ColumnUInt8::create(input_rows_count);
                 TransformerToStringOneArgument<Transform>::vector(
                         context, sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
                         null_map->get_data());
-                if (const auto* nullable_col =
-                            check_and_get_column<ColumnNullable>(source_col.get())) {
-                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                    const NullMap& src_null_map =
-                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                    .get_data();
-                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
-                }
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
             } else {

@@ -83,4 +83,84 @@ suite("insert") {
     sql "sync"
     qt_insert """ select * from mutable_datatype order by c_bigint, c_double, c_string, c_date, c_timestamp, c_boolean, c_short_decimal"""
 
+
+    multi_sql """
+        drop table if exists table_select_test1;
+        CREATE TABLE table_select_test1 (
+          `id` int    
+        )
+        distributed by hash(id)
+        properties('replication_num'='1');
+
+        insert into table_select_test1 values(2);
+
+        drop table if exists table_test_insert1;
+        create table table_test_insert1 (id int)
+        partition by range(id)
+        (
+          partition p1 values[('1'), ('50')),
+          partition p2 values[('50'), ('100'))
+        )
+        distributed by hash(id) buckets 100
+        properties('replication_num'='1');
+        
+        insert into table_test_insert1 values(1), (50);
+        
+        insert into table_test_insert1
+        with
+          a as (select * from table_select_test1),
+          b as (select * from a)
+        select id from a;
+        """
+    sql """
+    DROP TABLE IF EXISTS source;
+    DROP TABLE IF EXISTS dest;
+    CREATE TABLE source (
+                l_shipdate    DATE NOT NULL,
+                        l_orderkey    bigint NOT NULL,
+                l_linenumber  int not null
+        )ENGINE=OLAP
+        DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+        PROPERTIES (
+                "replication_num" = "1"
+        );
+
+    CREATE TABLE dest (
+                l_shipdate    DATE NOT NULL,
+                        l_orderkey    bigint NOT NULL,
+                l_linenumber  int not null
+        )ENGINE=OLAP
+        DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
+        COMMENT "OLAP"
+        auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
+        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+        PROPERTIES (
+                "replication_num" = "1"
+        );
+    insert into source values('1994-12-08', 1,1) , ('1994-12-14',1,1), ('1994-12-14',2,1);
+
+
+    insert into dest select * from source where l_shipdate = '1994-12-08';
+    insert into dest select * from source where l_shipdate = '1994-12-14';
+    """
+
+    def rows1 = sql """select count() from source;"""
+    def rows2 = sql """select count() from dest;"""
+    assertTrue(rows1 == rows2);
+
+    test {
+        sql("insert into dest values(now(), 0xff, 0xaa)")
+        exception "Unknown column '0xff' in 'table list' in UNBOUND_OLAP_TABLE_SINK clause"
+    }
+
+    try {
+        sql """ insert into source values('2000-12-08', 1, 1);
+            insert into source values('2000-12-09', 1, 1, 100);
+            insert into source values('2000-12-10', 1, 1); """
+    } catch (Exception e) {
+        logger.info("exception: " + e.getMessage())
+    }
+    order_qt_select1 """ select * from source; """
 }

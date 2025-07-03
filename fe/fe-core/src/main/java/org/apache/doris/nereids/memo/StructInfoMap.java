@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
@@ -24,6 +25,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -41,6 +44,8 @@ import javax.annotation.Nullable;
  * Representation for group in cascades optimizer.
  */
 public class StructInfoMap {
+
+    public static final Logger LOG = LogManager.getLogger(StructInfoMap.class);
     private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
     private long refreshVersion = 0;
@@ -59,8 +64,8 @@ public class StructInfoMap {
             return structInfo;
         }
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
-            refresh(group, cascadesContext);
-            group.getstructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
+            refresh(group, cascadesContext, new HashSet<>());
+            group.getStructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(
@@ -99,7 +104,7 @@ public class StructInfoMap {
     private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children, BitSet tableMap) {
         List<Plan> childrenPlan = new ArrayList<>();
         for (int i = 0; i < children.size(); i++) {
-            StructInfoMap structInfoMap = groupExpression.child(i).getstructInfoMap();
+            StructInfoMap structInfoMap = groupExpression.child(i).getStructInfoMap();
             BitSet childMap = children.get(i);
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair
                     = structInfoMap.getGroupExpressionWithChildren(childMap);
@@ -115,28 +120,30 @@ public class StructInfoMap {
      * @param group the root group
      *
      */
-    public void refresh(Group group, CascadesContext cascadesContext) {
-        StructInfoMap structInfoMap = group.getstructInfoMap();
+    public void refresh(Group group, CascadesContext cascadesContext, Set<Integer> refreshedGroup) {
+        StructInfoMap structInfoMap = group.getStructInfoMap();
+        refreshedGroup.add(group.getGroupId().asInt());
         long memoVersion = cascadesContext.getMemo().getRefreshVersion();
         if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
             return;
         }
-        Set<Integer> refreshedGroup = new HashSet<>();
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             List<Set<BitSet>> childrenTableMap = new LinkedList<>();
             if (groupExpression.children().isEmpty()) {
                 BitSet leaf = constructLeaf(groupExpression, cascadesContext);
+                if (leaf.isEmpty()) {
+                    break;
+                }
                 groupExpressionMap.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
                 continue;
             }
             for (Group child : groupExpression.children()) {
-                StructInfoMap childStructInfoMap = child.getstructInfoMap();
+                StructInfoMap childStructInfoMap = child.getStructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
-                    childStructInfoMap.refresh(child, cascadesContext);
+                    childStructInfoMap.refresh(child, cascadesContext, refreshedGroup);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
-                refreshedGroup.add(child.getGroupId().asInt());
-                childrenTableMap.add(child.getstructInfoMap().getTableMaps());
+                childrenTableMap.add(child.getStructInfoMap().getTableMaps());
             }
             // if one same groupExpression have refreshed, continue
             BitSet oneOfGroupExpressionTableSet = new BitSet();
@@ -163,9 +170,19 @@ public class StructInfoMap {
     private BitSet constructLeaf(GroupExpression groupExpression, CascadesContext cascadesContext) {
         Plan plan = groupExpression.getPlan();
         BitSet tableMap = new BitSet();
+        boolean enableMaterializedViewNestRewrite = cascadesContext.getConnectContext().getSessionVariable()
+                .isEnableMaterializedViewNestRewrite();
         if (plan instanceof LogicalCatalogRelation) {
+            TableIf table = ((LogicalCatalogRelation) plan).getTable();
+            // If disable materialized view nest rewrite, and mv already rewritten successfully once, doesn't construct
+            // table id map for nest mv rewrite
+            if (!enableMaterializedViewNestRewrite
+                    && cascadesContext.getMaterializationRewrittenSuccessSet().contains(table.getFullQualifiers())) {
+                return tableMap;
+
+            }
             tableMap.set(cascadesContext.getStatementContext()
-                    .getTableId(((LogicalCatalogRelation) plan).getTable()).asInt());
+                    .getTableId(table).asInt());
         }
         // one row relation / CTE consumer
         return tableMap;

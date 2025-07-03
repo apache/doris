@@ -72,7 +72,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 // create a user define function
-public class CreateFunctionStmt extends DdlStmt {
+public class CreateFunctionStmt extends DdlStmt implements NotFallbackInParser {
     @Deprecated
     public static final String OBJECT_FILE_KEY = "object_file";
     public static final String FILE_KEY = "file";
@@ -268,9 +268,6 @@ public class CreateFunctionStmt extends DdlStmt {
         }
 
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
-        //        if (Strings.isNullOrEmpty(userFile)) {
-        //            throw new AnalysisException("No 'file' or 'object_file' in properties");
-        //        }
         if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
             try {
                 computeObjectChecksum();
@@ -360,6 +357,8 @@ public class CreateFunctionStmt extends DdlStmt {
                 location, symbol, null, null);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+        function.setStaticLoad(isStaticLoad);
+        function.setExpirationTime(expirationTime);
         function.setUDTFunction(true);
         // Todo: maybe in create tables function, need register two function, one is
         // normal and one is outer as those have different result when result is NULL.
@@ -426,6 +425,8 @@ public class CreateFunctionStmt extends DdlStmt {
         function.setBinaryType(binaryType);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+        function.setStaticLoad(isStaticLoad);
+        function.setExpirationTime(expirationTime);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -901,5 +902,10 @@ public class CreateFunctionStmt extends DdlStmt {
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

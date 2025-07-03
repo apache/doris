@@ -27,10 +27,10 @@ namespace doris::segment_v2 {
 class ConjunctionQuery : public Query {
 public:
     ConjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                     const TQueryOptions& query_options);
-    ~ConjunctionQuery() override;
+                     const TQueryOptions& query_options, const io::IOContext* io_ctx);
+    ~ConjunctionQuery() override = default;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
@@ -44,14 +44,12 @@ public:
 
     IndexVersion _index_version = IndexVersion::kV0;
     int32_t _conjunction_ratio = 1000;
+    const io::IOContext* _io_ctx = nullptr;
     bool _use_skip = false;
 
-    TermIterator _lead1;
-    TermIterator _lead2;
-    std::vector<TermIterator> _others;
-
-    std::vector<Term*> _terms;
-    std::vector<TermDocs*> _term_docs;
+    TermIterPtr _lead1;
+    TermIterPtr _lead2;
+    std::vector<TermIterPtr> _others;
 };
 
 } // namespace doris::segment_v2

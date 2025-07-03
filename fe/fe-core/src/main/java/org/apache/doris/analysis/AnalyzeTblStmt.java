@@ -78,7 +78,7 @@ import java.util.stream.Collectors;
  * - 'sample.rows' = '1000'
  * - 'num.buckets' = 10
  */
-public class AnalyzeTblStmt extends AnalyzeStmt {
+public class AnalyzeTblStmt extends AnalyzeStmt implements NotFallbackInParser {
     // The properties passed in by the user through "with" or "properties('K', 'V')"
 
     private final TableName tableName;
@@ -120,12 +120,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     @Override
     @SuppressWarnings({"rawtypes"})
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!ConnectContext.get().getSessionVariable().enableStats) {
-            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
-                    + "in your FE conf file");
-        }
         super.analyze(analyzer);
-
         tableName.analyze(analyzer);
 
         String catalogName = tableName.getCtl();

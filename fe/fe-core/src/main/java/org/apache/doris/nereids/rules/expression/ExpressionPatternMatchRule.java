@@ -25,11 +25,13 @@ import java.util.function.Predicate;
 
 /** ExpressionPatternMatcherRule */
 public class ExpressionPatternMatchRule implements TypeMapping<Expression> {
+    public final ExpressionRuleType expressionRuleType;
     public final Class<? extends Expression> typePattern;
     public final List<Predicate<ExpressionMatchingContext<Expression>>> predicates;
     public final ExpressionMatchingAction<Expression> matchingAction;
 
     public ExpressionPatternMatchRule(ExpressionPatternMatcher patternMatcher) {
+        this.expressionRuleType = patternMatcher.expressionRuleType;
         this.typePattern = patternMatcher.typePattern;
         this.predicates = patternMatcher.predicates;
         this.matchingAction = patternMatcher.matchingAction;
@@ -60,5 +62,9 @@ public class ExpressionPatternMatchRule implements TypeMapping<Expression> {
     @Override
     public Class<? extends Expression> getType() {
         return typePattern;
+    }
+
+    public ExpressionRuleType getExpressionRuleType() {
+        return expressionRuleType;
     }
 }

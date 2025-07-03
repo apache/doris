@@ -28,6 +28,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -51,8 +52,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Objects;
 
-class PruneOlapScanTabletTest implements MemoPatternMatchSupported {
+class PruneOlapScanTabletTest extends SqlTestBase implements MemoPatternMatchSupported {
 
     @Test
     void testPruneOlapScanTablet(@Mocked OlapTable olapTable,
@@ -151,6 +153,23 @@ class PruneOlapScanTabletTest implements MemoPatternMatchSupported {
                 .matches(
                         logicalFilter(
                                 logicalOlapScan().when(s -> s.getSelectedTabletIds().size() == 19)
+                        )
+                );
+    }
+
+    @Test
+    void testPruneOlapScanTabletWithManually() {
+        String sql = "select * from T4 TABLET(110) where id > 8";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyTopDown(new PruneOlapScanTablet())
+                .matches(
+                        logicalFilter(
+                                logicalOlapScan().when(s ->
+                                        Objects.equals(s.getSelectedTabletIds(), Lists.newArrayList(110L))
+                                                && Objects.equals(s.getManuallySpecifiedTabletIds(),
+                                                Lists.newArrayList(110L))
+                                )
                         )
                 );
     }

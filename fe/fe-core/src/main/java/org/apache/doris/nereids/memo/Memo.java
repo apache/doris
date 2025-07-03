@@ -552,8 +552,7 @@ public class Memo {
                 return;
             }
             Group parentOwnerGroup = srcParent.getOwnerGroup();
-            HashSet<GroupExpression> enforcers = new HashSet<>(parentOwnerGroup.getEnforcers());
-            if (enforcers.contains(srcParent)) {
+            if (parentOwnerGroup.getEnforcers().containsKey(srcParent)) {
                 continue;
             }
             needReplaceChild.add(srcParent);
@@ -715,10 +714,12 @@ public class Memo {
         if (childrenGroups.isEmpty()) {
             return plan;
         }
-        List<Plan> groupPlanChildren = childrenGroups.stream()
-                .map(GroupPlan::new)
-                .collect(ImmutableList.toImmutableList());
-        return plan.withChildren(groupPlanChildren);
+
+        ImmutableList.Builder<Plan> groupPlanChildren = ImmutableList.builderWithExpectedSize(childrenGroups.size());
+        for (Group childrenGroup : childrenGroups) {
+            groupPlanChildren.add(new GroupPlan(childrenGroup));
+        }
+        return plan.withChildren(groupPlanChildren.build());
     }
 
     /*
@@ -946,7 +947,7 @@ public class Memo {
         List<GroupExpression> exprs = Lists.newArrayList(bestExpr);
         Set<GroupExpression> hasVisited = new HashSet<>();
         hasVisited.add(bestExpr);
-        Stream.concat(group.getPhysicalExpressions().stream(), group.getEnforcers().stream())
+        Stream.concat(group.getPhysicalExpressions().stream(), group.getEnforcers().keySet().stream())
                 .forEach(groupExpression -> {
                     if (!groupExpression.getInputPropertiesListOrEmpty(prop).isEmpty()
                             && !groupExpression.equals(bestExpr) && !hasVisited.contains(groupExpression)) {
@@ -969,7 +970,7 @@ public class Memo {
         res.add(groupExpression.getInputPropertiesList(prop));
 
         // return optimized input for enforcer
-        if (groupExpression.getOwnerGroup().getEnforcers().contains(groupExpression)) {
+        if (groupExpression.getOwnerGroup().getEnforcers().containsKey(groupExpression)) {
             return res;
         }
 

@@ -80,7 +80,7 @@ public class SqlModeTest {
         if (!(expr instanceof CompoundPredicate)) {
             Assert.fail();
         }
-        Assert.assertEquals("'a' OR 'b' OR 'c'", expr.toSql());
+        Assert.assertEquals("(('a' OR 'b') OR 'c')", expr.toSql());
     }
 
     @Test

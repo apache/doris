@@ -18,7 +18,6 @@
 package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.CopyStmt;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -78,13 +77,6 @@ public class CloudLoadManager extends LoadManager {
         return super.createLoadJobFromStmt(stmt);
     }
 
-    @Override
-    public long createLoadJobFromStmt(InsertStmt stmt) throws DdlException {
-        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStartCurrentCluster();
-
-        return super.createLoadJobFromStmt(stmt);
-    }
-
     public LoadJob createLoadJobFromStmt(CopyStmt stmt) throws DdlException {
         Database database = super.checkDb(stmt.getDbName());
         long dbId = database.getId();
@@ -104,7 +96,7 @@ public class CloudLoadManager extends LoadManager {
                     stmt.getObjectInfo(), stmt.isForce(), stmt.getUserName());
             loadJob.setJobProperties(stmt.getProperties());
             loadJob.checkAndSetDataSourceInfo(database, stmt.getDataDescriptions());
-            loadJob.setTimeout(ConnectContext.get().getExecTimeout());
+            loadJob.setTimeout(ConnectContext.get().getExecTimeoutS());
             createLoadJob(loadJob);
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
@@ -219,14 +211,13 @@ public class CloudLoadManager extends LoadManager {
                     }
                     // check auth
                     try {
-                        checkJobAuth(loadJob.getDb().getCatalog().getName(), loadJob.getDb().getName(),
-                                loadJob.getTableNames());
-                    } catch (AnalysisException e) {
+                        loadJob.checkAuth("show load");
+                    } catch (DdlException e) {
                         continue;
                     }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
-                } catch (RuntimeException | DdlException | MetaNotFoundException e) {
+                } catch (RuntimeException | DdlException e) {
                     // ignore this load job
                     LOG.warn("get load job info failed. job id: {}", loadJob.getId(), e);
                 }

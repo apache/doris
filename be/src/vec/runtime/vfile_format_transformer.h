@@ -28,6 +28,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class VFileFormatTransformer {
 public:
@@ -61,3 +62,5 @@ protected:
     vectorized::DataTypeSerDe::FormatOptions _options;
 };
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

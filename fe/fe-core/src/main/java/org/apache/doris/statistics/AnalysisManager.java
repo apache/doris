@@ -21,12 +21,8 @@ import org.apache.doris.analysis.AnalyzeDBStmt;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
-import org.apache.doris.analysis.DropAnalyzeJobStmt;
-import org.apache.doris.analysis.DropStatsStmt;
-import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.ShowAutoAnalyzeJobsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -44,11 +40,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -57,11 +51,21 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
+import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -77,8 +81,8 @@ import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.reflect.TypeToken;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.util.CronExpression;
@@ -87,7 +91,6 @@ import org.jetbrains.annotations.Nullable;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -96,7 +99,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -127,6 +129,7 @@ public class AnalysisManager implements Writable {
     public final Map<TableName, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableName, Set<Pair<String, String>>> veryLowPriorityJobs = new LinkedHashMap<>();
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -156,12 +159,12 @@ public class AnalysisManager implements Writable {
     public AnalysisManager() {
         if (!Env.isCheckpointThread()) {
             this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num,
-                    Integer.MAX_VALUE);
+                    Integer.MAX_VALUE, "Manual Analysis Job Executor");
             this.statisticsCache = new StatisticsCache();
             this.dropStatsExecutors = ThreadPoolManager.newDaemonThreadPool(
-                1, 1, 0,
-                TimeUnit.DAYS, new LinkedBlockingQueue<>(10),
-                new ThreadPoolExecutor.AbortPolicy(),
+                1, 3, 10,
+                TimeUnit.DAYS, new LinkedBlockingQueue<>(20),
+                new ThreadPoolExecutor.DiscardPolicy(),
                 "Drop stats executor", true);
         }
     }
@@ -184,6 +187,117 @@ public class AnalysisManager implements Writable {
         }
     }
 
+    // for nereids analyze database/table
+    public void createAnalyze(AnalyzeCommand command, boolean proxy) throws DdlException, AnalysisException {
+        if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
+            throw new DdlException("Stats table not available, please make sure your cluster status is normal");
+        }
+        if (ConnectContext.get().getSessionVariable().forceSampleAnalyze) {
+            command.checkAndSetSample();
+        }
+        if (command instanceof AnalyzeDatabaseCommand) {
+            createAnalysisJobs((AnalyzeDatabaseCommand) command, proxy);
+        } else if (command instanceof AnalyzeTableCommand) {
+            createAnalysisJob((AnalyzeTableCommand) command, proxy);
+        }
+    }
+
+    // for nereids analyze database/table
+    public void createAnalysisJobs(AnalyzeDatabaseCommand command, boolean proxy) throws AnalysisException {
+        DatabaseIf<TableIf> db = command.getDb();
+        List<AnalysisInfo> analysisInfos = buildAnalysisInfosForNereidsDB(db, command.getAnalyzeProperties());
+        if (!command.isSync()) {
+            sendJobId(analysisInfos, proxy);
+        }
+    }
+
+    // for nereids analyze database/table
+    public void createAnalysisJob(AnalyzeTableCommand command, boolean proxy) throws DdlException {
+        // Using auto analyzer if user specifies.
+        if ("true".equalsIgnoreCase(command.getAnalyzeProperties()
+                    .getProperties().get("use.auto.analyzer"))) {
+            Env.getCurrentEnv().getStatisticsAutoCollector().processOneJob(command.getTable(),
+                    command.getTable()
+                            .getColumnIndexPairs(command.getColumnNames()), JobPriority.HIGH);
+            return;
+        }
+        AnalysisInfo jobInfo = buildAndAssignJob(command);
+        if (jobInfo == null) {
+            return;
+        }
+        sendJobId(ImmutableList.of(jobInfo), proxy);
+    }
+
+    // for nereids analyze database/table
+    @Nullable
+    @VisibleForTesting
+    protected AnalysisInfo buildAndAssignJob(AnalyzeTableCommand command) throws DdlException {
+        AnalysisInfo jobInfo = buildAnalysisJobInfo(command);
+        if (jobInfo.jobColumns == null || jobInfo.jobColumns.isEmpty()) {
+            // No statistics need to be collected or updated
+            LOG.info("Job columns are empty, skip analyze table {}", command.getTblName().toString());
+            return null;
+        }
+        // Only OlapTable and Hive HMSExternalTable support sample analyze.
+        if ((command.getSamplePercent() > 0 || command.getSampleRows() > 0) && !canSample(command.getTable())) {
+            String message = String.format("Table %s doesn't support sample analyze.", command.getTable().getName());
+            LOG.info(message);
+            throw new DdlException(message);
+        }
+
+        boolean isSync = command.isSync();
+        Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
+        createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
+        constructJob(jobInfo, analysisTaskInfos.values());
+        if (isSync) {
+            syncExecute(analysisTaskInfos.values());
+            jobInfo.state = AnalysisState.FINISHED;
+            updateTableStats(jobInfo);
+            return null;
+        }
+        recordAnalysisJob(jobInfo);
+        analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
+        if (!jobInfo.scheduleType.equals(ScheduleType.PERIOD)) {
+            analysisTaskInfos.values().forEach(taskExecutor::submitTask);
+        }
+        return jobInfo;
+    }
+
+    // for nereids analyze database/table
+    public List<AnalysisInfo> buildAnalysisInfosForNereidsDB(DatabaseIf<TableIf> db,
+            AnalyzeProperties analyzeProperties) throws AnalysisException {
+        List<TableIf> tbls = db.getTables();
+        List<AnalysisInfo> analysisInfos = new ArrayList<>();
+        List<AnalyzeTableCommand> commands = new ArrayList<>();
+        for (TableIf table : tbls) {
+            if (table instanceof View) {
+                continue;
+            }
+            TableNameInfo tableNameInfo = new TableNameInfo(db.getCatalog().getName(),
+                    db.getFullName(), table.getName());
+            // columnNames null means to add all visible columns.
+            // Will get all the visible columns in analyzeTableOp.check()
+            AnalyzeTableCommand command = new AnalyzeTableCommand(analyzeProperties, tableNameInfo,
+                    null, db.getId(), table);
+            try {
+                command.check();
+            } catch (AnalysisException analysisException) {
+                LOG.warn("Failed to build analyze job: {}",
+                        analysisException.getMessage(), analysisException);
+            }
+            commands.add(command);
+        }
+        for (AnalyzeTableCommand command : commands) {
+            try {
+                analysisInfos.add(buildAndAssignJob(command));
+            } catch (DdlException e) {
+                LOG.warn("Failed to build analyze job: {}",
+                        e.getMessage(), e);
+            }
+        }
+        return analysisInfos;
+    }
+
     public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws AnalysisException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
         List<AnalysisInfo> analysisInfos = buildAnalysisInfosForDB(db, analyzeDBStmt.getAnalyzeProperties());
@@ -194,38 +308,34 @@ public class AnalysisManager implements Writable {
 
     public List<AnalysisInfo> buildAnalysisInfosForDB(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties)
             throws AnalysisException {
-        db.readLock();
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
-        try {
-            List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
-            for (TableIf table : tbls) {
-                if (table instanceof View) {
-                    continue;
-                }
-                TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(), table.getName());
-                // columnNames null means to add all visible columns.
-                // Will get all the visible columns in analyzeTblStmt.check()
-                AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
-                        null, db.getId(), table);
-                try {
-                    analyzeTblStmt.check();
-                } catch (AnalysisException analysisException) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            analysisException.getMessage(), analysisException);
-                }
-                analyzeStmts.add(analyzeTblStmt);
+        List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
+        for (TableIf table : tbls) {
+            if (table instanceof View) {
+                continue;
             }
-            for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
-                try {
-                    analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
-                } catch (DdlException e) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            e.getMessage(), e);
-                }
+
+            TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(), table.getName());
+            // columnNames null means to add all visible columns.
+            // Will get all the visible columns in analyzeTblStmt.check()
+            AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
+                    null, db.getId(), table);
+            try {
+                analyzeTblStmt.check();
+            } catch (AnalysisException analysisException) {
+                LOG.warn("Failed to build analyze job: {}",
+                        analysisException.getMessage(), analysisException);
             }
-        } finally {
-            db.readUnlock();
+            analyzeStmts.add(analyzeTblStmt);
+        }
+        for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
+            try {
+                analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
+            } catch (DdlException e) {
+                LOG.warn("Failed to build analyze job: {}",
+                        e.getMessage(), e);
+            }
         }
         return analysisInfos;
     }
@@ -301,11 +411,23 @@ public class AnalysisManager implements Writable {
             row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
             if (databaseIf.isPresent()) {
                 Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+                row.add(table.isPresent() ? Util.getTempTableDisplayName(table.get().getName())
+                        : "Table may get deleted");
             } else {
                 row.add("DB not exists anymore");
             }
-            row.add(analysisInfo.colName);
+            String colNames = analysisInfo.colName;
+            StringBuffer sb = new StringBuffer();
+            if (colNames != null) {
+                for (String columnName : colNames.split(",")) {
+                    String[] kv = columnName.split(":");
+                    sb.append(Util.getTempTableDisplayName(kv[0]))
+                        .append(":").append(kv[1]).append(",");
+                }
+            }
+            String newColNames = sb.toString();
+            newColNames = StringUtils.isEmpty(newColNames) ? "" : newColNames.substring(0, newColNames.length() - 1);
+            row.add(newColNames);
             resultRows.add(row);
         }
         ShowResultSet commonResultSet = new ShowResultSet(commonResultSetMetaData, resultRows);
@@ -371,7 +493,13 @@ public class AnalysisManager implements Writable {
 
         long periodTimeInMs = stmt.getPeriodTimeInMs();
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
-        Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames);
+        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
+        boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
+        Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames).stream()
+                .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
+                        olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                        table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
+                .collect(Collectors.toSet());
         infoBuilder.setJobColumns(jobColumns);
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {
@@ -379,7 +507,7 @@ public class AnalysisManager implements Writable {
         }
         infoBuilder.setColName(stringJoiner.toString());
         infoBuilder.setTaskIds(Lists.newArrayList());
-        infoBuilder.setTblUpdateTime(System.currentTimeMillis());
+        infoBuilder.setTblUpdateTime(table.getUpdateTime());
         // Empty table row count is 0. Call fetchRowCount() when getRowCount() returns <= 0,
         // because getRowCount may return <= 0 if cached is not loaded. This is mainly for external table.
         long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
@@ -387,6 +515,102 @@ public class AnalysisManager implements Writable {
         infoBuilder.setRowCount(rowCount);
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
+        long version = 0;
+        try {
+            if (table instanceof OlapTable) {
+                version = ((OlapTable) table).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+        }
+        infoBuilder.setTableVersion(version);
+        infoBuilder.setPriority(JobPriority.MANUAL);
+        infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
+        infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
+        return infoBuilder.build();
+    }
+
+    // for nereids analyze database/table
+    @VisibleForTesting
+    public AnalysisInfo buildAnalysisJobInfo(AnalyzeTableCommand command) {
+        AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
+        long jobId = Env.getCurrentEnv().getNextId();
+        TableIf table = command.getTable();
+        Set<String> columnNames = command.getColumnNames();
+        boolean partitionOnly = command.isPartitionOnly();
+        boolean isSamplingPartition = command.isSamplingPartition();
+        boolean isAllPartition = command.isStarPartition();
+        long partitionCount = command.getPartitionCount();
+        int samplePercent = command.getSamplePercent();
+        int sampleRows = command.getSampleRows();
+        AnalysisType analysisType = command.getAnalysisType();
+        AnalysisMethod analysisMethod = command.getAnalysisMethod();
+        ScheduleType scheduleType = command.getScheduleType();
+        CronExpression cronExpression = command.getCron();
+
+        infoBuilder.setJobId(jobId);
+        infoBuilder.setTaskId(-1);
+        infoBuilder.setCatalogId(command.getCatalogId());
+        infoBuilder.setDBId(command.getDbId());
+        infoBuilder.setTblId(command.getTable().getId());
+        infoBuilder.setPartitionNames(command.getPartitionNames());
+        infoBuilder.setPartitionOnly(partitionOnly);
+        infoBuilder.setSamplingPartition(isSamplingPartition);
+        infoBuilder.setAllPartition(isAllPartition);
+        infoBuilder.setPartitionCount(partitionCount);
+        infoBuilder.setJobType(JobType.MANUAL);
+        infoBuilder.setState(AnalysisState.PENDING);
+        infoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
+        infoBuilder.setAnalysisType(analysisType);
+        infoBuilder.setAnalysisMethod(analysisMethod);
+        infoBuilder.setScheduleType(scheduleType);
+        infoBuilder.setCronExpression(cronExpression);
+        infoBuilder.setForceFull(command.forceFull());
+        infoBuilder.setUsingSqlForExternalTable(command.usingSqlForExternalTable());
+        if (analysisMethod == AnalysisMethod.SAMPLE) {
+            infoBuilder.setSamplePercent(samplePercent);
+            infoBuilder.setSampleRows(sampleRows);
+        }
+
+        if (analysisType == AnalysisType.HISTOGRAM) {
+            int numBuckets = command.getNumBuckets();
+            int maxBucketNum = numBuckets > 0 ? numBuckets : StatisticConstants.HISTOGRAM_MAX_BUCKET_NUM;
+            infoBuilder.setMaxBucketNum(maxBucketNum);
+        }
+
+        long periodTimeInMs = command.getPeriodTimeInMs();
+        infoBuilder.setPeriodTimeInMs(periodTimeInMs);
+        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
+        boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
+        Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames).stream()
+                .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
+                        olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                        table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
+                .collect(Collectors.toSet());
+        infoBuilder.setJobColumns(jobColumns);
+        StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
+        for (Pair<String, String> pair : jobColumns) {
+            stringJoiner.add(pair.toString());
+        }
+        infoBuilder.setColName(stringJoiner.toString());
+        infoBuilder.setTaskIds(Lists.newArrayList());
+        infoBuilder.setTblUpdateTime(table.getUpdateTime());
+        // Empty table row count is 0. Call fetchRowCount() when getRowCount() returns <= 0,
+        // because getRowCount may return <= 0 if cached is not loaded. This is mainly for external table.
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
+                (table.getRowCount() <= 0 ? table.fetchRowCount() : table.getRowCount());
+        infoBuilder.setRowCount(rowCount);
+        TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
+        infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
+        long version = 0;
+        try {
+            if (table instanceof OlapTable) {
+                version = ((OlapTable) table).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+        }
+        infoBuilder.setTableVersion(version);
         infoBuilder.setPriority(JobPriority.MANUAL);
         infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
         infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
@@ -537,20 +761,21 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public List<AutoAnalysisPendingJob> showAutoPendingJobs(ShowAutoAnalyzeJobsStmt stmt) {
-        TableName tblName = stmt.getTableName();
-        String priority = stmt.getPriority();
+    public List<AutoAnalysisPendingJob> showAutoPendingJobs(TableName tblName, String priority) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
         if (priority == null || priority.isEmpty()) {
             result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
             result.addAll(getPendingJobs(midPriorityJobs, JobPriority.MID, tblName));
             result.addAll(getPendingJobs(lowPriorityJobs, JobPriority.LOW, tblName));
+            result.addAll(getPendingJobs(veryLowPriorityJobs, JobPriority.VERY_LOW, tblName));
         } else if (priority.equals(JobPriority.HIGH.name())) {
             result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
         } else if (priority.equals(JobPriority.MID.name())) {
             result.addAll(getPendingJobs(midPriorityJobs, JobPriority.MID, tblName));
         } else if (priority.equals(JobPriority.LOW.name())) {
             result.addAll(getPendingJobs(lowPriorityJobs, JobPriority.LOW, tblName));
+        } else if (priority.equals(JobPriority.VERY_LOW.name())) {
+            result.addAll(getPendingJobs(veryLowPriorityJobs, JobPriority.VERY_LOW, tblName));
         }
         return result;
     }
@@ -561,7 +786,9 @@ public class AnalysisManager implements Writable {
         synchronized (jobMap) {
             for (Entry<TableName, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
                 TableName table = entry.getKey();
-                if (tblName == null || tblName.equals(table)) {
+                if (tblName == null
+                        || tblName.getCtl() == null && tblName.getDb() == null && tblName.getTbl() == null
+                        || tblName.equals(table)) {
                     result.add(new AutoAnalysisPendingJob(table.getCtl(),
                             table.getDb(), table.getTbl(), entry.getValue(), priority));
                 }
@@ -571,22 +798,35 @@ public class AnalysisManager implements Writable {
     }
 
     public List<AnalysisInfo> findAnalysisJobs(ShowAnalyzeStmt stmt) {
-        String state = stmt.getStateValue();
-        TableName tblName = stmt.getDbTableName();
+        String ctl = null;
+        String db = null;
+        String table = null;
+        TableName dbTableName = stmt.getDbTableName();
+        if (dbTableName != null) {
+            ctl = dbTableName.getCtl();
+            db = dbTableName.getDb();
+            table = dbTableName.getTbl();
+        }
+        return findAnalysisJobs(stmt.getStateValue(), ctl, db, table, stmt.getJobId(), stmt.isAuto());
+    }
+
+    public List<AnalysisInfo> findAnalysisJobs(String state, String ctl, String db,
+            String table, long jobId, boolean isAuto) {
         TableIf tbl = null;
-        if (tblName != null) {
-            tbl = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
+        boolean tableSpecified = ctl != null && db != null && table != null;
+        if (tableSpecified) {
+            tbl = StatisticsUtil.findTable(ctl, db, table);
         }
         long tblId = tbl == null ? -1 : tbl.getId();
         synchronized (analysisJobInfoMap) {
             return analysisJobInfoMap.values().stream()
-                .filter(a -> stmt.getJobId() == 0 || a.jobId == stmt.getJobId())
-                .filter(a -> state == null || a.state.equals(AnalysisState.valueOf(state)))
-                .filter(a -> tblName == null || a.tblId == tblId)
-                .filter(a -> stmt.isAuto() && a.jobType.equals(JobType.SYSTEM)
-                    || !stmt.isAuto() && a.jobType.equals(JobType.MANUAL))
-                .sorted(Comparator.comparingLong(a -> a.jobId))
-                .collect(Collectors.toList());
+                    .filter(a -> jobId == 0 || a.jobId == jobId)
+                    .filter(a -> state == null || a.state.equals(AnalysisState.valueOf(state.toUpperCase())))
+                    .filter(a -> !tableSpecified || a.tblId == tblId)
+                    .filter(a -> isAuto && a.jobType.equals(JobType.SYSTEM)
+                            || !isAuto && a.jobType.equals(JobType.MANUAL))
+                    .sorted(Comparator.comparingLong(a -> a.jobId))
+                    .collect(Collectors.toList());
         }
     }
 
@@ -641,20 +881,23 @@ public class AnalysisManager implements Writable {
                 StatisticsUtil.getAnalyzeTimeout()));
     }
 
-    public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {
-        if (dropStatsStmt.dropExpired) {
-            Env.getCurrentEnv().getStatisticsCleaner().clear();
-            return;
+    public void dropStats(DropStatsCommand dropStatsCommand) throws DdlException {
+        TableStatsMeta tableStats = findTableStatsStatus(dropStatsCommand.getTblId());
+        Set<String> cols = dropStatsCommand.getColumnNames();
+        PartitionNamesInfo partitionNamesInfo = dropStatsCommand.getOpPartitionNamesInfo();
+        PartitionNames partitionNames = null;
+        if (partitionNamesInfo != null) {
+            partitionNames = new PartitionNames(partitionNamesInfo.isTemp(), partitionNamesInfo.getPartitionNames());
         }
-
-        Set<String> cols = dropStatsStmt.getColumnNames();
-        PartitionNames partitionNames = dropStatsStmt.getPartitionNames();
-        long catalogId = dropStatsStmt.getCatalogIdId();
-        long dbId = dropStatsStmt.getDbId();
-        long tblId = dropStatsStmt.getTblId();
-        TableStatsMeta tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
-        if (tableStats == null) {
-            return;
+        long catalogId = dropStatsCommand.getCatalogId();
+        long dbId = dropStatsCommand.getDbId();
+        long tblId = dropStatsCommand.getTblId();
+        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tblId);
+        // Remove tableMetaStats if drop whole table stats.
+        if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNames == null
+                || partitionNames.isStar() || partitionNames.getPartitionNames() == null)) {
+            removeTableStats(tblId);
+            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
         }
         invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNames);
         // Drop stats ddl is master only operation.
@@ -666,23 +909,23 @@ public class AnalysisManager implements Writable {
         StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
     }
 
-    public void dropStats(TableIf table, PartitionNames partitionNames) throws DdlException {
-        TableStatsMeta tableStats = findTableStatsStatus(table.getId());
-        if (tableStats == null) {
-            return;
+    public void dropExpiredStats() {
+        Env.getCurrentEnv().getStatisticsCleaner().clear();
+    }
+
+    public void dropStats(TableIf table, PartitionNames partitionNames) {
+        try {
+            TableStatsMeta tableStats = findTableStatsStatus(table.getId());
+            if (tableStats == null) {
+                return;
+            }
+            long catalogId = table.getDatabase().getCatalog().getId();
+            long dbId = table.getDatabase().getId();
+            long tableId = table.getId();
+            submitAsyncDropStatsTask(table, catalogId, dbId, tableId, tableStats, partitionNames, true);
+        } catch (Throwable e) {
+            LOG.warn("Failed to drop stats for table {}", table.getName(), e);
         }
-        long catalogId = table.getDatabase().getCatalog().getId();
-        long dbId = table.getDatabase().getId();
-        long tableId = table.getId();
-        submitAsyncDropStatsTask(catalogId, dbId, tableId, tableStats, partitionNames);
-        // Drop stats ddl is master only operation.
-        Set<String> partitions = null;
-        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
-            partitions = new HashSet<>(partitionNames.getPartitionNames());
-        }
-        // Drop stats ddl is master only operation.
-        invalidateRemoteStats(catalogId, dbId, tableId, null, partitions, true);
-        StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null, partitions);
     }
 
     class DropStatsTask implements Runnable {
@@ -692,41 +935,84 @@ public class AnalysisManager implements Writable {
         private final Set<String> columns;
         private final TableStatsMeta tableStats;
         private final PartitionNames partitionNames;
+        private final TableIf table;
+        private final boolean isMaster;
 
-        public DropStatsTask(long catalogId, long dbId, long tableId, Set<String> columns,
-                             TableStatsMeta tableStats, PartitionNames partitionNames) {
+        public DropStatsTask(TableIf table, long catalogId, long dbId, long tableId, Set<String> columns,
+                             TableStatsMeta tableStats, PartitionNames partitionNames, boolean isMaster) {
             this.catalogId = catalogId;
             this.dbId = dbId;
             this.tableId = tableId;
             this.columns = columns;
             this.tableStats = tableStats;
             this.partitionNames = partitionNames;
+            this.table = table;
+            this.isMaster = isMaster;
         }
 
         @Override
         public void run() {
-            invalidateLocalStats(catalogId, dbId, tableId, columns, tableStats, partitionNames);
+            try {
+                if (isMaster) {
+                    if (!table.isPartitionedTable() || partitionNames == null
+                            || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
+                        removeTableStats(tableId);
+                        Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
+                    }
+                    // Drop stats ddl is master only operation.
+                    Set<String> partitions = null;
+                    if (partitionNames != null && !partitionNames.isStar()
+                            && partitionNames.getPartitionNames() != null) {
+                        partitions = new HashSet<>(partitionNames.getPartitionNames());
+                    }
+                    // Drop stats ddl is master only operation.
+                    StatisticsRepository.dropStatistics(catalogId, dbId, tableId, null, partitions);
+                    invalidateRemoteStats(catalogId, dbId, tableId, null, partitions, true);
+                }
+                invalidateLocalStats(catalogId, dbId, tableId, columns, tableStats, partitionNames);
+            } catch (Throwable t) {
+                LOG.info("Failed to async drop stats for table {}.{}.{}, reason: {}",
+                        catalogId, dbId, tableId, t.getMessage());
+            }
         }
     }
 
-    public void submitAsyncDropStatsTask(long catalogId, long dbId, long tableId,
-                                         TableStatsMeta tableStats, PartitionNames partitionNames) {
+    public void submitAsyncDropStatsTask(TableIf table, long catalogId, long dbId, long tableId,
+                                         TableStatsMeta tableStats, PartitionNames partitionNames, boolean isMaster) {
         try {
-            dropStatsExecutors.submit(new DropStatsTask(catalogId, dbId, tableId, null, tableStats, partitionNames));
+            dropStatsExecutors.submit(new DropStatsTask(table, catalogId, dbId, tableId, null,
+                    tableStats, partitionNames, isMaster));
         } catch (Throwable t) {
-            LOG.info("Failed to drop stats for truncate table {}.{}.{}. Reason:{}",
-                    catalogId, dbId, tableId, t.getMessage());
+            LOG.info("Failed to submit async drop stats job. reason: {}", t.getMessage());
+        }
+    }
+
+    public void dropCachedStats(long catalogId, long dbId, long tableId) {
+        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
+        StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
+        Set<String> columns = table.getSchemaAllIndexes(false)
+                .stream().map(Column::getName).collect(Collectors.toSet());
+        for (String column : columns) {
+            List<Long> indexIds = Lists.newArrayList();
+            if (table instanceof OlapTable) {
+                indexIds = ((OlapTable) table).getMvColumnIndexIds(column);
+            } else {
+                indexIds.add(-1L);
+            }
+            for (long indexId : indexIds) {
+                statsCache.invalidateColumnStatsCache(catalogId, dbId, tableId, indexId, column);
+                for (String part : table.getPartitionNames()) {
+                    statsCache.invalidatePartitionColumnStatsCache(catalogId, dbId, tableId, indexId, part, column);
+                }
+            }
         }
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
                                      TableStatsMeta tableStats, PartitionNames partitionNames) {
-        if (tableStats == null) {
-            return;
-        }
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
-        if (columns == null) {
+        if (columns == null || columns.isEmpty()) {
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
         }
@@ -761,11 +1047,16 @@ public class AnalysisManager implements Writable {
                         indexName = olapTable.getIndexNameById(indexId);
                     }
                 }
-                statsCache.invalidateColumnStatsCache(catalogId, dbId, tableId, indexId, column);
                 if (allPartition) {
-                    tableStats.removeColumn(indexName, column);
+                    statsCache.invalidateColumnStatsCache(catalogId, dbId, tableId, indexId, column);
+                    if (tableStats != null) {
+                        tableStats.removeColumn(indexName, column);
+                    }
                 }
-                ColStatsMeta columnStatsMeta = tableStats.findColumnStatsMeta(indexName, column);
+                ColStatsMeta columnStatsMeta = null;
+                if (tableStats != null) {
+                    columnStatsMeta = tableStats.findColumnStatsMeta(indexName, column);
+                }
                 for (String part : partNames) {
                     statsCache.invalidatePartitionColumnStatsCache(catalogId, dbId, tableId, indexId, part, column);
                     if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
@@ -777,9 +1068,10 @@ public class AnalysisManager implements Writable {
                 }
             }
         }
-        tableStats.updatedTime = 0;
-        tableStats.userInjected = false;
-        tableStats.rowCount = table.getRowCount();
+        if (tableStats != null) {
+            tableStats.userInjected = false;
+            tableStats.rowCount = table.getRowCount();
+        }
     }
 
     public void invalidateRemoteStats(long catalogId, long dbId, long tableId,
@@ -790,18 +1082,15 @@ public class AnalysisManager implements Writable {
         request.key = GsonUtils.GSON.toJson(target);
         StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
         SystemInfoService.HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
-        boolean success = true;
         for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
             // Skip master
             if (selfNode.getHost().equals(frontend.getHost())) {
                 continue;
             }
-            success = success && statisticsCache.invalidateStats(frontend, request);
+            statisticsCache.invalidateStats(frontend, request);
         }
-        if (!success) {
-            // If any rpc failed, use edit log to sync table stats to non-master FEs.
-            LOG.warn("Failed to invalidate all remote stats by rpc for table {}, use edit log.", tableId);
-            TableStatsMeta tableStats = findTableStatsStatus(tableId);
+        TableStatsMeta tableStats = findTableStatsStatus(tableId);
+        if (tableStats != null) {
             logCreateTableStats(tableStats);
         }
     }
@@ -834,8 +1123,12 @@ public class AnalysisManager implements Writable {
         //        count, ndv, null_count, min, max, data_size, update_time]
         StatisticsCache cache = Env.getCurrentEnv().getStatisticsCache();
         for (ResultRow row : resultRows) {
-            cache.updatePartitionColStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName,
-                    PartitionColumnStatistic.fromResultRow(row));
+            try {
+                cache.updatePartitionColStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName,
+                        PartitionColumnStatistic.fromResultRow(row));
+            } catch (Exception e) {
+                cache.invalidatePartitionColumnStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName);
+            }
         }
     }
 
@@ -856,8 +1149,8 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
-        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalysisJobStmt.jobId);
+    public void handleKillAnalyzeJob(KillAnalyzeJobCommand killAnalyzeJobCommand) throws DdlException {
+        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalyzeJobCommand.getJobId());
         if (analysisTaskMap == null) {
             throw new DdlException("Job not exists or already finished");
         }
@@ -1025,13 +1318,13 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public void dropAnalyzeJob(DropAnalyzeJobStmt analyzeJobStmt) throws DdlException {
-        AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobStmt.getJobId());
+    public void dropAnalyzeJob(DropAnalyzeJobCommand analyzeJobCommand) throws DdlException {
+        AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobCommand.getJobId());
         if (jobInfo == null) {
-            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobStmt.getJobId()));
+            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobCommand.getJobId()));
         }
         checkPriv(jobInfo);
-        long jobId = analyzeJobStmt.getJobId();
+        long jobId = analyzeJobCommand.getJobId();
         AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
         Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
         replayDeleteAnalysisJob(analyzeDeletionLog);
@@ -1043,9 +1336,6 @@ public class AnalysisManager implements Writable {
         readAnalysisInfo(in, analysisManager.analysisJobInfoMap, true);
         readAnalysisInfo(in, analysisManager.analysisTaskInfoMap, false);
         readIdToTblStats(in, analysisManager.idToTblStats);
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_128) {
-            readAutoJobs(in, analysisManager);
-        }
         return analysisManager;
     }
 
@@ -1082,12 +1372,6 @@ public class AnalysisManager implements Writable {
             TableStatsMeta tableStats = TableStatsMeta.read(in);
             map.put(tableStats.tblId, tableStats);
         }
-    }
-
-    // To be deprecated, keep it for meta compatibility now, will remove later.
-    private static void readAutoJobs(DataInput in, AnalysisManager analysisManager) throws IOException {
-        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
-        GsonUtils.GSON.fromJson(Text.readString(in), type);
     }
 
     @Override
@@ -1242,16 +1526,22 @@ public class AnalysisManager implements Writable {
                     OlapTable olapTable = (OlapTable) table;
                     short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
                     Map<Long, Long> tabletRows = record.getValue();
-                    if (tabletRows == null) {
+                    if (tabletRows == null || tabletRows.isEmpty()) {
+                        LOG.info("Tablet row count map is empty");
                         continue;
                     }
-                    long tableUpdateRows = 0;
+                    long rowsForAllReplica = 0;
                     for (Entry<Long, Long> entry : tabletRows.entrySet()) {
-                        tableUpdateRows += entry.getValue();
+                        rowsForAllReplica += entry.getValue();
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Table id {}, tablet id {}, row count {}",
+                                    record.getKey(), entry.getKey(), entry.getValue());
+                        }
                     }
-                    tableUpdateRows = tableUpdateRows / replicaNum;
-                    LOG.info("Update rows for table {} is {}, replicaNum is {}",
-                            olapTable.getName(), tableUpdateRows, replicaNum);
+                    long tableUpdateRows = rowsForAllReplica / replicaNum;
+                    LOG.info("Update rows for table {} is {}, replicaNum is {}, "
+                            + "rows for all replica {}, tablets count {}",
+                            olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
                     statsStatus.updatedRows.addAndGet(tableUpdateRows);
                     if (StatisticsUtil.enablePartitionAnalyze()) {
                         updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
@@ -1337,6 +1627,10 @@ public class AnalysisManager implements Writable {
         }
     }
 
+    public Set<Long> getIdToTblStatsKeys() {
+        return new HashSet<>(idToTblStats.keySet());
+    }
+
     public ColStatsMeta findColStatsMeta(long tblId, String indexName, String colName) {
         TableStatsMeta tableStats = findTableStatsStatus(tblId);
         if (tableStats == null) {
@@ -1385,8 +1679,8 @@ public class AnalysisManager implements Writable {
             if (!(s instanceof SlotReference)) {
                 return;
             }
-            Optional<Column> optionalColumn = ((SlotReference) s).getColumn();
-            Optional<TableIf> optionalTable = ((SlotReference) s).getTable();
+            Optional<Column> optionalColumn = ((SlotReference) s).getOriginalColumn();
+            Optional<TableIf> optionalTable = ((SlotReference) s).getOriginalTable();
             if (optionalColumn.isPresent() && optionalTable.isPresent()
                     && !StatisticsUtil.isUnsupportedType(optionalColumn.get().getType())) {
                 TableIf table = optionalTable.get();

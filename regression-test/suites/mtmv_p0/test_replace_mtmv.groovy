@@ -28,7 +28,8 @@ suite("test_replace_mtmv","mtmv") {
     sql """drop table if exists `${tableName2}`"""
     sql """drop materialized view if exists ${mvName1};"""
     sql """drop materialized view if exists ${mvName2};"""
-
+    String querySql1 = "SELECT * FROM ${tableName1}";
+    String querySql2 = "SELECT * FROM ${tableName2}";
     sql """
         CREATE TABLE ${tableName1}
         (
@@ -59,7 +60,7 @@ suite("test_replace_mtmv","mtmv") {
         'replication_num' = '1'
         )
         AS
-        SELECT * from ${tableName1};
+        ${querySql1};
         """
     sql """
         CREATE MATERIALIZED VIEW ${mvName2}
@@ -69,7 +70,7 @@ suite("test_replace_mtmv","mtmv") {
         'replication_num' = '1'
         )
         AS
-        SELECT * from ${tableName2};
+        ${querySql2};
         """
     sql """
         insert into ${tableName1} values(1,1);
@@ -80,7 +81,7 @@ suite("test_replace_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName1)
 
     order_qt_mv1 "SELECT * FROM ${mvName1}"
-
+    mv_rewrite_success_without_check_chosen("""${querySql1}""", "${mvName1}")
 
     sql """
         insert into ${tableName2} values(2,2);
@@ -91,7 +92,7 @@ suite("test_replace_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName2)
 
     order_qt_mv2 "SELECT * FROM ${mvName2}"
-
+    mv_rewrite_success_without_check_chosen("""${querySql2}""", "${mvName2}")
     test {
           sql """
               alter MATERIALIZED VIEW ${mvName1} replace with  MATERIALIZED VIEW ${tableName1};
@@ -133,6 +134,8 @@ suite("test_replace_mtmv","mtmv") {
 
     order_qt_mv2_refresh "SELECT * FROM ${mvName2}"
 
+    mv_rewrite_success_without_check_chosen("""${querySql1}""", "${mvName2}")
+    mv_rewrite_success_without_check_chosen("""${querySql2}""", "${mvName1}")
 
     sql """
         alter MATERIALIZED VIEW ${mvName1} replace with  MATERIALIZED VIEW ${mvName2} PROPERTIES('swap' = 'false');
@@ -147,7 +150,6 @@ suite("test_replace_mtmv","mtmv") {
     assertFalse(jobResult.toString().contains("${mvName2}"))
 
     order_qt_mv1_replace_not_swap "SELECT * FROM ${mvName1}"
-
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
     sql """drop materialized view if exists ${mvName1};"""

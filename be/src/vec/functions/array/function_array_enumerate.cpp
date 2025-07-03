@@ -31,7 +31,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -56,15 +55,15 @@ public:
     static constexpr auto name = "array_enumerate";
     static FunctionPtr create() { return std::make_shared<FunctionArrayEnumerate>(); }
     String get_name() const override { return name; }
-    bool use_default_implementation_for_nulls() const override { return false; }
     size_t get_number_of_arguments() const override { return 1; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         const DataTypeArray* array_type =
                 check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0]).get());
         if (!array_type) {
-            LOG(FATAL) << "First argument for function " + get_name() +
-                                  " must be an array but it has type " + arguments[0]->get_name() +
-                                  ".";
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "First argument for function {} .must be an array but it type is {}",
+                    get_name(), arguments[0]->get_name());
         }
 
         auto nested_type = assert_cast<const DataTypeArray&>(*array_type).get_nested_type();
@@ -79,11 +78,11 @@ public:
         return return_type;
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnArray* array =
-                check_and_get_column<ColumnArray>(remove_nullable(left_column->get_ptr()));
+                check_and_get_column<ColumnArray>(remove_nullable(left_column->get_ptr()).get());
         if (!array) {
             return Status::RuntimeError(
                     fmt::format("Illegal column {}, of first argument of function {}",
@@ -107,7 +106,8 @@ public:
         ColumnPtr res_column =
                 ColumnArray::create(std::move(nested_column), array->get_offsets_ptr());
         if (block.get_by_position(arguments[0]).column->is_nullable()) {
-            const ColumnNullable* nullable = check_and_get_column<ColumnNullable>(left_column);
+            const ColumnNullable* nullable =
+                    check_and_get_column<ColumnNullable>(left_column.get());
             res_column = ColumnNullable::create(
                     res_column, nullable->get_null_map_column().clone_resized(nullable->size()));
         }

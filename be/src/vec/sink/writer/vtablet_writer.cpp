@@ -64,16 +64,17 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_reclamation.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/proto_util.h"
-#include "util/ref_count_closure.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"
@@ -91,6 +92,7 @@ namespace doris {
 class TExpr;
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_sink_write_bytes;
 bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
@@ -125,8 +127,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                 if (incremental) {
                     _has_inc_node = true;
                 }
-                LOG(INFO) << "init new node for instance " << _parent->_sender_id
-                          << ", incremantal:" << incremental;
+                VLOG_CRITICAL << "init new node for instance " << _parent->_sender_id
+                              << ", node id:" << replica_node_id << ", incremantal:" << incremental;
             } else {
                 channel = it->second;
             }
@@ -165,7 +167,7 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
     }
 
     {
-        std::lock_guard<doris::SpinLock> l(_fail_lock);
+        std::lock_guard<std::mutex> l(_fail_lock);
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
                 _failed_channels[the_tablet_id].insert(node_id);
@@ -188,20 +190,23 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
 }
 
 Status IndexChannel::check_intolerable_failure() {
-    std::lock_guard<doris::SpinLock> l(_fail_lock);
+    std::lock_guard<std::mutex> l(_fail_lock);
     return _intolerable_failure_status;
 }
 
 void IndexChannel::set_error_tablet_in_state(RuntimeState* state) {
-    std::vector<TErrorTabletInfo>& error_tablet_infos = state->error_tablet_infos();
+    std::vector<TErrorTabletInfo> error_tablet_infos;
 
-    std::lock_guard<doris::SpinLock> l(_fail_lock);
-    for (const auto& it : _failed_channels_msgs) {
-        TErrorTabletInfo error_info;
-        error_info.__set_tabletId(it.first);
-        error_info.__set_msg(it.second);
-        error_tablet_infos.emplace_back(error_info);
+    {
+        std::lock_guard<std::mutex> l(_fail_lock);
+        for (const auto& it : _failed_channels_msgs) {
+            TErrorTabletInfo error_info;
+            error_info.__set_tabletId(it.first);
+            error_info.__set_msg(it.second);
+            error_tablet_infos.emplace_back(error_info);
+        }
     }
+    state->add_error_tablet_infos(error_tablet_infos);
 }
 
 void IndexChannel::set_tablets_received_rows(
@@ -264,6 +269,76 @@ Status IndexChannel::check_tablet_filtered_rows_consistency() {
         }
     }
     return Status::OK();
+}
+
+static Status cancel_channel_and_check_intolerable_failure(Status status,
+                                                           const std::string& err_msg,
+                                                           IndexChannel& ich, VNodeChannel& nch) {
+    LOG(WARNING) << nch.channel_info() << ", close channel failed, err: " << err_msg;
+    ich.mark_as_failed(&nch, err_msg, -1);
+    // cancel the node channel in best effort
+    nch.cancel(err_msg);
+
+    // check if index has intolerable failure
+    if (Status index_st = ich.check_intolerable_failure(); !index_st.ok()) {
+        status = std::move(index_st);
+    } else if (Status receive_st = ich.check_tablet_received_rows_consistency(); !receive_st.ok()) {
+        status = std::move(receive_st);
+    } else if (Status filter_st = ich.check_tablet_filtered_rows_consistency(); !filter_st.ok()) {
+        status = std::move(filter_st);
+    }
+    return status;
+}
+
+Status IndexChannel::close_wait(
+        RuntimeState* state, WriterStats* writer_stats,
+        std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
+        std::unordered_set<int64_t> unfinished_node_channel_ids) {
+    Status status = Status::OK();
+    while (true) {
+        status = check_each_node_channel_close(&unfinished_node_channel_ids,
+                                               node_add_batch_counter_map, writer_stats, status);
+        if (!status.ok() || unfinished_node_channel_ids.empty()) {
+            LOG(INFO) << ", is all unfinished: " << unfinished_node_channel_ids.empty()
+                      << ", status: " << status << ", txn_id: " << _parent->_txn_id
+                      << ", load_id: " << print_id(_parent->_load_id);
+            break;
+        }
+        bthread_usleep(1000 * 10);
+    }
+
+    DBUG_EXECUTE_IF("IndexChannel.close_wait.timeout",
+                    { status = Status::TimedOut("injected timeout"); });
+
+    return status;
+}
+
+Status IndexChannel::check_each_node_channel_close(
+        std::unordered_set<int64_t>* unfinished_node_channel_ids,
+        std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
+        WriterStats* writer_stats, Status status) {
+    Status final_status = Status::OK();
+    for (auto& it : _node_channels) {
+        std::shared_ptr<VNodeChannel> node_channel = it.second;
+        // If the node channel is not in the unfinished_node_channel_ids,
+        // it means the node channel is already closed.
+        if (!unfinished_node_channel_ids->contains(it.first)) {
+            continue;
+        }
+        bool node_channel_closed = false;
+        auto close_status = it.second->close_wait(_parent->_state, &node_channel_closed);
+        if (node_channel_closed) {
+            close_status = it.second->after_close_handle(_parent->_state, writer_stats,
+                                                         node_add_batch_counter_map);
+            unfinished_node_channel_ids->erase(it.first);
+        }
+        if (!close_status.ok()) {
+            final_status = cancel_channel_and_check_intolerable_failure(
+                    std::move(final_status), close_status.to_string(), *this, *it.second);
+        }
+    }
+
+    return final_status;
 }
 
 static Status none_of(std::initializer_list<bool> vars) {
@@ -383,6 +458,16 @@ Status VNodeChannel::init(RuntimeState* state) {
     // a relatively large value to improve the import performance.
     _batch_size = std::max(_batch_size, 8192);
 
+    if (_state) {
+        QueryContext* query_ctx = _state->get_query_ctx();
+        if (query_ctx) {
+            auto wg_ptr = query_ctx->workload_group();
+            if (wg_ptr) {
+                _wg_id = wg_ptr->id();
+            }
+        }
+    }
+
     _inited = true;
     return Status::OK();
 }
@@ -416,7 +501,6 @@ void VNodeChannel::_open_internal(bool is_incremental) {
 
     request->set_num_senders(_parent->_num_senders);
     request->set_need_gen_rollup(false); // Useless but it is a required field in pb
-    request->set_load_mem_limit(_parent->_load_mem_limit);
     request->set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
     request->set_is_high_priority(_parent->_is_high_priority);
     request->set_sender_ip(BackendOptions::get_localhost());
@@ -426,6 +510,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_is_incremental(is_incremental);
     request->set_txn_expiration(_parent->_txn_expiration);
     request->set_write_file_cache(_parent->_write_file_cache);
+
+    if (_wg_id > 0) {
+        request->set_workload_group_id(_wg_id);
+    }
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
     auto open_closure = AutoReleaseClosure<
@@ -504,7 +592,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
-            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+            std::lock_guard<std::mutex> l(_cancel_msg_lock);
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("add row failed. {}",
                                                                    _cancel_msg);
         } else {
@@ -563,10 +651,16 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     return Status::OK();
 }
 
+static void injection_full_gc_fn() {
+    MemoryReclamation::revoke_process_memory("injection_full_gc_fn");
+}
+
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
-    DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc",
-                    { MemoryReclamation::process_full_gc(); });
+    DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc", {
+        std::thread t(injection_full_gc_fn);
+        t.join();
+    });
 
     if (_cancelled || _send_finished) { // not run
         return 0;
@@ -597,7 +691,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 void VNodeChannel::_cancel_with_msg(const std::string& msg) {
     LOG(WARNING) << "cancel node channel " << channel_info() << ", error message: " << msg;
     {
-        std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+        std::lock_guard<std::mutex> l(_cancel_msg_lock);
         if (_cancel_msg.empty()) {
             _cancel_msg = msg;
         }
@@ -642,17 +736,18 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             _send_block_callback->clear_in_flight();
             return;
         }
-        if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95F) {
+        if (double(compressed_bytes) >= double(config::brpc_max_body_size) * 0.95F) {
             LOG(WARNING) << "send block too large, this rpc may failed. send size: "
                          << compressed_bytes << ", threshold: " << config::brpc_max_body_size
                          << ", " << channel_info();
         }
     }
 
-    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+    auto remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request->eos()) {
-            cancel(fmt::format("{}, err: timeout", channel_info()));
+            cancel(fmt::format("{}, err: load timeout after {} ms", channel_info(),
+                               _rpc_timeout_ms));
             _send_block_callback->clear_in_flight();
             return;
         } else {
@@ -712,11 +807,30 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             return;
         }
 
+        std::string host = _node_info.host;
+        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+        if (dns_cache == nullptr) {
+            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+        } else if (!is_valid_ip(_node_info.host)) {
+            Status status = dns_cache->get(_node_info.host, &host);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to get ip from host " << _node_info.host << ": "
+                             << status.to_string();
+                _send_block_callback->clear_in_flight();
+                return;
+            }
+        }
         //format an ipv6 address
-        std::string brpc_url = get_brpc_http_url(_node_info.host, _node_info.brpc_port);
+        std::string brpc_url = get_brpc_http_url(host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");
+        if (_brpc_http_stub == nullptr) {
+            cancel(fmt::format("{}, failed to open brpc http client to {}", channel_info(),
+                               brpc_url));
+            _send_block_callback->clear_in_flight();
+            return;
+        }
         _send_block_callback->cntl_->http_request().uri() =
                 brpc_url + "/PInternalServiceImpl/tablet_writer_add_block_by_http";
         _send_block_callback->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);
@@ -808,7 +922,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
     if (result.has_load_channel_profile()) {
         TRuntimeProfileTree tprofile;
         const auto* buf = (const uint8_t*)result.load_channel_profile().data();
-        uint32_t len = result.load_channel_profile().size();
+        auto len = cast_set<uint32_t>(result.load_channel_profile().size());
         auto st = deserialize_thrift_msg(buf, &len, false, &tprofile);
         if (st.ok()) {
             _state->load_channel_profile()->update(tprofile);
@@ -878,7 +992,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
             PTabletWriterCancelRequest,
             DummyBrpcCallback<PTabletWriterCancelResult>>::create_unique(request, cancel_callback);
 
-    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+    auto remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
@@ -892,14 +1006,19 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     static_cast<void>(request->release_id());
 }
 
-Status VNodeChannel::close_wait(RuntimeState* state) {
-    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemoryReclamation::process_full_gc(); });
+Status VNodeChannel::close_wait(RuntimeState* state, bool* is_closed) {
+    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", {
+        std::thread t(injection_full_gc_fn);
+        t.join();
+    });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+
+    *is_closed = true;
 
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
-            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+            std::lock_guard<std::mutex> l(_cancel_msg_lock);
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("wait close failed. {}",
                                                                    _cancel_msg);
         } else {
@@ -908,25 +1027,36 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         }
     }
 
-    // Waiting for finished until _add_batches_finished changed by rpc's finished callback.
-    // it may take a long time, so we couldn't set a timeout
-    // For pipeline engine, the close is called in async writer's process block method,
-    // so that it will not block pipeline thread.
-    while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
-        bthread_usleep(1000);
-    }
-    VLOG_CRITICAL << _parent->_sender_id << " close wait finished";
-    _close_time_ms = UnixMillis() - _close_time_ms;
+    DBUG_EXECUTE_IF("VNodeChannel.close_wait.cancelled", {
+        _cancelled = true;
+        _cancel_msg = "injected cancel";
+    });
 
     if (state->is_cancelled()) {
         _cancel_with_msg(state->cancel_reason().to_string());
     }
 
+    // Waiting for finished until _add_batches_finished changed by rpc's finished callback.
+    // it may take a long time, so we couldn't set a timeout
+    // For pipeline engine, the close is called in async writer's process block method,
+    // so that it will not block pipeline thread.
+    if (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
+        *is_closed = false;
+        return Status::OK();
+    }
+    VLOG_CRITICAL << _parent->_sender_id << " close wait finished";
+    return Status::OK();
+}
+
+Status VNodeChannel::after_close_handle(
+        RuntimeState* state, WriterStats* writer_stats,
+        std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map) {
+    Status st = Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
+    _close_time_ms = UnixMillis() - _close_time_ms;
+
     if (_add_batches_finished) {
         _close_check();
-        state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
-                                            std::make_move_iterator(_tablet_commit_infos.begin()),
-                                            std::make_move_iterator(_tablet_commit_infos.end()));
+        _state->add_tablet_commit_infos(_tablet_commit_infos);
 
         _index_channel->set_error_tablet_in_state(state);
         _index_channel->set_tablets_received_rows(_tablets_received_rows, _node_id);
@@ -936,10 +1066,11 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         // only when normal close, we set _is_closed to true.
         // otherwise, we will set it to true in cancel().
         _is_closed = true;
-        return Status::OK();
+        st = Status::OK();
     }
 
-    return Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
+    time_report(node_add_batch_counter_map, writer_stats);
+    return st;
 }
 
 void VNodeChannel::_close_check() {
@@ -970,14 +1101,17 @@ void VNodeChannel::mark_close(bool hang_wait) {
         DCHECK(_pending_blocks.back().second->eos());
         _close_time_ms = UnixMillis();
         LOG(INFO) << channel_info()
-                  << " mark closed, left pending batch size: " << _pending_blocks.size();
+                  << " mark closed, left pending batch size: " << _pending_blocks.size()
+                  << " hang_wait: " << hang_wait;
     }
 
     _eos_is_produced = true;
 }
 
-VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
-        : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
+VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                             std::shared_ptr<pipeline::Dependency> dep,
+                             std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_exprs, dep, fin_dep), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
@@ -1075,10 +1209,8 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
 
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
-    int32_t send_batch_parallelism =
-            MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
-            ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
+            ThreadPool::ExecutionMode::CONCURRENT, _send_batch_parallelism);
 
     // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
@@ -1092,7 +1224,8 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
     _location->add_locations(*new_locations);
     if (_write_single_replica) {
-        _slave_location->add_locations(*new_locations);
+        auto* slave_locations = _pool->add(new std::vector<TTabletLocation>(result->slave_tablets));
+        _slave_location->add_locations(*slave_locations);
     }
 
     // update new node info
@@ -1120,6 +1253,7 @@ Status VTabletWriter::_init_row_distribution() {
                             .vec_output_expr_ctxs = &_vec_output_expr_ctxs,
                             .schema = _schema,
                             .caller = this,
+                            .write_single_replica = _write_single_replica,
                             .create_partition_callback = &vectorized::on_partitions_created});
 
     return _row_distribution.open(_output_row_desc);
@@ -1138,6 +1272,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_nano_seconds(state->nano_seconds());
     _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
@@ -1210,11 +1345,11 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
-    // if partition_type is TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+    // if partition_type is OLAP_TABLE_SINK_HASH_PARTITIONED, we handle the processing of auto_increment column
     // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
-            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->is_fixed_partial_update() && !_schema->auto_increment_coulumn().empty(),
             _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
@@ -1244,7 +1379,6 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _max_wait_exec_timer = ADD_TIMER(profile, "MaxWaitExecTime");
     _add_batch_number = ADD_COUNTER(profile, "NumberBatchAdded", TUnit::UNIT);
     _num_node_channels = ADD_COUNTER(profile, "NumberNodeChannels", TUnit::UNIT);
-    _load_mem_limit = state->get_load_mem_limit();
 
 #ifdef DEBUG
     // check: tablet ids should be unique
@@ -1342,26 +1476,6 @@ Status VTabletWriter::_incremental_open_node_channel(
     return Status::OK();
 }
 
-static Status cancel_channel_and_check_intolerable_failure(Status status,
-                                                           const std::string& err_msg,
-                                                           IndexChannel& ich, VNodeChannel& nch) {
-    LOG(WARNING) << nch.channel_info() << ", close channel failed, err: " << err_msg;
-    ich.mark_as_failed(&nch, err_msg, -1);
-    // cancel the node channel in best effort
-    nch.cancel(err_msg);
-
-    // check if index has intolerable failure
-    Status index_st = ich.check_intolerable_failure();
-    if (!index_st.ok()) {
-        status = std::move(index_st);
-    } else if (Status st = ich.check_tablet_received_rows_consistency(); !st.ok()) {
-        status = std::move(st);
-    } else if (Status st = ich.check_tablet_filtered_rows_consistency(); !st.ok()) {
-        status = std::move(st);
-    }
-    return status;
-}
-
 void VTabletWriter::_cancel_all_channel(Status status) {
     for (const auto& index_channel : _channels) {
         index_channel->for_each_node_channel([&status](const std::shared_ptr<VNodeChannel>& ch) {
@@ -1380,7 +1494,7 @@ Status VTabletWriter::_send_new_partition_batch() {
 
         Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
 
-        // these order is only.
+        // these order is unique.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
@@ -1440,19 +1554,9 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                 if (!status.ok()) {
                     break;
                 }
-                index_channel->for_init_node_channel(
-                        [this, &index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
-                            if (!status.ok() || ch->is_closed()) {
-                                return;
-                            }
-                            auto s = ch->close_wait(_state);
-                            VLOG_DEBUG << index_channel->_parent->_sender_id << "'s " << ch->host()
-                                       << "close1 wait finished!";
-                            if (!s.ok()) {
-                                status = cancel_channel_and_check_intolerable_failure(
-                                        std::move(status), s.to_string(), *index_channel, *ch);
-                            }
-                        });
+
+                status = index_channel->close_wait(_state, nullptr, nullptr,
+                                                   index_channel->init_node_channel_ids());
                 if (!status.ok()) {
                     break;
                 }
@@ -1513,21 +1617,15 @@ Status VTabletWriter::close(Status exec_status) {
     _do_try_close(_state, exec_status);
     TEST_INJECTION_POINT("VOlapTableSink::close");
 
+    DBUG_EXECUTE_IF("VTabletWriter.close.close_status_not_ok",
+                    { _close_status = Status::InternalError("injected close status not ok"); });
+
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
         auto status = Status::OK();
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
-        int64_t serialize_batch_ns = 0;
-        int64_t queue_push_lock_ns = 0;
-        int64_t actual_consume_ns = 0;
-        int64_t total_add_batch_exec_time_ns = 0;
-        int64_t max_add_batch_exec_time_ns = 0;
-        int64_t total_wait_exec_time_ns = 0;
-        int64_t max_wait_exec_time_ns = 0;
-        int64_t total_add_batch_num = 0;
-        int64_t num_node_channels = 0;
-        VNodeChannelStat channel_stat;
+        WriterStats writer_stats;
 
         for (const auto& index_channel : _channels) {
             if (!status.ok()) {
@@ -1535,28 +1633,8 @@ Status VTabletWriter::close(Status exec_status) {
             }
             int64_t add_batch_exec_time = 0;
             int64_t wait_exec_time = 0;
-            index_channel->for_each_node_channel(
-                    [this, &index_channel, &status, &node_add_batch_counter_map,
-                     &serialize_batch_ns, &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
-                     &total_add_batch_exec_time_ns, &add_batch_exec_time, &total_wait_exec_time_ns,
-                     &wait_exec_time,
-                     &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
-                        if (!status.ok() || (ch->is_closed() && !ch->is_cancelled())) {
-                            return;
-                        }
-                        // in pipeline, all node channels are done or canceled, will not block.
-                        // no pipeline, close may block waiting.
-                        auto s = ch->close_wait(_state);
-                        if (!s.ok()) {
-                            status = cancel_channel_and_check_intolerable_failure(
-                                    std::move(status), s.to_string(), *index_channel, *ch);
-                        }
-                        ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
-                                        &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
-                                        &total_add_batch_exec_time_ns, &add_batch_exec_time,
-                                        &total_wait_exec_time_ns, &wait_exec_time,
-                                        &total_add_batch_num);
-                    });
+            status = index_channel->close_wait(_state, &writer_stats, &node_add_batch_counter_map,
+                                               index_channel->each_node_channel_ids());
 
             // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
             // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding
@@ -1571,21 +1649,22 @@ Status VTabletWriter::close(Status exec_status) {
                 }
             }
 
-            num_node_channels += index_channel->num_node_channels();
-            if (add_batch_exec_time > max_add_batch_exec_time_ns) {
-                max_add_batch_exec_time_ns = add_batch_exec_time;
+            writer_stats.num_node_channels += index_channel->num_node_channels();
+            if (add_batch_exec_time > writer_stats.max_add_batch_exec_time_ns) {
+                writer_stats.max_add_batch_exec_time_ns = add_batch_exec_time;
             }
-            if (wait_exec_time > max_wait_exec_time_ns) {
-                max_wait_exec_time_ns = wait_exec_time;
+            if (wait_exec_time > writer_stats.max_wait_exec_time_ns) {
+                writer_stats.max_wait_exec_time_ns = wait_exec_time;
             }
         } // end for index channels
 
         if (status.ok()) {
             // TODO need to be improved
-            LOG(INFO) << "total mem_exceeded_block_ns=" << channel_stat.mem_exceeded_block_ns
-                      << ", total queue_push_lock_ns=" << queue_push_lock_ns
-                      << ", total actual_consume_ns=" << actual_consume_ns
-                      << ", load id=" << print_id(_load_id);
+            LOG(INFO) << "total mem_exceeded_block_ns="
+                      << writer_stats.channel_stat.mem_exceeded_block_ns
+                      << ", total queue_push_lock_ns=" << writer_stats.queue_push_lock_ns
+                      << ", total actual_consume_ns=" << writer_stats.actual_consume_ns
+                      << ", load id=" << print_id(_load_id) << ", txn_id=" << _txn_id;
 
             COUNTER_SET(_input_rows_counter, _number_input_rows);
             COUNTER_SET(_output_rows_counter, _number_output_rows);
@@ -1596,18 +1675,19 @@ Status VTabletWriter::close(Status exec_status) {
             COUNTER_SET(_send_data_timer, _send_data_ns);
             COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
             COUNTER_SET(_filter_timer, _filter_ns);
-            COUNTER_SET(_append_node_channel_timer, channel_stat.append_node_channel_ns);
-            COUNTER_SET(_where_clause_timer, channel_stat.where_clause_ns);
-            COUNTER_SET(_wait_mem_limit_timer, channel_stat.mem_exceeded_block_ns);
+            COUNTER_SET(_append_node_channel_timer,
+                        writer_stats.channel_stat.append_node_channel_ns);
+            COUNTER_SET(_where_clause_timer, writer_stats.channel_stat.where_clause_ns);
+            COUNTER_SET(_wait_mem_limit_timer, writer_stats.channel_stat.mem_exceeded_block_ns);
             COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
-            COUNTER_SET(_serialize_batch_timer, serialize_batch_ns);
-            COUNTER_SET(_non_blocking_send_work_timer, actual_consume_ns);
-            COUNTER_SET(_total_add_batch_exec_timer, total_add_batch_exec_time_ns);
-            COUNTER_SET(_max_add_batch_exec_timer, max_add_batch_exec_time_ns);
-            COUNTER_SET(_total_wait_exec_timer, total_wait_exec_time_ns);
-            COUNTER_SET(_max_wait_exec_timer, max_wait_exec_time_ns);
-            COUNTER_SET(_add_batch_number, total_add_batch_num);
-            COUNTER_SET(_num_node_channels, num_node_channels);
+            COUNTER_SET(_serialize_batch_timer, writer_stats.serialize_batch_ns);
+            COUNTER_SET(_non_blocking_send_work_timer, writer_stats.actual_consume_ns);
+            COUNTER_SET(_total_add_batch_exec_timer, writer_stats.total_add_batch_exec_time_ns);
+            COUNTER_SET(_max_add_batch_exec_timer, writer_stats.max_add_batch_exec_time_ns);
+            COUNTER_SET(_total_wait_exec_timer, writer_stats.total_wait_exec_time_ns);
+            COUNTER_SET(_max_wait_exec_timer, writer_stats.max_wait_exec_time_ns);
+            COUNTER_SET(_add_batch_number, writer_stats.total_add_batch_num);
+            COUNTER_SET(_num_node_channels, writer_stats.num_node_channels);
 
             // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
             int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
@@ -1664,7 +1744,7 @@ void VTabletWriter::_generate_one_index_channel_payload(
 
     size_t row_cnt = row_ids.size();
 
-    for (int i = 0; i < row_ids.size(); i++) {
+    for (size_t i = 0; i < row_ids.size(); i++) {
         // (tablet_id, VNodeChannel) where this tablet locate
         auto it = _channels[index_idx]->_channels_by_tablet.find(tablet_ids[i]);
         DCHECK(it != _channels[index_idx]->_channels_by_tablet.end())

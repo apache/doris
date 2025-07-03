@@ -17,6 +17,10 @@
 
 
 suite("test_index_lowercase_fault_injection", "nonConcurrent") {
+    if (isCloudMode()) {
+        return;
+    }
+
     // define a sql table
     def testTable = "httplogs_lowercase"
 
@@ -59,6 +63,7 @@ suite("test_index_lowercase_fault_injection", "nonConcurrent") {
         sql """ INSERT INTO ${testTable} VALUES (893964653, '232.0.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 3781); """
 
         sql 'sync'
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_sql """ select count() from ${testTable} where (request match 'HTTP');  """
         qt_sql """ select count() from ${testTable} where (request match 'http');  """

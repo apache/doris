@@ -16,20 +16,33 @@
 // under the License.
 
 suite("test_lakesoul_catalog", "p0,external,doris,external_docker,external_docker_doris") {
-    def enabled = false;
+    String enabled = context.config.otherConfigs.get("enableLakesoulTest")
     // open it when docker image is ready to run in regression test
-    if (enabled) {
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "lakesoul"
         String db_name = "default"
+        String pg_user = context.config.otherConfigs.get("lakesoulPGUser")
+        String pg_pwd = context.config.otherConfigs.get("lakesoulPGPwd")
+        String pg_url = context.config.otherConfigs.get("lakesoulPGUrl")
+        String minio_ak = context.config.otherConfigs.get("lakesoulMinioAK")
+        String minio_sk = context.config.otherConfigs.get("lakesoulMinioSK")
+        String minio_endpoint = context.config.otherConfigs.get("lakesoulMinioEndpoint")
 
         sql """drop catalog if exists ${catalog_name}"""
-        sql """
-            create catalog lakesoul  properties ('type'='lakesoul','lakesoul.pg.username'='lakesoul_test','lakesoul.pg.password'='lakesoul_test','lakesoul.pg.url'='jdbc:postgresql://127.0.0.1:5432/lakesoul_test?stringtype=unspecified');"""
+        sql """create catalog lakesoul  properties (
+            'type'='lakesoul',
+            'lakesoul.pg.username'='${pg_user}',
+            'lakesoul.pg.password'='${pg_pwd}',
+            'lakesoul.pg.url'='${pg_url}',
+            'minio.endpoint'='${minio_endpoint}',
+            'minio.access_key'='${minio_ak}',
+            'minio.secret_key'='${minio_sk}'
+            );"""
 
         // analyze
         sql """use `${catalog_name}`.`${db_name}`"""
 
- sq     """show tables;"""
+        sql """show tables;"""
         // select
         sql  """select * from nation;"""
 

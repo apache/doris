@@ -35,8 +35,10 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
                        Transaction* txn, RowsetMetaCloudPB* rowset_meta);
 
 // Read schema from dictionary metadata, modified to rowset_metas
-void read_schema_from_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
-                           int64_t index_id, Transaction* txn,
-                           google::protobuf::RepeatedPtrField<RowsetMetaCloudPB>* rowset_metas);
+void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
+                      int64_t index_id, Transaction* txn,
+                      google::protobuf::RepeatedPtrField<doris::RowsetMetaCloudPB>* rsp_metas,
+                      SchemaCloudDictionary* rsp_dict,
+                      GetRowsetRequest::SchemaOp schema_op = GetRowsetRequest::FILL_WITH_DICT);
 
 } // namespace doris::cloud

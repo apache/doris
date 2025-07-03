@@ -24,8 +24,6 @@ import org.apache.doris.common.DdlException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
-import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.hive.metastore.messaging.InsertMessage;
 
 import java.util.List;
 
@@ -33,28 +31,18 @@ import java.util.List;
  * MetastoreEvent for INSERT event type
  */
 public class InsertEvent extends MetastoreTableEvent {
-    private final Table hmsTbl;
 
     // for test
     public InsertEvent(long eventId, String catalogName, String dbName,
                        String tblName) {
         super(eventId, catalogName, dbName, tblName, MetastoreEventType.INSERT);
-        this.hmsTbl = null;
     }
 
     private InsertEvent(NotificationEvent event, String catalogName) {
         super(event, catalogName);
         Preconditions.checkArgument(getEventType().equals(MetastoreEventType.INSERT));
         Preconditions
-                .checkNotNull(event.getMessage(), debugString("Event message is null"));
-        try {
-            InsertMessage insertMessage =
-                    MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
-                            .getInsertMessage(event.getMessage());
-            hmsTbl = Preconditions.checkNotNull(insertMessage.getTableObj());
-        } catch (Exception ex) {
-            throw new MetastoreNotificationException(ex);
-        }
+                .checkNotNull(event.getMessage(), getMsgWithEventInfo("Event message is null"));
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event, String catalogName) {
@@ -74,7 +62,7 @@ public class InsertEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
+            logInfo("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
             /**
              *  Only when we use hive client to execute a `INSERT INTO TBL SELECT * ...` or `INSERT INTO TBL ...` sql
              *  to a non-partitioned table then the hms will generate an insert event, and there is not
@@ -87,7 +75,7 @@ public class InsertEvent extends MetastoreTableEvent {
                     eventTime);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"), e);
+                    getMsgWithEventInfo("Failed to process event"), e);
         }
     }
 

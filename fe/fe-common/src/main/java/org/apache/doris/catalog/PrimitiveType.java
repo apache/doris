@@ -62,7 +62,7 @@ public enum PrimitiveType {
     TIME("TIME", 8, TPrimitiveType.TIME, false),
     // these following types are stored as object binary in BE.
     HLL("HLL", 16, TPrimitiveType.HLL, true),
-    BITMAP("BITMAP", 16, TPrimitiveType.OBJECT, true),
+    BITMAP("BITMAP", 16, TPrimitiveType.BITMAP, true),
     QUANTILE_STATE("QUANTILE_STATE", 16, TPrimitiveType.QUANTILE_STATE, true),
     AGG_STATE("AGG_STATE", 16, TPrimitiveType.AGG_STATE, true),
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2, true),
@@ -383,6 +383,7 @@ public enum PrimitiveType {
         builder.put(DATEV2, DATETIME);
         builder.put(DATEV2, DATEV2);
         builder.put(DATEV2, DATETIMEV2);
+        builder.put(DATEV2, TIMEV2);
         builder.put(DATEV2, DECIMALV2);
         builder.put(DATEV2, DECIMAL32);
         builder.put(DATEV2, DECIMAL64);
@@ -403,6 +404,7 @@ public enum PrimitiveType {
         builder.put(DATETIMEV2, DATETIME);
         builder.put(DATETIMEV2, DATEV2);
         builder.put(DATETIMEV2, DATETIMEV2);
+        builder.put(DATETIMEV2, TIMEV2);
         builder.put(DATETIMEV2, DECIMALV2);
         builder.put(DATETIMEV2, DECIMAL32);
         builder.put(DATETIMEV2, DECIMAL64);
@@ -593,6 +595,15 @@ public enum PrimitiveType {
         builder.put(VARIANT, STRING);
         builder.put(VARIANT, JSONB);
 
+        // ipv4
+        builder.put(IPV4, VARCHAR);
+        builder.put(IPV4, STRING);
+        builder.put(IPV4, IPV6);
+
+        // ipv6
+        builder.put(IPV6, VARCHAR);
+        builder.put(IPV6, STRING);
+
         // HLL
         builder.put(HLL, HLL);
 
@@ -605,19 +616,16 @@ public enum PrimitiveType {
         builder.put(AGG_STATE, AGG_STATE);
         builder.put(AGG_STATE, VARCHAR);
 
-        // TIME
-        builder.put(TIME, TIME);
-        builder.put(TIME, TIMEV2);
-        builder.put(TIME, DOUBLE);
-        builder.put(TIME, VARCHAR);
-        builder.put(TIME, STRING);
-
-        //TIMEV2
+        // TIMEV2
         builder.put(TIMEV2, TIME);
         builder.put(TIMEV2, TIMEV2);
         builder.put(TIMEV2, DOUBLE);
         builder.put(TIMEV2, VARCHAR);
         builder.put(TIMEV2, STRING);
+        builder.put(TIMEV2, DATE);
+        builder.put(TIMEV2, DATETIME);
+        builder.put(TIMEV2, DATEV2);
+        builder.put(TIMEV2, DATETIMEV2);
 
         implicitCastMap = builder.build();
     }
@@ -785,7 +793,7 @@ public enum PrimitiveType {
                 return CHAR;
             case HLL:
                 return HLL;
-            case OBJECT:
+            case BITMAP:
                 return BITMAP;
             case QUANTILE_STATE:
                 return QUANTILE_STATE;

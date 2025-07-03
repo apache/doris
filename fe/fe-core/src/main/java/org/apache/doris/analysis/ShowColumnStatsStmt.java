@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -50,7 +51,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class ShowColumnStatsStmt extends ShowStmt {
+public class ShowColumnStatsStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ImmutableList<String> TABLE_COLUMN_TITLE_NAMES =
             new ImmutableList.Builder<String>()
@@ -70,6 +71,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     .add("updated_time")
                     .add("update_rows")
                     .add("last_analyze_row_count")
+                    .add("last_analyze_version")
+                    .add("hot_values")
                     .build();
 
     private static final ImmutableList<String> PARTITION_COLUMN_TITLE_NAMES =
@@ -169,7 +172,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
             List<String> row = Lists.newArrayList();
             // p data structure is Pair<Pair<IndexName, ColumnName>, ColumnStatistic>
             row.add(p.first.second);
-            row.add(p.first.first);
+            row.add(Util.getTempTableDisplayName(p.first.first));
             row.add(String.valueOf(p.second.count));
             row.add(String.valueOf(p.second.ndv));
             row.add(String.valueOf(p.second.numNulls));
@@ -185,6 +188,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.updatedTime));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.updatedRows));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.rowCount));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.tableVersion));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : p.second.getStringHotValues()));
             result.add(row);
         });
         return new ShowResultSet(getMetaData(), result);

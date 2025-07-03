@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -39,6 +41,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_HADOOP = "hadoop";
     public static final String ICEBERG_GLUE = "glue";
     public static final String ICEBERG_DLF = "dlf";
+    public static final String ICEBERG_S3_TABLES = "s3tables";
+    public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
     protected String icebergCatalogType;
     protected Catalog catalog;
 
@@ -50,13 +54,39 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected abstract void initCatalog();
 
     @Override
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
+        }
+    }
+
+    @Override
     protected void initLocalObjectsImpl() {
+        initPreExecutionAuthenticator();
         initCatalog();
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
+        threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
+            ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+            Integer.MAX_VALUE,
+            String.format("iceberg_catalog_%s_executor_pool", name),
+            true,
+            preExecutionAuthenticator);
         metadataOps = ops;
     }
 
+    /**
+     * Returns the underlying {@link Catalog} instance used by this external catalog.
+     *
+     * <p><strong>Warning:</strong> This method does not handle any authentication logic. If the
+     * returned catalog implementation relies on external systems
+     * that require authentication — especially in environments where Kerberos is enabled — the caller is
+     * fully responsible for ensuring the appropriate authentication has been performed <em>before</em>
+     * invoking this method.
+     * <p>Failing to authenticate beforehand may result in authorization errors or IO failures.
+     *
+     * @return the underlying catalog instance
+     */
     public Catalog getCatalog() {
         makeSureInitialized();
         return ((IcebergMetadataOps) metadataOps).getCatalog();
@@ -76,11 +106,29 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        return metadataOps.listTableNames(dbName);
+        // On the Doris side, the result of SHOW TABLES for Iceberg external tables includes both tables and views,
+        // so the combined set of tables and views is used here.
+        List<String> tableNames = metadataOps.listTableNames(dbName);
+        List<String> viewNames = metadataOps.listViewNames(dbName);
+        tableNames.addAll(viewNames);
+        return tableNames;
+    }
+
+    @Override
+    public void onClose() {
+        super.onClose();
+        if (null != catalog) {
+            catalog = null;
+        }
     }
 
     protected void initS3Param(Configuration conf) {
         Map<String, String> properties = catalogProperty.getHadoopProperties();
         conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
+    }
+
+    @Override
+    public boolean viewExists(String dbName, String viewName) {
+        return metadataOps.viewExists(dbName, viewName);
     }
 }

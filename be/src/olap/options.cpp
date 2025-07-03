@@ -17,6 +17,8 @@
 
 #include "olap/options.h"
 
+#include <absl/strings/ascii.h>
+#include <absl/strings/str_split.h>
 #include <ctype.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
@@ -30,8 +32,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
-#include "gutil/strings/strip.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
@@ -56,6 +57,10 @@ static std::string CACHE_QUERY_LIMIT_SIZE = "query_limit";
 static std::string CACHE_NORMAL_PERCENT = "normal_percent";
 static std::string CACHE_DISPOSABLE_PERCENT = "disposable_percent";
 static std::string CACHE_INDEX_PERCENT = "index_percent";
+static std::string CACHE_TTL_PERCENT = "ttl_percent";
+static std::string CACHE_STORAGE = "storage";
+static std::string CACHE_STORAGE_DISK = "disk";
+static std::string CACHE_STORAGE_MEMORY = "memory";
 
 // TODO: should be a general util method
 // static std::string to_upper(const std::string& str) {
@@ -70,10 +75,10 @@ static std::string CACHE_INDEX_PERCENT = "index_percent";
 //   format 2:   /home/disk1/palo,medium:ssd,capacity:50
 //   remote cache format:  /home/disk/palo/cache,medium:remote_cache,capacity:50
 Status parse_root_path(const string& root_path, StorePath* path) {
-    std::vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
+    std::vector<string> tmp_vec = absl::StrSplit(root_path, ",", absl::SkipWhitespace());
 
     // parse root path name
-    StripWhiteSpace(&tmp_vec[0]);
+    absl::StripAsciiWhitespace(&tmp_vec[0]);
     tmp_vec[0].erase(tmp_vec[0].find_last_not_of('/') + 1);
     if (tmp_vec[0].empty() || tmp_vec[0][0] != '/') {
         return Status::Error<INVALID_ARGUMENT>("invalid store path. path={}", tmp_vec[0]);
@@ -96,8 +101,7 @@ Status parse_root_path(const string& root_path, StorePath* path) {
         // <property>:<value> or <value>
         string property;
         string value;
-        std::pair<string, string> pair =
-                strings::Split(tmp_vec[i], strings::delimiter::Limit(":", 1));
+        std::pair<string, string> pair = absl::StrSplit(tmp_vec[i], absl::MaxSplits(":", 1));
         if (pair.second.empty()) {
             // format_1: <value> only supports setting capacity
             property = CAPACITY_UC;
@@ -108,8 +112,8 @@ Status parse_root_path(const string& root_path, StorePath* path) {
             value = pair.second;
         }
 
-        StripWhiteSpace(&property);
-        StripWhiteSpace(&value);
+        absl::StripAsciiWhitespace(&property);
+        absl::StripAsciiWhitespace(&value);
         if (property == CAPACITY_UC) {
             capacity_str = value;
         } else if (property == MEDIUM_UC) {
@@ -150,7 +154,7 @@ Status parse_root_path(const string& root_path, StorePath* path) {
 }
 
 Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>* paths) {
-    std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
+    std::vector<string> path_vec = absl::StrSplit(config_path, ";", absl::SkipWhitespace());
     if (path_vec.empty()) {
         // means compute node
         return Status::OK();
@@ -185,7 +189,7 @@ Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>*
 }
 
 void parse_conf_broken_store_paths(const string& config_path, std::set<std::string>* paths) {
-    std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
+    std::vector<string> path_vec = absl::StrSplit(config_path, ";", absl::SkipWhitespace());
     if (path_vec.empty()) {
         return;
     }
@@ -203,7 +207,8 @@ void parse_conf_broken_store_paths(const string& config_path, std::set<std::stri
  *  [
  *    {"path": "storage1", "total_size":53687091200,"query_limit": "10737418240"},
  *    {"path": "storage2", "total_size":53687091200},
- *    {"path": "storage3", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
+ *    {"path": "storage3", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
+ *    {"path": "xxx", "total_size":53687091200, "storage": "memory"}
  *  ]
  */
 Status parse_conf_cache_paths(const std::string& config_path, std::vector<CachePath>& paths) {
@@ -215,13 +220,27 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
         auto map = config.GetObject();
         DCHECK(map.HasMember(CACHE_PATH.c_str()));
         std::string path = map.FindMember(CACHE_PATH.c_str())->value.GetString();
+        std::string storage = CACHE_STORAGE_DISK; // disk storage by default
+        if (map.HasMember(CACHE_STORAGE.c_str())) {
+            storage = map.FindMember(CACHE_STORAGE.c_str())->value.GetString();
+            if (storage != CACHE_STORAGE_DISK && storage != CACHE_STORAGE_MEMORY) [[unlikely]] {
+                return Status::InvalidArgument("invalid file cache storage type: " + storage);
+            }
+            if (storage == CACHE_STORAGE_MEMORY) {
+                // set path to "memory" for memory storage
+                // so that we can track it by path (use _path_to_cache map)
+                path = CACHE_STORAGE_MEMORY;
+            }
+        }
         int64_t total_size = 0, query_limit_bytes = 0;
         if (map.HasMember(CACHE_TOTAL_SIZE.c_str())) {
             auto& value = map.FindMember(CACHE_TOTAL_SIZE.c_str())->value;
             if (value.IsInt64()) {
                 total_size = value.GetInt64();
             } else {
-                return Status::InvalidArgument("total_size should be int64");
+                total_size = 0;
+                LOG(WARNING) << "[FileCache] the value of " << CACHE_TOTAL_SIZE.c_str()
+                             << " is not int64: " << value.GetString() << " , use 0 as default";
             }
         }
         if (config::enable_file_cache_query_limit) {
@@ -230,13 +249,14 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
                 if (value.IsInt64()) {
                     query_limit_bytes = value.GetInt64();
                 } else {
-                    return Status::InvalidArgument("query_limit should be int64");
+                    query_limit_bytes = 0;
+                    LOG(WARNING) << "[FileCache] the value of " << CACHE_QUERY_LIMIT_SIZE.c_str()
+                                 << " is not int64: " << value.GetString() << " , use 0 as default";
                 }
             }
         }
-        if (total_size <= 0 || (config::enable_file_cache_query_limit && query_limit_bytes <= 0)) {
-            return Status::InvalidArgument(
-                    "total_size or query_limit should not less than or equal to zero");
+        if (total_size < 0 || (config::enable_file_cache_query_limit && query_limit_bytes < 0)) {
+            return Status::InvalidArgument("total_size or query_limit should not less than zero");
         }
 
         // percent
@@ -250,26 +270,33 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
             return Status::OK();
         };
 
-        size_t normal_percent = 85;
-        size_t disposable_percent = 10;
-        size_t index_percent = 5;
+        size_t normal_percent = io::DEFAULT_NORMAL_PERCENT;
+        size_t disposable_percent = io::DEFAULT_DISPOSABLE_PERCENT;
+        size_t index_percent = io::DEFAULT_INDEX_PERCENT;
+        size_t ttl_percent = io::DEFAULT_TTL_PERCENT;
         bool has_normal_percent = map.HasMember(CACHE_NORMAL_PERCENT.c_str());
         bool has_disposable_percent = map.HasMember(CACHE_DISPOSABLE_PERCENT.c_str());
         bool has_index_percent = map.HasMember(CACHE_INDEX_PERCENT.c_str());
-        if (has_normal_percent && has_disposable_percent && has_index_percent) {
+        bool has_ttl_percent = map.HasMember(CACHE_TTL_PERCENT.c_str());
+        if (has_normal_percent && has_disposable_percent && has_index_percent && has_ttl_percent) {
             RETURN_IF_ERROR(get_percent_value(CACHE_NORMAL_PERCENT, normal_percent));
             RETURN_IF_ERROR(get_percent_value(CACHE_DISPOSABLE_PERCENT, disposable_percent));
             RETURN_IF_ERROR(get_percent_value(CACHE_INDEX_PERCENT, index_percent));
-        } else if (has_normal_percent || has_disposable_percent || has_index_percent) {
+            RETURN_IF_ERROR(get_percent_value(CACHE_TTL_PERCENT, ttl_percent));
+        } else if (has_normal_percent || has_disposable_percent || has_index_percent ||
+                   has_ttl_percent) {
             return Status::InvalidArgument(
-                    "cache percent config must either be all set or all unset.");
+                    "cache percent (ttl_percent, index_percent, normal_percent, "
+                    "disposable_percent) must either be all set or all unset. "
+                    "when all unset, use default: ttl_percent=50, index_percent=5, "
+                    "normal_percent=40, disposable_percent=5.");
         }
-        if ((normal_percent + disposable_percent + index_percent) != 100) {
+        if ((normal_percent + disposable_percent + index_percent + ttl_percent) != 100) {
             return Status::InvalidArgument("The sum of cache percent config must equal 100.");
         }
 
         paths.emplace_back(std::move(path), total_size, query_limit_bytes, normal_percent,
-                           disposable_percent, index_percent);
+                           disposable_percent, index_percent, ttl_percent, storage);
     }
     if (paths.empty()) {
         return Status::InvalidArgument("fail to parse storage_root_path config. value={}",
@@ -280,7 +307,7 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
 
 io::FileCacheSettings CachePath::init_settings() const {
     return io::get_file_cache_settings(total_bytes, query_limit_bytes, normal_percent,
-                                       disposable_percent, index_percent);
+                                       disposable_percent, index_percent, ttl_percent, storage);
 }
 
 } // end namespace doris

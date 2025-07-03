@@ -86,6 +86,10 @@ public class TimeUtils {
         return DATETIME_FORMAT.withZone(getDorisZoneId());
     }
 
+    public static DateTimeFormatter getDatetimeFormatFromTimeZone(String timeZone) {
+        return DATETIME_FORMAT.withZone(getOrSystemTimeZone(timeZone).toZoneId());
+    }
+
     public static DateTimeFormatter getTimeFormatWithTimeZone() {
         return TIME_FORMAT.withZone(getDorisZoneId());
     }
@@ -178,6 +182,14 @@ public class TimeUtils {
         return longToTimeStringWithFormat(timeStamp, getDatetimeFormatWithTimeZone());
     }
 
+    public static String longToTimeStringWithTimeZone(Long timeStamp, String timeZone) {
+        if (timeStamp == null || timeStamp <= 0L) {
+            return FeConstants.null_string;
+        }
+        DateTimeFormatter dateFormat = getDatetimeFormatFromTimeZone(timeZone);
+        return dateFormat.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(timeStamp), dateFormat.getZone()));
+    }
+
     public static String longToTimeStringWithms(Long timeStamp) {
         return longToTimeStringWithFormat(timeStamp, getDatetimeMsFormatWithTimeZone());
     }
@@ -255,6 +267,17 @@ public class TimeUtils {
             return -1;
         }
         return d.getTime();
+    }
+
+    /**
+     * Converts a millisecond timestamp to a second-level timestamp.
+     *
+     * @param timestamp The millisecond timestamp to be converted.
+     * @return The timestamp rounded to the nearest second (in milliseconds).
+     */
+    public static long convertToSecondTimestamp(long timestamp) {
+        // Divide by 1000 to convert to seconds, then multiply by 1000 to return to milliseconds with no fractional part
+        return (timestamp / 1000) * 1000;
     }
 
     public static long timeStringToLong(String timeStr, TimeZone timeZone) {
@@ -340,4 +363,39 @@ public class TimeUtils {
                 parts.length > 3 ? String.format(" %02d:%02d:%02d", Integer.parseInt(parts[3]),
                         Integer.parseInt(parts[4]), Integer.parseInt(parts[5])) : "");
     }
+
+
+    // Refer to be/src/vec/runtime/vdatetime_value.h
+    public static long convertToDateTimeV2(
+            int year, int month, int day, int hour, int minute, int second, int microsecond) {
+        return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
+                | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
+    // Refer to be/src/vec/runtime/vdatetime_value.h
+    public static long convertToDateV2(
+            int year, int month, int day) {
+        return (long) day | (long) month << 5 | (long) year << 9;
+    }
+
+    public static long convertStringToDateTimeV2(String dateTimeStr, int scale) {
+        String format = "yyyy-MM-dd HH:mm:ss";
+        if (scale > 0) {
+            format += ".";
+            for (int i = 0; i < scale; i++) {
+                format += "S";
+            }
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(format);
+        LocalDateTime dateTime = TimeUtils.formatDateTimeAndFullZero(dateTimeStr, formatter);
+        return convertToDateTimeV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
+    }
+
+    public static long convertStringToDateV2(String dateStr) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        LocalDateTime dateTime = TimeUtils.formatDateTimeAndFullZero(dateStr, formatter);
+        return convertToDateV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
 }
+

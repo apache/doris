@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "gutil/port.h"
 #include "util/bit_packing.h"
 #include "util/bit_util.h"
 #include "util/faststring.h"
@@ -144,6 +143,10 @@ public:
     static const int MAX_VLQ_BYTE_LEN_FOR_INT64 = 10;
 
     bool is_initialized() const { return buffer_ != nullptr; }
+
+    const uint8_t* buffer() const { return buffer_; }
+
+    int max_bytes() const { return max_bytes_; }
 
 private:
     // Used by SeekToBit() and GetValue() to fetch the

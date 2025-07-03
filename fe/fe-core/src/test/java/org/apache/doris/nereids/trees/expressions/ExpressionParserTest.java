@@ -306,6 +306,24 @@ public class ExpressionParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testIsTrue() {
+        String e1 = "a is true";
+        assertExpr(e1);
+
+        String e2 = "a is not true";
+        assertExpr(e2);
+    }
+
+    @Test
+    public void testIsFalse() {
+        String e1 = "a is false";
+        assertExpr(e1);
+
+        String e2 = "a is not false";
+        assertExpr(e2);
+    }
+
+    @Test
     public void testMatch() {
         String sql = "select * from test "
                 + "where (a match 'hello' or a match_any 'world') "

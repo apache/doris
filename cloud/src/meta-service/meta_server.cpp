@@ -176,6 +176,7 @@ MetaServerRegister::MetaServerRegister(std::shared_ptr<TxnKv> txn_kv)
         }
         LOG(INFO) << "register thread quits";
     }));
+    pthread_setname_np(register_thread_->native_handle(), "ms_register_thread");
 }
 
 MetaServerRegister::~MetaServerRegister() {

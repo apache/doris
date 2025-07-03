@@ -80,7 +80,7 @@ import java.util.stream.Collectors;
  * clauses.
  */
 @Deprecated
-public class SelectStmt extends QueryStmt {
+public class SelectStmt extends QueryStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(SelectStmt.class);
     public static final String DEFAULT_VALUE = "__DEFAULT_VALUE__";
     private UUID id = UUID.randomUUID();
@@ -859,6 +859,9 @@ public class SelectStmt extends QueryStmt {
                         || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
                 return false;
             }
+            if (getOrderByElements().stream().anyMatch(e -> e.getExpr().getType().isArrayType())) {
+                return false;
+            }
             // Check order by exprs are all slot refs
             // Rethink? implement more generic to support all exprs
             if (LOG.isDebugEnabled()) {
@@ -1333,35 +1336,26 @@ public class SelectStmt extends QueryStmt {
              *     select id, floor(v1) v, sum(v2) vsum from table group by id,v having(v>1 AND vsum>1);
              */
             if (groupByClause != null) {
-                boolean aliasFirst = false;
-                if (analyzer.getContext() != null) {
-                    aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
-                }
-                if (!aliasFirst) {
-                    ExprSubstitutionMap excludeAliasSMap = aliasSMap.clone();
-                    List<Expr> havingSlots = Lists.newArrayList();
-                    havingClause.collect(SlotRef.class, havingSlots);
-                    for (Expr expr : havingSlots) {
-                        if (excludeAliasSMap.get(expr) == null) {
-                            continue;
-                        }
-                        try {
-                            // try to use column name firstly
-                            expr.clone().analyze(analyzer);
-                            // analyze success means column name exist, do not use alias name
-                            excludeAliasSMap.removeByLhsExpr(expr);
-                        } catch (AnalysisException ex) {
-                            // according to case3, column name do not exist, keep alias name inside alias map
-                            if (ConnectContext.get() != null) {
-                                ConnectContext.get().getState().reset();
-                            }
+                ExprSubstitutionMap excludeAliasSMap = aliasSMap.clone();
+                List<Expr> havingSlots = Lists.newArrayList();
+                havingClause.collect(SlotRef.class, havingSlots);
+                for (Expr expr : havingSlots) {
+                    if (excludeAliasSMap.get(expr) == null) {
+                        continue;
+                    }
+                    try {
+                        // try to use column name firstly
+                        expr.clone().analyze(analyzer);
+                        // analyze success means column name exist, do not use alias name
+                        excludeAliasSMap.removeByLhsExpr(expr);
+                    } catch (AnalysisException ex) {
+                        // according to case3, column name do not exist, keep alias name inside alias map
+                        if (ConnectContext.get() != null) {
+                            ConnectContext.get().getState().reset();
                         }
                     }
-                    havingClauseAfterAnalyzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
-                } else {
-                    // If user set force using alias, then having clauses prefer using alias rather than column name
-                    havingClauseAfterAnalyzed = havingClause.substitute(aliasSMap, analyzer, false);
                 }
+                havingClauseAfterAnalyzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
             } else {
                 // according to mysql
                 // if there is no group by clause, the having clause should use alias
@@ -1499,11 +1493,7 @@ public class SelectStmt extends QueryStmt {
                 groupingInfo.buildRepeat(groupingExprs, groupByClause.getGroupingSetList());
             }
 
-            boolean aliasFirst = false;
-            if (analyzer.getContext() != null) {
-                aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
-            }
-            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, aliasFirst);
+            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, false);
             // the groupingExprs must substitute in the same way as resultExprs
             groupingExprs = Expr.substituteList(groupingExprs, countAllMap, analyzer, false);
 
@@ -2435,7 +2425,7 @@ public class SelectStmt extends QueryStmt {
             strBuilder.append("DISTINCT ");
         }
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList || resultExprs.isEmpty()) {
+        if (ctx == null || ctx.getState().isInternal() || toSQLWithSelectList || resultExprs.isEmpty()) {
             for (int i = 0; i < selectList.getItems().size(); i++) {
                 strBuilder.append(selectList.getItems().get(i).toSql());
                 strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
@@ -2658,11 +2648,7 @@ public class SelectStmt extends QueryStmt {
 
         // substitute group by
         if (groupByClause != null) {
-            boolean aliasFirst = false;
-            if (analyzer.getContext() != null) {
-                aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
-            }
-            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, aliasFirst);
+            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, false);
         }
         // substitute having
         if (havingClause != null) {
@@ -2899,5 +2885,10 @@ public class SelectStmt extends QueryStmt {
     public void resetSelectList(SelectList selectList) {
         this.selectList = selectList;
         this.originSelectList = selectList.clone();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SELECT;
     }
 }

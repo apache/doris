@@ -23,7 +23,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "gutil/stringprintf.h"
 #include "olap/tablet_meta.h"
 
 namespace doris {

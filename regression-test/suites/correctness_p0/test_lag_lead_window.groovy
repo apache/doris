@@ -41,6 +41,12 @@ suite("test_lag_lead_window") {
                                   lead(cc,1,'') over (PARTITION by cc  order by aa) as lead_cc 
                            from ${tableName} 
                            order by aa; """
+
+    qt_select_default3 """ select aa,cc,bb,lead(cc,1,bb) over (PARTITION by cc  order by aa) as lead_res,
+                                  lag(cc,1,bb) over (PARTITION by cc  order by aa) as lag_res 
+                           from ${tableName} 
+                           order by aa; """
+
     sql """ DROP TABLE IF EXISTS test1 """
     sql """ CREATE TABLE IF NOT EXISTS test1 (id varchar(255), create_time datetime)
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1"); """
@@ -51,5 +57,47 @@ suite("test_lag_lead_window") {
     qt_select_default """ select id, create_time, lead(create_time, 1, '2022-09-06 00:00:00') over
                           (order by create_time desc) as "prev_time" from test1; """
     qt_select_default """ select id, create_time, lead(create_time, 1, date_sub('2022-09-06 00:00:00', interval 7 day)) over (order by create_time desc) as "prev_time" from test1; """
+
+    qt_select_lag_1 """ select id, create_time, lag(create_time) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_2 """ select id, create_time, lag(create_time,1) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_3 """ select id, create_time, lag(create_time,1,NULL) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_4 """ select id, create_time, lead(create_time) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_5 """ select id, create_time, lead(create_time,1) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_6 """ select id, create_time, lead(create_time,1,NULL) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+
     sql """ DROP TABLE IF EXISTS test1 """
+
+
+    qt_select_lead_7 """        SELECT
+        sale_date,
+        product_id,
+        quantity,
+        LEAD (quantity, 1, quantity) OVER (
+            PARTITION BY
+            product_id
+            ORDER BY
+            sale_date
+        ) AS next_day_quantity,
+        LAG (quantity, 1, quantity) OVER (
+            PARTITION BY
+            product_id
+            ORDER BY
+            sale_date
+        ) AS pre_day_quantity
+        FROM 
+            (
+                select 1 AS product_id, '2023-01-01' AS sale_date, 10 AS quantity
+                UNION ALL
+                select 1, '2023-01-02', 20
+                UNION ALL
+                select 1, '2023-01-03', 30
+                UNION ALL
+                select 1,  '2023-01-04', NULL
+            ) AS t
+        ORDER BY
+        product_id,
+        sale_date;
+    """
+
+
 }

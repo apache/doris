@@ -29,7 +29,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -46,7 +45,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <bool reverse>
 class FunctionArraySplit : public IFunction {
 public:
@@ -61,7 +60,7 @@ public:
     };
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         // <Nullable>(Array(<Nullable>(Int)))
         auto src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -105,9 +104,10 @@ public:
 
         auto inner_result = ColumnArray::create(src_data, std::move(col_offsets_inner));
         auto outer_result = ColumnArray::create(
-                ColumnNullable::create(inner_result, ColumnUInt8::create(inner_result->size(), 0)),
+                ColumnNullable::create(std::move(inner_result),
+                                       ColumnUInt8::create(inner_result->size(), 0)),
                 std::move(col_offsets_outer));
-        block.replace_by_position(result, outer_result);
+        block.replace_by_position(result, std::move(outer_result));
         return Status::OK();
     }
 

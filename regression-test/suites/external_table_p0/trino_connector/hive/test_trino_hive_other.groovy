@@ -16,16 +16,6 @@
 // under the License.
 
 suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hive") {
-    def host_ips = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def b in backends) {
-        host_ips.add(b[1])
-    }
-    String [][] frontends = sql """ show frontends """
-    for (def f in frontends) {
-        host_ips.add(f[1])
-    }
-    dispatchTrinoConnectors(host_ips.unique())
 
     def q01 = {
         qt_q24 """ select name, count(1) as c from student group by name order by name desc;"""
@@ -62,6 +52,16 @@ suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hi
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
         String hms_port = context.config.otherConfigs.get("hive2HmsPort")
         String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -80,7 +80,7 @@ suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hi
         sql """create user ext_catalog_user identified by '12345'"""
         sql """grant all on internal.${context.config.defaultDb}.* to ext_catalog_user"""
         sql """grant all on ${catalog_name}.*.* to ext_catalog_user"""
-        connect(user = 'ext_catalog_user', password = '12345', url = context.config.jdbcUrl) {
+        connect('ext_catalog_user', '12345', context.config.jdbcUrl) {
             def database_lists = sql """show databases from ${catalog_name}"""
             boolean ok = false;
             for (int i = 0; i < database_lists.size(); ++j) {

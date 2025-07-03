@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TPartitionsMetadataParams;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -55,7 +56,7 @@ import java.util.Optional;
 
 /**
  * The Implement of table valued function
- * partitions("database" = "db1","table" = "table1").
+ * partitions("catalog"="ctl1", "database" = "db1","table" = "table1").
  */
 public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
     private static final Logger LOG = LogManager.getLogger(PartitionsTableValuedFunction.class);
@@ -210,7 +211,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getMetaScanRange() start");
         }
@@ -224,7 +225,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getMetaScanRange() end");
         }
-        return metaScanRange;
+        return Lists.newArrayList(metaScanRange);
     }
 
     @Override

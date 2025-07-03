@@ -17,13 +17,11 @@
 
 package org.apache.doris.nereids;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class UnsupportedTypeTest extends TestWithFeService {
@@ -71,30 +69,8 @@ public class UnsupportedTypeTest extends TestWithFeService {
         }
     }
 
-    @Test
-    public void testGroupByAndHavingUseAliasFirstThrowException() {
-        String[] sqls = {"SELECT\n"
-                + "            date_format(date, '%x%v') AS `date`,\n"
-                + "            count(date) AS `diff_days`\n"
-                + "            FROM type_tb\n"
-                + "            GROUP BY date\n"
-                + "            HAVING date = 20221111\n"
-                + "            ORDER BY date;",
-                "SELECT\n"
-                        + "            date_format(date, '%x%v') AS `date`,\n"
-                        + "            count(date) AS `diff_days`\n"
-                        + "            FROM type_tb\n"
-                        + "            GROUP BY date\n"
-                        + "            HAVING date = 20221111\n"
-                        + "            ORDER BY date;"
-        };
-        runPlanner(sqls[0]);
-        connectContext.getSessionVariable().groupByAndHavingUseAliasFirst = true;
-        Assertions.assertThrows(AnalysisException.class, () -> runPlanner(sqls[1]));
-    }
-
     private void runPlanner(String sql) {
-        new NereidsPlanner(MemoTestUtils.createStatementContext(connectContext, sql)).plan(
+        new NereidsPlanner(MemoTestUtils.createStatementContext(connectContext, sql)).planWithLock(
                 new NereidsParser().parseSingle(sql),
                 PhysicalProperties.ANY
         );

@@ -90,4 +90,8 @@ suite("test_string_function_like") {
     qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"%\") ORDER BY k;"
 
     // sql "DROP TABLE ${tbName};"
+    qt_crc32_1 "select crc32(\"DORIS\");"
+    qt_crc32_2 "select crc32(\"APACHE DORIS\");"
+    qt_crc32_3 "select crc32(10);"
+    qt_crc32_4 "select crc32(NULL);"
 }

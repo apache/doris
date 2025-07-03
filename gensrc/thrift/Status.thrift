@@ -69,6 +69,7 @@ enum TStatusCode {
     ILLEGAL_STATE       = 37,
     NOT_AUTHORIZED      = 38,
     ABORTED             = 39,
+    DIRECTORY_NOT_EMPTY = 40,
     //REMOTE_ERROR        = 40,
     //SERVICE_UNAVAILABLE = 41, // Not used any more
     UNINITIALIZED       = 42,
@@ -103,6 +104,10 @@ enum TStatusCode {
     TABLET_MISSING = 72,
 
     NOT_MASTER = 73,
+
+    OBTAIN_LOCK_FAILED = 74,
+
+    SNAPSHOT_EXPIRED = 75,
 
     // used for cloud
     DELETE_BITMAP_LOCK_ERROR = 100,

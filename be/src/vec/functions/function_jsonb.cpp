@@ -30,14 +30,10 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/jsonb_value.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
-#include "util/jsonb_error.h"
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 #include "util/jsonb_stream.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -47,7 +43,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -61,10 +56,14 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
+#include "vec/functions/like.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/json/simd_json_parser.h"
+#include "vec/utils/stringop_substring.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 enum class NullalbeMode {
     NULLABLE = 0,
@@ -79,7 +78,7 @@ template <NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mod
 class FunctionJsonbParseBase : public IFunction {
 private:
     struct FunctionJsonbParseState {
-        JsonbParser default_value_parser;
+        JsonBinaryValue default_value_parser;
         bool has_const_default_value = false;
     };
 
@@ -163,20 +162,13 @@ public:
             if (context->is_col_constant(1)) {
                 const auto default_value_col = context->get_constant_col(1)->column_ptr;
                 const auto& default_value = default_value_col->get_data_at(0);
-
-                JsonbErrType error = JsonbErrType::E_NONE;
                 if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-                    FunctionJsonbParseState* state = reinterpret_cast<FunctionJsonbParseState*>(
+                    auto* state = reinterpret_cast<FunctionJsonbParseState*>(
                             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
-                    if (!state->default_value_parser.parse(default_value.data,
-                                                           default_value.size)) {
-                        error = state->default_value_parser.getErrorCode();
-                        return Status::InvalidArgument(
-                                "invalid default json value: {} , error: {}",
-                                std::string_view(default_value.data, default_value.size),
-                                JsonbErrMsg::getErrMsg(error));
-                    }
+                    RETURN_IF_ERROR(state->default_value_parser.from_json_string(
+                            default_value.data, default_value.size));
+
                     state->has_const_default_value = true;
                 }
             }
@@ -185,7 +177,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(0, 0);
@@ -237,8 +229,7 @@ public:
         col_to->reserve(size);
 
         // parser can be reused for performance
-        JsonbParser parser;
-        JsonbErrType error = JsonbErrType::E_NONE;
+        JsonBinaryValue jsonb_value;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (col_from.is_null_at(i)) {
@@ -248,20 +239,14 @@ public:
             }
 
             const auto& val = col_from_string->get_data_at(i);
-            if (parser.parse(val.data, val.size)) {
+            auto st = jsonb_value.from_json_string(val.data, val.size);
+            if (st.ok()) {
                 // insert jsonb format data
-                col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
-                                    (size_t)parser.getWriter().getOutput()->getSize());
+                col_to->insert_data(jsonb_value.value(), jsonb_value.size());
             } else {
-                error = parser.getErrorCode();
-                LOG(WARNING) << "json parse error: " << JsonbErrMsg::getErrMsg(error)
-                             << " for value: " << std::string_view(val.data, val.size);
-
                 switch (parse_error_handle_mode) {
                 case JsonbParseErrorMode::FAIL:
-                    return Status::InvalidArgument("json parse error: {} for value: {}",
-                                                   JsonbErrMsg::getErrMsg(error),
-                                                   std::string_view(val.data, val.size));
+                    return st;
                 case JsonbParseErrorMode::RETURN_NULL: {
                     if (is_nullable) {
                         null_map->get_data()[i] = 1;
@@ -270,26 +255,16 @@ public:
                     continue;
                 }
                 case JsonbParseErrorMode::RETURN_VALUE: {
-                    FunctionJsonbParseState* state = reinterpret_cast<FunctionJsonbParseState*>(
+                    auto* state = reinterpret_cast<FunctionJsonbParseState*>(
                             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
                     if (state->has_const_default_value) {
-                        col_to->insert_data(
-                                state->default_value_parser.getWriter().getOutput()->getBuffer(),
-                                (size_t)state->default_value_parser.getWriter()
-                                        .getOutput()
-                                        ->getSize());
+                        col_to->insert_data(state->default_value_parser.value(),
+                                            state->default_value_parser.size());
                     } else {
-                        auto val = block.get_by_position(arguments[1]).column->get_data_at(i);
-                        if (parser.parse(val.data, val.size)) {
-                            // insert jsonb format data
-                            col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
-                                                (size_t)parser.getWriter().getOutput()->getSize());
-                        } else {
-                            return Status::InvalidArgument(
-                                    "json parse error: {} for default value: {}",
-                                    JsonbErrMsg::getErrMsg(error),
-                                    std::string_view(val.data, val.size));
-                        }
+                        auto value = block.get_by_position(arguments[1]).column->get_data_at(i);
+                        RETURN_IF_ERROR(jsonb_value.from_json_string(
+                                value.data, static_cast<unsigned int>(value.size)));
+                        col_to->insert_data(jsonb_value.value(), jsonb_value.size());
                     }
                     continue;
                 }
@@ -361,7 +336,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 2);
 
         ColumnPtr jsonb_data_column;
@@ -418,8 +393,7 @@ public:
             }
             if (is_invalid_json_path) {
                 return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        "Json path error: Invalid Json Path for value: {}",
                         std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                          rdata.size()));
             }
@@ -445,7 +419,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         if (arguments.size() != 1 && arguments.size() != 2) {
             // here has argument param error
@@ -457,11 +431,12 @@ public:
         // prepare jsonb data column
         jsonb_data_column = unpack_if_const(block.get_by_position(arguments[0]).column).first;
         if (block.get_by_position(arguments[0]).column->is_nullable()) {
-            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column);
+            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get());
             jsonb_data_column = nullable->get_nested_column_ptr();
             data_null_map = &nullable->get_null_map_data();
         }
-        const ColumnString* col_from_string = check_and_get_column<ColumnString>(jsonb_data_column);
+        const ColumnString* col_from_string =
+                check_and_get_column<ColumnString>(jsonb_data_column.get());
 
         // prepare parse path column prepare, maybe we do not have path column
         ColumnPtr jsonb_path_column = nullptr;
@@ -473,11 +448,12 @@ public:
             std::tie(jsonb_path_column, path_const) =
                     unpack_if_const(block.get_by_position(arguments[1]).column);
             if (block.get_by_position(arguments[1]).column->is_nullable()) {
-                const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_path_column);
+                const auto* nullable =
+                        check_and_get_column<ColumnNullable>(jsonb_path_column.get());
                 jsonb_path_column = nullable->get_nested_column_ptr();
                 path_null_map = &nullable->get_null_map_data();
             }
-            jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column);
+            jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column.get());
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -526,10 +502,8 @@ private:
         if constexpr (JSONB_PATH_PARAM && JSON_PATH_CONST) {
             StringRef r_raw_ref = jsonb_path_column->get_data_at(0);
             if (!const_path.seek(r_raw_ref.data, r_raw_ref.size)) {
-                return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
-                        r_raw_ref.to_string());
+                return Status::InvalidArgument("Json path error: Invalid Json Path for value: {}",
+                                               r_raw_ref.to_string());
             }
         }
         const auto& ldata = col_from_string.get_chars();
@@ -557,8 +531,9 @@ private:
                 continue;
             }
             const char* l_raw = reinterpret_cast<const char*>(&ldata[l_off]);
-            JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
-            if (UNLIKELY(!doc || !doc->getValue())) {
+            JsonbDocument* doc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(l_raw, l_size, &doc);
+            if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                 dst_arr.clear();
                 return Status::InvalidArgument("jsonb data is invalid");
             }
@@ -573,8 +548,7 @@ private:
                     JsonbPath path;
                     if (!path.seek(r_raw, r_size)) {
                         return Status::InvalidArgument(
-                                "Json path error: {} for value: {}",
-                                JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                                "Json path error: Invalid Json Path for value: {}",
                                 std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                                  rdata.size()));
                     }
@@ -592,7 +566,7 @@ private:
                 dst_arr.insert_default();
                 continue;
             }
-            ObjectVal* obj = (ObjectVal*)obj_val;
+            auto* obj = obj_val->unpack<ObjectVal>();
             for (auto it = obj->begin(); it != obj->end(); ++it) {
                 dst_nested_column.insert_data(it->getKeyStr(), it->klen());
             }
@@ -606,7 +580,7 @@ class FunctionJsonbExtractPath : public IFunction {
 public:
     static constexpr auto name = "json_exists_path";
     static constexpr auto alias = "jsonb_exists_path";
-    using ColumnType = ColumnVector<uint8_t>;
+    using ColumnType = ColumnUInt8;
     using Container = typename ColumnType::Container;
     static FunctionPtr create() { return std::make_shared<FunctionJsonbExtractPath>(); }
     String get_name() const override { return name; }
@@ -617,7 +591,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
         // prepare jsonb data column
@@ -652,8 +626,7 @@ public:
         }
         if (is_invalid_json_path) {
             return Status::InvalidArgument(
-                    "Json path error: {} for value: {}",
-                    JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                    "Json path error: Invalid Json Path for value: {}",
                     std::string_view(reinterpret_cast<const char*>(rdata.data()), rdata.size()));
         }
 
@@ -663,10 +636,11 @@ public:
 
 private:
     static ALWAYS_INLINE void inner_loop_impl(size_t i, Container& res, const char* l_raw_str,
-                                              int l_str_size, JsonbPath& path) {
+                                              size_t l_str_size, JsonbPath& path) {
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw_str, l_str_size);
-        if (UNLIKELY(!doc || !doc->getValue())) {
+        JsonbDocument* doc = nullptr;
+        auto st = JsonbDocument::checkAndCreateDocument(l_raw_str, l_str_size, &doc);
+        if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
             return;
         }
 
@@ -753,15 +727,16 @@ private:
                                               ColumnString::Offsets& res_offsets, NullMap& null_map,
                                               const std::unique_ptr<JsonbWriter>& writer,
                                               std::unique_ptr<JsonbToJson>& formater,
-                                              const char* l_raw, int l_size, JsonbPath& path) {
+                                              const char* l_raw, size_t l_size, JsonbPath& path) {
         if (null_map[i]) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
         }
 
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
-        if (UNLIKELY(!doc || !doc->getValue())) {
+        JsonbDocument* doc = nullptr;
+        auto st = JsonbDocument::checkAndCreateDocument(l_raw, l_size, &doc);
+        if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
         }
@@ -788,28 +763,28 @@ private:
                                         i, res_data, res_offsets);
         } else {
             if (LIKELY(value->isString())) {
-                auto str_value = (JsonbStringVal*)value;
+                auto str_value = value->unpack<JsonbStringVal>();
                 StringOP::push_value_string(
                         std::string_view(str_value->getBlob(), str_value->length()), i, res_data,
                         res_offsets);
             } else if (value->isNull()) {
-                StringOP::push_value_string("null", i, res_data, res_offsets);
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
             } else if (value->isTrue()) {
                 StringOP::push_value_string("true", i, res_data, res_offsets);
             } else if (value->isFalse()) {
                 StringOP::push_value_string("false", i, res_data, res_offsets);
             } else if (value->isInt8()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt8Val*)value)->val()), i,
+                StringOP::push_value_string(std::to_string(value->unpack<JsonbInt8Val>()->val()), i,
                                             res_data, res_offsets);
             } else if (value->isInt16()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt16Val*)value)->val()), i,
-                                            res_data, res_offsets);
+                StringOP::push_value_string(std::to_string(value->unpack<JsonbInt16Val>()->val()),
+                                            i, res_data, res_offsets);
             } else if (value->isInt32()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt32Val*)value)->val()), i,
-                                            res_data, res_offsets);
+                StringOP::push_value_string(std::to_string(value->unpack<JsonbInt32Val>()->val()),
+                                            i, res_data, res_offsets);
             } else if (value->isInt64()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt64Val*)value)->val()), i,
-                                            res_data, res_offsets);
+                StringOP::push_value_string(std::to_string(value->unpack<JsonbInt64Val>()->val()),
+                                            i, res_data, res_offsets);
             } else {
                 if (!formater) {
                     formater.reset(new JsonbToJson());
@@ -850,8 +825,7 @@ public:
             JsonbPath path;
             if (!path.seek(r_raw, r_size)) {
                 return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        "Json path error: Invalid Json Path for value: {}",
                         std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                          rdata.size()));
             }
@@ -886,10 +860,11 @@ public:
                 writer->writeStartArray();
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+                JsonbDocument* doc = nullptr;
+                auto st = JsonbDocument::checkAndCreateDocument(l_raw, l_size, &doc);
 
                 for (size_t pi = 0; pi < rdata_columns.size(); ++pi) {
-                    if (UNLIKELY(!doc || !doc->getValue())) {
+                    if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                         writer->writeNull();
                         continue;
                     }
@@ -1019,7 +994,7 @@ struct JsonbExtractImpl {
 
 private:
     static ALWAYS_INLINE void inner_loop_impl(size_t i, Container& res, NullMap& null_map,
-                                              const char* l_raw_str, int l_str_size,
+                                              const char* l_raw_str, size_t l_str_size,
                                               JsonbPath& path) {
         if (null_map[i]) {
             res[i] = 0;
@@ -1027,8 +1002,9 @@ private:
         }
 
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw_str, l_str_size);
-        if (UNLIKELY(!doc || !doc->getValue())) {
+        JsonbDocument* doc = nullptr;
+        auto st = JsonbDocument::checkAndCreateDocument(l_raw_str, l_str_size, &doc);
+        if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
             null_map[i] = 1;
             res[i] = 0;
             return;
@@ -1068,14 +1044,14 @@ private:
             }
         } else if constexpr (std::is_same_v<int32_t, typename ValueType::T>) {
             if (value->isInt8() || value->isInt16() || value->isInt32()) {
-                res[i] = (int32_t)((const JsonbIntVal*)value)->val();
+                res[i] = (int32_t)value->int_val();
             } else {
                 null_map[i] = 1;
                 res[i] = 0;
             }
         } else if constexpr (std::is_same_v<int64_t, typename ValueType::T>) {
             if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
-                res[i] = (int64_t)((const JsonbIntVal*)value)->val();
+                res[i] = (int64_t)value->int_val();
             } else {
                 null_map[i] = 1;
                 res[i] = 0;
@@ -1083,23 +1059,24 @@ private:
         } else if constexpr (std::is_same_v<int128_t, typename ValueType::T>) {
             if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64() ||
                 value->isInt128()) {
-                res[i] = (int128_t)((const JsonbIntVal*)value)->val();
+                res[i] = (int128_t)value->int_val();
             } else {
                 null_map[i] = 1;
                 res[i] = 0;
             }
         } else if constexpr (std::is_same_v<double, typename ValueType::T>) {
             if (value->isDouble()) {
-                res[i] = ((const JsonbDoubleVal*)value)->val();
+                res[i] = value->unpack<JsonbDoubleVal>()->val();
             } else if (value->isInt8() || value->isInt16() || value->isInt32() ||
                        value->isInt64()) {
-                res[i] = ((const JsonbIntVal*)value)->val();
+                res[i] = static_cast<typename ValueType::T>(value->int_val());
             } else {
                 null_map[i] = 1;
                 res[i] = 0;
             }
         } else {
-            LOG(FATAL) << "unexpected type ";
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "unexpected type in JsonbExtractImpl");
             __builtin_unreachable();
         }
     }
@@ -1188,49 +1165,49 @@ public:
 struct JsonbTypeExists {
     using T = uint8_t;
     using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnUInt8;
     static const bool only_check_exists = true;
 };
 
 struct JsonbTypeNull {
     using T = void;
     using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnVector<uint8_t>;
+    using ColumnType = ColumnUInt8;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeBool {
     using T = bool;
     using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnVector<uint8_t>;
+    using ColumnType = ColumnUInt8;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeInt {
     using T = int32_t;
     using ReturnType = DataTypeInt32;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt32;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeInt64 {
     using T = int64_t;
     using ReturnType = DataTypeInt64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt64;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeInt128 {
     using T = int128_t;
     using ReturnType = DataTypeInt128;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt128;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeDouble {
     using T = double;
     using ReturnType = DataTypeFloat64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnFloat64;
     static const bool only_check_exists = false;
 };
 
@@ -1349,16 +1326,15 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 
 struct JsonbLengthUtil {
     static Status jsonb_length_execute(FunctionContext* context, Block& block,
-                                       const ColumnNumbers& arguments, size_t result,
+                                       const ColumnNumbers& arguments, uint32_t result,
                                        size_t input_rows_count) {
         DCHECK_GE(arguments.size(), 2);
         ColumnPtr jsonb_data_column;
@@ -1375,8 +1351,7 @@ struct JsonbLengthUtil {
             auto path_value = path_column->get_data_at(0);
             if (!path.seek(path_value.data, path_value.size)) {
                 return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        "Json path error: Invalid Json Path for value: {}",
                         std::string_view(reinterpret_cast<const char*>(path_value.data),
                                          path_value.size));
             }
@@ -1397,22 +1372,23 @@ struct JsonbLengthUtil {
                 path.clean();
                 if (!path.seek(path_value.data, path_value.size)) {
                     return Status::InvalidArgument(
-                            "Json path error: {} for value: {}",
-                            JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                            "Json path error: Invalid Json Path for value: {}",
                             std::string_view(reinterpret_cast<const char*>(path_value.data),
                                              path_value.size));
                 }
             }
             auto jsonb_value = jsonb_data_column->get_data_at(i);
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-            JsonbDocument* doc = JsonbDocument::createDocument(jsonb_value.data, jsonb_value.size);
+            JsonbDocument* doc = nullptr;
+            RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(jsonb_value.data,
+                                                                  jsonb_value.size, &doc));
             JsonbValue* value = doc->getValue()->findValue(path, nullptr);
             if (UNLIKELY(!value)) {
                 null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
-            auto length = value->length();
+            auto length = value->numElements();
             res->insert_data(const_cast<const char*>((char*)&length), 0);
         }
         block.replace_by_position(result,
@@ -1425,7 +1401,7 @@ struct JsonbLengthImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeJsonb>()}; }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto path = ColumnString::create();
         std::string root_path = "$";
@@ -1449,7 +1425,7 @@ struct JsonbLengthAndPathImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         return JsonbLengthUtil::jsonb_length_execute(context, block, arguments, result,
                                                      input_rows_count);
@@ -1476,14 +1452,14 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 
 struct JsonbContainsUtil {
     static Status jsonb_contains_execute(FunctionContext* context, Block& block,
-                                         const ColumnNumbers& arguments, size_t result,
+                                         const ColumnNumbers& arguments, uint32_t result,
                                          size_t input_rows_count) {
         DCHECK_GE(arguments.size(), 3);
 
@@ -1500,8 +1476,7 @@ struct JsonbContainsUtil {
             auto path_value = path_column->get_data_at(0);
             if (!path.seek(path_value.data, path_value.size)) {
                 return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        "Json path error: Invalid Json Path for value: {}",
                         std::string_view(reinterpret_cast<const char*>(path_value.data),
                                          path_value.size));
             }
@@ -1523,8 +1498,7 @@ struct JsonbContainsUtil {
                 path.clean();
                 if (!path.seek(path_value.data, path_value.size)) {
                     return Status::InvalidArgument(
-                            "Json path error: {} for value: {}",
-                            JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                            "Json path error: Invalid Json Path for value: {}",
                             std::string_view(reinterpret_cast<const char*>(path_value.data),
                                              path_value.size));
                 }
@@ -1539,10 +1513,12 @@ struct JsonbContainsUtil {
                 continue;
             }
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-            JsonbDocument* doc1 =
-                    JsonbDocument::createDocument(jsonb_value1.data, jsonb_value1.size);
-            JsonbDocument* doc2 =
-                    JsonbDocument::createDocument(jsonb_value2.data, jsonb_value2.size);
+            JsonbDocument* doc1 = nullptr;
+            RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(jsonb_value1.data,
+                                                                  jsonb_value1.size, &doc1));
+            JsonbDocument* doc2 = nullptr;
+            RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(jsonb_value2.data,
+                                                                  jsonb_value2.size, &doc2));
 
             JsonbValue* value1 = doc1->getValue()->findValue(path, nullptr);
             JsonbValue* value2 = doc2->getValue();
@@ -1567,7 +1543,7 @@ struct JsonbContainsImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto path = ColumnString::create();
         std::string root_path = "$";
@@ -1592,10 +1568,361 @@ struct JsonbContainsAndPathImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         return JsonbContainsUtil::jsonb_contains_execute(context, block, arguments, result,
                                                          input_rows_count);
+    }
+};
+
+class FunctionJsonSearch : public IFunction {
+private:
+    using OneFun = std::function<Status(size_t, bool*)>;
+    static Status always_one(size_t i, bool* res) {
+        *res = true;
+        return Status::OK();
+    }
+    static Status always_all(size_t i, bool* res) {
+        *res = false;
+        return Status::OK();
+    }
+
+    using CheckNullFun = std::function<bool(size_t)>;
+    static bool always_not_null(size_t) { return false; }
+    static bool always_null(size_t) { return true; }
+
+    using GetJsonStringRefFun = std::function<StringRef(size_t)>;
+
+    Status matched(const std::string_view& str, LikeState* state, unsigned char* res) const {
+        StringRef pattern; // not used
+        StringRef value_val(str.data(), str.size());
+        return (state->scalar_function)(&state->search_state, value_val, pattern, res);
+    }
+
+    /**
+     * Recursive search for matching string, if found, the result will be added to a vector
+     * @param element json element
+     * @param one_match
+     * @param search_str
+     * @param cur_path
+     * @param matches The path that has already been matched
+     * @return true if matched else false
+     */
+    bool find_matches(const SimdJSONParser::Element& element, const bool& one_match,
+                      LikeState* state, JsonbPath* cur_path,
+                      std::unordered_set<std::string>* matches) const {
+        if (element.isString()) {
+            const std::string_view element_str = element.getString();
+            unsigned char res;
+            RETURN_IF_ERROR(matched(element_str, state, &res));
+            if (res) {
+                std::string str;
+                auto valid = cur_path->to_string(&str);
+                if (!valid) {
+                    return false;
+                }
+                return matches->insert(str).second;
+            } else {
+                return false;
+            }
+        } else if (element.isObject()) {
+            const SimdJSONParser::Object& object = element.getObject();
+            bool find = false;
+            for (size_t i = 0; i < object.size(); ++i) {
+                const SimdJSONParser::KeyValuePair& item = object[i];
+                const std::string_view& key = item.first;
+                const SimdJSONParser::Element& child_element = item.second;
+                // construct an object member path leg.
+                auto leg = std::make_unique<leg_info>(const_cast<char*>(key.data()), key.size(), 0,
+                                                      MEMBER_CODE);
+                cur_path->add_leg_to_leg_vector(std::move(leg));
+                find |= find_matches(child_element, one_match, state, cur_path, matches);
+                cur_path->pop_leg_from_leg_vector();
+                if (one_match && find) {
+                    return true;
+                }
+            }
+            return find;
+        } else if (element.isArray()) {
+            const SimdJSONParser::Array& array = element.getArray();
+            bool find = false;
+            for (size_t i = 0; i < array.size(); ++i) {
+                auto leg = std::make_unique<leg_info>(nullptr, 0, i, ARRAY_CODE);
+                cur_path->add_leg_to_leg_vector(std::move(leg));
+                const SimdJSONParser::Element& child_element = array[i];
+                // construct an array cell path leg.
+                find |= find_matches(child_element, one_match, state, cur_path, matches);
+                cur_path->pop_leg_from_leg_vector();
+                if (one_match && find) {
+                    return true;
+                }
+            }
+            return find;
+        } else {
+            return false;
+        }
+    }
+
+    void make_result_str(std::unordered_set<std::string>& matches, ColumnString* result_col) const {
+        JsonbWriter writer;
+        if (matches.size() == 1) {
+            for (const auto& str_ref : matches) {
+                writer.writeStartString();
+                writer.writeString(str_ref);
+                writer.writeEndString();
+            }
+        } else {
+            writer.writeStartArray();
+            for (const auto& str_ref : matches) {
+                writer.writeStartString();
+                writer.writeString(str_ref);
+                writer.writeEndString();
+            }
+            writer.writeEndArray();
+        }
+
+        result_col->insert_data(writer.getOutput()->getBuffer(),
+                                (size_t)writer.getOutput()->getSize());
+    }
+
+    template <bool search_is_const>
+    Status execute_vector(Block& block, size_t input_rows_count, CheckNullFun json_null_check,
+                          GetJsonStringRefFun col_json_string, CheckNullFun one_null_check,
+                          OneFun one_check, CheckNullFun search_null_check,
+                          const ColumnString* col_search_string, FunctionContext* context,
+                          size_t result) const {
+        auto result_col = ColumnString::create();
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        std::shared_ptr<LikeState> state_ptr;
+        LikeState* state = nullptr;
+        if (search_is_const) {
+            state = reinterpret_cast<LikeState*>(
+                    context->get_function_state(FunctionContext::THREAD_LOCAL));
+        }
+
+        SimdJSONParser parser;
+        SimdJSONParser::Element root_element;
+        bool is_one = false;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            // an error occurs if the json_doc argument is not a valid json document.
+            if (json_null_check(i)) {
+                null_map->get_data()[i] = 1;
+                result_col->insert_data("", 0);
+                continue;
+            }
+            const auto& json_doc = col_json_string(i);
+            if (!parser.parse(json_doc.data, json_doc.size, root_element)) {
+                return Status::InvalidArgument(
+                        "the json_doc argument {} is not a valid json document", json_doc);
+            }
+
+            if (!one_null_check(i)) {
+                RETURN_IF_ERROR(one_check(i, &is_one));
+            }
+
+            if (one_null_check(i) || search_null_check(i)) {
+                null_map->get_data()[i] = 1;
+                result_col->insert_data("", 0);
+                continue;
+            }
+
+            // an error occurs if any path argument is not a valid path expression.
+            std::string root_path_str = "$";
+            JsonbPath root_path;
+            root_path.seek(root_path_str.c_str(), root_path_str.size());
+            std::vector<JsonbPath*> paths;
+            paths.push_back(&root_path);
+
+            if (!search_is_const) {
+                state_ptr = std::make_shared<LikeState>();
+                state_ptr->is_like_pattern = true;
+                const auto& search_str = col_search_string->get_data_at(i);
+                RETURN_IF_ERROR(FunctionLike::construct_like_const_state(context, search_str,
+                                                                         state_ptr, false));
+                state = state_ptr.get();
+            }
+
+            // maintain a hashset to deduplicate matches.
+            std::unordered_set<std::string> matches;
+            for (const auto& item : paths) {
+                auto cur_path = item;
+                auto find = find_matches(root_element, is_one, state, cur_path, &matches);
+                if (is_one && find) {
+                    break;
+                }
+            }
+            if (matches.empty()) {
+                // returns NULL if the search_str is not found in the document.
+                null_map->get_data()[i] = 1;
+                result_col->insert_data("", 0);
+                continue;
+            }
+            make_result_str(matches, result_col.get());
+        }
+        auto result_col_nullable =
+                ColumnNullable::create(std::move(result_col), std::move(null_map));
+        block.replace_by_position(result, std::move(result_col_nullable));
+        return Status::OK();
+    }
+
+    static constexpr auto one = "one";
+    static constexpr auto all = "all";
+
+public:
+    static constexpr auto name = "json_search";
+    static FunctionPtr create() { return std::make_shared<FunctionJsonSearch>(); }
+
+    String get_name() const override { return name; }
+    bool is_variadic() const override { return false; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeJsonb>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope != FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+        if (context->is_col_constant(2)) {
+            std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
+            state->is_like_pattern = true;
+            const auto pattern_col = context->get_constant_col(2)->column_ptr;
+            const auto& pattern = pattern_col->get_data_at(0);
+            RETURN_IF_ERROR(
+                    FunctionLike::construct_like_const_state(context, pattern, state, false));
+            context->set_function_state(scope, state);
+        }
+        return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        // the json_doc, one_or_all, and search_str must be given.
+        // and we require the positions are static.
+        if (arguments.size() < 3) {
+            return Status::InvalidArgument("too few arguments for function {}", name);
+        }
+        if (arguments.size() > 3) {
+            return Status::NotSupported("escape and path params are not support now");
+        }
+
+        CheckNullFun json_null_check = always_not_null;
+        GetJsonStringRefFun get_json_fun;
+        ColumnPtr col_json;
+        bool json_is_const = false;
+        // prepare jsonb data column
+        std::tie(col_json, json_is_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const ColumnString* col_json_string = check_and_get_column<ColumnString>(col_json.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
+            col_json_string =
+                    check_and_get_column<ColumnString>(nullable->get_nested_column_ptr().get());
+        }
+
+        if (!col_json_string) {
+            return Status::RuntimeError("Illegal arg json {} should be ColumnString",
+                                        col_json->get_name());
+        }
+        if (json_is_const) {
+            if (col_json->is_null_at(0)) {
+                json_null_check = always_null;
+            } else {
+                const auto& json_str = col_json_string->get_data_at(0);
+                get_json_fun = [json_str](size_t i) { return json_str; };
+            }
+        } else {
+            json_null_check = [col_json](size_t i) { return col_json->is_null_at(i); };
+            get_json_fun = [col_json_string](size_t i) { return col_json_string->get_data_at(i); };
+        }
+
+        // one_or_all
+        CheckNullFun one_null_check = always_not_null;
+        OneFun one_check = always_one;
+        ColumnPtr col_one;
+        bool one_is_const = false;
+        // prepare jsonb data column
+        std::tie(col_one, one_is_const) =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const ColumnString* col_one_string = check_and_get_column<ColumnString>(col_one.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
+            col_one_string = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+        if (!col_one_string) {
+            return Status::RuntimeError("Illegal arg one {} should be ColumnString",
+                                        col_one->get_name());
+        }
+        if (one_is_const) {
+            if (col_one->is_null_at(0)) {
+                one_null_check = always_null;
+            } else {
+                const auto& one_or_all = col_one_string->get_data_at(0);
+                std::string one_or_all_str = one_or_all.to_string();
+                if (strcasecmp(one_or_all_str.c_str(), all) == 0) {
+                    one_check = always_all;
+                } else if (strcasecmp(one_or_all_str.c_str(), one) == 0) {
+                    // nothing
+                } else {
+                    // an error occurs if the one_or_all argument is not 'one' nor 'all'.
+                    return Status::InvalidArgument(
+                            "the one_or_all argument {} is not 'one' not 'all'", one_or_all_str);
+                }
+            }
+        } else {
+            one_null_check = [col_one](size_t i) { return col_one->is_null_at(i); };
+            one_check = [col_one_string](size_t i, bool* is_one) {
+                const auto& one_or_all = col_one_string->get_data_at(i);
+                std::string one_or_all_str = one_or_all.to_string();
+                if (strcasecmp(one_or_all_str.c_str(), all) == 0) {
+                    *is_one = false;
+                } else if (strcasecmp(one_or_all_str.c_str(), one) == 0) {
+                    *is_one = true;
+                } else {
+                    // an error occurs if the one_or_all argument is not 'one' nor 'all'.
+                    return Status::InvalidArgument(
+                            "the one_or_all argument {} is not 'one' not 'all'", one_or_all_str);
+                }
+                return Status::OK();
+            };
+        }
+
+        // search_str
+        ColumnPtr col_search;
+        bool search_is_const = false;
+        std::tie(col_search, search_is_const) =
+                unpack_if_const(block.get_by_position(arguments[2]).column);
+
+        const ColumnString* col_search_string =
+                check_and_get_column<ColumnString>(col_search.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
+            col_search_string =
+                    check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+        if (!col_search_string) {
+            return Status::RuntimeError("Illegal arg pattern {} should be ColumnString",
+                                        col_search->get_name());
+        }
+        if (search_is_const) {
+            CheckNullFun search_null_check = always_not_null;
+            if (col_search->is_null_at(0)) {
+                search_null_check = always_null;
+            }
+            RETURN_IF_ERROR(execute_vector<true>(
+                    block, input_rows_count, json_null_check, get_json_fun, one_null_check,
+                    one_check, search_null_check, col_search_string, context, result));
+        } else {
+            CheckNullFun search_null_check = [col_search](size_t i) {
+                return col_search->is_null_at(i);
+            };
+            RETURN_IF_ERROR(execute_vector<false>(
+                    block, input_rows_count, json_null_check, get_json_fun, one_null_check,
+                    one_check, search_null_check, col_search_string, context, result));
+        }
+        return Status::OK();
     }
 };
 
@@ -1667,6 +1994,8 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbLength<JsonbLengthAndPathImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsAndPathImpl>>();
+
+    factory.register_function<FunctionJsonSearch>();
 }
 
 } // namespace doris::vectorized

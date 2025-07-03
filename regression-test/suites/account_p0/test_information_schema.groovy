@@ -87,4 +87,26 @@ suite("test_information_schema") {
         def dbName = dbPrefix + i.toString()
         sql "DROP DATABASE `${dbName}`"
     }
+
+    def dbName = dbPrefix + "default"
+    def tableName = tablePrefix + "default"
+    sql "CREATE DATABASE IF NOT EXISTS `${dbName}`"
+    sql "USE `${dbName}`"
+    sql """drop table if exists `${tableName}`"""
+    sql """
+        CREATE TABLE `${tableName}` (
+          `id` largeint NULL COMMENT '用户ID',
+          `name` varchar(20) NULL DEFAULT "无" COMMENT '用户姓名',
+          `age` smallint NULL DEFAULT "0" COMMENT '用户年龄',
+          `address` varchar(100) NULL DEFAULT "beijing" COMMENT '用户所在地区',
+          `date` datetime NULL DEFAULT "20240101" COMMENT '数据导入时间'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`, `name`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1")
+    """
+    qt_default "SELECT COLUMN_NAME as field,COLUMN_TYPE as type,IS_NULLABLE as isNullable, COLUMN_DEFAULT as defaultValue FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${tableName}' AND TABLE_SCHEMA = '${dbName}'"
+    sql "DROP DATABASE `${dbName}`"
 }
+

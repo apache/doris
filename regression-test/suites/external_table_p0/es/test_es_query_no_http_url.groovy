@@ -23,6 +23,31 @@ suite("test_es_query_no_http_url", "p0,external,es,external_docker,external_dock
         String es_7_port = context.config.otherConfigs.get("es_7_port")
         String es_8_port = context.config.otherConfigs.get("es_8_port")
 
+        def executeWithRetry = { query, queryName, maxRetries ->
+            def retryCount = 0
+            def success = false
+
+            while (!success && retryCount < maxRetries) {
+                try {
+                    sql query
+                    success = true
+                } catch (Exception e) {
+                    if (e.getMessage().contains("EsTable metadata has not been synced, Try it later")) {
+                        logger.error("Failed to execute ${queryName}: ${e.getMessage()}")
+                        logger.info("Retrying... Attempt ${retryCount + 1}")
+                        retryCount++
+                        sleep(1000) // Sleep for 1 second
+                    } else {
+                        throw e // Rethrow if it's a different exception
+                    }
+                }
+            }
+
+            if (!success) {
+                throw new RuntimeException("Failed to execute ${queryName} after ${maxRetries} attempts")
+            }
+        }
+
         sql """drop catalog if exists es6_no_http_url;"""
         sql """drop catalog if exists es7_no_http_url;"""
         sql """drop catalog if exists es8_no_http_url;"""
@@ -95,9 +120,9 @@ suite("test_es_query_no_http_url", "p0,external,es,external_docker,external_dock
                 "http_ssl_enabled"="false"
             );
         """
-        order_qt_sql51 """select * from test_v1_no_http_url where test2='text#1'"""
+        executeWithRetry("""select * from test_v1_no_http_url where test2='text#1'""", "sql51", 30)
 
-       sql """
+        sql """
             CREATE TABLE `test_v2_no_http_url` (
                 `c_datetime` array<datev2> NULL,
                 `c_long` array<bigint(20)> NULL,
@@ -133,7 +158,7 @@ suite("test_es_query_no_http_url", "p0,external,es,external_docker,external_dock
                 "http_ssl_enabled"="false"
             );
         """
-        order_qt_sql52 """select * from test_v2_no_http_url where test2='text#1'"""
+        executeWithRetry("""select * from test_v2_no_http_url where test2='text#1'""", "sql52", 30)
 
         // es6
         sql """switch es6_no_http_url"""

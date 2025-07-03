@@ -1,0 +1,12 @@
+[
+    {"user_id":1,"namemap":{"Emily":101,"age":25}},
+    {"user_id":2,"namemap":{"Benjamin":102,"age":35}},
+    {"user_id":3,"namemap":{"Olivia":103,"age":28}},
+    {"user_id":4,"namemap":{"Alexander":104,"age":60}},
+    {"user_id":5,"namemap":{"Ava":105,"age":17}},
+    {"user_id":6,"namemap":{"William":106,"age":69}},
+    {"user_id":7,"namemap":{"Sophia":107,"age":32}},
+    {"user_id":8,"namemap":{"James":108,"age":64}},
+    {"user_id":9,"namemap":{"Emma":109,"age":37}},
+    {"user_id":10,"namemap":{"Liam":110,"age":64}}
+    ]

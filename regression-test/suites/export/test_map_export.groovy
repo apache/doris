@@ -98,7 +98,7 @@ suite("test_map_export", "export") {
         def result = sql """
                     SELECT * FROM ${testTable} ORDER BY id INTO OUTFILE "file://${outFile}/";
         """
-        url = result[0][3]
+        def url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
         if (backends.size() > 1) {
             // custer will scp files
@@ -146,7 +146,7 @@ suite("test_map_export", "export") {
             path.delete();
         }
         if (csvFiles != "") {
-            cmd = "rm -rf ${csvFiles}"
+            def cmd = "rm -rf ${csvFiles}"
             sshExec("root", urlHost, cmd)
         }
     }

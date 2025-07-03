@@ -19,12 +19,14 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
 
 namespace doris {
 
@@ -33,15 +35,16 @@ class OlapScanLocalState;
 }
 
 namespace vectorized {
-class VScanner;
+class Scanner;
 }
 
-using VScannerSPtr = std::shared_ptr<vectorized::VScanner>;
+using ScannerSPtr = std::shared_ptr<vectorized::Scanner>;
 
 class ParallelScannerBuilder {
 public:
     ParallelScannerBuilder(pipeline::OlapScanLocalState* parent,
                            const std::vector<TabletWithVersion>& tablets,
+                           std::vector<TabletReader::ReadSource>& read_sources,
                            const std::shared_ptr<RuntimeProfile>& profile,
                            const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state,
                            int64_t limit, bool is_dup_mow_key, bool is_preaggregation)
@@ -52,9 +55,10 @@ public:
               _is_dup_mow_key(is_dup_mow_key),
               _is_preaggregation(is_preaggregation),
               _tablets(tablets.cbegin(), tablets.cend()),
-              _key_ranges(key_ranges.cbegin(), key_ranges.cend()) {}
+              _key_ranges(key_ranges.cbegin(), key_ranges.cend()),
+              _read_sources(read_sources) {}
 
-    Status build_scanners(std::list<VScannerSPtr>& scanners);
+    Status build_scanners(std::list<ScannerSPtr>& scanners);
 
     void set_max_scanners_count(size_t count) { _max_scanners_count = count; }
 
@@ -63,9 +67,9 @@ public:
 private:
     Status _load();
 
-    Status _build_scanners_by_rowid(std::list<VScannerSPtr>& scanners);
+    Status _build_scanners_by_rowid(std::list<ScannerSPtr>& scanners);
 
-    std::shared_ptr<vectorized::NewOlapScanner> _build_scanner(
+    std::shared_ptr<vectorized::OlapScanner> _build_scanner(
             BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
             TabletReader::ReadSource&& read_source);
 
@@ -81,7 +85,7 @@ private:
 
     size_t _rows_per_scanner {_min_rows_per_scanner};
 
-    std::map<RowsetId, SegmentCacheHandle> _segment_cache_handles;
+    std::map<RowsetId, std::vector<size_t>> _all_segments_rows;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeState* _state;
@@ -90,7 +94,8 @@ private:
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
     std::vector<OlapScanRange*> _key_ranges;
-    std::unordered_map<int64_t, std::vector<RowsetSharedPtr>> _all_rowsets;
+    std::unordered_map<int64_t, TabletReader::ReadSource> _all_read_sources;
+    std::vector<TabletReader::ReadSource>& _read_sources;
 };
 
 } // namespace doris

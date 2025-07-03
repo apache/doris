@@ -28,7 +28,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Physical properties used in cascades.
+ * Physical properties used in cascades. If upstream mismatches downstream, a PhysicalDistribute will be generated.
  */
 public class PhysicalProperties {
 
@@ -47,10 +47,13 @@ public class PhysicalProperties {
     public static PhysicalProperties MUST_SHUFFLE = new PhysicalProperties(DistributionSpecMustShuffle.INSTANCE);
 
     public static PhysicalProperties TABLET_ID_SHUFFLE
-            = new PhysicalProperties(DistributionSpecTabletIdShuffle.INSTANCE);
+            = new PhysicalProperties(DistributionSpecOlapTableSinkHashPartitioned.INSTANCE);
 
     public static PhysicalProperties SINK_RANDOM_PARTITIONED
-            = new PhysicalProperties(DistributionSpecTableSinkRandomPartitioned.INSTANCE);
+            = new PhysicalProperties(DistributionSpecHiveTableSinkUnPartitioned.INSTANCE);
+
+    // gather then broadcast to all BE with exact one instance
+    public static PhysicalProperties ALL_SINGLETON = new PhysicalProperties(DistributionSpecAllSingleton.INSTANCE);
 
     private final OrderSpec orderSpec;
 
@@ -101,12 +104,14 @@ public class PhysicalProperties {
         return new PhysicalProperties(distributionSpecHash);
     }
 
-    public static PhysicalProperties createAnyFromHash(DistributionSpecHash childSpec) {
-        if (childSpec.getShuffleType() == ShuffleType.NATURAL) {
-            return PhysicalProperties.STORAGE_ANY;
-        } else {
-            return PhysicalProperties.ANY;
+    /** createAnyFromHash */
+    public static PhysicalProperties createAnyFromHash(DistributionSpecHash... childSpecs) {
+        for (DistributionSpecHash childSpec : childSpecs) {
+            if (childSpec.getShuffleType() == ShuffleType.NATURAL) {
+                return PhysicalProperties.STORAGE_ANY;
+            }
         }
+        return PhysicalProperties.ANY;
     }
 
     public PhysicalProperties withOrderSpec(OrderSpec orderSpec) {

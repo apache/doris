@@ -25,6 +25,7 @@
 #include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 // Functions with more than two arrays of the same element type.
 template <typename Impl, typename Name>
@@ -39,12 +40,12 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(arguments.size() >= 2)
                 << "function: " << get_name() << ", arguments should large equals than 2";
-        CHECK(is_array(remove_nullable(arguments[0])))
+        CHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "0-th element is " << arguments[0]->get_name() << ",not array type";
         auto nested_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*(arguments[0])).get_nested_type());
         for (size_t i = 1; i < arguments.size(); ++i) {
-            CHECK(is_array(remove_nullable(arguments[i])))
+            CHECK(arguments[i]->get_primitive_type() == TYPE_ARRAY)
                     << i << "-th element is " << arguments[i]->get_name() << ", not array type";
             auto right_nested_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*(remove_nullable(arguments[i])))
@@ -59,7 +60,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr res_ptr;
         ColumnArrayExecutionDatas datas(arguments.size());
         std::vector<bool> col_const(arguments.size());
@@ -78,4 +79,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

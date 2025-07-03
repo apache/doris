@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -32,4 +32,17 @@ fi
 
 pid=$(cat "${DORIS_HOME}/bin/${process}.pid")
 kill -2 "${pid}"
+cnt=0
+while true; do
+    cnt=$((cnt + 1))
+    echo "waiting ${pid} to quit, ${cnt} seconds elapsed"
+    msg=$(ps "${pid}")
+    ret=$?
+    if [[ ${ret} -ne 0 ]]; then
+        echo "${pid} has quit"
+        break
+    fi
+    echo "${msg}"
+    sleep 1
+done
 rm -f "${DORIS_HOME}/bin/${process}.pid"

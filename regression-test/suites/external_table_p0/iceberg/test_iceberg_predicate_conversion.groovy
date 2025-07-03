@@ -70,7 +70,7 @@ suite("test_iceberg_predicate_conversion", "p0,external,doris,external_docker,ex
         }
 
         sqlstr = """select l_shipdate, l_shipmode from tb_predict where l_shipdate in ("1997-05-18", "1996-05-06") or NOT(l_shipmode = "MAIL") order by l_shipdate, l_shipmode limit 10"""
-        plan = """(ref(name="l_shipdate") in ("1997-05-18", "1996-05-06") or not(ref(name="l_shipmode") == "MAIL"))"""
+        def plan = """(ref(name="l_shipdate") in ("1997-05-18", "1996-05-06") or not(ref(name="l_shipmode") == "MAIL"))"""
         order_qt_q04 """${sqlstr}""" 
         explain {
             sql("""${sqlstr}""")

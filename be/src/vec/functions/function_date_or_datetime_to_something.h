@@ -49,53 +49,54 @@ public:
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() == 1) {
-            if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
-                !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
-                LOG(FATAL) << fmt::format(
-                        "Illegal type {} of argument of function {}. Should be a date or a date "
-                        "with time",
-                        arguments[0].type->get_name(), get_name());
+            if (!is_date_or_datetime(arguments[0].type->get_primitive_type()) &&
+                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type())) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Illegal type {} of argument of function {}. Should be a "
+                                       "date or a date with time",
+                                       arguments[0].type->get_name(), get_name());
             }
         } else if (arguments.size() == 2) {
-            if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
-                !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
-                LOG(FATAL) << fmt::format(
-                        "Illegal type {} of argument of function {}. Should be a date or a date "
-                        "with time",
-                        arguments[0].type->get_name(), get_name());
+            if (!is_date_or_datetime(arguments[0].type->get_primitive_type()) &&
+                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type())) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Illegal type {} of argument of function {}. Should be a "
+                                       "date or a date with time",
+                                       arguments[0].type->get_name(), get_name());
             }
-            if (!is_string(remove_nullable(arguments[1].type))) {
-                LOG(FATAL) << fmt::format(
+            if (!is_string_type(arguments[1].type->get_primitive_type())) {
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "Function {} supports 1 or 2 arguments. The 1st argument must be of type "
                         "Date or DateTime. The 2nd argument (optional) must be a constant string "
                         "with timezone name",
                         get_name());
             }
-            if (is_date(remove_nullable(arguments[0].type)) &&
+            if (arguments[0].type->get_primitive_type() == TYPE_DATE &&
                 std::is_same_v<ToDataType, DataTypeDate>) {
-                LOG(FATAL) << fmt::format(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "The timezone argument of function {} is allowed only when the 1st "
                         "argument has the type DateTime",
                         get_name());
             }
         } else {
-            LOG(FATAL) << fmt::format(
-                    "Number of arguments for function {} doesn't match: passed {}, should be 1 or "
-                    "2",
-                    get_name(), arguments.size());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Number of arguments for function {} doesn't match: passed {}, "
+                                   "should be 1 or 2",
+                                   get_name(), arguments.size());
         }
 
-        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType);
+        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType::PType);
     }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        return DateTimeTransformImpl<typename Transform::OpArgType, typename ToDataType::FieldType,
-                                     Transform>::execute(block, arguments, result,
-                                                         input_rows_count);
+                        uint32_t result, size_t input_rows_count) const override {
+        return DateTimeTransformImpl<Transform::OpArgType, ToDataType::PType, Transform>::execute(
+                block, arguments, result, input_rows_count);
     }
 };
 

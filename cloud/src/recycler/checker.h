@@ -17,15 +17,23 @@
 
 #pragma once
 
+#if defined(USE_LIBCPP) && _LIBCPP_ABI_VERSION <= 1
+#define _LIBCPP_ABI_INCOMPLETE_TYPES_IN_DEQUE
+#endif
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
+
+namespace doris {
+class RowsetMetaCloudPB;
+} // namespace doris
 
 namespace doris::cloud {
 class StorageVaultAccessor;
@@ -74,14 +82,31 @@ public:
     explicit InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id);
     // Return 0 if success, otherwise error
     int init(const InstanceInfoPB& instance);
-    // Check whether the objects in the object store of the instance belong to the visible rowsets.
-    // This function is used to verify that there is no garbage data leakage, should only be called in recycler test.
-    // Return 0 if success, otherwise failed
+    // Return 0 if success.
+    // Return 1 if data leak is identified.
+    // Return negative if a temporary error occurred during the check process.
     int do_inverted_check();
-    // Return 0 if success, the definition of success is the absence of S3 access errors and data loss
-    // Return -1 if encountering the situation that need to abort checker.
-    // Return -2 if having S3 access errors or data loss
+
+    // Return 0 if success.
+    // Return 1 if data loss is identified.
+    // Return negative if a temporary error occurred during the check process.
     int do_check();
+
+    // Return 0 if success.
+    // Return 1 if delete bitmap leak is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_delete_bitmap_inverted_check();
+
+    // version = 1 : https://github.com/apache/doris/pull/40204
+    // checks if https://github.com/apache/doris/pull/40204 works as expected
+    // the stale delete bitmap will be cleared in MS when BE delete expired stale rowsets
+    // NOTE: stale rowsets will be lost after BE restarts, so there may be some stale delete bitmaps
+    // which will not be cleared.
+    // version = 2 : https://github.com/apache/doris/pull/49822
+    int do_delete_bitmap_storage_optimize_check(int version = 1);
+
+    int do_mow_compaction_key_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
@@ -95,6 +120,19 @@ private:
 
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
+
+    int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
+    int traverse_rowset_delete_bitmaps(
+            int64_t tablet_id, std::string rowset_id,
+            const std::function<int(int64_t, std::string_view, int64_t, int64_t)>& callback);
+    int collect_tablet_rowsets(
+            int64_t tablet_id,
+            const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
+    int get_pending_delete_bitmap_keys(int64_t tablet_id,
+                                       std::unordered_set<std::string>& pending_delete_bitmaps);
+
+    int check_delete_bitmap_storage_optimize(int64_t tablet_id);
+    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, int64_t& abnormal_rowsets_num);
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;

@@ -17,8 +17,9 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -27,6 +28,9 @@ import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.system.Frontend;
+import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -38,6 +42,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -57,9 +62,25 @@ public class SchemaScanNode extends ScanNode {
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
-    public SchemaScanNode(PlanNodeId id, TupleDescriptor desc) {
+    public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
+                          String schemaCatalog, String schemaDb, String schemaTable) {
         super(id, desc, "SCAN SCHEMA", StatisticalType.SCHEMA_SCAN_NODE);
         this.tableName = desc.getTable().getName();
+        this.schemaCatalog = schemaCatalog;
+        this.schemaDb = schemaDb;
+        this.schemaTable = schemaTable;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public String getSchemaDb() {
+        return desc.getTable().getDatabase().getFullName();
+    }
+
+    public String getSchemaCatalog() {
+        return desc.getTable().getDatabase().getCatalog().getName();
     }
 
     @Override
@@ -69,19 +90,30 @@ public class SchemaScanNode extends ScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        // Convert predicates to MySQL columns and filters.
-        schemaCatalog = analyzer.getSchemaCatalog();
-        schemaDb = analyzer.getSchemaDb();
-        schemaTable = analyzer.getSchemaTable();
-        frontendIP = FrontendOptions.getLocalHostAddress();
-        frontendPort = Config.rpc_port;
+    public void finalizeForNereids() throws UserException {
+        if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
+                && tableName.equalsIgnoreCase("tables")) {
+            frontendIP = Env.getCurrentEnv().getMasterHost();
+            frontendPort = Env.getCurrentEnv().getMasterRpcPort();
+        } else {
+            frontendIP = FrontendOptions.getLocalHostAddress();
+            frontendPort = Config.rpc_port;
+        }
     }
 
-    @Override
-    public void finalizeForNereids() throws UserException {
-        frontendIP = FrontendOptions.getLocalHostAddress();
-        frontendPort = Config.rpc_port;
+    private void setFeAddrList(TPlanNode msg) {
+        if (SchemaTable.isShouldFetchAllFe(tableName)) {
+            List<TNetworkAddress> feAddrList = new ArrayList();
+            if (ConnectContext.get().getSessionVariable().showAllFeConnection) {
+                List<Frontend> feList = Env.getCurrentEnv().getFrontends(null);
+                for (Frontend fe : feList) {
+                    feAddrList.add(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+                }
+            } else {
+                feAddrList.add(new TNetworkAddress(frontendIP, frontendPort));
+            }
+            msg.schema_scan_node.setFeAddrList(feAddrList);
+        }
     }
 
     @Override
@@ -116,6 +148,7 @@ public class SchemaScanNode extends ScanNode {
 
         TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
         msg.schema_scan_node.setCurrentUserIdent(tCurrentUser);
+        setFeAddrList(msg);
     }
 
     @Override
@@ -133,5 +166,24 @@ public class SchemaScanNode extends ScanNode {
     @Override
     public int getNumInstances() {
         return 1;
+    }
+
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        StringBuilder output = new StringBuilder();
+        output.append(prefix).append("TABLE: ").append(getSchemaDb()).append(".").append(getTableName());
+        output.append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
+        if (!runtimeFilters.isEmpty()) {
+            output.append(prefix).append("runtime filters: ");
+            output.append(getRuntimeFilterExplainString());
+        }
+        output.append(prefix).append(String.format("cardinality=%s", cardinality))
+                .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));
+        output.append("\n");
+        return output.toString();
     }
 }

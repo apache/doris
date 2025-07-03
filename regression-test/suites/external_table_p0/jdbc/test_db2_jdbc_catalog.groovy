@@ -202,7 +202,7 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
                 "type"="jdbc",
                 "user"="db2inst1",
                 "password"="123456",
-                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris:allowNextOnExhaustedResultSet=1;resultSetHoldability=1",
+                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris:allowNextOnExhaustedResultSet=1;resultSetHoldability=1;",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "com.ibm.db2.jcc.DB2Driver"
             );"""
@@ -214,6 +214,8 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
             order_qt_sample_table_desc """ desc ${sample_table}; """
 
             order_qt_sample_table_select  """ select * except(ID_COLUMN) from ${sample_table} order by 1; """
+
+            order_qt_sample_table_select_tvf """ select * from query('catalog' = 'db2_jdbc_catalog', 'query' = 'select * from DORIS_TEST.SAMPLE_TABLE;') order by 1; """
 
             sql """INSERT INTO ${sample_table} (
                        numeric_column,
@@ -262,6 +264,8 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
             order_qt_desc_db "show databases from ${catalog_name};"
 
             order_qt_select_xml "select * from TEST.BOOKS;"
+
+            order_qt_select_xml_tvf "select * from query('catalog' = '${catalog_name}', 'query' = 'select * from TEST.BOOKS;') order by 1;"
 
             sql """ drop catalog if exists ${catalog_name} """
 

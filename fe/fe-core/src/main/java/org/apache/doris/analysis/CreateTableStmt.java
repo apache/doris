@@ -47,6 +47,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -57,8 +58,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -80,6 +79,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
 
     protected boolean ifNotExists;
     private boolean isExternal;
+    private boolean isTemp;
     protected TableName tableName;
     protected List<ColumnDef> columnDefs;
     private List<IndexDef> indexDefs;
@@ -127,7 +127,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             distributionDesc.setBuckets(FeConstants.default_bucket_num);
         } else {
             long partitionSize = ParseUtil
-                    .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
+                    .analyzeDataVolume(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
             distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize, Config.autobucket_min_buckets));
         }
 
@@ -187,12 +187,14 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     // for Nereids
-    public CreateTableStmt(boolean ifNotExists, boolean isExternal, TableName tableName, List<Column> columns,
-            List<Index> indexes, String engineName, KeysDesc keysDesc, PartitionDesc partitionDesc,
-            DistributionDesc distributionDesc, Map<String, String> properties, Map<String, String> extProperties,
-            String comment, List<AlterClause> rollupAlterClauseList, Void unused) {
+    public CreateTableStmt(boolean ifNotExists, boolean isExternal, boolean isTemp, TableName tableName,
+            List<Column> columns, List<Index> indexes, String engineName, KeysDesc keysDesc,
+            PartitionDesc partitionDesc, DistributionDesc distributionDesc, Map<String, String> properties,
+            Map<String, String> extProperties, String comment,
+            List<AlterClause> rollupAlterClauseList, Void unused) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
+        this.isTemp = isTemp;
         this.tableName = tableName;
         this.columns = columns;
         this.indexes = indexes;
@@ -222,6 +224,14 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
 
     public boolean isExternal() {
         return isExternal;
+    }
+
+    public boolean isTemp() {
+        return isTemp;
+    }
+
+    public void setTemp(boolean temp) {
+        isTemp = temp;
     }
 
     public TableName getDbTbl() {
@@ -296,6 +306,9 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
         }
+        if (isTemp && !engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
+            throw new AnalysisException("Temporary table should be OLAP table");
+        }
 
         super.analyze(analyzer);
         tableName.analyze(analyzer);
@@ -319,6 +332,16 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
             }
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_")) {
+                throw new AnalysisException(
+                        "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
+            if (Objects.equals(columnDef.getType(), Type.VARIANT) && columnNameUpperCase.indexOf('.') != -1) {
+                throw new AnalysisException(
+                        "Disable to create table of `VARIANT` type column named with a `.` character: "
+                                + columnNameUpperCase);
+            }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
             }
@@ -329,6 +352,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableSkipBitmapColumn = false;
         // analyze key desc
         if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // olap table
@@ -363,16 +387,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                                 }
                                 break;
                             }
-                            if (columnDef.getType().isFloatingPointType()) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
-                                break;
-                            }
-                            if (columnDef.getType().isComplexType()) {
+                            if (!columnDef.getType().couldBeShortKey()) {
                                 break;
                             }
                             if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
@@ -414,10 +429,30 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 }
             }
 
+            if (properties != null) {
+                if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
+                        && !(keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
+                    throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
+                            + "only be set in merge-on-write unique table.");
+                }
+                // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
+                // and its value should be consistent with whether the table's full schema contains
+                // the skip bitmap hidden column
+                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
+                    properties = PropertyAnalyzer.addEnableUniqueKeySkipBitmapPropertyIfNotExists(properties);
+                    // `analyzeXXX` would modify `properties`, which will be used later,
+                    // so we just clone a properties map here.
+                    enableSkipBitmapColumn = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(
+                                new HashMap<>(properties));
+                }
+            }
+
             keysDesc.analyze(columnDefs);
-            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) && !enableUniqueKeyMergeOnWrite) {
-                throw new AnalysisException("Cluster keys only support unique keys table which enabled "
-                        + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames())) {
+                if (!enableUniqueKeyMergeOnWrite) {
+                    throw new AnalysisException("Cluster keys only support unique keys table which enabled "
+                            + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+                }
             }
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);
@@ -480,6 +515,13 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
             }
         }
+        if (enableSkipBitmapColumn && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newSkipBitmapColumnDef(AggregateType.NONE));
+            }
+            // TODO(bobhan1): add support for mor table
+        }
 
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
@@ -487,12 +529,13 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
 
             if (columnDef.getType().isComplexType() && engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
-                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
+                        && columnDef.getAggregateType() != AggregateType.REPLACE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE_IF_NOT_NULL) {
                     throw new AnalysisException(
                             columnDef.getType().getPrimitiveType() + " column can't support aggregation "
                                     + columnDef.getAggregateType());
                 }
-                if (columnDef.isKey()) {
+                if (columnDef.isKey() || columnDef.getClusterKeyId() != -1) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
                             + " can only be used in the non-key column of the duplicate table at present.");
                 }
@@ -564,6 +607,8 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         if (CollectionUtils.isNotEmpty(indexDefs)) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = PropertyAnalyzer
+                    .analyzeInvertedIndexFileStorageFormat(new HashMap<>(properties));
 
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
@@ -574,7 +619,10 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, getKeysDesc().getKeysType(), enableUniqueKeyMergeOnWrite);
+                            indexDef.checkColumn(column,
+                                    getKeysDesc().getKeysType(),
+                                    enableUniqueKeyMergeOnWrite,
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             break;
                         }
@@ -624,19 +672,13 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             }
         }
 
-        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals("odbc")
+        if ((engineName.equals("odbc")
                 || engineName.equals("mysql") || engineName.equals("broker"))) {
             throw new AnalysisException(
                     "odbc, mysql and broker table is no longer supported."
                             + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
-                            + " For broker table, use table valued function instead."
-                            + ". Or you can temporarily set 'disable_odbc_mysql_broker_table=false'"
-                            + " in fe.conf to reopen this feature.");
+                            + " For broker table, use table valued function instead.");
         }
-    }
-
-    public static CreateTableStmt read(DataInput in) throws IOException {
-        throw new RuntimeException("CreateTableStmt serialization is not supported anymore.");
     }
 
     @Override
@@ -644,6 +686,9 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         StringBuilder sb = new StringBuilder();
 
         sb.append("CREATE ");
+        if (isTemp) {
+            sb.append("TEMPORARY ");
+        }
         if (isExternal) {
             sb.append("EXTERNAL ");
         }
@@ -873,5 +918,10 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                         "Tables can only have generated columns if the olap engine is used");
             }
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

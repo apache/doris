@@ -33,7 +33,7 @@ import java.util.List;
 /**
  * ScalarFunction 'EncodeAsBigInt'.
  */
-public class EncodeAsBigInt extends ScalarFunction
+public class EncodeAsBigInt extends EncodeString
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(

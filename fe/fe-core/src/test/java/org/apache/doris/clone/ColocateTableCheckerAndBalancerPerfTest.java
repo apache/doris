@@ -65,7 +65,7 @@ public class ColocateTableCheckerAndBalancerPerfTest {
         Config.disable_tablet_scheduler = true;
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 6);
 
-        backends = Env.getCurrentSystemInfo().getIdToBackend().values().asList();
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             for (DiskInfo diskInfo : be.getDisks().values()) {
                 diskInfo.setTotalCapacityB(10L << 40);

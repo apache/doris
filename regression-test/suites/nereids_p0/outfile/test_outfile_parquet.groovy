@@ -113,7 +113,7 @@ suite("test_outfile_parquet") {
             SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/" FORMAT AS PARQUET;
         """
 
-        url = result[0][3]
+        def url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
         def filePrifix = url.split("${outFile}")[1]
         parquetFiles = "${outFile}${filePrifix}*.parquet"
@@ -158,7 +158,9 @@ suite("test_outfile_parquet") {
         logger.info("Run command: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         qt_select_default """ SELECT * FROM ${tableName2} t ORDER BY user_id; """
-    } finally {
+    } catch (Exception e) {
+        logger.info("export exception: ${e}")
+    }finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
         try_sql("DROP TABLE IF EXISTS ${tableName2}")
         File path = new File(outFilePath)
@@ -169,7 +171,7 @@ suite("test_outfile_parquet") {
             path.delete();
         }
 
-        cmd = "rm -rf ${parquetFiles}"
+        def cmd = "rm -rf ${parquetFiles}"
         sshExec ("root", urlHost, cmd)
     }
 }

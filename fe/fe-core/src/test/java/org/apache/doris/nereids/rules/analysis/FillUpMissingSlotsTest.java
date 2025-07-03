@@ -22,6 +22,7 @@ import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -72,6 +73,16 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         + "DISTRIBUTED BY HASH (pk)\n"
                         + "PROPERTIES(\n"
                         + "    'replication_num' = '1'\n"
+                        + ");",
+                "CREATE TABLE sales (\n"
+                        + "   year INT,\n"
+                        + "   country STRING,\n"
+                        + "   product STRING,\n"
+                        + "   profit INT\n"
+                        + ") \n"
+                        + "DISTRIBUTED BY HASH(`year`)\n"
+                        + "PROPERTIES (\n"
+                        + "\"replication_num\" = \"1\"\n"
                         + ");"
         );
     }
@@ -128,6 +139,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
+                .applyTopDown(new MergeProjectable())
                 .applyBottomUp(new ExpressionRewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE))
                 .matches(
                         logicalProject(
@@ -152,6 +164,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
+                .applyTopDown(new MergeProjectable())
                 .matches(
                         logicalProject(
                                 logicalFilter(
@@ -220,6 +233,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias minPK = new Alias(new ExprId(4), new Min(pk), "min(pk)");
         PlanChecker.from(connectContext).analyze(sql)
+                .applyTopDown(new MergeProjectable())
                 .matches(
                         logicalProject(
                                 logicalFilter(
@@ -230,7 +244,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
         sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 HAVING sum(a1 + a2) > 0";
-        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum(a1 + a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -244,6 +258,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new TinyIntLiteral((byte) 3))),
                 "sum(((a1 + a2) + 3))");
         PlanChecker.from(connectContext).analyze(sql)
+                .applyTopDown(new MergeProjectable())
                 .matches(
                         logicalProject(
                                 logicalFilter(
@@ -256,6 +271,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1 FROM t1 GROUP BY a1 HAVING count(*) > 0";
         Alias countStar = new Alias(new ExprId(3), new Count(), "count(*)");
         PlanChecker.from(connectContext).analyze(sql)
+                .applyTopDown(new MergeProjectable())
                 .matches(
                         logicalProject(
                                 logicalFilter(
@@ -284,6 +300,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA2 = new Alias(new ExprId(6), new Sum(a2), "sum(a2)");
         Alias sumB1 = new Alias(new ExprId(7), new Sum(b1), "sum(b1)");
         PlanChecker.from(connectContext).analyze(sql)
+                .applyTopDown(new MergeProjectable())
                 .matches(
                         logicalProject(
                                 logicalFilter(
@@ -353,7 +370,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(a1)");
         Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(a1)");
         Alias countA11 = new Alias(new ExprId(10), new Add(countA1.toSlot(), Literal.of((byte) 1)), "(count(a1) + 1)");
-        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum(a1 + a2)");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
@@ -466,7 +483,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
         sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 ORDER BY sum(a1 + a2)";
-        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum(a1 + a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalSort(
@@ -552,7 +569,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(a1)");
         Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(a1)");
         Alias countA11 = new Alias(new ExprId(10), new Add(new Count(a1), Literal.of((byte) 1)), "(count(a1) + 1)");
-        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum(a1 + a2)");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(logicalProject(logicalSort(logicalProject(logicalAggregate(logicalProject(
@@ -596,5 +613,117 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         String sql = "SELECT (pk + 1) as c FROM t1 HAVING c  > 1 ORDER BY a1 + pk";
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new CheckAfterRewrite());
+    }
+
+    @Test
+    void testQualify() {
+        connectContext.getSessionVariable().setDisableNereidsRules("ELIMINATE_AGG_ON_EMPTYRELATION");
+        String sql = "select year + 1, country from sales where year >= 2000 qualify row_number() over (order by profit) > 1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().matches(
+                logicalResultSink(
+                    logicalProject(
+                        logicalFilter(
+                            logicalWindow(
+                                logicalEmptyRelation())
+                        ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY profit asc null first)#5 > 1)"))
+                    )
+                )
+        );
+
+        sql = "select year + 1, country, row_number() over (order by year) as rk from sales where year >= 2000 qualify rk > profit";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().matches(
+                logicalResultSink(
+                    logicalProject(
+                        logicalFilter(
+                            logicalWindow(
+                                logicalEmptyRelation())
+                        ).when(filter -> filter.toString().contains("predicates=(rk#5 > cast(profit#3 as BIGINT))"))
+                    )
+                )
+        );
+
+        sql = "select year + 1, country from sales where year >= 2000 group by year,country qualify rank() over (order by year) > 1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().matches(
+                logicalResultSink(
+                    logicalProject(
+                        logicalFilter(
+                            logicalWindow(
+                                logicalProject(
+                                    logicalAggregate(logicalEmptyRelation())))
+                        ).when(filter -> filter.toString().contains("predicates=(rank() OVER(ORDER BY year asc null first)#5 > 1)"))
+                    )
+                )
+        );
+
+        sql = "select year + 1, country, sum(profit) as total from sales where year >= 2000 group by year,country having sum(profit) > 100 qualify row_number() over (order by year) > 1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().matches(
+                logicalResultSink(
+                    logicalProject(
+                        logicalFilter(
+                            logicalWindow(
+                                logicalProject(
+                                    logicalFilter(
+                                        logicalAggregate(logicalEmptyRelation())
+                                    ).when(filter -> filter.toString().contains("predicates=(total#5 > 100)"))
+                                )
+                            )
+                        ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year asc null first)#6 > 1)"))
+                    )
+                )
+        );
+
+        sql = "select distinct year + 1,country from sales qualify row_number() over (order by profit + 1) > 1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().matches(
+                logicalResultSink(
+                    logicalAggregate(
+                        logicalProject(
+                            logicalFilter(
+                                logicalWindow(
+                                    logicalEmptyRelation())
+                            ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY (profit + 1) asc null first)#5 > 1)"))
+                        )
+                    )
+                )
+        );
+
+        sql = "select distinct year + 1 as year,country from sales group by year, country qualify row_number() over (order by year) > 1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().matches(
+                logicalResultSink(
+                    logicalAggregate(
+                        logicalProject(
+                            logicalFilter(
+                                logicalWindow(
+                                    logicalProject(logicalAggregate(logicalEmptyRelation())))
+                            ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year asc null first)#5 > 1)"))
+                        )
+                    )
+                )
+        );
+
+        sql = "select distinct year,country,rank() over (order by year) from sales having sum(profit) > 100 qualify row_number() over (order by year) > 1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().matches(
+                logicalResultSink(
+                    logicalProject(
+                        logicalFilter(
+                            logicalAggregate(
+                                logicalProject(
+                                    logicalFilter(
+                                        logicalWindow(
+                                            logicalEmptyRelation())
+                                    ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year asc null first)#5 > 1)"))
+                                )
+                            )
+                        ).when(filter -> filter.toString().contains("predicates=(sum(profit)#6 > 100)"))
+                    )
+                )
+        );
+
+        ExceptionChecker.expectThrowsWithMsg(
+                AnalysisException.class,
+                "qualify only used for window expression",
+                () -> PlanChecker.from(connectContext).analyze(
+                    "select year + 1, country from sales where year >= 2000 qualify year > 1"
+                )
+        );
     }
 }

@@ -18,7 +18,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
 
-suite("test_partition_default_medium") {
+suite("test_partition_default_medium", 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'default_storage_medium=HDD',

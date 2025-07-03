@@ -57,7 +57,7 @@ suite("test_enable_date_non_deterministic_function_mtmv","mtmv") {
         Assert.fail();
     } catch (Exception e) {
         logger.info(e.getMessage())
-        assertTrue(e.getMessage().contains("can not contain invalid expression"));
+        assertTrue(e.getMessage().contains("can not contain nonDeterministic expression"));
     }
     sql """drop materialized view if exists ${mvName};"""
 
@@ -75,7 +75,7 @@ suite("test_enable_date_non_deterministic_function_mtmv","mtmv") {
         Assert.fail();
     } catch (Exception e) {
         logger.info(e.getMessage())
-        assertTrue(e.getMessage().contains("can not contain invalid expression"));
+        assertTrue(e.getMessage().contains("can not contain nonDeterministic expression"));
     }
     sql """drop materialized view if exists ${mvName};"""
 
@@ -123,12 +123,12 @@ suite("test_enable_date_non_deterministic_function_mtmv","mtmv") {
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT * FROM ${tableName} where now() > k3 and current_time() > k3;
+                SELECT * FROM ${tableName} where now() > k3;
         """
         Assert.fail();
     } catch (Exception e) {
         logger.info(e.getMessage())
-        assertTrue(e.getMessage().contains("can not contain invalid expression"));
+        assertTrue(e.getMessage().contains("can not contain nonDeterministic expression"));
     }
 
     sql """drop table if exists `${tableName}`"""

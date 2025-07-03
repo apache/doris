@@ -26,11 +26,13 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-template <template <typename, typename> typename AggregateFunction>
+template <template <PrimitiveType> typename AggregateFunction>
 AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const bool result_is_nullable) {
+                                                             const bool result_is_nullable,
+                                                             const AggregateFunctionAttr& attr) {
     const auto arg_count = argument_types.size();
 
     if (arg_count < 4) {
@@ -43,19 +45,19 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& 
         return nullptr;
     }
 
-    if (WhichDataType(remove_nullable(argument_types[1])).is_date_time_v2()) {
-        return creator_without_type::create<
-                AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(argument_types,
-                                                                             result_is_nullable);
-    } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_time()) {
-        return creator_without_type::create<AggregateFunction<VecDateTimeValue, Int64>>(
-                argument_types, result_is_nullable);
-    } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_v2()) {
-        return creator_without_type::create<
-                AggregateFunction<DateV2Value<DateV2ValueType>, UInt32>>(argument_types,
-                                                                         result_is_nullable);
+    switch (argument_types[1]->get_primitive_type()) {
+    case TYPE_DATETIMEV2:
+        return creator_without_type::create<AggregateFunction<TYPE_DATETIMEV2>>(argument_types,
+                                                                                result_is_nullable);
+    case TYPE_DATETIME:
+        return creator_without_type::create<AggregateFunction<TYPE_DATETIME>>(argument_types,
+                                                                              result_is_nullable);
+    case TYPE_DATEV2:
+        return creator_without_type::create<AggregateFunction<TYPE_DATEV2>>(argument_types,
+                                                                            result_is_nullable);
+    default:
+        return nullptr;
     }
-    return nullptr;
 }
 
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory) {

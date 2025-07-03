@@ -28,7 +28,6 @@
 #include <string>
 #include <vector>
 
-#include "gutil/port.h"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -119,13 +118,6 @@ inline bool BitmapEquals(const uint8_t* bm1, const uint8_t* bm2, size_t bitmap_s
     return (bm1[num_full_bytes] & mask) == (bm2[num_full_bytes] & mask);
 }
 
-// This function will print the bitmap content in a format like the following:
-// eg: 0001110000100010110011001100001100110011
-// output:
-//      0000: 00011100 00100010 11001100 11000011
-//      0016: 00110011
-std::string BitmapToString(const uint8_t* bitmap, size_t num_bits);
-
 // Iterator which yields ranges of set and unset bits.
 // Example usage:
 //   bool value;
@@ -167,7 +159,9 @@ public:
 private:
     size_t NextWithLimit(bool* value, size_t limit) {
         size_t len = limit - offset_;
-        if (PREDICT_FALSE(len == 0)) return (0);
+        if (len == 0) [[unlikely]] {
+            return (0);
+        }
 
         *value = BitmapTest(map_, offset_);
 

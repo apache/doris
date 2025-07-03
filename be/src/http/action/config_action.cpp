@@ -29,10 +29,10 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -45,9 +45,9 @@ const static std::string PERSIST_PARAM = "persist";
 const std::string CONF_ITEM = "conf_item";
 
 void ConfigAction::handle(HttpRequest* req) {
-    if (_type == ConfigActionType::UPDATE_CONFIG) {
+    if (_config_type == ConfigActionType::UPDATE_CONFIG) {
         handle_update_config(req);
-    } else if (_type == ConfigActionType::SHOW_CONFIG) {
+    } else if (_config_type == ConfigActionType::SHOW_CONFIG) {
         handle_show_config(req);
     }
 }
@@ -62,7 +62,7 @@ void ConfigAction::handle_show_config(HttpRequest* req) {
 
     writer.StartArray();
     for (const auto& _config : config_info) {
-        if (conf_item != nullptr || !conf_item.empty()) {
+        if (!conf_item.empty()) {
             if (_config[0] == conf_item) {
                 writer.StartArray();
                 for (const std::string& config_filed : _config) {
@@ -112,8 +112,7 @@ void ConfigAction::handle_update_config(HttpRequest* req) {
                           << " success. persist: " << need_persist;
             } else {
                 LOG(WARNING) << "set_config " << key << "=" << value << " failed";
-                msg = strings::Substitute("set $0=$1 failed, reason: $2.", key, value,
-                                          s.to_string());
+                msg = absl::Substitute("set $0=$1 failed, reason: $2.", key, value, s.to_string());
             }
             std::string status(s.ok() ? "OK" : "BAD");
             rapidjson::Value result;

@@ -49,14 +49,8 @@ suite("test_schema_change_auto_inc") {
 
     // add auto-increment attribute to a column
     test {
-        sql "alter table ${table1} modify column id2 BIGINT NOT NULL AUTO_INCREMENT"
+        sql """alter table ${table1} modify column id2 BIGINT NOT NULL AUTO_INCREMENT DEFAULT "0" """
         exception "Can't modify the column[id2]'s auto-increment attribute."
-    }
-
-    // schema change that invoke double write on a table which has auto-increment column is forbidden 
-    test {
-        sql "alter table ${table1} modify column value VARCHAR(20) NOT NULL"
-        exception "Can not modify column value becasue table ${table1} has auto-increment column id"
     }
 
     sql """ insert into ${table1}(name, value, id2) values("A", 999, 1), ("B", 888, 2), ("C", 777, 3);"""

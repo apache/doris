@@ -19,8 +19,9 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -37,9 +38,11 @@ public class MaterializedViewProjectFilterScanRule extends AbstractMaterializedV
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalProject(logicalFilter(logicalOlapScan())).thenApplyMultiNoThrow(ctx -> {
-                    LogicalProject<LogicalFilter<LogicalOlapScan>> root = ctx.root;
-                    return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_FILTER_SCAN));
+                logicalProject(logicalFilter(any().when(LogicalCatalogRelation.class::isInstance)))
+                        .thenApplyMultiNoThrow(
+                                ctx -> {
+                                    LogicalProject<LogicalFilter<Plan>> root = ctx.root;
+                                    return rewrite(root, ctx.cascadesContext);
+                                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_FILTER_SCAN));
     }
 }

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
@@ -89,5 +90,20 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
             }
         }
         return hasDistinctArguments.get();
+    }
+
+    /** mustUseMultiDistinctAgg */
+    default boolean mustUseMultiDistinctAgg() {
+        for (AggregateFunction aggregateFunction : getAggregateFunctions()) {
+            if (aggregateFunction.mustUseMultiDistinctAgg()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    default boolean isDistinct() {
+        return getOutputExpressions().stream().allMatch(e -> e instanceof Slot)
+                && getGroupByExpressions().stream().allMatch(e -> e instanceof Slot);
     }
 }

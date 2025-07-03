@@ -79,7 +79,21 @@
 \N	80	3
 \N	80	b
 
--- !outer_join_explode_json_array11 --
+-- !outer_join_explode_json_array111 --
+\N	\N	{"id":1,"name":"John"}
+\N	\N	{"id":2,"name":"Mary"}
+\N	\N	{"id":3,"name":"Bob"}
+\N	30	{"id":1,"name":"John"}
+\N	30	{"id":2,"name":"Mary"}
+\N	30	{"id":3,"name":"Bob"}
+\N	50	{"id":1,"name":"John"}
+\N	50	{"id":2,"name":"Mary"}
+\N	50	{"id":3,"name":"Bob"}
+\N	80	{"id":1,"name":"John"}
+\N	80	{"id":2,"name":"Mary"}
+\N	80	{"id":3,"name":"Bob"}
+
+-- !outer_join_explode_json_array112 --
 \N	\N	{"id":1,"name":"John"}
 \N	\N	{"id":2,"name":"Mary"}
 \N	\N	{"id":3,"name":"Bob"}
@@ -212,4 +226,9 @@
 400	Dan	50	4	Street 4	1.23	b
 400	Dan	50	4	Street 4	22.214	b
 400	Dan	50	4	Street 4	214.1	b
+
+-- !explode_json_array17 --
+4	{"a":1}
+4	{"b":2}
+4	{"c":3}
 

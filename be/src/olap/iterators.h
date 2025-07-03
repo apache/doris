@@ -42,7 +42,7 @@ struct IteratorRowRef;
 };
 
 namespace segment_v2 {
-struct StreamReader;
+struct SubstreamIterator;
 }
 
 class StorageReadOptions {
@@ -87,7 +87,6 @@ public:
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
     std::vector<ColumnPredicate*> column_predicates;
-    std::vector<ColumnPredicate*> column_predicates_except_leafnode_of_andnode;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
     std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> del_predicates_for_zone_map;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
@@ -183,7 +182,7 @@ public:
     // merge sort in priority queue
     virtual uint64_t data_id() const { return 0; }
 
-    virtual bool update_profile(RuntimeProfile* profile) { return false; }
+    virtual void update_profile(RuntimeProfile* profile) {}
     // return rows merged count by iterator
     virtual uint64_t merged_rows() const { return 0; }
 

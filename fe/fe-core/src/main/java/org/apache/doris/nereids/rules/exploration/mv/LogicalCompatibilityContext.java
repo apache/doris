@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperElement;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.ExpressionPosition;
@@ -36,8 +38,10 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
 
-import java.util.HashMap;
+import java.util.Collection;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -48,11 +52,15 @@ public class LogicalCompatibilityContext {
     private final BiMap<StructInfoNode, StructInfoNode> queryToViewNodeMapping;
     private final BiMap<Integer, Integer> queryToViewNodeIDMapping;
     private final ObjectId planNodeId;
-    private final Supplier<BiMap<Expression, Expression>> queryToViewJoinEdgeExpressionMappingSupplier;
-    private final Supplier<BiMap<Expression, Expression>> queryToViewNodeExpressionMappingSupplier;
-    private final Supplier<BiMap<Expression, Expression>> queryToViewFilterEdgeExpressionMappingSupplier;
-    @Deprecated
-    private BiMap<Expression, Expression> queryToViewAllExpressionMapping;
+    private final Supplier<Multimap<Expression, Pair<Expression, HyperElement>>>
+            queryToViewJoinEdgeExpressionMappingSupplier;
+    private final Supplier<Map<Expression, Expression>> queryToQueryShuttledJoinExpressionMappingSupplier;
+    private final Supplier<Multimap<Expression, Pair<Expression, HyperElement>>>
+            queryToViewNodeExpressionMappingSupplier;
+    private final Supplier<Map<Expression, Expression>> queryToQueryShuttledNodeExpressionMappingSupplier;
+    private final Supplier<Multimap<Expression, Pair<Expression, HyperElement>>>
+            queryToViewFilterEdgeExpressionMappingSupplier;
+    private final Supplier<Map<Expression, Expression>> queryToQueryShuttledFilterExpressionMappingSupplier;
 
     /**
      * LogicalCompatibilityContext
@@ -66,15 +74,24 @@ public class LogicalCompatibilityContext {
                         queryStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.JOIN_EDGE),
                         viewStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.JOIN_EDGE)));
 
+        this.queryToQueryShuttledJoinExpressionMappingSupplier = Suppliers.memoize(
+                () -> queryStructInfo.getExpressionToShuttledExpressionToMap().get(ExpressionPosition.JOIN_EDGE));
+
         this.queryToViewNodeExpressionMappingSupplier =
                 Suppliers.memoize(() -> generateExpressionMapping(viewToQuerySlotMapping,
                         queryStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.NODE),
                         viewStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.NODE)));
 
+        this.queryToQueryShuttledNodeExpressionMappingSupplier = Suppliers.memoize(
+                () -> queryStructInfo.getExpressionToShuttledExpressionToMap().get(ExpressionPosition.NODE));
+
         this.queryToViewFilterEdgeExpressionMappingSupplier =
                 Suppliers.memoize(() -> generateExpressionMapping(viewToQuerySlotMapping,
                         queryStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.FILTER_EDGE),
                         viewStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.FILTER_EDGE)));
+
+        this.queryToQueryShuttledFilterExpressionMappingSupplier = Suppliers.memoize(
+                () -> queryStructInfo.getExpressionToShuttledExpressionToMap().get(ExpressionPosition.FILTER_EDGE));
 
         this.queryToViewNodeMapping = queryToViewNodeMapping;
         this.queryToViewNodeIDMapping = HashBiMap.create();
@@ -92,16 +109,28 @@ public class LogicalCompatibilityContext {
         return queryToViewNodeIDMapping;
     }
 
-    public Expression getViewJoinExprFromQuery(Expression queryJoinExpr) {
+    public Collection<Pair<Expression, HyperElement>> getViewJoinExprFromQuery(Expression queryJoinExpr) {
         return queryToViewJoinEdgeExpressionMappingSupplier.get().get(queryJoinExpr);
     }
 
-    public Expression getViewFilterExprFromQuery(Expression queryJoinExpr) {
+    public Expression getQueryJoinShuttledExpr(Expression queryJoinExpr) {
+        return queryToQueryShuttledJoinExpressionMappingSupplier.get().get(queryJoinExpr);
+    }
+
+    public Collection<Pair<Expression, HyperElement>> getViewFilterExprFromQuery(Expression queryJoinExpr) {
         return queryToViewFilterEdgeExpressionMappingSupplier.get().get(queryJoinExpr);
     }
 
-    public Expression getViewNodeExprFromQuery(Expression queryJoinExpr) {
+    public Expression getQueryFilterShuttledExpr(Expression queryFilterExpr) {
+        return queryToQueryShuttledFilterExpressionMappingSupplier.get().get(queryFilterExpr);
+    }
+
+    public Collection<Pair<Expression, HyperElement>> getViewNodeExprFromQuery(Expression queryJoinExpr) {
         return queryToViewNodeExpressionMappingSupplier.get().get(queryJoinExpr);
+    }
+
+    public Expression getQueryNodeShuttledExpr(Expression queryNodeExpr) {
+        return queryToQueryShuttledNodeExpressionMappingSupplier.get().get(queryNodeExpr);
     }
 
     /**
@@ -134,24 +163,31 @@ public class LogicalCompatibilityContext {
                 viewStructInfo);
     }
 
-    private static BiMap<Expression, Expression> generateExpressionMapping(
+    /**
+     * The result is multimap
+     * the key is shuttled query expr
+     * the value is original view expr collection
+     * */
+    private static Multimap<Expression, Pair<Expression, HyperElement>> generateExpressionMapping(
             Map<SlotReference, SlotReference> viewToQuerySlotMapping,
-            Map<Expression, Expression> queryShuttledExprToExprMap,
-            Map<Expression, Expression> viewShuttledExprToExprMap) {
-        final Map<Expression, Expression> viewEdgeToConjunctsMapQueryBased = new HashMap<>();
-        BiMap<Expression, Expression> queryToViewEdgeMapping = HashBiMap.create();
+            Multimap<Expression, Pair<Expression, HyperElement>> queryShuttledExprToExprMap,
+            Multimap<Expression, Pair<Expression, HyperElement>> viewShuttledExprToExprMap) {
+        Multimap<Expression, Pair<Expression, HyperElement>> queryToViewEdgeMapping = HashMultimap.create();
         if (queryShuttledExprToExprMap == null || viewShuttledExprToExprMap == null
                 || queryShuttledExprToExprMap.isEmpty() || viewShuttledExprToExprMap.isEmpty()) {
             return queryToViewEdgeMapping;
         }
+        final Multimap<Expression, Pair<Expression, HyperElement>> viewShuttledExprToExprMapQueryBased =
+                HashMultimap.create();
         viewShuttledExprToExprMap.forEach((shuttledExpr, expr) -> {
-            viewEdgeToConjunctsMapQueryBased.put(
+            viewShuttledExprToExprMapQueryBased.put(
                     orderSlotAsc(ExpressionUtils.replace(shuttledExpr, viewToQuerySlotMapping)), expr);
         });
-        queryShuttledExprToExprMap.forEach((exprSet, edge) -> {
-            Expression viewExpr = viewEdgeToConjunctsMapQueryBased.get(orderSlotAsc(exprSet));
-            if (viewExpr != null) {
-                queryToViewEdgeMapping.put(edge, viewExpr);
+        queryShuttledExprToExprMap.forEach((shuttledExpr, expr) -> {
+            Collection<Pair<Expression, HyperElement>> viewExpressions = viewShuttledExprToExprMapQueryBased.get(
+                    orderSlotAsc(shuttledExpr));
+            if (viewExpressions != null) {
+                queryToViewEdgeMapping.putAll(shuttledExpr, viewExpressions);
             }
         });
         return queryToViewEdgeMapping;

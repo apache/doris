@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -309,5 +311,16 @@ public interface PlanPatterns extends Patterns {
      */
     default <C extends Plan> PatternDescriptor<Aggregate<C>> aggregate(PatternDescriptor<C> child) {
         return new PatternDescriptor(new TypePattern(Aggregate.class, child.pattern), defaultPromise());
+    }
+
+    /**
+     * create a aggregate pattern.
+     */
+    default PatternDescriptor<InlineTable> inlineTable() {
+        return new PatternDescriptor(new TypePattern(InlineTable.class), defaultPromise());
+    }
+
+    default PatternDescriptor<OneRowRelation> oneRowRelation() {
+        return new PatternDescriptor(new TypePattern(OneRowRelation.class), defaultPromise());
     }
 }

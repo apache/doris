@@ -17,7 +17,6 @@
 
 #include <vec/columns/column_array.h>
 #include <vec/columns/column_nullable.h>
-#include <vec/columns/columns_number.h>
 #include <vec/data_types/data_type_array.h>
 #include <vec/data_types/data_type_number.h>
 #include <vec/functions/function.h>
@@ -48,7 +47,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& [src_column, src_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const ColumnArray* array_column = nullptr;

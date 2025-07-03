@@ -1,0 +1,214 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+version: '3'
+
+services:
+  postgres:
+    image: postgres:14.5
+    container_name: doris-lakesoul-pg
+    hostname: ${LAKESOUL_META_HOST}
+    networks:
+      - doris-lakesoul
+    ports:
+      - "${PG_PORT}:5432"
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: lakesoul_test
+      POSTGRES_USER: lakesoul_test
+      POSTGRES_DB: lakesoul_test
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=4096"
+      - "-c"
+      - "default_transaction_isolation=serializable"
+    volumes:
+      - ./sql/meta_init.sql:/docker-entrypoint-initdb.d/meta_init.sql
+      - ./sql/meta_cleanup.sql:/meta_cleanup.sql
+
+  doris:
+    image: mysql:8.0.18
+    container_name: doris-lakesoul-doris
+    networks:
+      - doris-lakesoul
+    hostname: doris
+    user: root
+    privileged: true
+    ports:
+      - ${DORIS_QUERY_PORT}:9030
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+      - LD_LIBRARY_PATH=/opt/doris/be/lib
+      - JAVA_HOME=/opt/jdk-17
+    volumes:
+      - ./packages/jdk-17:/opt/jdk-17
+      - ./packages/doris-bin:/opt/doris-bin
+      - ./sql/init_doris.sql:/opt/doris-bin/init_doris.sql
+      - ./scripts:/opt/scripts
+    command: bin/bash /opt/scripts/start_doris.sh
+
+  mysql:
+    image: mysql:8.0.18
+    restart: always
+    container_name: doris-lakesoul-mysql-source
+    hostname: mysql
+    user: root
+    networks:
+      - doris-lakesoul
+    ports:
+      - ${MYSQL_PORT}:3306
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tpch
+    command:
+      --max_connections=4096
+    volumes:
+      - ./sql/mysql_init.sql:/docker-entrypoint-initdb.d/mysql_init.sql
+      - ./scripts:/opt/scripts
+      - ./conf/properties:/properties
+      - ./conf/my.conf:/etc/mysql/my.cnf
+      - ./packages/tpch-dbgen/customer.tbl:/data/tpch/customer.tbl
+
+  minio:
+    image: bitnami/minio:latest
+    container_name: doris-lakesoul-minio
+    ports:
+      - ${MINIO_API_PORT}:9000
+      - ${MINIO_UI_PORT}:9001
+    environment:
+      MINIO_DEFAULT_BUCKETS: lakesoul-test-bucket:public
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+      MINIO_DOMAIN: minio
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 3s
+      timeout: 5s
+      retries: 3
+    hostname: minio
+    networks:
+      - doris-lakesoul
+    # profiles: ["s3"]
+
+  jobmanager:
+    image: flink:1.17.1-scala_2.12-java8
+    container_name: doris-lakesoul-jobmanager
+    ports:
+      - ${FLINK_JOBMANAGER_PORT}:8081
+    command: jobmanager
+    networks:
+      - doris-lakesoul
+    depends_on:
+      - postgres
+      - minio
+    deploy:
+      replicas: 1
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.memory.process.size: 3000m
+        taskmanager.memory.flink.size: 2048m
+        s3.endpoint: http://minio:9000
+        s3.access-key: admin
+        s3.secret-key: password
+        s3.path.style.access: true
+      - LAKESOUL_PG_DRIVER=com.lakesoul.shaded.org.postgresql.Driver
+      - LAKESOUL_PG_URL=jdbc:postgresql://${LAKESOUL_META_HOST}:5432/lakesoul_test?stringtype=unspecified
+      - LAKESOUL_PG_USERNAME=lakesoul_test
+      - LAKESOUL_PG_PASSWORD=lakesoul_test
+      - FLINK_HOME=/opt/flink
+      - HADOOP_HOME=/opt/hadoop
+      - HADOOP_CLASSPATH="/opt/hadoop/etc/hadoop:/opt/hadoop/share/hadoop/common/lib/*:/opt/hadoop/share/hadoop/common/*:/opt/hadoop/share/hadoop/hdfs:/opt/hadoop/share/hadoop/hdfs/lib/*:/opt/hadoop/share/hadoop/hdfs/*:/opt/hadoop/share/hadoop/mapreduce/*:/opt/hadoop/share/hadoop/yarn:/opt/hadoop/share/hadoop/yarn/lib/*:/opt/hadoop/share/hadoop/yarn/*"
+    volumes:
+      - ./work-dir/:/opt/flink/work-dir/
+      - ./packages/hadoop-3.3.5:/opt/hadoop
+      - ./packages/jars/lakesoul-flink-1.17-2.6.1.jar:/opt/flink/jars/lakesoul-flink-1.17-2.6.1.jar
+      - ./packages/jars/flink-s3-fs-hadoop-1.17.1.jar:/opt/flink/plugins/s3/flink-s3-fs-hadoop-1.17.1.jar
+      - ./packages/jars/flink-parquet-1.17.1.jar:/opt/flink/lib/flink-parquet-1.17.1.jar
+      - ./packages/jars/parquet-hadoop-bundle-1.12.3.jar:/opt/flink/lib/parquet-hadoop-bundle-1.12.3.jar
+      - ./sql/init_flink_tables.sql:/opt/flink/sql/init_tables.sql
+
+
+  taskmanager:
+    image: flink:1.17.1-scala_2.12-java8
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    deploy:
+      replicas: 2
+    networks:
+      - doris-lakesoul
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.memory.process.size: 3000m
+        taskmanager.memory.flink.size: 2048m
+        taskmanager.numberOfTaskSlots: 6
+        s3.endpoint: http://minio:9000
+        s3.access-key: admin
+        s3.secret-key: password
+        s3.path.style.access: true
+      - LAKESOUL_PG_DRIVER=com.lakesoul.shaded.org.postgresql.Driver
+      - LAKESOUL_PG_URL=jdbc:postgresql://${LAKESOUL_META_HOST}:5432/lakesoul_test?stringtype=unspecified
+      - LAKESOUL_PG_USERNAME=lakesoul_test
+      - LAKESOUL_PG_PASSWORD=lakesoul_test
+      - FLINK_HOME=/opt/flink
+      - HADOOP_HOME=/opt/hadoop
+      - HADOOP_CLASSPATH="/opt/hadoop/etc/hadoop:/opt/hadoop/share/hadoop/common/lib/*:/opt/hadoop/share/hadoop/common/*:/opt/hadoop/share/hadoop/hdfs:/opt/hadoop/share/hadoop/hdfs/lib/*:/opt/hadoop/share/hadoop/hdfs/*:/opt/hadoop/share/hadoop/mapreduce/*:/opt/hadoop/share/hadoop/yarn:/opt/hadoop/share/hadoop/yarn/lib/*:/opt/hadoop/share/hadoop/yarn/*"
+    volumes:
+      - ./work-dir/:/opt/flink/work-dir/
+      - ./packages/hadoop-3.3.5:/opt/hadoop
+      - ./packages/jars/lakesoul-flink-1.17-2.6.1.jar:/opt/flink/jars/lakesoul-flink-1.17-2.6.1.jar
+      - ./packages/jars/flink-s3-fs-hadoop-1.17.1.jar:/opt/flink/plugins/s3/flink-s3-fs-hadoop-1.17.1.jar
+      - ./packages/jars/flink-parquet-1.17.1.jar:/opt/flink/lib/flink-parquet-1.17.1.jar
+      - ./packages/jars/parquet-hadoop-bundle-1.12.3.jar:/opt/flink/lib/parquet-hadoop-bundle-1.12.3.jar
+
+  spark:
+    image: bitnami/spark:3.3.1
+    container_name: doris-lakesoul-spark
+    build: spark/
+    privileged: true
+    user: root
+    volumes:
+      - ./packages/jars/lakesoul-spark-3.3-2.6.1.jar:/opt/bitnami/spark/jars/lakesoul-spark-3.3-2.6.1.jar
+      - ./data/spark-conf:/opt/bitnami/spark/conf
+      - ./sql/prepare_data.sql:/opt/sql/prepare_data.sql
+      - ./packages/tpch-dbgen/customer.tbl:/data/tpch/customer.tbl
+      - ./packages/tpch-dbgen/orders.tbl:/data/tpch/orders.tbl
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+      - LAKESOUL_PG_DRIVER=com.lakesoul.shaded.org.postgresql.Driver
+      - LAKESOUL_PG_URL=jdbc:postgresql://${LAKESOUL_META_HOST}:5432/lakesoul_test?stringtype=unspecified
+      - LAKESOUL_PG_USERNAME=lakesoul_test
+      - LAKESOUL_PG_PASSWORD=lakesoul_test
+    networks:
+      - doris-lakesoul
+
+networks:
+  doris-lakesoul:
+    ipam:
+      driver: default

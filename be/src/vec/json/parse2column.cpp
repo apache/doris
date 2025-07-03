@@ -37,8 +37,8 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
@@ -99,16 +99,16 @@ public:
 
 SimpleObjectPool<JsonParser> parsers_pool;
 
-using Node = typename ColumnObject::Subcolumns::Node;
+using Node = typename ColumnVariant::Subcolumns::Node;
 /// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
 /// and replaces all scalars or nested arrays to @replacement at that level.
 class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
 public:
     FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
             : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
-    template <typename T>
-    Field operator()(const T& x) const {
-        if constexpr (std::is_same_v<T, Array>) {
+    template <PrimitiveType T>
+    Field operator()(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+        if constexpr (T == TYPE_ARRAY) {
             if (num_dimensions_to_keep == 0) {
                 return replacement;
             }
@@ -118,7 +118,7 @@ public:
                 res[i] = apply_visitor(
                         FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
             }
-            return res;
+            return Field::create_field<TYPE_ARRAY>(res);
         } else {
             return replacement;
         }
@@ -131,13 +131,13 @@ private:
 
 template <typename ParserImpl>
 void parse_json_to_variant(IColumn& column, const char* src, size_t length,
-                           JSONDataParser<ParserImpl>* parser) {
-    auto& column_object = assert_cast<ColumnObject&>(column);
+                           JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
+    auto& column_variant = assert_cast<ColumnVariant&>(column);
     std::optional<ParseResult> result;
     /// Treat empty string as an empty object
     /// for better CAST from String to Object.
     if (length > 0) {
-        result = parser->parse(src, length);
+        result = parser->parse(src, length, config);
     } else {
         result = ParseResult {};
     }
@@ -149,22 +149,26 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
         // Treat as string
         PathInData root_path;
-        Field field(src, length);
+        Field field = Field::create_field<TYPE_STRING>(String(src, length));
         result = ParseResult {{root_path}, {field}};
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
-    size_t old_num_rows = column_object.size();
+    size_t old_num_rows = column_variant.size();
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
         get_field_info(values[i], &field_info);
-        if (WhichDataType(field_info.scalar_type_id).is_nothing()) {
+        if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
             continue;
         }
-        if (column_object.get_subcolumn(paths[i], i) == nullptr) {
-            column_object.add_sub_column(paths[i], old_num_rows);
+        if (column_variant.get_subcolumn(paths[i], i) == nullptr) {
+            if (paths[i].has_nested_part()) {
+                column_variant.add_nested_subcolumn(paths[i], field_info, old_num_rows);
+            } else {
+                column_variant.add_sub_column(paths[i], old_num_rows);
+            }
         }
-        auto* subcolumn = column_object.get_subcolumn(paths[i], i);
+        auto* subcolumn = column_variant.get_subcolumn(paths[i], i);
         if (!subcolumn) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
                                    paths[i].get_path());
@@ -177,53 +181,31 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         subcolumn->insert(std::move(values[i]), std::move(field_info));
     }
     // /// Insert default values to missed subcolumns.
-    const auto& subcolumns = column_object.get_subcolumns();
+    const auto& subcolumns = column_variant.get_subcolumns();
     for (const auto& entry : subcolumns) {
         if (entry->data.size() == old_num_rows) {
-            entry->data.insertDefault();
+            bool inserted = column_variant.try_insert_default_from_nested(entry);
+            if (!inserted) {
+                entry->data.insert_default();
+            }
         }
     }
-    column_object.incr_num_rows();
-}
-
-bool extract_key(MutableColumns& columns, StringRef json, const std::vector<StringRef>& keys,
-                 const std::vector<ExtractType>& types, JsonParser* parser) {
-    return parser->extract_key(columns, json, keys, types);
+    column_variant.incr_num_rows();
 }
 
 // exposed interfaces
-void parse_json_to_variant(IColumn& column, const StringRef& json, JsonParser* parser) {
-    return parse_json_to_variant(column, json.data, json.size, parser);
+void parse_json_to_variant(IColumn& column, const StringRef& json, JsonParser* parser,
+                           const ParseConfig& config) {
+    return parse_json_to_variant(column, json.data, json.size, parser, config);
 }
 
-void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column) {
+void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
+                           const ParseConfig& config) {
     auto parser = parsers_pool.get([] { return new JsonParser(); });
     for (size_t i = 0; i < raw_json_column.size(); ++i) {
         StringRef raw_json = raw_json_column.get_data_at(i);
-        parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get());
+        parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get(), config);
     }
-}
-
-bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,
-                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
-    auto parser = parsers_pool.get([] { return new JsonParser(); });
-    for (StringRef json : jsons) {
-        if (!extract_key(columns, json, keys, types, parser.get())) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool extract_key(MutableColumns& columns, const ColumnString& json_column,
-                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
-    auto parser = parsers_pool.get([] { return new JsonParser(); });
-    for (size_t x = 0; x < json_column.size(); ++x) {
-        if (!extract_key(columns, json_column.get_data_at(x), keys, types, parser.get())) {
-            return false;
-        }
-    }
-    return true;
 }
 
 } // namespace doris::vectorized

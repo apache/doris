@@ -20,10 +20,6 @@ package org.apache.doris.common.util;
 import java.util.regex.Pattern;
 
 public class FileFormatConstants {
-    public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
-    public static final String DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR = "\001";
-    public static final String DEFAULT_LINE_DELIMITER = "\n";
-
     public static final String FORMAT_CSV = "csv";
     public static final String FORMAT_CSV_WITH_NAMES = "csv_with_names";
     public static final String FORMAT_CSV_WITH_NAMES_AND_TYPES = "csv_with_names_and_types";
@@ -50,6 +46,7 @@ public class FileFormatConstants {
     public static final String PROP_COMPRESS = "compress";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
     public static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
+    public static final String PROP_ENCLOSE = "enclose";
 
     // decimal(p,s)
     public static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");

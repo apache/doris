@@ -21,13 +21,11 @@
 
 #include <memory>
 #include <ostream>
-#include <vector>
 
 #include "common/status.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -36,6 +34,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VExplodeBitmapTableFunction::VExplodeBitmapTableFunction() {
     _fn_name = "vexplode_bitmap";
@@ -126,7 +125,7 @@ int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_ste
         }
         auto origin_size = target->size();
         target->resize(origin_size + max_step);
-        auto target_data = target->get_data().data();
+        auto* target_data = target->get_data().data();
         for (int i = 0; i < max_step; ++i) {
             target_data[i + origin_size] = **_cur_iter;
             ++(*_cur_iter);
@@ -135,4 +134,5 @@ int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_ste
     TableFunction::forward(max_step);
     return max_step;
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -17,8 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -54,10 +52,9 @@ public class ExportJobStateTransfer implements Writable {
     }
 
     // used for persisting one log
-    public ExportJobStateTransfer(long jobId, ExportJobState state) {
-        this.jobId = jobId;
+    public ExportJobStateTransfer(ExportJob job, ExportJobState state) {
+        this.jobId = job.getId();
         this.state = state;
-        ExportJob job = Env.getCurrentEnv().getExportMgr().getJob(jobId);
         this.startTimeMs = job.getStartTimeMs();
         this.finishTimeMs = job.getFinishTimeMs();
         this.failMsg = job.getFailMsg();
@@ -71,18 +68,7 @@ public class ExportJobStateTransfer implements Writable {
     }
 
     public static ExportJobStateTransfer read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_120) {
-            ExportJobStateTransfer transfer = new ExportJobStateTransfer();
-            transfer.readFields(in);
-            return transfer;
-        }
         String json = Text.readString(in);
-        ExportJobStateTransfer transfer = GsonUtils.GSON.fromJson(json, ExportJobStateTransfer.class);
-        return transfer;
-    }
-
-    private void readFields(DataInput in) throws IOException {
-        jobId = in.readLong();
-        state = ExportJobState.valueOf(Text.readString(in));
+        return GsonUtils.GSON.fromJson(json, ExportJobStateTransfer.class);
     }
 }

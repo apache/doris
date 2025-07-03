@@ -197,8 +197,8 @@ public:
         simdjson::dom::object object;
     };
     /// Parses a JSON document, returns the reference to its root element if succeeded.
-    bool parse(const std::string_view& json, Element& result) {
-        auto document = parser.parse(json.data(), json.size());
+    bool parse(const char* data, size_t size, Element& result) {
+        auto document = parser.parse(data, size);
         if (document.error()) {
             return false;
         }
@@ -208,8 +208,8 @@ public:
     /// Optional: Allocates memory to parse JSON documents faster.
     void reserve(size_t max_size) {
         if (parser.allocate(max_size) != simdjson::error_code::SUCCESS) {
-            LOG(FATAL) << "Couldn't allocate " + std::to_string(max_size) +
-                                  " bytes when parsing JSON";
+            throw Exception(Status::FatalError("Couldn't allocate {} bytes when parsing JSON",
+                                               std::to_string(max_size)));
         }
     }
 

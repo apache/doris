@@ -23,25 +23,31 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <bool nullable>
 AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_types) {
-    auto type = remove_nullable(argument_types[0]);
-    WhichDataType which(type);
-#define DISPATCH(TYPE)                                                                       \
-    if (which.idx == TypeIndex::TYPE) {                                                      \
-        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE>>(argument_types); \
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_TINYINT:
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_TINYINT>>(argument_types);
+    case PrimitiveType::TYPE_SMALLINT:
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_SMALLINT>>(
+                argument_types);
+    case PrimitiveType::TYPE_INT:
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_INT>>(argument_types);
+    case PrimitiveType::TYPE_BIGINT:
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_BIGINT>>(argument_types);
+    default:
+        LOG(WARNING) << "with unknown type, failed in create_with_int_data_type bitmap_union_int"
+                     << " and type is: " << argument_types[0]->get_name();
+        return nullptr;
     }
-    FOR_INTEGER_TYPES(DISPATCH)
-#undef DISPATCH
-    LOG(WARNING) << "with unknown type, failed in create_with_int_data_type bitmap_union_int"
-                 << " and type is: " << argument_types[0]->get_name();
-    return nullptr;
 }
 
 AggregateFunctionPtr create_aggregate_function_bitmap_agg(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
+                                                          const bool result_is_nullable,
+                                                          const AggregateFunctionAttr& attr) {
     const bool arg_is_nullable = argument_types[0]->is_nullable();
     if (arg_is_nullable) {
         return AggregateFunctionPtr(create_with_int_data_type<true>(argument_types));

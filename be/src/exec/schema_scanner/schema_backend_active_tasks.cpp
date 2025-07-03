@@ -25,10 +25,13 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_columns = {
         //   name,       type,          size
-        {"BE_ID", TYPE_BIGINT, sizeof(StringRef), false},
+        {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"FE_HOST", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"WORKLOAD_GROUP_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
         {"TASK_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
         {"TASK_CPU_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
@@ -39,6 +42,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_
         {"SHUFFLE_SEND_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"SHUFFLE_SEND_ROWS", TYPE_BIGINT, sizeof(int64_t), false},
         {"QUERY_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"SPILL_WRITE_BYTES_TO_LOCAL_STORAGE", TYPE_BIGINT, sizeof(int64_t), false},
+        {"SPILL_READ_BYTES_FROM_LOCAL_STORAGE", TYPE_BIGINT, sizeof(int64_t), false},
 };
 
 SchemaBackendActiveTasksScanner::SchemaBackendActiveTasksScanner()
@@ -51,7 +56,8 @@ Status SchemaBackendActiveTasksScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaBackendActiveTasksScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaBackendActiveTasksScanner::get_next_block_internal(vectorized::Block* block,
+                                                                bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -64,9 +70,8 @@ Status SchemaBackendActiveTasksScanner::get_next_block(vectorized::Block* block,
         _task_stats_block = vectorized::Block::create_unique();
 
         for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-            TypeDescriptor descriptor(_s_tbls_columns[i].type);
-            auto data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+            auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    _s_tbls_columns[i].type, true);
             _task_stats_block->insert(vectorized::ColumnWithTypeAndName(
                     data_type->create_column(), data_type, _s_tbls_columns[i].name));
         }
@@ -75,7 +80,7 @@ Status SchemaBackendActiveTasksScanner::get_next_block(vectorized::Block* block,
 
         ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_active_be_tasks_block(
                 _task_stats_block.get());
-        _total_rows = _task_stats_block->rows();
+        _total_rows = (int)_task_stats_block->rows();
     }
 
     if (_row_idx == _total_rows) {

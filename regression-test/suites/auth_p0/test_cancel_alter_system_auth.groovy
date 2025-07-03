@@ -23,12 +23,16 @@ suite("test_cancel_alter_system_auth","p0,auth") {
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "CANCEL DECOMMISSION BACKEND 'id1';"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Node_priv"))
+			if(isCloudMode()) {
+			    assertTrue(e.getMessage().contains("Unsupported operation"))
+			} else {
+			    assertTrue(e.getMessage().contains("Node_priv"))
+			}
         }
     }
     try_sql("DROP USER ${user}")

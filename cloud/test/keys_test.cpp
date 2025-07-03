@@ -803,6 +803,40 @@ TEST(KeysTest, StatsKeysTest) {
 
         EXPECT_EQ("num_segs", dec_stats_suffix);
     }
+
+    // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "index_size"   -> int64
+    {
+        StatsTabletKeyInfo stats_key {instance_id, table_id, index_id, partition_id, tablet_id};
+        std::string encoded_stats_key0;
+        stats_tablet_index_size_key(stats_key, &encoded_stats_key0);
+        std::cout << hex(encoded_stats_key0) << std::endl;
+
+        std::string dec_stats_suffix;
+
+        std::string_view key_sv(encoded_stats_key0);
+        expect_stats_prefix(key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_stats_suffix), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("index_size", dec_stats_suffix);
+    }
+
+    // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "segment_size"   -> int64
+    {
+        StatsTabletKeyInfo stats_key {instance_id, table_id, index_id, partition_id, tablet_id};
+        std::string encoded_stats_key0;
+        stats_tablet_segment_size_key(stats_key, &encoded_stats_key0);
+        std::cout << hex(encoded_stats_key0) << std::endl;
+
+        std::string dec_stats_suffix;
+
+        std::string_view key_sv(encoded_stats_key0);
+        expect_stats_prefix(key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_stats_suffix), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("segment_size", dec_stats_suffix);
+    }
 }
 
 TEST(KeysTest, JobKeysTest) {

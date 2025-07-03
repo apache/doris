@@ -17,10 +17,10 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstring>
 #include <vector>
 
-#include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
 #include "exec/olap_common.h"
 #include "gutil/endian.h"
@@ -31,16 +31,14 @@
 #include "vec/exec/format/parquet/schema_desc.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class ParquetPredicate {
 #define FOR_REINTERPRET_TYPES(M)             \
     M(TYPE_BOOLEAN, tparquet::Type::BOOLEAN) \
     M(TYPE_TINYINT, tparquet::Type::INT32)   \
     M(TYPE_SMALLINT, tparquet::Type::INT32)  \
     M(TYPE_INT, tparquet::Type::INT32)       \
-    M(TYPE_BIGINT, tparquet::Type::INT64)    \
-    M(TYPE_FLOAT, tparquet::Type::FLOAT)     \
-    M(TYPE_DOUBLE, tparquet::Type::DOUBLE)
+    M(TYPE_BIGINT, tparquet::Type::INT64)
 
 private:
     struct ScanPredicate {
@@ -59,10 +57,10 @@ private:
         }
     };
 
-    template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
-    static DecimalPrimitiveType _decode_primitive_decimal(const FieldSchema* col_schema,
-                                                          const std::string& encoded_data,
-                                                          int dest_scale) {
+    template <PrimitiveType DecimalPrimitiveType, typename DecimalPhysicalType>
+    static typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType
+    _decode_primitive_decimal(const FieldSchema* col_schema, const std::string& encoded_data,
+                              int dest_scale) {
         int scale = col_schema->parquet_schema.scale;
         Int128 value = *reinterpret_cast<const DecimalPhysicalType*>(encoded_data.data());
         if (dest_scale > scale) {
@@ -70,25 +68,25 @@ private:
         } else if (dest_scale < scale) {
             value /= DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
         }
-        return (DecimalPrimitiveType)value;
+        return (typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType)value;
     }
 
-    template <typename DecimalPrimitiveType>
-    static DecimalPrimitiveType _decode_binary_decimal(const FieldSchema* col_schema,
-                                                       const std::string& encoded_data,
-                                                       int dest_scale) {
+    template <PrimitiveType DecimalPrimitiveType>
+    static typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType
+    _decode_binary_decimal(const FieldSchema* col_schema, const std::string& encoded_data,
+                           int dest_scale) {
         int scale = col_schema->parquet_schema.scale;
         const char* buf_start = encoded_data.data();
         Int128 value = buf_start[0] & 0x80 ? -1 : 0;
         memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - encoded_data.size(), buf_start,
                encoded_data.size());
-        value = BigEndian::ToHost128(value);
+        value = to_endian<std::endian::big>(value);
         if (dest_scale > scale) {
             value *= DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dest_scale - scale);
         } else if (dest_scale < scale) {
             value /= DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
         }
-        return (DecimalPrimitiveType)value;
+        return (typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType)value;
     }
 
     template <typename CppType>
@@ -124,7 +122,8 @@ private:
                                    const ScanPredicate& predicate, const FieldSchema* col_schema,
                                    const std::string& encoded_min, const std::string& encoded_max,
                                    const cctz::time_zone& ctz, bool use_min_max_value = false) {
-        using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+        using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                           typename PrimitiveTypeTraits<primitive_type>::CppType>;
         std::vector<CppType> predicate_values;
         for (const void* v : predicate.values) {
             predicate_values.emplace_back(*reinterpret_cast<const CppType*>(v));
@@ -132,6 +131,8 @@ private:
 
         CppType min_value;
         CppType max_value;
+        std::unique_ptr<std::string> encoded_min_copy;
+        std::unique_ptr<std::string> encoded_max_copy;
         tparquet::Type::type physical_type = col_schema->physical_type;
         switch (col_val_range.type()) {
 #define DISPATCH(REINTERPRET_TYPE, PARQUET_TYPE)                           \
@@ -142,28 +143,73 @@ private:
         break;
             FOR_REINTERPRET_TYPES(DISPATCH)
 #undef DISPATCH
+        case TYPE_FLOAT:
+            if constexpr (std::is_same_v<CppType, float>) {
+                if (col_schema->physical_type != tparquet::Type::FLOAT) {
+                    return false;
+                }
+                min_value = *reinterpret_cast<const CppType*>(encoded_min.data());
+                max_value = *reinterpret_cast<const CppType*>(encoded_max.data());
+                if (std::isnan(min_value) || std::isnan(max_value)) {
+                    return false;
+                }
+                // Updating min to -0.0 and max to +0.0 to ensure that no 0.0 values would be skipped
+                if (std::signbit(min_value) == 0 && min_value == 0.0F) {
+                    min_value = -0.0F;
+                }
+                if (std::signbit(max_value) != 0 && max_value == -0.0F) {
+                    max_value = 0.0F;
+                }
+                break;
+            } else {
+                return false;
+            }
+        case TYPE_DOUBLE:
+            if constexpr (std::is_same_v<CppType, float>) {
+                if (col_schema->physical_type != tparquet::Type::DOUBLE) {
+                    return false;
+                }
+                min_value = *reinterpret_cast<const CppType*>(encoded_min.data());
+                max_value = *reinterpret_cast<const CppType*>(encoded_max.data());
+                if (std::isnan(min_value) || std::isnan(max_value)) {
+                    return false;
+                }
+                // Updating min to -0.0 and max to +0.0 to ensure that no 0.0 values would be skipped
+                if (std::signbit(min_value) == 0 && min_value == 0.0) {
+                    min_value = -0.0;
+                }
+                if (std::signbit(max_value) != 0 && max_value == -0.0) {
+                    max_value = 0.0;
+                }
+                break;
+            } else {
+                return false;
+            }
         case TYPE_VARCHAR:
             [[fallthrough]];
         case TYPE_CHAR:
             [[fallthrough]];
         case TYPE_STRING:
-            // TODO: In parquet, min and max statistics may not be able to handle UTF8 correctly.
-            // Current processing method is using min_value and max_value statistics introduced by PARQUET-1025 if they are used.
-            // If not, current processing method is temporarily ignored. A better way is try to read min and max statistics
-            // if it contains only ASCII characters.
-            if (!use_min_max_value) {
-                return false;
-            }
             if constexpr (std::is_same_v<CppType, StringRef>) {
-                min_value = StringRef(encoded_min);
-                max_value = StringRef(encoded_max);
+                if (!use_min_max_value) {
+                    encoded_min_copy = std::make_unique<std::string>(encoded_min);
+                    encoded_max_copy = std::make_unique<std::string>(encoded_max);
+                    if (!_try_read_old_utf8_stats(*encoded_min_copy, *encoded_max_copy)) {
+                        return false;
+                    }
+                    min_value = StringRef(*encoded_min_copy);
+                    max_value = StringRef(*encoded_max_copy);
+                } else {
+                    min_value = StringRef(encoded_min);
+                    max_value = StringRef(encoded_max);
+                }
             } else {
                 return false;
-            };
+            }
             break;
         case TYPE_DECIMALV2:
             if constexpr (std::is_same_v<CppType, DecimalV2Value>) {
-                size_t max_precision = max_decimal_precision<Decimal128V2>();
+                size_t max_precision = max_decimal_precision<TYPE_DECIMALV2>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||
                     col_schema->parquet_schema.scale > max_precision) {
@@ -171,19 +217,19 @@ private:
                 }
                 int v2_scale = DecimalV2Value::SCALE;
                 if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                    min_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
+                    min_value = DecimalV2Value(_decode_binary_decimal<TYPE_DECIMALV2>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
+                    max_value = DecimalV2Value(_decode_binary_decimal<TYPE_DECIMALV2>(
                             col_schema, encoded_max, v2_scale));
                 } else if (physical_type == tparquet::Type::INT32) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
+                    min_value = DecimalV2Value(_decode_primitive_decimal<TYPE_DECIMALV2, Int32>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
+                    max_value = DecimalV2Value(_decode_primitive_decimal<TYPE_DECIMALV2, Int32>(
                             col_schema, encoded_max, v2_scale));
                 } else if (physical_type == tparquet::Type::INT64) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
+                    min_value = DecimalV2Value(_decode_primitive_decimal<TYPE_DECIMALV2, Int64>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
+                    max_value = DecimalV2Value(_decode_primitive_decimal<TYPE_DECIMALV2, Int64>(
                             col_schema, encoded_max, v2_scale));
                 } else {
                     return false;
@@ -200,27 +246,27 @@ private:
             if constexpr (std::is_same_v<CppType, Decimal32> ||
                           std::is_same_v<CppType, Decimal64> ||
                           std::is_same_v<CppType, Decimal128V3>) {
-                size_t max_precision = max_decimal_precision<CppType>();
+                size_t max_precision = max_decimal_precision<CppType::PType>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||
                     col_schema->parquet_schema.scale > max_precision) {
                     return false;
                 }
                 if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                    min_value = _decode_binary_decimal<CppType>(col_schema, encoded_min,
-                                                                predicate.scale);
-                    max_value = _decode_binary_decimal<CppType>(col_schema, encoded_max,
-                                                                predicate.scale);
+                    min_value = _decode_binary_decimal<CppType::PType>(col_schema, encoded_min,
+                                                                       predicate.scale);
+                    max_value = _decode_binary_decimal<CppType::PType>(col_schema, encoded_max,
+                                                                       predicate.scale);
                 } else if (physical_type == tparquet::Type::INT32) {
-                    min_value = _decode_primitive_decimal<CppType, Int32>(col_schema, encoded_min,
-                                                                          predicate.scale);
-                    max_value = _decode_primitive_decimal<CppType, Int32>(col_schema, encoded_max,
-                                                                          predicate.scale);
+                    min_value = _decode_primitive_decimal<CppType::PType, Int32>(
+                            col_schema, encoded_min, predicate.scale);
+                    max_value = _decode_primitive_decimal<CppType::PType, Int32>(
+                            col_schema, encoded_max, predicate.scale);
                 } else if (physical_type == tparquet::Type::INT64) {
-                    min_value = _decode_primitive_decimal<CppType, Int64>(col_schema, encoded_min,
-                                                                          predicate.scale);
-                    max_value = _decode_primitive_decimal<CppType, Int64>(col_schema, encoded_max,
-                                                                          predicate.scale);
+                    min_value = _decode_primitive_decimal<CppType::PType, Int64>(
+                            col_schema, encoded_min, predicate.scale);
+                    max_value = _decode_primitive_decimal<CppType::PType, Int64>(
+                            col_schema, encoded_max, predicate.scale);
                 } else {
                     return false;
                 }
@@ -341,7 +387,8 @@ private:
     template <PrimitiveType primitive_type>
     static std::vector<ScanPredicate> _value_range_to_predicate(
             const ColumnValueRange<primitive_type>& col_val_range, PrimitiveType src_type) {
-        using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+        using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                           typename PrimitiveTypeTraits<primitive_type>::CppType>;
         std::vector<ScanPredicate> predicates;
 
         if (src_type != primitive_type) {
@@ -397,17 +444,72 @@ private:
         return predicates;
     }
 
+    static inline bool _is_ascii(uint8_t byte) { return byte < 128; }
+
+    static int _common_prefix(const std::string& encoding_min, const std::string& encoding_max) {
+        size_t min_length = std::min(encoding_min.size(), encoding_max.size());
+        int common_length = 0;
+        while (common_length < min_length &&
+               encoding_min[common_length] == encoding_max[common_length]) {
+            common_length++;
+        }
+        return common_length;
+    }
+
+    static bool _try_read_old_utf8_stats(std::string& encoding_min, std::string& encoding_max) {
+        if (encoding_min == encoding_max) {
+            // If min = max, then there is a single value only
+            // No need to modify, just use min
+            encoding_max = encoding_min;
+            return true;
+        } else {
+            int common_prefix_length = _common_prefix(encoding_min, encoding_max);
+
+            // For min we can retain all-ASCII, because this produces a strictly lower value.
+            int min_good_length = common_prefix_length;
+            while (min_good_length < encoding_min.size() &&
+                   _is_ascii(static_cast<uint8_t>(encoding_min[min_good_length]))) {
+                min_good_length++;
+            }
+
+            // For max we can be sure only of the part matching the min. When they differ, we can consider only one next, and only if both are ASCII
+            int max_good_length = common_prefix_length;
+            if (max_good_length < encoding_max.size() && max_good_length < encoding_min.size() &&
+                _is_ascii(static_cast<uint8_t>(encoding_min[max_good_length])) &&
+                _is_ascii(static_cast<uint8_t>(encoding_max[max_good_length]))) {
+                max_good_length++;
+            }
+            // Incrementing 127 would overflow. Incrementing within non-ASCII can have side-effects.
+            while (max_good_length > 0 &&
+                   (static_cast<uint8_t>(encoding_max[max_good_length - 1]) == 127 ||
+                    !_is_ascii(static_cast<uint8_t>(encoding_max[max_good_length - 1])))) {
+                max_good_length--;
+            }
+            if (max_good_length == 0) {
+                // We can return just min bound, but code downstream likely expects both are present or both are absent.
+                return false;
+            }
+
+            encoding_min.resize(min_good_length);
+            encoding_max.resize(max_good_length);
+            if (max_good_length > 0) {
+                encoding_max[max_good_length - 1]++;
+            }
+            return true;
+        }
+    }
+
 public:
     static bool filter_by_stats(const ColumnValueRangeType& col_val_range,
-                                const FieldSchema* col_schema, bool is_set_min_max,
+                                const FieldSchema* col_schema, bool ignore_min_max_stats,
                                 const std::string& encoded_min, const std::string& encoded_max,
                                 bool is_all_null, const cctz::time_zone& ctz,
                                 bool use_min_max_value = false) {
         bool need_filter = false;
         std::visit(
                 [&](auto&& range) {
-                    std::vector<ScanPredicate> filters =
-                            _value_range_to_predicate(range, col_schema->type.type);
+                    std::vector<ScanPredicate> filters = _value_range_to_predicate(
+                            range, col_schema->data_type->get_primitive_type());
                     // Currently, ScanPredicate doesn't include "is null" && "x = null", filters will be empty when contains these exprs.
                     // So we can handle is_all_null safely.
                     if (!filters.empty()) {
@@ -416,11 +518,14 @@ public:
                             return;
                         }
                     }
-                    for (auto& filter : filters) {
-                        need_filter |= _filter_by_min_max(range, filter, col_schema, encoded_min,
-                                                          encoded_max, ctz, use_min_max_value);
-                        if (need_filter) {
-                            break;
+                    if (!ignore_min_max_stats) {
+                        for (auto& filter : filters) {
+                            need_filter |=
+                                    _filter_by_min_max(range, filter, col_schema, encoded_min,
+                                                       encoded_max, ctz, use_min_max_value);
+                            if (need_filter) {
+                                break;
+                            }
                         }
                     }
                 },
@@ -428,5 +533,6 @@ public:
         return need_filter;
     }
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

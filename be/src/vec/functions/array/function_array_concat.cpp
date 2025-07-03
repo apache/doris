@@ -61,14 +61,15 @@ public:
         DCHECK(arguments.size() > 0)
                 << "function: " << get_name() << ", arguments should not be empty";
         for (const auto& arg : arguments) {
-            DCHECK(is_array(arg)) << "argument for function array_concat should be DataTypeArray"
-                                  << " and argument is " << arg->get_name();
+            DCHECK(arg->get_primitive_type() == TYPE_ARRAY)
+                    << "argument for function array_concat should be DataTypeArray"
+                    << " and argument is " << arg->get_name();
         }
         return arguments[0];
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        const size_t result, size_t input_rows_count) const override {
+                        const uint32_t result, size_t input_rows_count) const override {
         DataTypePtr column_type = block.get_by_position(arguments[0]).type;
         auto nested_type = assert_cast<const DataTypeArray&>(*column_type).get_nested_type();
         auto result_column = ColumnArray::create(nested_type->create_column(),

@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("alter_ttl_4") {
     sql """ use @regression_cluster_name1 """
-    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="90") """
+    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="900") """
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
@@ -35,14 +35,14 @@ suite("alter_ttl_4") {
     assertEquals(backendIdToBackendIP.size(), 1)
 
     backendId = backendIdToBackendIP.keySet()[0]
-    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/clear_file_cache"""
+    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
     logger.info(url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
-            op "post"
-            body "{\"sync\"=\"true\"}"
+            op "get"
+            body ""
             check check_func
         }
     }
@@ -66,8 +66,8 @@ suite("alter_ttl_4") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     sql new File("""${context.file.parent}/../ddl/customer_delete.sql""").text
     def load_customer_ttl_once =  { String table ->
@@ -75,6 +75,7 @@ suite("alter_ttl_4") {
         // def table = "customer"
         // create table if not exists
         sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
+        sql """ alter table ${table} set ("disable_auto_compaction" = "true") """ // no influence from compaction
         def loadLabel = table + "_" + uniqueID
         // load data from cos
         def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
@@ -121,6 +122,7 @@ suite("alter_ttl_4") {
     clearFileCache.call() {
         respCode, body -> {}
     }
+    sleep(30000)
 
     load_customer_ttl_once("customer_ttl")
     sql """ select count(*) from customer_ttl """

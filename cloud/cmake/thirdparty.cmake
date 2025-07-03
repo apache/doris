@@ -89,6 +89,9 @@ add_thirdparty(aws-checksums LIB64)
 add_thirdparty(aws-c-s3 LIB64)
 add_thirdparty(aws-c-sdkutils LIB64)
 add_thirdparty(aws-s2n LIBNAME "lib/libs2n.a")
+add_thirdparty(aws-cpp-sdk-identity-management LIB64)
+add_thirdparty(aws-cpp-sdk-sts LIB64)
+
 # end aws libs
 add_thirdparty(jsoncpp LIB64)
 add_thirdparty(uuid LIB64)
@@ -105,10 +108,12 @@ add_thirdparty(idn LIB64)
 add_thirdparty(gsasl)
 # end krb5 libs
 # begin azure libs
-add_thirdparty(azure-core)
-add_thirdparty(azure-identity)
-add_thirdparty(azure-storage-blobs)
-add_thirdparty(azure-storage-common)
+if(BUILD_AZURE STREQUAL "ON")
+    add_thirdparty(azure-core)
+    add_thirdparty(azure-identity)
+    add_thirdparty(azure-storage-blobs)
+    add_thirdparty(azure-storage-common)
+endif()
 # end azure libs
 
 add_thirdparty(gtest NOTADD)

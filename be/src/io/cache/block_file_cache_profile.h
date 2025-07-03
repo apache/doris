@@ -82,6 +82,19 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* write_cache_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_write_into_cache = nullptr;
     RuntimeProfile::Counter* num_skip_cache_io_total = nullptr;
+    RuntimeProfile::Counter* read_cache_file_directly_timer = nullptr;
+    RuntimeProfile::Counter* cache_get_or_set_timer = nullptr;
+    RuntimeProfile::Counter* lock_wait_timer = nullptr;
+    RuntimeProfile::Counter* get_timer = nullptr;
+    RuntimeProfile::Counter* set_timer = nullptr;
+
+    RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
+    RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_scanned_from_cache = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* inverted_index_local_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_io_timer = nullptr;
 
     FileCacheProfileReporter(RuntimeProfile* profile) {
         static const char* cache_profile = "FileCache";
@@ -102,6 +115,28 @@ struct FileCacheProfileReporter {
                                                                 TUnit::BYTES, cache_profile, 1);
         bytes_scanned_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesScannedFromRemote",
                                                                  TUnit::BYTES, cache_profile, 1);
+        read_cache_file_directly_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(profile, "ReadCacheFileDirectlyTimer", cache_profile, 1);
+        cache_get_or_set_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(profile, "CacheGetOrSetTimer", cache_profile, 1);
+        lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
+        get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
+        set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
+
+        inverted_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+                profile, "InvertedIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
+        inverted_index_num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+                profile, "InvertedIndexNumRemoteIOTotal", TUnit::UNIT, cache_profile, 1);
+        inverted_index_bytes_scanned_from_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+                profile, "InvertedIndexBytesScannedFromCache", TUnit::BYTES, cache_profile, 1);
+        inverted_index_bytes_scanned_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(
+                profile, "InvertedIndexBytesScannedFromRemote", TUnit::BYTES, cache_profile, 1);
+        inverted_index_local_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                profile, "InvertedIndexLocalIOUseTimer", cache_profile, 1);
+        inverted_index_remote_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                profile, "InvertedIndexRemoteIOUseTimer", cache_profile, 1);
+        inverted_index_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexIOTimer", cache_profile, 1);
     }
 
     void update(const FileCacheStatistics* statistics) const {
@@ -114,6 +149,23 @@ struct FileCacheProfileReporter {
         COUNTER_UPDATE(num_skip_cache_io_total, statistics->num_skip_cache_io_total);
         COUNTER_UPDATE(bytes_scanned_from_cache, statistics->bytes_read_from_local);
         COUNTER_UPDATE(bytes_scanned_from_remote, statistics->bytes_read_from_remote);
+        COUNTER_UPDATE(read_cache_file_directly_timer, statistics->read_cache_file_directly_timer);
+        COUNTER_UPDATE(cache_get_or_set_timer, statistics->cache_get_or_set_timer);
+        COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
+        COUNTER_UPDATE(get_timer, statistics->get_timer);
+        COUNTER_UPDATE(set_timer, statistics->set_timer);
+
+        COUNTER_UPDATE(inverted_index_num_local_io_total,
+                       statistics->inverted_index_num_local_io_total);
+        COUNTER_UPDATE(inverted_index_num_remote_io_total,
+                       statistics->inverted_index_num_remote_io_total);
+        COUNTER_UPDATE(inverted_index_bytes_scanned_from_cache,
+                       statistics->inverted_index_bytes_read_from_local);
+        COUNTER_UPDATE(inverted_index_bytes_scanned_from_remote,
+                       statistics->inverted_index_bytes_read_from_remote);
+        COUNTER_UPDATE(inverted_index_local_io_timer, statistics->inverted_index_local_io_timer);
+        COUNTER_UPDATE(inverted_index_remote_io_timer, statistics->inverted_index_remote_io_timer);
+        COUNTER_UPDATE(inverted_index_io_timer, statistics->inverted_index_io_timer);
     }
 };
 

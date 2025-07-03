@@ -24,12 +24,12 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -65,7 +65,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         ColumnWithTypeAndName& col_right = block.get_by_position(arguments[1]);
 
@@ -76,15 +76,14 @@ public:
 
         if (left_only_null && right_only_null) {
             // TODO: return ColumnConst after function.cpp::default_implementation_for_constant_arguments supports it.
-            auto result_column = ColumnVector<UInt8>::create(input_rows_count, 1);
+            auto result_column = ColumnUInt8::create(input_rows_count, 1);
             block.get_by_position(result).column = std::move(result_column);
             return Status::OK();
         } else if (left_only_null) {
             auto right_type_nullable = col_right.type->is_nullable();
             if (!right_type_nullable) {
                 // right_column is not nullable, so result is all false.
-                block.get_by_position(result).column =
-                        ColumnVector<UInt8>::create(input_rows_count, 0);
+                block.get_by_position(result).column = ColumnUInt8::create(input_rows_count, 0);
             } else {
                 // right_column is nullable
                 const ColumnNullable* nullable_right_col = nullptr;
@@ -111,7 +110,7 @@ public:
             if (!left_type_nullable) {
                 // right column is all but left column is not nullable, so result is all false.
                 block.get_by_position(result).column =
-                        ColumnVector<UInt8>::create(input_rows_count, (UInt8)0);
+                        ColumnUInt8::create(input_rows_count, (UInt8)0);
             } else {
                 const ColumnNullable* nullable_left_col = nullptr;
                 if (left_const) {
@@ -136,16 +135,22 @@ public:
 
         if (left_const) {
             left_column = check_and_get_column<const ColumnNullable>(
-                    assert_cast<const ColumnConst*>(col_left.column.get())->get_data_column_ptr());
+                    assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
+                            col_left.column.get())
+                            ->get_data_column_ptr()
+                            .get());
         } else {
-            left_column = check_and_get_column<const ColumnNullable>(col_left.column);
+            left_column = check_and_get_column<const ColumnNullable>(col_left.column.get());
         }
 
         if (right_const) {
             right_column = check_and_get_column<const ColumnNullable>(
-                    assert_cast<const ColumnConst*>(col_right.column.get())->get_data_column_ptr());
+                    assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
+                            col_right.column.get())
+                            ->get_data_column_ptr()
+                            .get());
         } else {
-            right_column = check_and_get_column<const ColumnNullable>(col_right.column);
+            right_column = check_and_get_column<const ColumnNullable>(col_right.column.get());
         }
 
         bool left_nullable = left_column != nullptr;
@@ -176,8 +181,9 @@ public:
                             ""}};
             Block temporary_block(eq_columns);
 
-            auto func_eq =
-                    SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
+            auto func_eq = SimpleFunctionFactory::instance().get_function(
+                    "eq", eq_columns, return_type,
+                    {.enable_decimal256 = context ? context->state()->enable_decimal256() : false});
             DCHECK(func_eq) << fmt::format("Left type {} right type {} return type {}",
                                            col_left.type->get_name(), col_right.type->get_name(),
                                            return_type->get_name());
@@ -187,7 +193,7 @@ public:
 
             if (left_nullable) {
                 auto res_column = std::move(*temporary_block.get_by_position(2).column).mutate();
-                auto& res_map = assert_cast<ColumnVector<UInt8>*>(res_column.get())->get_data();
+                auto& res_map = assert_cast<ColumnUInt8*>(res_column.get())->get_data();
                 const auto& left_null_map = left_column->get_null_map_data();
                 const auto& right_null_map = right_column->get_null_map_data();
 
@@ -215,8 +221,9 @@ public:
             const ColumnsWithTypeAndName eq_columns {
                     ColumnWithTypeAndName {col_left.column, col_left.type, ""},
                     ColumnWithTypeAndName {col_right.column, col_right.type, ""}};
-            auto func_eq =
-                    SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
+            auto func_eq = SimpleFunctionFactory::instance().get_function(
+                    "eq", eq_columns, return_type,
+                    {.enable_decimal256 = context ? context->state()->enable_decimal256() : false});
             DCHECK(func_eq);
 
             Block temporary_block(eq_columns);
@@ -228,8 +235,7 @@ public:
                     std::move(*temporary_block.get_by_position(2).column).mutate().get());
             auto& null_map = res_nullable_column->get_null_map_data();
             auto& res_nested_col =
-                    assert_cast<ColumnVector<UInt8>&>(res_nullable_column->get_nested_column())
-                            .get_data();
+                    assert_cast<ColumnUInt8&>(res_nullable_column->get_nested_column()).get_data();
 
             // Input of eq_for_null:
             // Left: [1, 1, 1, 1](ColumnConst(ColumnInt32))

@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 
 #include <cctype>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -55,6 +56,15 @@ uint8_t mysql_week_mode(uint32_t mode) {
     return mode;
 }
 
+static bool check_space(char ch) {
+    // \t, \n, \v, \f, \r are 9~13, respectively.
+    return UNLIKELY(ch == ' ' || (ch >= 9 && ch <= 13));
+}
+
+static bool check_date_punct(char ch) {
+    return UNLIKELY(!(isdigit(ch) || isalpha(ch)));
+}
+
 static bool time_zone_begins(const char* ptr, const char* end) {
     return *ptr == '+' || (*ptr == '-' && ptr + 3 < end && *(ptr + 3) == ':') ||
            (isalpha(*ptr) && *ptr != 'T');
@@ -83,11 +93,11 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 // The interval format is that with no delimiters
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
-bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
+bool VecDateTimeValue::from_date_str(const char* date_str, size_t len) {
     return from_date_str_base(date_str, len, nullptr);
 }
 //parse timezone to get offset
-bool VecDateTimeValue::from_date_str(const char* date_str, int len,
+bool VecDateTimeValue::from_date_str(const char* date_str, size_t len,
                                      const cctz::time_zone& local_time_zone) {
     return from_date_str_base(date_str, len, &local_time_zone);
 }
@@ -104,7 +114,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
 
     _neg = false;
     // Skip space character
-    while (ptr < end && isspace(*ptr)) {
+    while (ptr < end && check_space(*ptr)) {
         ptr++;
     }
     if (ptr == end || !isdigit(*ptr)) {
@@ -202,8 +212,8 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
             continue;
         }
         // escape separator
-        while (ptr < end && (ispunct(*ptr) || isspace(*ptr))) {
-            if (isspace(*ptr)) {
+        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
+            if (check_space(*ptr)) {
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
@@ -581,7 +591,7 @@ static char* append_with_prefix(const char* str, int str_len, char prefix, int t
     return to + str_len;
 }
 
-int VecDateTimeValue::compute_format_len(const char* format, int len) {
+int VecDateTimeValue::compute_format_len(const char* format, size_t len) {
     int size = 0;
     const char* ptr = format;
     const char* end = format + len;
@@ -674,8 +684,8 @@ char* write_four_digits_to_string(int number, char* dst) {
     return dst + 4;
 }
 
-bool VecDateTimeValue::to_format_string_conservative(const char* format, int len, char* to,
-                                                     int max_valid_length) const {
+bool VecDateTimeValue::to_format_string_conservative(const char* format, size_t len, char* to,
+                                                     size_t max_valid_length) const {
     if (check_range(_year, _month, _day, _hour, _minute, _second, _type)) {
         return false;
     }
@@ -1195,7 +1205,7 @@ static int check_word(const char* lib[], const char* str, const char* end, const
 // this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
 // change this method should also change that.
 bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, const char* value,
-                                            int value_len, const char** sub_val_end) {
+                                            int64_t value_len, const char** sub_val_end) {
     if (value_len <= 0) [[unlikely]] {
         return false;
     }
@@ -1235,11 +1245,8 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && isspace(*val)) {
+        while (val < val_end && check_space(*val)) {
             val++;
-        }
-        if (val >= val_end) {
-            break;
         }
         // Check switch
         if (*ptr == '%' && ptr + 1 < end) {
@@ -1500,7 +1507,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
             default:
                 return false;
             }
-        } else if (!isspace(*ptr)) {
+        } else if (!check_space(*ptr)) {
             if (*ptr != *val) {
                 return false;
             }
@@ -1625,7 +1632,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
 template <TimeUnit unit, bool need_check>
 bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
     if constexpr (need_check) {
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
     }
@@ -1815,7 +1822,7 @@ void VecDateTimeValue::unchecked_set_time(uint32_t year, uint32_t month, uint32_
 
 template <TimeUnit unit>
 bool VecDateTimeValue::datetime_trunc() {
-    if (!is_valid_date()) {
+    if (!is_valid_date()) [[unlikely]] {
         return false;
     }
     switch (unit) {
@@ -1927,28 +1934,6 @@ std::size_t hash_value(VecDateTimeValue const& value) {
 }
 
 template <typename T>
-bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
-                                uint8_t minute, uint8_t second, uint32_t microsecond,
-                                bool only_time_part) {
-    if (hour >= 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
-        return true;
-    }
-    if (only_time_part) {
-        return false;
-    }
-    if (year > MAX_YEAR) {
-        return true;
-    }
-    if (month == 2 && day == 29 && doris::is_leap(year)) {
-        return false;
-    }
-    if (month == 0 || month > 12 || day > S_DAYS_IN_MONTH[month] || day == 0) {
-        return true;
-    }
-    return false;
-}
-
-template <typename T>
 void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const {
     // ms
     DCHECK(date_val[6] < 1000000L);
@@ -1987,13 +1972,13 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* =
                                    bool convert_zero) {
     return from_date_str_base(date_str, len, scale, nullptr, convert_zero);
 }
-// when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
                                    const cctz::time_zone& local_time_zone, int scale /* = -1*/,
                                    bool convert_zero) {
     return from_date_str_base(date_str, len, scale, &local_time_zone, convert_zero);
 }
+// if local_time_zone is null, only be able to parse time without timezone
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
                                         const cctz::time_zone* local_time_zone, bool convert_zero) {
@@ -2005,7 +1990,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
     int32_t date_len[MAX_DATE_PARTS] = {0};
 
     // Skip space character
-    while (ptr < end && isspace(*ptr)) {
+    while (ptr < end && check_space(*ptr)) {
         ptr++;
     }
     if (ptr == end || !isdigit(*ptr)) {
@@ -2035,7 +2020,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
 
     int field_idx = 0;
     int field_len = year_len;
-    long sec_offset = 0;
+    int sec_offset = 0;
     bool need_use_timezone = false;
 
     while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
@@ -2153,8 +2138,8 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             continue;
         }
         // escape separator
-        while (ptr < end && (ispunct(*ptr) || isspace(*ptr))) {
-            if (isspace(*ptr)) {
+        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
+            if (check_space(*ptr)) {
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
@@ -2200,40 +2185,29 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         if (!TimezoneUtils::find_cctz_time_zone(std::string {ptr, end}, given_tz)) {
             return false; // invalid format
         }
-        auto given = cctz::convert(cctz::civil_second {}, given_tz);
-        auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
-        // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-        sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-    }
-
-    // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
-    // rounding to date part, it would be lost. To avoid this, we use a Datetime type to do these calc. It will save the
-    // time part and apply the offset. Then convert to Date type back.
-    // see https://github.com/apache/doris/pull/33553 for more details.
-    if constexpr (!is_datetime) {
-        if (sec_offset) {
-            DateV2Value<DateTimeV2ValueType> tmp;
-            if (!tmp.check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3],
-                                              date_val[4], date_val[5], date_val[6])) {
-                return false;
-            }
-            if (!tmp.date_add_interval<TimeUnit::SECOND>(
-                        TimeInterval {TimeUnit::SECOND, sec_offset, false})) {
-                return false;
-            }
-            this->assign_from(tmp);
-            return true;
+        if (is_invalid(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4], date_val[5],
+                       date_val[6])) {
+            return false;
         }
+        // will carring on the bits in cctz::civil_second. if day is 70, will carry to month.
+        cctz::civil_second cs {date_val[0], date_val[1], date_val[2],
+                               date_val[3], date_val[4], date_val[5]};
+
+        auto given = cctz::convert(cs, given_tz);
+        auto local = cctz::convert(given, *local_time_zone);
+        date_val[0] = local.year();
+        date_val[1] = local.month();
+        date_val[2] = local.day();
+        date_val[3] = local.hour();
+        date_val[4] = local.minute();
+        date_val[5] = local.second();
     }
 
-    if (!check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
-                                  date_val[5], date_val[6])) {
-        return false;
-    }
-
-    return sec_offset ? date_add_interval<TimeUnit::SECOND>(
-                                TimeInterval {TimeUnit::SECOND, sec_offset, false})
-                      : true;
+    return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
+                                    date_val[5], date_val[6]) &&
+           (sec_offset ? date_add_interval<TimeUnit::SECOND>(
+                                 TimeInterval {TimeUnit::SECOND, sec_offset, false})
+                       : true);
 }
 
 template <typename T>
@@ -2245,7 +2219,7 @@ void DateV2Value<T>::set_zero() {
 // change this method should also change that.
 template <typename T>
 bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, const char* value,
-                                          int value_len, const char** sub_val_end) {
+                                          int64_t value_len, const char** sub_val_end) {
     if (value_len <= 0) [[unlikely]] {
         return false;
     }
@@ -2286,11 +2260,8 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     auto [year, month, day, hour, minute, second, microsecond] = std::tuple {0, 0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && isspace(*val)) {
+        while (val < val_end && check_space(*val)) {
             val++;
-        }
-        if (val >= val_end) {
-            break;
         }
         // Check switch
         if (*ptr == '%' && ptr + 1 < end) {
@@ -2716,7 +2687,7 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
     // if this is an invalid date, write nothing(instead of 0000-00-00) to output string, or else
     // it will cause problem for null DataTypeDateV2 value in cast function,
     // e.g. cast(cast(null_date as char) as date)
-    if (!is_valid_date()) {
+    if (!is_valid_date()) [[unlikely]] {
         return 0;
     }
     char* start = buffer;
@@ -2795,14 +2766,6 @@ bool date_day_offset_dict::DATE_DAY_OFFSET_ITEMS_INIT = false;
 
 date_day_offset_dict date_day_offset_dict::instance = date_day_offset_dict();
 
-date_day_offset_dict& date_day_offset_dict::get() {
-    return instance;
-}
-
-bool date_day_offset_dict::get_dict_init() {
-    return DATE_DAY_OFFSET_ITEMS_INIT;
-}
-
 date_day_offset_dict::date_day_offset_dict() {
     DateV2Value<DateV2ValueType> d;
     // Init days before epoch.
@@ -2829,44 +2792,6 @@ date_day_offset_dict::date_day_offset_dict() {
     }
 
     DATE_DAY_OFFSET_ITEMS_INIT = true;
-}
-
-int date_day_offset_dict::daynr(int year, int month, int day) const {
-    return DATE_DAY_OFFSET_DICT[year - START_YEAR][month - 1][day - 1];
-}
-
-template <typename T>
-uint32_t DateV2Value<T>::set_date_uint32(uint32_t int_val) {
-    union DateV2UInt32Union {
-        DateV2Value<T> dt;
-        uint32_t ui32;
-        ~DateV2UInt32Union() {}
-    };
-    DateV2UInt32Union conv = {.ui32 = int_val};
-    if (is_invalid(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0)) {
-        return 0;
-    }
-    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0);
-
-    return int_val;
-}
-
-template <typename T>
-uint64_t DateV2Value<T>::set_datetime_uint64(uint64_t int_val) {
-    union DateTimeV2UInt64Union {
-        DateV2Value<T> dt;
-        uint64_t ui64;
-        ~DateTimeV2UInt64Union() {}
-    };
-    DateTimeV2UInt64Union conv = {.ui64 = int_val};
-    if (is_invalid(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(), conv.dt.minute(),
-                   conv.dt.second(), conv.dt.microsecond())) {
-        return 0;
-    }
-    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(),
-                             conv.dt.minute(), conv.dt.second(), conv.dt.microsecond());
-
-    return int_val;
 }
 
 template <typename T>
@@ -2950,7 +2875,7 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
 template <typename T>
 template <TimeUnit unit, typename TO>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value) {
-    if (!is_valid_date()) {
+    if (!is_valid_date()) [[unlikely]] {
         return false;
     }
 
@@ -3023,7 +2948,7 @@ template <typename T>
 template <TimeUnit unit, bool need_check>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
     if constexpr (need_check) {
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
     }
@@ -3063,9 +2988,14 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
             return false;
         }
         if constexpr (is_datetime) {
-            PROPAGATE_FALSE(this->check_range_and_set_time(0, 0, 0, seconds / 3600,
-                                                           (seconds / 60) % 60, seconds % 60,
-                                                           microseconds, true));
+            if constexpr (need_check) {
+                PROPAGATE_FALSE(this->check_range_and_set_time(0, 0, 0, seconds / 3600,
+                                                               (seconds / 60) % 60, seconds % 60,
+                                                               microseconds, true));
+            } else {
+                this->unchecked_set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60,
+                                         microseconds);
+            }
         }
     } else if constexpr (unit == YEAR) {
         // This only change year information
@@ -3134,7 +3064,7 @@ template <typename T>
 template <TimeUnit unit>
 bool DateV2Value<T>::datetime_trunc() {
     if constexpr (is_datetime) {
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
         switch (unit) {
@@ -3207,7 +3137,7 @@ bool DateV2Value<T>::datetime_trunc() {
             return false;
         }
     } else { // is_datev2
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
         switch (unit) {
@@ -3403,7 +3333,7 @@ const char* DateV2Value<T>::day_name() const {
 
 template <typename T>
 void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                                        uint8_t minute, uint8_t second, uint32_t microsecond) {
+                                        uint8_t minute, uint16_t second, uint32_t microsecond) {
     date_v2_value_.year_ = year;
     date_v2_value_.month_ = month;
     date_v2_value_.day_ = day;
@@ -3416,7 +3346,7 @@ void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t da
 }
 
 template <typename T>
-void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t second,
+void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t second,
                                         uint32_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.hour_ = hour;
@@ -3424,24 +3354,22 @@ void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t se
         date_v2_value_.second_ = second;
         date_v2_value_.microsecond_ = microsecond;
     } else {
-        LOG(FATAL) << "Invalid operation 'set_time' for date!";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Invalid operation 'set_time' for date!"));
     }
 }
 
 template <typename T>
-void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
+void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
-        LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Invalid operation 'set_microsecond' for date!"));
     }
 }
 
 template <typename T>
-bool DateV2Value<T>::to_format_string_conservative(const char* format, int len, char* to,
-                                                   int max_valid_length) const {
+bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t len, char* to,
+                                                   size_t max_valid_length) const {
     if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
         return false;
     }
@@ -3700,26 +3628,6 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, int len, 
 }
 
 template <typename T>
-bool DateV2Value<T>::from_date(uint32_t value) {
-    DCHECK(!is_datetime);
-    if (value < MIN_DATE_V2 || value > MAX_DATE_V2) {
-        return false;
-    }
-
-    return set_date_uint32(value);
-}
-
-template <typename T>
-bool DateV2Value<T>::from_datetime(uint64_t value) {
-    DCHECK(is_datetime);
-    if (value < MIN_DATETIME_V2 || value > MAX_DATETIME_V2) {
-        return false;
-    }
-
-    return set_datetime_uint64(value);
-}
-
-template <typename T>
 int64_t DateV2Value<T>::standardize_timevalue(int64_t value) {
     if (value <= 0) {
         return 0;
@@ -3801,6 +3709,32 @@ bool DateV2Value<T>::from_date_int64(int64_t value) {
     } else {
         return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
     }
+}
+
+// An ISO week-numbering year (also called ISO year informally) has 52 or 53 full weeks. That is 364 or 371 days instead of the usual 365 or 366 days. These 53-week years occur on all years that have Thursday as 1 January and on leap years that start on Wednesday. The extra week is sometimes referred to as a leap week, although ISO 8601 does not use this term. https://en.wikipedia.org/wiki/ISO_week_date
+template <typename T>
+uint16_t DateV2Value<T>::year_of_week() const {
+    constexpr uint8_t THURSDAY = 3;
+
+    if (date_v2_value_.month_ == 1) {
+        constexpr uint8_t MAX_DISTANCE_WITH_THURSDAY = 6 - THURSDAY;
+        if (date_v2_value_.day_ <= MAX_DISTANCE_WITH_THURSDAY) {
+            auto weekday = calc_weekday(daynr(), false);
+            // if the current day is after Thursday and Thursday is in the previous year, return the previous year
+            return date_v2_value_.year_ -
+                   (weekday > THURSDAY && weekday - THURSDAY > date_v2_value_.day_ - 1);
+        }
+    } else if (date_v2_value_.month_ == 12) {
+        constexpr uint8_t MAX_DISTANCE_WITH_THURSDAY = THURSDAY - 0;
+        if (S_DAYS_IN_MONTH[12] - date_v2_value_.day_ <= MAX_DISTANCE_WITH_THURSDAY) {
+            auto weekday = calc_weekday(daynr(), false);
+            // if the current day is before Thursday and Thursday is in the next year, return the next year
+            return date_v2_value_.year_ +
+                   (weekday < THURSDAY &&
+                    (THURSDAY - weekday) > S_DAYS_IN_MONTH[12] - date_v2_value_.day_);
+        }
+    }
+    return date_v2_value_.year_;
 }
 
 template <typename T>
@@ -3913,9 +3847,9 @@ template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
 template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
         DateV2Value<DateTimeV2ValueType>&& value, TimeType type);
 
-template int64_t VecDateTimeValue::second_diff<DateV2Value<DateV2ValueType>>(
+template int64_t VecDateTimeValue::datetime_diff_in_seconds<DateV2Value<DateV2ValueType>>(
         const DateV2Value<DateV2ValueType>& rhs) const;
-template int64_t VecDateTimeValue::second_diff<DateV2Value<DateTimeV2ValueType>>(
+template int64_t VecDateTimeValue::datetime_diff_in_seconds<DateV2Value<DateTimeV2ValueType>>(
         const DateV2Value<DateTimeV2ValueType>& rhs) const;
 
 #define DELARE_DATE_ADD_INTERVAL(DateValueType1, DateValueType2)                                   \

@@ -26,6 +26,8 @@
 
 namespace doris::io {
 
+const std::string FileReader::VIRTUAL_REMOTE_DATA_DIR = "virtual_remote_data_dir";
+
 Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
                            const IOContext* io_ctx) {
     DCHECK(bthread_self() == 0);

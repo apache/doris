@@ -27,24 +27,24 @@ PhysicalResultSink
 PhysicalResultSink
 --NestedLoopJoin[LEFT_SEMI_JOIN]
 ----PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+----PhysicalStorageLayerAggregate[t]
 
 -- !left_anti_join --
 PhysicalResultSink
 --NestedLoopJoin[LEFT_ANTI_JOIN]
 ----PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+----PhysicalStorageLayerAggregate[t]
 
 -- !right_semi_join --
 PhysicalResultSink
 --NestedLoopJoin[RIGHT_SEMI_JOIN]
-----PhysicalOlapScan[t]
+----PhysicalStorageLayerAggregate[t]
 ----PhysicalOlapScan[t]
 
 -- !right_anti_join --
 PhysicalResultSink
 --NestedLoopJoin[RIGHT_ANTI_JOIN]
-----PhysicalOlapScan[t]
+----PhysicalStorageLayerAggregate[t]
 ----PhysicalOlapScan[t]
 
 -- !inner_join --

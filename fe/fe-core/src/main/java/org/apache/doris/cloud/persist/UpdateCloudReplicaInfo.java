@@ -17,11 +17,14 @@
 
 package org.apache.doris.cloud.persist;
 
+
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -29,6 +32,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+@Getter
+@Setter
 public class UpdateCloudReplicaInfo implements Writable {
     @SerializedName(value = "dbId")
     private long dbId;
@@ -53,6 +58,9 @@ public class UpdateCloudReplicaInfo implements Writable {
 
     @SerializedName(value = "beIds")
     private List<Long> beIds = new ArrayList<Long>();
+
+    @SerializedName(value = "rids")
+    private List<Long> replicaIds = new ArrayList<>();
 
     public UpdateCloudReplicaInfo() {
     }
@@ -97,46 +105,6 @@ public class UpdateCloudReplicaInfo implements Writable {
         return GsonUtils.GSON.fromJson(json, UpdateCloudReplicaInfo.class);
     }
 
-    public long getDbId() {
-        return dbId;
-    }
-
-    public long getTableId() {
-        return tableId;
-    }
-
-    public long getPartitionId() {
-        return partitionId;
-    }
-
-    public long getIndexId() {
-        return indexId;
-    }
-
-    public long getTabletId() {
-        return tabletId;
-    }
-
-    public long getReplicaId() {
-        return replicaId;
-    }
-
-    public String getClusterId() {
-        return clusterId;
-    }
-
-    public long getBeId() {
-        return beId;
-    }
-
-    public List<Long> getBeIds() {
-        return beIds;
-    }
-
-    public List<Long> getTabletIds() {
-        return tabletIds;
-    }
-
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("database id: ").append(dbId);
@@ -157,6 +125,11 @@ public class UpdateCloudReplicaInfo implements Writable {
 
                 sb.append(" tablet id list: ");
                 for (long id : tabletIds) {
+                    sb.append(" ").append(id);
+                }
+
+                sb.append(" replica id list: ");
+                for (long id : replicaIds) {
                     sb.append(" ").append(id);
                 }
             }

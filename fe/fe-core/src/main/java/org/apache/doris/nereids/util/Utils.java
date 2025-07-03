@@ -18,12 +18,18 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.ResultRow;
 
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
@@ -40,6 +46,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -50,6 +57,15 @@ import java.util.stream.Stream;
  * Utils for Nereids.
  */
 public class Utils {
+    public static final boolean enableAssert;
+
+    static {
+        boolean enabled = false;
+        // if run jvm with -ea or -enableassertions, the assert statement will be executed
+        assert enabled = true;
+        enableAssert = enabled;
+    }
+
     /**
      * Quoted string if it contains special character or all characters are digit.
      *
@@ -58,8 +74,16 @@ public class Utils {
      */
     public static String quoteIfNeeded(String part) {
         // We quote strings except the ones which consist of digits only.
-        return part.matches("\\w*[\\w&&[^\\d]]+\\w*")
-                ? part : part.replace("`", "``");
+        StringBuilder quote = new StringBuilder(part.length());
+        for (int i = 0; i < part.length(); i++) {
+            char c = part.charAt(i);
+            if (c == '`') {
+                quote.append("``");
+            } else {
+                quote.append(c);
+            }
+        }
+        return quote.toString();
     }
 
     /**
@@ -180,7 +204,7 @@ public class Utils {
         return stringBuilder.append(" )").toString();
     }
 
-    private static String toStringOrNull(Object obj) {
+    public static String toStringOrNull(Object obj) {
         return obj == null ? "null" : obj.toString();
     }
 
@@ -194,7 +218,7 @@ public class Utils {
      * return abs(t2.d)
      */
     public static List<Expression> getUnCorrelatedExprs(List<Expression> correlatedPredicates,
-                                                        List<Expression> correlatedSlots) {
+                                                        List<Slot> correlatedSlots) {
         List<Expression> unCorrelatedExprs = new ArrayList<>();
         correlatedPredicates.forEach(predicate -> {
             if (!(predicate instanceof BinaryExpression) && (!(predicate instanceof Not)
@@ -232,27 +256,8 @@ public class Utils {
         return unCorrelatedExprs;
     }
 
-    private static List<Expression> collectCorrelatedSlotsFromChildren(
-            BinaryExpression binaryExpression, List<Expression> correlatedSlots) {
-        List<Expression> slots = new ArrayList<>();
-        if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
-            if (binaryExpression.right() instanceof SlotReference) {
-                slots.add(binaryExpression.right());
-            } else if (binaryExpression.right() instanceof Cast) {
-                slots.add(((Cast) binaryExpression.right()).child());
-            }
-        } else {
-            if (binaryExpression.left() instanceof SlotReference) {
-                slots.add(binaryExpression.left());
-            } else if (binaryExpression.left() instanceof Cast) {
-                slots.add(((Cast) binaryExpression.left()).child());
-            }
-        }
-        return slots;
-    }
-
     public static Map<Boolean, List<Expression>> splitCorrelatedConjuncts(
-            Set<Expression> conjuncts, List<Expression> slots) {
+            Set<Expression> conjuncts, List<Slot> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
                 expr -> expr.anyMatch(slots::contains)));
     }
@@ -325,6 +330,71 @@ public class Utils {
                                         .collect(ImmutableList.toImmutableList())
                         )
                 ).collect(ImmutableList.toImmutableList());
+    }
+
+    /** getAllCombinations */
+    public static <T> List<List<T>> getAllCombinations(List<T> list, int itemNum) {
+        List<List<T>> result = Lists.newArrayList();
+        generateCombinations(list, itemNum, 0, Lists.newArrayList(), result);
+        return result;
+    }
+
+    private static <T> void generateCombinations(
+            List<T> list, int n, int start, List<T> current, List<List<T>> result) {
+        if (current.size() == n) {
+            result.add(new ArrayList<>(current));
+            return;
+        }
+
+        for (int i = start; i < list.size(); i++) {
+            current.add(list.get(i));
+            generateCombinations(list, n, i + 1, current, result);
+            current.remove(current.size() - 1);
+        }
+    }
+
+    public static <T> List<List<T>> allPermutations(List<T> list) {
+        List<List<T>> result = new ArrayList<>();
+        generatePermutations(new ArrayList<>(list), new ArrayList<>(), result);
+        return result;
+    }
+
+    private static <T> void generatePermutations(List<T> list, List<T> current, List<List<T>> result) {
+        if (!current.isEmpty()) {
+            result.add(new ArrayList<>(current));
+        }
+
+        for (int i = 0; i < list.size(); i++) {
+            T element = list.remove(i);
+            current.add(element);
+            generatePermutations(list, current, result);
+            current.remove(current.size() - 1);
+            list.add(i, element);
+        }
+    }
+
+    /** permutations */
+    public static <T> List<List<T>> permutations(List<T> list) {
+        list = new ArrayList<>(list);
+        List<List<T>> result = new ArrayList<>();
+        if (list.isEmpty()) {
+            result.add(new ArrayList<>());
+            return result;
+        }
+
+        T firstElement = list.get(0);
+        List<T> rest = list.subList(1, list.size());
+        List<List<T>> recursivePermutations = permutations(rest);
+
+        for (List<T> smallerPermutated : recursivePermutations) {
+            for (int index = 0; index <= smallerPermutated.size(); index++) {
+                List<T> temp = new ArrayList<>(smallerPermutated);
+                temp.add(index, firstElement);
+                result.add(temp);
+            }
+        }
+
+        return result;
     }
 
     public static <T> List<T> copyRequiredList(List<T> list) {
@@ -515,5 +585,38 @@ public class Utils {
             }
         }
         return newStr.toString();
+    }
+
+    /**
+     * Builds a logical plan for a SQL query.
+     *
+     * @param selectList the list of columns and their aliases to be selected
+     * @param tableName the name of the table from which to select
+     * @param whereClause the where clause to filter the results
+     * @return the logical plan representing the SQL query
+     */
+    public static LogicalPlan buildLogicalPlan(List<AliasInfo> selectList, TableNameInfo tableName,
+            String whereClause) {
+        StringJoiner columnJoiner = new StringJoiner(", ");
+        for (AliasInfo aliasInfo : selectList) {
+            columnJoiner.add(aliasInfo.toString());
+        }
+        String sql = "SELECT " + columnJoiner.toString() + " FROM " + tableName.toFullyQualified() + " " + whereClause;
+        return new NereidsParser().parseSingle(sql);
+    }
+
+    /**
+     * Execute a logical plan and return the results.
+     *
+     * @param ctx the context in which to execute the plan
+     * @param executor the executor to use to execute the plan
+     * @param plan the plan to execute
+     * @return the results of executing the plan
+     */
+    public static List<List<String>> executePlan(ConnectContext ctx, StmtExecutor executor, LogicalPlan plan) {
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
+        executor.setParsedStmt(adapter);
+        List<ResultRow> resultRows = executor.executeInternalQuery();
+        return resultRows.stream().map(ResultRow::getValues).collect(Collectors.toList());
     }
 }
