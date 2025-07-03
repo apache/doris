@@ -24,14 +24,14 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
-#include "vector_search_utils.h"
 
 using namespace doris::segment_v2;
 
 namespace doris::vectorized {
+class VirtualColumnIteratorTest : public testing::Test {};
 
 // Test the default constructor with ColumnNothing
-TEST_F(VectorSearchTest, TestDefaultConstructor) {
+TEST_F(VirtualColumnIteratorTest, TestDefaultConstructor) {
     VirtualColumnIterator iterator;
     vectorized::MutableColumnPtr dst = vectorized::ColumnString::create();
 
@@ -46,7 +46,7 @@ TEST_F(VectorSearchTest, TestDefaultConstructor) {
 }
 
 // Test with a materialized int32_t column
-TEST_F(VectorSearchTest, ReadByRowIdsint32_tColumn) {
+TEST_F(VirtualColumnIteratorTest, ReadByRowIdsint32_tColumn) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
@@ -79,7 +79,7 @@ TEST_F(VectorSearchTest, ReadByRowIdsint32_tColumn) {
 }
 
 // Test with a String column
-TEST_F(VectorSearchTest, ReadByRowIdsStringColumn) {
+TEST_F(VirtualColumnIteratorTest, ReadByRowIdsStringColumn) {
     VirtualColumnIterator iterator;
 
     // Create a materialized String column
@@ -115,7 +115,7 @@ TEST_F(VectorSearchTest, ReadByRowIdsStringColumn) {
 }
 
 // Test with empty rowids array
-TEST_F(VectorSearchTest, ReadByRowIdsEmptyRowIds) {
+TEST_F(VirtualColumnIteratorTest, ReadByRowIdsEmptyRowIds) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
@@ -145,7 +145,7 @@ TEST_F(VectorSearchTest, ReadByRowIdsEmptyRowIds) {
 }
 
 // Test with large number of rows
-TEST_F(VectorSearchTest, TestLargeRowset) {
+TEST_F(VirtualColumnIteratorTest, TestLargeRowset) {
     VirtualColumnIterator iterator;
 
     // Create a large materialized int32_t column (1000 values)
@@ -181,7 +181,7 @@ TEST_F(VectorSearchTest, TestLargeRowset) {
     }
 }
 
-TEST_F(VectorSearchTest, ReadByRowIdsNoContinueRowIds) {
+TEST_F(VirtualColumnIteratorTest, ReadByRowIdsNoContinueRowIds) {
     // Create a column with 1000 values (0-999)
     auto column = ColumnVector<TYPE_INT>::create();
     auto labels = std::make_unique<std::vector<uint64_t>>();
@@ -277,10 +277,10 @@ TEST_F(VectorSearchTest, ReadByRowIdsNoContinueRowIds) {
     }
 }
 
-TEST_F(VectorSearchTest, NextBatchTest1) {
+TEST_F(VirtualColumnIteratorTest, NextBatchTest1) {
     VirtualColumnIterator iterator;
 
-    // 构造一个有100行的int32列，值为0~99
+    // Construct an int32 column with 100 rows, values from 0 to 99
     auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
     auto labels = std::make_unique<std::vector<uint64_t>>();
     for (int i = 0; i < 100; ++i) {
@@ -289,7 +289,7 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
     }
     iterator.prepare_materialization(std::move(int_column), std::move(labels));
 
-    // 1. seek到第10行，next_batch读取10行
+    // 1. Seek to row 10, next_batch reads 10 rows
     {
         vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
         Status st = iterator.seek_to_ordinal(10);
@@ -305,7 +305,7 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
         }
     }
 
-    // 2. seek到第85行，next_batch读取10行（只剩5行可读）
+    // 2. Seek to row 85, next_batch reads 10 rows (only 15 rows remaining)
     {
         vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
         Status st = iterator.seek_to_ordinal(85);
@@ -321,7 +321,7 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
         }
     }
 
-    // 3. seek到第0行，next_batch读取全部100行
+    // 3. Seek to row 0, next_batch reads all 100 rows
     {
         vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
         Status st = iterator.seek_to_ordinal(0);
@@ -337,7 +337,7 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
         }
     }
 
-    // 4. seek到越界位置（如100），应该报错
+    // 4. Seek to out-of-bounds position (e.g., 100), should return error
     {
         vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
         Status st = iterator.seek_to_ordinal(100);
@@ -345,7 +345,7 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
     }
 }
 
-TEST_F(VectorSearchTest, TestPrepare1) {
+TEST_F(VirtualColumnIteratorTest, TestPrepare1) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
@@ -383,7 +383,7 @@ TEST_F(VectorSearchTest, TestPrepare1) {
     ASSERT_EQ(int_col_m->get_data()[4], 10);
 }
 
-TEST_F(VectorSearchTest, TestColumnNothing) {
+TEST_F(VirtualColumnIteratorTest, TestColumnNothing) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
