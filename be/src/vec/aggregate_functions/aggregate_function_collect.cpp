@@ -21,30 +21,11 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function_collect_creator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-
-template <PrimitiveType T, typename HasLimit>
-AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
-    if (distinct) {
-        if constexpr (T == INVALID_TYPE) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "unexpected type for collect, please check the input");
-        } else {
-            return creator_without_type::create<AggregateFunctionCollect<
-                    AggregateFunctionCollectSetData<T, HasLimit>, HasLimit>>(argument_types,
-                                                                             result_is_nullable);
-        }
-    } else {
-        return creator_without_type::create<
-                AggregateFunctionCollect<AggregateFunctionCollectListData<T, HasLimit>, HasLimit>>(
-                argument_types, result_is_nullable);
-    }
-}
 
 template <typename HasLimit>
 AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& name,
@@ -54,75 +35,75 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
 
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
-        return do_create_agg_function_collect<TYPE_BOOLEAN, HasLimit>(distinct, argument_types,
-                                                                      result_is_nullable);
+        return AggregateFunctionCollectCreator<TYPE_BOOLEAN, HasLimit>()(distinct, argument_types,
+                                                                         result_is_nullable);
     case PrimitiveType::TYPE_TINYINT:
-        return do_create_agg_function_collect<TYPE_TINYINT, HasLimit>(distinct, argument_types,
-                                                                      result_is_nullable);
+        return AggregateFunctionCollectCreator<TYPE_TINYINT, HasLimit>()(distinct, argument_types,
+                                                                         result_is_nullable);
     case PrimitiveType::TYPE_SMALLINT:
-        return do_create_agg_function_collect<TYPE_SMALLINT, HasLimit>(distinct, argument_types,
-                                                                       result_is_nullable);
-    case PrimitiveType::TYPE_INT:
-        return do_create_agg_function_collect<TYPE_INT, HasLimit>(distinct, argument_types,
-                                                                  result_is_nullable);
-    case PrimitiveType::TYPE_BIGINT:
-        return do_create_agg_function_collect<TYPE_BIGINT, HasLimit>(distinct, argument_types,
-                                                                     result_is_nullable);
-    case PrimitiveType::TYPE_LARGEINT:
-        return do_create_agg_function_collect<TYPE_LARGEINT, HasLimit>(distinct, argument_types,
-                                                                       result_is_nullable);
-    case PrimitiveType::TYPE_FLOAT:
-        return do_create_agg_function_collect<TYPE_FLOAT, HasLimit>(distinct, argument_types,
-                                                                    result_is_nullable);
-    case PrimitiveType::TYPE_DOUBLE:
-        return do_create_agg_function_collect<TYPE_DOUBLE, HasLimit>(distinct, argument_types,
-                                                                     result_is_nullable);
-    case PrimitiveType::TYPE_DECIMAL32:
-        return do_create_agg_function_collect<TYPE_DECIMAL32, HasLimit>(distinct, argument_types,
-                                                                        result_is_nullable);
-    case PrimitiveType::TYPE_DECIMAL64:
-        return do_create_agg_function_collect<TYPE_DECIMAL64, HasLimit>(distinct, argument_types,
-                                                                        result_is_nullable);
-    case PrimitiveType::TYPE_DECIMALV2:
-        return do_create_agg_function_collect<TYPE_DECIMALV2, HasLimit>(distinct, argument_types,
-                                                                        result_is_nullable);
-    case PrimitiveType::TYPE_DECIMAL128I:
-        return do_create_agg_function_collect<TYPE_DECIMAL128I, HasLimit>(distinct, argument_types,
+        return AggregateFunctionCollectCreator<TYPE_SMALLINT, HasLimit>()(distinct, argument_types,
                                                                           result_is_nullable);
-    case PrimitiveType::TYPE_DECIMAL256:
-        return do_create_agg_function_collect<TYPE_DECIMAL256, HasLimit>(distinct, argument_types,
-                                                                         result_is_nullable);
-    case PrimitiveType::TYPE_DATE:
-        return do_create_agg_function_collect<TYPE_DATE, HasLimit>(distinct, argument_types,
-                                                                   result_is_nullable);
-    case PrimitiveType::TYPE_DATETIME:
-        return do_create_agg_function_collect<TYPE_DATETIME, HasLimit>(distinct, argument_types,
+    case PrimitiveType::TYPE_INT:
+        return AggregateFunctionCollectCreator<TYPE_INT, HasLimit>()(distinct, argument_types,
+                                                                     result_is_nullable);
+    case PrimitiveType::TYPE_BIGINT:
+        return AggregateFunctionCollectCreator<TYPE_BIGINT, HasLimit>()(distinct, argument_types,
+                                                                        result_is_nullable);
+    case PrimitiveType::TYPE_LARGEINT:
+        return AggregateFunctionCollectCreator<TYPE_LARGEINT, HasLimit>()(distinct, argument_types,
+                                                                          result_is_nullable);
+    case PrimitiveType::TYPE_FLOAT:
+        return AggregateFunctionCollectCreator<TYPE_FLOAT, HasLimit>()(distinct, argument_types,
                                                                        result_is_nullable);
-    case PrimitiveType::TYPE_DATEV2:
-        return do_create_agg_function_collect<TYPE_DATEV2, HasLimit>(distinct, argument_types,
-                                                                     result_is_nullable);
-    case PrimitiveType::TYPE_DATETIMEV2:
-        return do_create_agg_function_collect<TYPE_DATETIMEV2, HasLimit>(distinct, argument_types,
-                                                                         result_is_nullable);
-    case PrimitiveType::TYPE_IPV6:
-        return do_create_agg_function_collect<TYPE_IPV6, HasLimit>(distinct, argument_types,
-                                                                   result_is_nullable);
-    case PrimitiveType::TYPE_IPV4:
-        return do_create_agg_function_collect<TYPE_IPV4, HasLimit>(distinct, argument_types,
-                                                                   result_is_nullable);
-    case PrimitiveType::TYPE_STRING:
-        return do_create_agg_function_collect<TYPE_STRING, HasLimit>(distinct, argument_types,
-                                                                     result_is_nullable);
-    case PrimitiveType::TYPE_CHAR:
-        return do_create_agg_function_collect<TYPE_CHAR, HasLimit>(distinct, argument_types,
-                                                                   result_is_nullable);
-    case PrimitiveType::TYPE_VARCHAR:
-        return do_create_agg_function_collect<TYPE_VARCHAR, HasLimit>(distinct, argument_types,
+    case PrimitiveType::TYPE_DOUBLE:
+        return AggregateFunctionCollectCreator<TYPE_DOUBLE, HasLimit>()(distinct, argument_types,
+                                                                        result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL32:
+        return AggregateFunctionCollectCreator<TYPE_DECIMAL32, HasLimit>()(distinct, argument_types,
+                                                                           result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL64:
+        return AggregateFunctionCollectCreator<TYPE_DECIMAL64, HasLimit>()(distinct, argument_types,
+                                                                           result_is_nullable);
+    case PrimitiveType::TYPE_DECIMALV2:
+        return AggregateFunctionCollectCreator<TYPE_DECIMALV2, HasLimit>()(distinct, argument_types,
+                                                                           result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return AggregateFunctionCollectCreator<TYPE_DECIMAL128I, HasLimit>()(
+                distinct, argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL256:
+        return AggregateFunctionCollectCreator<TYPE_DECIMAL256, HasLimit>()(
+                distinct, argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATE:
+        return AggregateFunctionCollectCreator<TYPE_DATE, HasLimit>()(distinct, argument_types,
                                                                       result_is_nullable);
+    case PrimitiveType::TYPE_DATETIME:
+        return AggregateFunctionCollectCreator<TYPE_DATETIME, HasLimit>()(distinct, argument_types,
+                                                                          result_is_nullable);
+    case PrimitiveType::TYPE_DATEV2:
+        return AggregateFunctionCollectCreator<TYPE_DATEV2, HasLimit>()(distinct, argument_types,
+                                                                        result_is_nullable);
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return AggregateFunctionCollectCreator<TYPE_DATETIMEV2, HasLimit>()(
+                distinct, argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_IPV6:
+        return AggregateFunctionCollectCreator<TYPE_IPV6, HasLimit>()(distinct, argument_types,
+                                                                      result_is_nullable);
+    case PrimitiveType::TYPE_IPV4:
+        return AggregateFunctionCollectCreator<TYPE_IPV4, HasLimit>()(distinct, argument_types,
+                                                                      result_is_nullable);
+    case PrimitiveType::TYPE_STRING:
+        return AggregateFunctionCollectCreator<TYPE_STRING, HasLimit>()(distinct, argument_types,
+                                                                        result_is_nullable);
+    case PrimitiveType::TYPE_CHAR:
+        return AggregateFunctionCollectCreator<TYPE_CHAR, HasLimit>()(distinct, argument_types,
+                                                                      result_is_nullable);
+    case PrimitiveType::TYPE_VARCHAR:
+        return AggregateFunctionCollectCreator<TYPE_VARCHAR, HasLimit>()(distinct, argument_types,
+                                                                         result_is_nullable);
     default:
         // We do not care what the real type is.
-        return do_create_agg_function_collect<INVALID_TYPE, HasLimit>(distinct, argument_types,
-                                                                      result_is_nullable);
+        return AggregateFunctionCollectCreator<INVALID_TYPE, HasLimit>()(distinct, argument_types,
+                                                                         result_is_nullable);
     }
 }
 

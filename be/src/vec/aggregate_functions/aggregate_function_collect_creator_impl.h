@@ -1,0 +1,51 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include "common/exception.h"
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function_collect.h"
+#include "vec/aggregate_functions/aggregate_function_collect_creator.h"
+#include "vec/aggregate_functions/helpers.h"
+
+namespace doris::vectorized {
+
+template <PrimitiveType T, typename HasLimit>
+AggregateFunctionPtr AggregateFunctionCollectCreator<T, HasLimit>::operator()(
+        bool distinct, const DataTypes& argument_types, const bool result_is_nullable) {
+    if (distinct) {
+        if constexpr (T == INVALID_TYPE) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "unexpected type for collect, please check the input");
+        } else {
+            return creator_without_type::create<AggregateFunctionCollect<
+                    AggregateFunctionCollectSetData<T, HasLimit>, HasLimit>>(argument_types,
+                                                                             result_is_nullable);
+        }
+    } else {
+        return creator_without_type::create<
+                AggregateFunctionCollect<AggregateFunctionCollectListData<T, HasLimit>, HasLimit>>(
+                argument_types, result_is_nullable);
+    }
+}
+
+#define INSTANTIATE_AGGREGATE_FUNCTION_COLLECT_CREATOR(T)                \
+    template struct AggregateFunctionCollectCreator<T, std::false_type>; \
+    template struct AggregateFunctionCollectCreator<T, std::true_type>;
+
+} // namespace doris::vectorized
