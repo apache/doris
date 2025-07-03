@@ -21,6 +21,7 @@
 #include <bthread/butex.h>
 #include <butil/iobuf.h>
 #include <google/protobuf/util/json_util.h>
+#include <google/protobuf/util/field_mask_util.h>
 
 // FIXME: we should not rely other modules that may rely on this common module
 #include "common/logging.h"

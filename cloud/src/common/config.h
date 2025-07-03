@@ -339,4 +339,7 @@ CONF_mString(ca_cert_file_paths,
              "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
              "/etc/ssl/ca-bundle.pem");
 
+CONF_Bool(enable_split_rowset_meta_pb, "false");
+CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
+
 } // namespace doris::cloud::config
