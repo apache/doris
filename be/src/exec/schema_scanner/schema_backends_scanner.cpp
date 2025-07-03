@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "common/compile_check_begin.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/define_primitive_type.h"
