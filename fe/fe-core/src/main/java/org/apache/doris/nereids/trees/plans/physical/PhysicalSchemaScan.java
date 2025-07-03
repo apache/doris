@@ -163,8 +163,9 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
     }
 
     private boolean checkUserAccessPermission(String tableName) {
-        if (BACKEND_TABLE_ONLY_ROOT_READABLE.contains(tableName.toLowerCase()) && !Env.getCurrentEnv().getAccessManager()
-                .checkGlobalPriv(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN)) {
+        if (BACKEND_TABLE_ONLY_ROOT_READABLE.contains(tableName.toLowerCase()) &&
+                !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get().getCurrentUserIdentity(),
+                        PrivPredicate.ADMIN)) {
             return true;
         }
         return false;
