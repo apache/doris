@@ -342,8 +342,10 @@ struct creator_with_type_base {
                 std::forward<TArgs>(args)...);
     }
 };
-
-using creator_with_integer_type = creator_with_type_base<true, false, false, false, false, false>;
+template <int define_index>
+using creator_with_integer_type_with_index =
+        creator_with_type_base<true, false, false, false, false, false, define_index>;
+using creator_with_integer_type = creator_with_integer_type_with_index<0>;
 using creator_with_numeric_type = creator_with_type_base<true, true, false, false, false, false>;
 using creator_with_decimal_type = creator_with_type_base<false, false, true, false, false, false>;
 using creator_with_type = creator_with_type_base<true, true, true, false, false, false>;
