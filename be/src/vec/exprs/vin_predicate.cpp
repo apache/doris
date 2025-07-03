@@ -109,9 +109,10 @@ void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateSc
     VExpr::close(context, scope);
 }
 
-Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows,
+                                             bool is_pre_evaluate) {
     DCHECK_GE(get_num_children(), 2);
-    return _evaluate_inverted_index(context, _function, segment_num_rows);
+    return _evaluate_inverted_index(context, _function, segment_num_rows, is_pre_evaluate);
 }
 
 Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {

@@ -165,7 +165,12 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+            segment_v2::InvertedIndexResultBitmap& bitmap_result,
+            bool is_pre_evaluate) const override {
+        if (is_pre_evaluate) {
+            return Status::OK();
+        }
+
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
         DCHECK(iterators.size() == 1);

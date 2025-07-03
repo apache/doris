@@ -63,7 +63,7 @@ TEST_F(FunctionMultiMatchTest, EvaluateInvertedIndexWithNullIterator) {
 
     FunctionMultiMatch function;
     Status status = function.evaluate_inverted_index(arguments, data_type_with_names, iterators,
-                                                     num_rows, bitmap_result);
+                                                     num_rows, bitmap_result, false);
 
     ASSERT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);

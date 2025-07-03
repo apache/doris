@@ -144,9 +144,14 @@ public:
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
-                              const TabletIndex* index_meta, const StorageReadOptions& read_options,
+    Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
+                              const TabletIndex* index_meta,
                               std::unique_ptr<IndexIterator>* iterator);
+
+    Status new_inverted_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
+                                       const TabletIndex* index_meta,
+                                       const StorageReadOptions& read_options,
+                                       std::unique_ptr<InvertedIndexIterator>* iterator);
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
@@ -212,22 +217,14 @@ private:
                  io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
-    // Read column indexes into memory
-    // May be called multiple times, subsequent calls will no op.
-    Status _ensure_index_loaded(std::shared_ptr<IndexFileReader> index_file_reader,
-                                const TabletIndex* index_meta) {
-        // load inverted index only if not loaded or index_id is changed
-        RETURN_IF_ERROR(_load_index_index(index_file_reader, index_meta));
-        return Status::OK();
-    }
-
     [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
                                              const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
-    [[nodiscard]] Status _load_index_index(std::shared_ptr<IndexFileReader> index_file_reader,
-                                           const TabletIndex* index_meta);
+    [[nodiscard]] Status _load_index_index(
+            const std::shared_ptr<IndexFileReader>& index_file_reader,
+            const TabletIndex* index_meta);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
 

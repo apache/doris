@@ -221,4 +221,8 @@ Status VirtualSlotRef::evaluate_ann_range_search(
     return Status::OK();
 }
 
+bool VirtualSlotRef::is_score_expr() const {
+    return _virtual_column_expr->fn().name.function_name == "score";
+}
+
 } // namespace doris::vectorized

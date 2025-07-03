@@ -119,6 +119,7 @@ public:
     std::map<size_t, vectorized::DataTypePtr> _vir_col_idx_to_type;
 
     std::shared_ptr<vectorized::AnnTopNRuntime> _ann_topn_runtime;
+    std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
 
     VectorSearchUserParams _vector_search_params;
 };
