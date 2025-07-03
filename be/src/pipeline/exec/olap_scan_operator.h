@@ -53,6 +53,9 @@ public:
     }
     Status hold_tablets();
 
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
+
 private:
     friend class vectorized::OlapScanner;
 
@@ -94,7 +97,7 @@ private:
     OlapScanKeys _scan_keys;
     std::vector<FilterOlapParam<TCondition>> _olap_filters;
     // If column id in this set, indicate that we need to read data after index filtering
-    std::set<int32_t> _maybe_read_column_ids;
+    std::set<int32_t> _output_column_unique_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
@@ -227,6 +230,11 @@ private:
 
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReader::ReadSource> _read_sources;
+
+    std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
+    std::map<SlotId, size_t> _slot_id_to_index_in_block;
+    // this map is needed for scanner opening.
+    std::map<SlotId, vectorized::DataTypePtr> _slot_id_to_col_type;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {

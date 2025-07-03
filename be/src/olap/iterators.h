@@ -119,6 +119,10 @@ public:
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
+
+    std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+    std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
+    std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
 };
 
 struct CompactionSampleInfo {
