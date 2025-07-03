@@ -195,7 +195,7 @@ public class Utils {
         }
 
         for (int i = 0; i < variables.length - 1; i += 2) {
-            if (!"".equals(toStringOrNull(variables[i + 1]))) {
+            if (!skipEmptyOrNull(variables[i + 1])) {
                 if (i != 0) {
                     stringBuilder.append(", ");
                 }
@@ -204,6 +204,16 @@ public class Utils {
         }
 
         return stringBuilder.append(" )").toString();
+    }
+
+    private static boolean skipEmptyOrNull(Object obj) {
+        if (obj == null) {
+            return true;
+        }
+        if ("".equals(obj.toString())) {
+            return true;
+        }
+        return false;
     }
 
     public static String toStringOrNull(Object obj) {
