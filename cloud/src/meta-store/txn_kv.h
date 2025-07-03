@@ -320,7 +320,8 @@ public:
     virtual int size() const = 0;
 
     /**
-     * Get all FDBKeyValue's bytes.
+     * Get all FDBKeyValue's bytes include key's bytes
+     * RangeGetIterator created by get range, when get range the keys in the range too.
      */
     virtual int64_t get_total_bytes() const = 0;
 
