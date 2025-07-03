@@ -67,7 +67,7 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_v1", TableFunctionCreator<VExplodeTableFunction> {}}};
 
 // key is alias name ---> function name
-std::unordered_map<std::string, std::string> TableFunctionFactory::_function_to_alias = {
+std::unordered_map<std::string, std::string> TableFunctionFactory::_function_alias = {
         {"explode", "explode_v1"}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* pool,
@@ -77,8 +77,8 @@ Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* 
     std::string fn_name_real =
             is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;
 
-    if (_function_to_alias.contains(fn_name_real)) {
-        fn_name_real = _function_to_alias[fn_name_real];
+    if (_function_alias.contains(fn_name_real)) {
+        fn_name_real = _function_alias[fn_name_real];
     }
 
     auto fn_iterator = _function_map.find(fn_name_real);

@@ -17,9 +17,8 @@
 
 package org.apache.doris.common;
 
-import org.junit.jupiter.api.Assertions;
-
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 public class ConfigTest {
     @Test

@@ -41,7 +41,8 @@ import java.util.List;
  * explode_outer([1, 2, 3], [4, 5, 6]) generates two columns and three rows
  * where the first column contains 1, 2, 3, and the second column contains 4, 5, 6.
  */
-public class ExplodeOuterV2 extends TableGeneratingFunction implements CustomSignature, ComputePrecision, AlwaysNullable {
+public class ExplodeOuterV2 extends TableGeneratingFunction
+        implements CustomSignature, ComputePrecision, AlwaysNullable {
 
     /**
      * constructor with one or more argument.

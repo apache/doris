@@ -40,7 +40,7 @@ public:
             _function_map;
 
     // alias name ---> function name
-    static std::unordered_map<std::string, std::string> _function_to_alias;
+    static std::unordered_map<std::string, std::string> _function_alias;
 };
 } // namespace vectorized
 } // namespace doris
