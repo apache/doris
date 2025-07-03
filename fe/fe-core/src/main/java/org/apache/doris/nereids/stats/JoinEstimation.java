@@ -366,10 +366,17 @@ public class JoinEstimation {
     private static void updateNumNullsForOuterJoin(Statistics crossJoinStats, Statistics targetSide,
                                                    double supplementNulls) {
         for (Map.Entry<Expression, ColumnStatistic> entry : targetSide.columnStatistics().entrySet()) {
-            ColumnStatistic colStats = new ColumnStatisticBuilder(entry.getValue())
-                    .setNumNulls(supplementNulls)
-                    .build();
-            crossJoinStats.addColumnStats(entry.getKey(), colStats);
+            double numNulls = supplementNulls;
+            if (!entry.getValue().isUnKnown()) {
+                if (entry.getValue().numNulls > 0) {
+                    numNulls = Math.max(1, supplementNulls);
+                    numNulls = Math.min(entry.getValue().numNulls, numNulls);
+                }
+                ColumnStatistic colStats = new ColumnStatisticBuilder(entry.getValue())
+                        .setNumNulls(numNulls)
+                        .build();
+                crossJoinStats.addColumnStats(entry.getKey(), colStats);
+            }
         }
     }
 
@@ -395,7 +402,7 @@ public class JoinEstimation {
             double rowCount = Math.max(leftStats.getRowCount(), innerJoinStats.getRowCount());
             LogicalJoin leftSemi = ((LogicalJoin) join).withJoinType(JoinType.LEFT_SEMI_JOIN);
             Statistics semiStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, leftSemi);
-            double supplementNull = Math.max(0, leftStats.getRowCount() - semiStats.getRowCount());
+            double supplementNull = Math.max(1, leftStats.getRowCount() - semiStats.getRowCount());
             updateNumNullsForOuterJoin(crossJoinStats, rightStats, supplementNull);
             updateJoinConditionColumnStatistics(crossJoinStats, join);
             return crossJoinStats.withRowCountAndEnforceValid(rowCount);
@@ -403,7 +410,7 @@ public class JoinEstimation {
             double rowCount = Math.max(rightStats.getRowCount(), innerJoinStats.getRowCount());
             LogicalJoin rightSemi = ((LogicalJoin) join).withJoinType(JoinType.RIGHT_SEMI_JOIN);
             Statistics semiStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, rightSemi);
-            double supplementNull = Math.max(0, rightStats.getRowCount() - semiStats.getRowCount());
+            double supplementNull = Math.max(1, rightStats.getRowCount() - semiStats.getRowCount());
             updateNumNullsForOuterJoin(crossJoinStats, leftStats, supplementNull);
             updateJoinConditionColumnStatistics(crossJoinStats, join);
             return crossJoinStats.withRowCountAndEnforceValid(rowCount);
@@ -412,13 +419,13 @@ public class JoinEstimation {
             rowCount = Math.max(rightStats.getRowCount(), rowCount);
             LogicalJoin leftSemiJoin = ((LogicalJoin) join).withJoinType(JoinType.LEFT_SEMI_JOIN);
             Statistics leftSemiStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, leftSemiJoin);
-            double supplementNullRight = Math.max(0, leftStats.getRowCount() - leftSemiStats.getRowCount());
+            double supplementNullRight = Math.max(1, leftStats.getRowCount() - leftSemiStats.getRowCount());
             updateNumNullsForOuterJoin(crossJoinStats, rightStats, supplementNullRight);
 
             LogicalJoin rightSemiJoin = ((LogicalJoin) join).withJoinType(JoinType.RIGHT_SEMI_JOIN);
             Statistics rightSemiStats = estimateSemiOrAnti(leftStats, leftStats, innerJoinStats, rightSemiJoin);
-            double supplementNullLeft = Math.max(0, rightStats.getRowCount() - rightSemiStats.getRowCount());
-            updateNumNullsForOuterJoin(crossJoinStats, rightStats, supplementNullLeft);
+            double supplementNullLeft = Math.max(1, rightStats.getRowCount() - rightSemiStats.getRowCount());
+            updateNumNullsForOuterJoin(crossJoinStats, leftStats, supplementNullLeft);
             updateJoinConditionColumnStatistics(crossJoinStats, join);
             return crossJoinStats.withRowCountAndEnforceValid(rowCount);
         } else if (joinType == JoinType.CROSS_JOIN) {

@@ -37,10 +37,14 @@ suite("test_outerjoin_isnull_estimation") {
         "replication_allocation" = "tag.location.default: 1"
     );"""
 
-    sql "insert into test_outerjoin_isnull_estimation1 values (1,1,1);"
-    sql "insert into test_outerjoin_isnull_estimation1 values (2,2,2);"
-    sql "insert into test_outerjoin_isnull_estimation2 values (3,3,3);"
-    sql "insert into test_outerjoin_isnull_estimation2 values (4,4,4);"
+    sql """
+        insert into test_outerjoin_isnull_estimation1 values (1,1,1);
+        insert into test_outerjoin_isnull_estimation1 values (2,2,2);
+        insert into test_outerjoin_isnull_estimation2 values (3,3,3);
+        insert into test_outerjoin_isnull_estimation2 values (4,4,4);
+    """
+
+
 
     sql "analyze table test_outerjoin_isnull_estimation1 with full with sync;"
     sql "analyze table test_outerjoin_isnull_estimation2 with full with sync;"
