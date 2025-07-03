@@ -397,6 +397,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new),
                                     custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
                                     custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
+                            ),
+                            topic("add projection for join",
+                                    // this is for hint project join rewrite rule
+                                    custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
+                                    topDown(new MergeProjectable())
                             )
                     )
             );
