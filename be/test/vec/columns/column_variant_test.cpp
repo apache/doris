@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/columns/column_variant.h"
+
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -23,7 +25,6 @@
 #include <memory>
 
 #include "runtime/define_primitive_type.h"
-#include "vec/columns/column_variant.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nothing.h"
@@ -31,7 +32,7 @@
 
 namespace doris::vectorized {
 
-class ColumnObjectTest : public ::testing::Test {};
+class ColumnVariantTest : public ::testing::Test {};
 
 auto construct_dst_varint_column() {
     // 1. create an empty variant column
@@ -50,7 +51,7 @@ auto construct_dst_varint_column() {
     return ColumnVariant::create(std::move(dynamic_subcolumns), true);
 }
 
-TEST_F(ColumnObjectTest, permute) {
+TEST_F(ColumnVariantTest, permute) {
     auto column_variant = construct_dst_varint_column();
     {
         // test empty column and limit == 0
@@ -69,7 +70,7 @@ TEST_F(ColumnObjectTest, permute) {
 }
 
 // test ColumnVariant with ColumnNothing using update_hash_with_value
-TEST_F(ColumnObjectTest, updateHashValueWithColumnNothingTest) {
+TEST_F(ColumnVariantTest, updateHashValueWithColumnNothingTest) {
     // Create a subcolumn with ColumnNothing type
     auto type = std::make_shared<DataTypeNothing>();
     auto column = type->create_column();
@@ -122,7 +123,7 @@ TEST_F(ColumnObjectTest, updateHashValueWithColumnNothingTest) {
 }
 
 // TEST
-TEST_F(ColumnObjectTest, test_pop_back) {
+TEST_F(ColumnVariantTest, test_pop_back) {
     ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
 
     Field field_int = Field::create_field<TYPE_INT>(123);
@@ -140,7 +141,7 @@ TEST_F(ColumnObjectTest, test_pop_back) {
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nothing");
 }
 
-TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
+TEST_F(ColumnVariantTest, test_pop_back_multiple_types) {
     ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
 
     Field field_int8 = Field::create_field<TYPE_TINYINT>(42);
@@ -223,7 +224,7 @@ TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nothing");
 }
 
-TEST_F(ColumnObjectTest, test_insert_indices_from) {
+TEST_F(ColumnVariantTest, test_insert_indices_from) {
     // Test case 1: Insert from scalar variant source to empty destination
     {
         // Create source column with scalar values

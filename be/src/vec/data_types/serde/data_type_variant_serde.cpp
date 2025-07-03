@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "data_type_object_serde.h"
+#include "data_type_variant_serde.h"
 
 #include <rapidjson/stringbuffer.h>
 
