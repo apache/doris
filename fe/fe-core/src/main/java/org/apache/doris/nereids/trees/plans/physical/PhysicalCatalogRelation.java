@@ -23,14 +23,18 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -121,9 +125,10 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
 
     @Override
     public List<Slot> computeOutput() {
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(table, col, qualified()))
+                .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -160,6 +165,12 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
             shapeBuilder.append(" apply RFs:");
             getAppliedRuntimeFilters()
                     .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
+        }
+        if (!runtimeFiltersV2.isEmpty()) {
+            shapeBuilder.append(" RFV2:");
+            for (RuntimeFilterV2 rfv2 : runtimeFiltersV2) {
+                shapeBuilder.append(" RF").append(rfv2.getId().asInt());
+            }
         }
         return shapeBuilder.toString();
     }

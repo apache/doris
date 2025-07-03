@@ -21,7 +21,6 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.TableFormatType;
 
-import com.google.common.collect.Maps;
 import io.trino.connector.ConnectorName;
 import io.trino.spi.HostAddress;
 import io.trino.spi.connector.ConnectorSplit;
@@ -34,7 +33,7 @@ import java.util.Map;
 
 public class TrinoConnectorSplit extends FileSplit {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorSplit.class);
-    private static final LocationPath DUMMY_PATH = new LocationPath("/dummyPath", Maps.newHashMap());
+    private static final LocationPath DUMMY_PATH = LocationPath.of("/dummyPath");
     private ConnectorSplit connectorSplit;
     private TableFormatType tableFormatType;
     private final ConnectorName connectorName;
@@ -85,7 +84,7 @@ public class TrinoConnectorSplit extends FileSplit {
         Object info = connectorSplit.getInfo();
         if (info instanceof Map) {
             Map<String, Object> splitInfo = (Map<String, Object>) info;
-            path = new LocationPath((String) splitInfo.getOrDefault("path", "dummyPath"), Maps.newHashMap());
+            path = LocationPath.of((String) splitInfo.getOrDefault("path", "dummyPath"));
             start = (long) splitInfo.getOrDefault("start", 0);
             length = (long) splitInfo.getOrDefault("length", 0);
             fileLength  = (long) splitInfo.getOrDefault("estimatedFileSize", 0);

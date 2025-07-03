@@ -17,13 +17,9 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.Queriable;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.analysis.ValueList;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -35,12 +31,12 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -120,16 +116,6 @@ public class AuditLogHelper {
 
     private static Optional<String> handleInsertStmt(String origStmt, StatementBase parsedStmt) {
         int rowCnt = 0;
-        // old planner
-        if (parsedStmt instanceof NativeInsertStmt) {
-            QueryStmt queryStmt = ((NativeInsertStmt) parsedStmt).getQueryStmt();
-            if (queryStmt instanceof SelectStmt) {
-                ValueList list = ((SelectStmt) queryStmt).getValueList();
-                if (list != null && list.getRows() != null) {
-                    rowCnt = list.getRows().size();
-                }
-            }
-        }
         // nereids planner
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
@@ -180,11 +166,12 @@ public class AuditLogHelper {
         }
         int cnt = 0;
         for (Plan child : children) {
-            if (child instanceof UnboundOneRowRelation) {
+            if (child instanceof OneRowRelation) {
                 cnt++;
             } else if (child instanceof InlineTable) {
                 cnt += ((InlineTable) child).getConstantExprsList().size();
             } else if (child instanceof LogicalUnion) {
+                cnt += ((LogicalUnion) child).getConstantExprsList().size();
                 cnt += countValues(child.children());
             }
         }

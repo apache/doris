@@ -477,6 +477,7 @@ DECLARE_mInt32(max_single_replica_compaction_threads);
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
 DECLARE_mInt64(base_compaction_max_compaction_score);
+DECLARE_mInt64(mow_base_compaction_max_compaction_score);
 DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
@@ -1152,6 +1153,9 @@ DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
+
+DECLARE_Int32(file_cache_downloader_thread_num_min);
+DECLARE_Int32(file_cache_downloader_thread_num_max);
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
@@ -1214,6 +1218,8 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 DECLARE_Int32(segment_cache_capacity);
 DECLARE_Int32(segment_cache_fd_percentage);
 DECLARE_Int32(segment_cache_memory_percentage);
+DECLARE_Bool(enable_segment_cache_prune);
+
 DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog

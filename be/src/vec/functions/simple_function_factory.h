@@ -76,6 +76,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory);
 void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
 void register_function_jsonb(SimpleFunctionFactory& factory);
+void register_function_to_json(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
 void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
@@ -279,6 +280,7 @@ public:
             register_function_date_time_string_to_string(instance);
             register_function_json(instance);
             register_function_jsonb(instance);
+            register_function_to_json(instance);
             register_function_hash(instance);
             register_function_ifnull(instance);
             register_function_comparison_eq_for_null(instance);

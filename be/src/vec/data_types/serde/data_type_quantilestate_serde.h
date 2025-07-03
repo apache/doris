@@ -41,6 +41,8 @@ class DataTypeQuantileStateSerDe : public DataTypeSerDe {
 public:
     DataTypeQuantileStateSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
+    std::string get_name() const override { return "QuantileState"; }
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {
         /**

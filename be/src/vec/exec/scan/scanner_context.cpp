@@ -100,14 +100,9 @@ Status ScannerContext::init() {
                                      print_id(_state->query_id()));
     }
 
-    thread_token = _state->get_query_ctx()->get_token();
-
     if (_state->get_query_ctx()->get_scan_scheduler()) {
         _should_reset_thread_name = false;
     }
-
-    _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                    thread_token == nullptr ? "False" : "True");
 
     auto scanner = _all_scanners.front().lock();
     DCHECK(scanner != nullptr);

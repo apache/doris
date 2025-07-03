@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -142,6 +143,7 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
@@ -177,6 +179,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewC
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
@@ -750,6 +753,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showCreateFunctionCommand, context);
     }
 
+    default R visitShowCreateUserCommand(ShowCreateUserCommand showCreateUserCommand, C context) {
+        return visitCommand(showCreateUserCommand, context);
+    }
+
     default R visitShowCreateViewCommand(ShowCreateViewCommand showCreateViewCommand, C context) {
         return visitCommand(showCreateViewCommand, context);
     }
@@ -1213,6 +1220,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropAnalyzeJobCommand, context);
     }
 
+    default R visitAlterRoutineLoadCommand(AlterRoutineLoadCommand alterRoutineLoadCommand, C context) {
+        return visitCommand(alterRoutineLoadCommand, context);
+    }
+
     default R visitColocateGroupCommand(AlterColocateGroupCommand alterColocateGroupCommand, C context) {
         return visitCommand(alterColocateGroupCommand, context);
     }
@@ -1235,6 +1246,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateResourceCommand(CreateResourceCommand createResourceCommand, C context) {
         return visitCommand(createResourceCommand, context);
+    }
+
+    default R visitRestoreCommand(RestoreCommand restoreCommand, C context) {
+        return visitCommand(restoreCommand, context);
     }
 
     default R visitBackupCommand(BackupCommand backupCommand, C context) {

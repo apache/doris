@@ -130,6 +130,8 @@ using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 // the developer does not know how many datatypes has to deal.
 class DataTypeSerDe {
 public:
+    // return type name , such as "BOOL", "BIGINT", "ARRAY<DATE>"
+    virtual std::string get_name() const = 0;
     // Text serialization/deserialization of data types depend on some settings witch we define
     // in formatOptions.
     struct FormatOptions {
@@ -328,6 +330,14 @@ public:
             int hive_text_complex_type_delimiter_level = 1) const {
         return serialize_one_cell_to_json(column, row_num, bw, options);
     }
+
+    virtual Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                             JsonbWriter& writer) const {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    }
+
+    virtual Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                    ColumnString& to_column) const;
 
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,

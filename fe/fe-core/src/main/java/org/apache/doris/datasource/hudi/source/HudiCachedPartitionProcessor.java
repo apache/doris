@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.TablePartitionValues.TablePartitionKey;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -56,8 +57,8 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         this.catalogId = catalogId;
         this.executor = executor;
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(28800L),
-                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 Config.max_external_table_cache_num,
                 true,
                 null);
@@ -76,9 +77,10 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
     }
 
     @Override
-    public void cleanTablePartitions(String dbName, String tblName) {
+    public void cleanTablePartitions(ExternalTable dorisTable) {
         partitionCache.asMap().keySet().stream()
-                .filter(k -> k.getDbName().equals(dbName) && k.getTblName().equals(tblName))
+                .filter(k -> k.getDbName().equals(dorisTable.getDbName())
+                        && k.getTblName().equals(dorisTable.getName()))
                 .collect(Collectors.toList())
                 .forEach(partitionCache::invalidate);
     }
@@ -143,10 +145,6 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
 
             partitionValues.writeLock().lock();
             try {
-                long lastUpdateTimestamp = partitionValues.getLastUpdateTimestamp();
-                if (lastTimestamp <= lastUpdateTimestamp) {
-                    return partitionValues;
-                }
                 HMSExternalCatalog catalog = (HMSExternalCatalog) table.getCatalog();
                 List<String> partitionNames;
                 if (useHiveSyncPartition) {
@@ -154,7 +152,8 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                     // so even if the metastore is not enabled in the Hudi table
                     //     (for example, if the Metastore is false for a Hudi table created with Flink),
                     // we can still obtain the partition information through the HMS API.
-                    partitionNames = catalog.getClient().listPartitionNames(table.getDbName(), table.getName());
+                    partitionNames = catalog.getClient()
+                            .listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
                     if (partitionNames.size() == 0) {
                         LOG.warn("Failed to get partitions from hms api, switch it from hudi api.");
                         partitionNames = getAllPartitionNames(tableMetaClient);

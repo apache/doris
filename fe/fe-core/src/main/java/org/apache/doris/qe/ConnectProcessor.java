@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.StatementBase;
@@ -102,7 +101,7 @@ public abstract class ConnectProcessor {
 
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
     protected final ConnectContext ctx;
-    protected StmtExecutor executor = null;
+    protected StmtExecutor executor;
     protected ConnectType connectType;
     protected ArrayList<StmtExecutor> returnResultFromRemoteExecutor = new ArrayList<>();
 
@@ -580,8 +579,7 @@ public abstract class ConnectProcessor {
         // explain query stmt do not have profile
         if (executor != null && executor.getParsedStmt() != null && !executor.getParsedStmt().isExplain()
                 && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
-                || executor.getParsedStmt() instanceof LogicalPlanAdapter
-                || executor.getParsedStmt() instanceof InsertStmt)) {
+                || executor.getParsedStmt() instanceof LogicalPlanAdapter)) {
             executor.updateProfile(true);
             StatsErrorEstimator statsErrorEstimator = ConnectContext.get().getStatsErrorEstimator();
             if (statsErrorEstimator != null) {

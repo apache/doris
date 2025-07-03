@@ -172,7 +172,7 @@ public class S3PropertiesTest {
     @Test
     public void testGetRegionWithDefault() throws UserException {
         Map<String, String> origProps = new HashMap<>();
-        origProps.put("uri", "https://example-bucket.s3.us-west-2.amazonaws.com/path/to/file.txt\n");
+        origProps.put("uri", "https://example-bucket.s3.us-west-2.amazonaws.com/path/to/file.txt");
         origProps.put("s3.access_key", "myCOSAccessKey");
         origProps.put("s3.secret_key", "myCOSSecretKey");
         origProps.put("s3.region", "us-west-2");

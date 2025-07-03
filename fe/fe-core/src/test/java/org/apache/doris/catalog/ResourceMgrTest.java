@@ -19,14 +19,16 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -93,10 +95,10 @@ public class ResourceMgrTest {
 
         // s3 resource
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, s3ResName, s3Properties);
-        stmt.analyze(analyzer);
+        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
+        createResourceCommand.getInfo().validate();
         Assert.assertEquals(0, mgr.getResourceNum());
-        mgr.createResource(stmt);
+        mgr.createResource(createResourceCommand);
         Assert.assertEquals(1, mgr.getResourceNum());
 
         // alter
@@ -124,13 +126,14 @@ public class ResourceMgrTest {
 
         // add
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, s3ResName, s3Properties);
-        stmt.analyze(analyzer);
+        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, s3ResName, ImmutableMap.copyOf(s3Properties)));
+        createResourceCommand.getInfo().validate();
+
         Assert.assertEquals(0, mgr.getResourceNum());
-        mgr.createResource(stmt);
+        mgr.createResource(createResourceCommand);
         Assert.assertEquals(1, mgr.getResourceNum());
 
         // add again
-        mgr.createResource(stmt);
+        mgr.createResource(createResourceCommand);
     }
 }

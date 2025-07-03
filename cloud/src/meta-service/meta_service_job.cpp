@@ -28,14 +28,14 @@
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "keys.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "meta_service.h"
 
 // Empty string not is not processed
@@ -407,7 +407,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
                                        const StartTabletJobRequest* request,
                                        StartTabletJobResponse* response,
                                        ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(start_tablet_job);
+    RPC_PREPROCESS(start_tablet_job, get, put);
     std::string cloud_unique_id = request->cloud_unique_id();
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
@@ -425,7 +425,6 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
         return;
     }
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1473,7 +1472,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                                         const FinishTabletJobRequest* request,
                                         FinishTabletJobResponse* response,
                                         ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(finish_tablet_job);
+    RPC_PREPROCESS(finish_tablet_job, get, put, del);
     std::string cloud_unique_id = request->cloud_unique_id();
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
@@ -1493,7 +1492,6 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
     }
 
     bool need_commit = false;
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);

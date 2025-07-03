@@ -113,7 +113,7 @@ public:
     // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
     virtual void shrink_padding_chars() {}
 
-    // Only used in ColumnObject to handle lifecycle of variant. Other columns would do nothing.
+    // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
     // Only used on ColumnDictionary

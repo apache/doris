@@ -31,6 +31,8 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
@@ -349,11 +351,8 @@ struct DateTimeOp {
                               const PaddedPODArray<NativeType1>& vec_from1,
                               PaddedPODArray<ToType>& vec_to, const NullMap* nullmap0,
                               const NullMap* nullmap1) {
-        size_t size = vec_from0.size();
-        vec_to.resize(size);
         bool invalid = false;
-
-        for (size_t i = 0; i < size; ++i) {
+        for (size_t i = 0; i < vec_from0.size(); ++i) {
             if ((nullmap0 && (*nullmap0)[i]) || (nullmap1 && (*nullmap1)[i])) [[unlikely]] {
                 continue;
             }
@@ -371,11 +370,9 @@ struct DateTimeOp {
         if (nullmap1 && (*nullmap1)[0]) [[unlikely]] {
             return;
         }
-        size_t size = vec_from.size();
-        vec_to.resize(size);
-        bool invalid = false;
 
-        for (size_t i = 0; i < size; ++i) {
+        bool invalid = false;
+        for (size_t i = 0; i < vec_from.size(); ++i) {
             if (nullmap0 && (*nullmap0)[i]) [[unlikely]] {
                 continue;
             }
@@ -393,11 +390,9 @@ struct DateTimeOp {
         if (nullmap0 && (*nullmap0)[0]) [[unlikely]] {
             return;
         }
-        size_t size = delta.size();
-        vec_to.resize(size);
-        bool invalid = false;
 
-        for (size_t i = 0; i < size; ++i) {
+        bool invalid = false;
+        for (size_t i = 0; i < delta.size(); ++i) {
             if (nullmap1 && (*nullmap1)[i]) [[unlikely]] {
                 continue;
             }
@@ -466,7 +461,7 @@ public:
         // if null wrapped, extract nested column as src_nested_col
         const ColumnPtr src_nested_col = remove_nullable(col0);
         const auto result_nullable = block.get_by_position(result).type->is_nullable();
-        auto res_col = ColumnVector<Transform::ReturnType>::create();
+        auto res_col = ColumnVector<Transform::ReturnType>::create(input_rows_count, 0);
 
         // vector-const or vector-vector
         if (const auto* sources =
@@ -600,7 +595,7 @@ public:
         // if null wrapped, extract nested column as src_nested_col
         const ColumnPtr src_nested_col = remove_nullable(col0);
         const auto result_nullable = block.get_by_position(result).type->is_nullable();
-        auto res_col = ColumnVector<Transform::ReturnType>::create();
+        auto res_col = ColumnVector<Transform::ReturnType>::create(input_rows_count, 0);
 
         // vector-const or vector-vector
         if (const auto* sources =
@@ -1269,6 +1264,35 @@ private:
             RETURN_IF_ERROR(compute_next_day(dtv, week_day));
             res_col.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dtv));
         }
+        return Status::OK();
+    }
+};
+
+class FunctionTime : public IFunction {
+public:
+    static constexpr auto name = "time";
+    static FunctionPtr create() { return std::make_shared<FunctionTime>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeTimeV2>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 1);
+        ColumnPtr col = block.get_by_position(arguments[0]).column;
+        const auto& arg = assert_cast<const ColumnDateTimeV2&>(*col.get());
+        ColumnTimeV2::MutablePtr res = ColumnTimeV2::create(input_rows_count);
+        auto& res_data = res->get_data();
+        for (int i = 0; i < arg.size(); i++) {
+            const auto& v =
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(arg.get_element(i));
+            // the arg is datetimev2 type, it's store as uint64, so we need to get arg's hour minute second part
+            res_data[i] = TimeValue::make_time(v.hour(), v.minute(), v.second(), v.microsecond());
+        }
+        block.replace_by_position(result, std::move(res));
         return Status::OK();
     }
 };

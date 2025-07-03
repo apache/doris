@@ -114,8 +114,9 @@ public class BuildIndexOp extends AlterTableOp {
         }
 
         IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (!existedIdx.isLightIndexChangeSupported()) {
-            throw new AnalysisException(indexType.toString() + " index is not needed to build.");
+        if (indexType == IndexDef.IndexType.NGRAM_BF
+                || indexType == IndexDef.IndexType.BLOOMFILTER) {
+            throw new AnalysisException(indexType + " index is not needed to build.");
         }
 
         indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);

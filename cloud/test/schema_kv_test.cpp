@@ -26,10 +26,10 @@
 #include "common/config.h"
 #include "common/defer.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 static std::string instance_id = "schema_kv_test";
 
