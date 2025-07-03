@@ -55,7 +55,7 @@ public abstract class ConnectionProperties {
         this.origProps = origProps;
     }
 
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         ConnectorPropertiesUtils.bindConnectorProperties(this, origProps);
         for (Field field : ConnectorPropertiesUtils.getConnectorProperties(this.getClass())) {
             ConnectorProperty annotation = field.getAnnotation(ConnectorProperty.class);

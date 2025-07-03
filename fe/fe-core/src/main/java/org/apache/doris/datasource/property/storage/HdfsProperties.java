@@ -111,7 +111,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);

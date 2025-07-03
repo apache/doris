@@ -34,12 +34,12 @@ public class AWSGlueMetaStoreProperties extends MetastoreProperties {
     private String glueCatalogId = "";
 
     public AWSGlueMetaStoreProperties(Map<String, String> origProps) {
-        super(Type.GLUE, origProps);
+        super(Type.HMS, origProps);
     }
 
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         baseProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
         baseProperties.check();

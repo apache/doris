@@ -22,11 +22,13 @@ import org.apache.doris.common.UserException;
 import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
 
+@Disabled("wait metastore integration")
 public class AliyunDLFPropertiesTest {
     private static Map<String, String> baseProps;
 

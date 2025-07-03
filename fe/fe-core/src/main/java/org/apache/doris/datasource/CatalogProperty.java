@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;

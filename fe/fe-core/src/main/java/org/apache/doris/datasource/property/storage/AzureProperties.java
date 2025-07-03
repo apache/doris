@@ -101,7 +101,7 @@ public class AzureProperties extends StorageProperties {
     private static final String AZURE_ENDPOINT_SUFFIX = ".blob.core.windows.net";
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         //check endpoint
         if (!endpoint.endsWith(AZURE_ENDPOINT_SUFFIX)) {

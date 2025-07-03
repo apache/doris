@@ -35,7 +35,6 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.metastore.AbstractHMSProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.fs.FileSystemProvider;

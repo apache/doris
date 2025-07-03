@@ -171,7 +171,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfNotSet();
         if (!isValidEndpoint(getEndpoint())) {

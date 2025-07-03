@@ -116,7 +116,7 @@ public class HMSProperties extends AbstractHMSProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         initHiveConf();
         initHadoopAuthenticator();

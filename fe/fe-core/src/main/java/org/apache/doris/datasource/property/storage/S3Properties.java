@@ -45,29 +45,32 @@ import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
 
-
     @Setter
     @Getter
-    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
+    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
+            "aws.glue.endpoint"},
             required = false,
             description = "The endpoint of S3.")
     protected String endpoint = "";
 
     @Setter
     @Getter
-    @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION"},
+    @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
+            "aws.glue.region"},
             required = false,
             description = "The region of S3.")
     protected String region = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
+    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "glue.access_key",
+            "aws.glue.access-key", "client.credentials-provider.glue.access_key"},
             required = false,
             description = "The access key of S3.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "glue.secret_key",
+            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
             required = false,
             description = "The secret key of S3.")
     protected String secretKey = "";
@@ -141,7 +144,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
             return;

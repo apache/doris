@@ -118,7 +118,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         Matcher matcher = ENDPOINT_PATTERN.matcher(endpoint.toLowerCase());
         if (!matcher.matches()) {
