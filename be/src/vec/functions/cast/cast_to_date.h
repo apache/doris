@@ -33,6 +33,7 @@
 #include "vec/data_types/data_type_decimal.h" // IWYU pragma: keep
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -233,7 +234,7 @@ public:
 
                 col_to->get_data()[i] = binary_cast<VecDateTimeValue, Int64>(dtv);
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateTimeV2Type<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
+                const auto* type = assert_cast<const DataTypeTimeV2*>(
                         block.get_by_position(arguments[0]).type.get());
                 auto scale = type->get_scale();
 
@@ -322,12 +323,13 @@ public:
                 // from Datetime to Time
                 auto dtmv2 = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
                         col_from->get_data()[i]);
-                auto time = TimeValue::make_time(dtmv2.hour(), dtmv2.minute(), dtmv2.second(),
-                                                 dtmv2.microsecond());
+                auto time = TimeValue::limit_with_bound(TimeValue::make_time(
+                        dtmv2.hour(), dtmv2.minute(), dtmv2.second(), dtmv2.microsecond()));
                 col_to->get_data()[i] = time;
             } else if constexpr (IsDateTimeType<FromDataType> && IsTimeV2Type<ToDataType>) {
                 auto dtmv1 = binary_cast<Int64, VecDateTimeValue>(col_from->get_data()[i]);
-                auto time = TimeValue::make_time(dtmv1.hour(), dtmv1.minute(), dtmv1.second());
+                auto time = TimeValue::limit_with_bound(
+                        TimeValue::make_time(dtmv1.hour(), dtmv1.minute(), dtmv1.second()));
                 col_to->get_data()[i] = time;
             }
         }

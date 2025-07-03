@@ -19,6 +19,7 @@
 
 #include "common/exception.h"
 #include "runtime/primitive_type.h"
+#include "util/string_parser.hpp"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/runtime/time_value.h"

@@ -318,16 +318,16 @@ struct ConvertImpl {
             } else {
                 if constexpr (IsDataTypeNumber<FromDataType> &&
                               std::is_same_v<ToDataType, DataTypeTimeV2>) {
-                    // 300 -> 00:03:00  360 will be parse failed , so value maybe null
-                    ColumnUInt8::MutablePtr col_null_map_to;
-                    ColumnUInt8::Container* vec_null_map_to = nullptr;
-                    col_null_map_to = ColumnUInt8::create(size, 0);
-                    vec_null_map_to = &col_null_map_to->get_data();
-                    for (size_t i = 0; i < size; ++i) {
-                        (*vec_null_map_to)[i] = !TimeValue::try_parse_time(vec_from[i], vec_to[i]);
-                    }
-                    block.get_by_position(result).column =
-                            ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
+                    // // 300 -> 00:03:00  360 will be parse failed , so value maybe null
+                    // ColumnUInt8::MutablePtr col_null_map_to;
+                    // ColumnUInt8::Container* vec_null_map_to = nullptr;
+                    // col_null_map_to = ColumnUInt8::create(size, 0);
+                    // vec_null_map_to = &col_null_map_to->get_data();
+                    // for (size_t i = 0; i < size; ++i) {
+                    //     (*vec_null_map_to)[i] = !TimeValue::try_parse_time(vec_from[i], vec_to[i]);
+                    // }
+                    // block.get_by_position(result).column =
+                    //         ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
                 } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
                                              std::is_same_v<ToDataType, DataTypeIPv6>)) {
@@ -774,12 +774,13 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
                   std::is_same_v<DataTypeTimeV2, DataType>) {
-        // cast from string to time(float64)
-        auto len = rb.count();
-        auto s = rb.position();
-        rb.position() = rb.end(); // make is_all_read = true
-        auto ret = TimeValue::try_parse_time(s, len, x, context->state()->timezone_obj());
-        return ret;
+        // // cast from string to time(float64)
+        // auto len = rb.count();
+        // auto s = rb.position();
+        // rb.position() = rb.end(); // make is_all_read = true
+        // auto ret = TimeValue::try_parse_time(s, len, x, context->state()->timezone_obj());
+        // return ret;
+        return true;
     }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
         return try_read_float_text(x, rb);
