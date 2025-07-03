@@ -17,23 +17,32 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -41,6 +50,9 @@ import org.apache.doris.planner.PlanNode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -49,6 +61,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public class PhysicalPlanTranslatorTest {
 
@@ -84,5 +97,45 @@ public class PhysicalPlanTranslatorTest {
         List<OlapScanNode> scanNodeList = new ArrayList<>();
         planNode.collect(OlapScanNode.class::isInstance, scanNodeList);
         Assertions.assertEquals(2, scanNodeList.get(0).getTupleDesc().getMaterializedSlots().size());
+    }
+
+    @Test
+    public void testGetConjunctsWithoutPartitionPredicate(@Injectable PhysicalFileScan fileScan,
+            @Injectable HMSExternalTable table) {
+        Slot slot1 = new SlotReference("col1", IntegerType.INSTANCE);
+        Slot slot2 = new SlotReference("col2", IntegerType.INSTANCE);
+        Slot slot3 = new SlotReference("col3", StringType.INSTANCE);
+        Slot slot4 = new SlotReference("col4", StringType.INSTANCE);
+
+        Column col1 = new Column("col1", PrimitiveType.INT);
+        Column col2 = new Column("col2", PrimitiveType.INT);
+
+        Expression expression1 = new EqualTo(slot1, new IntegerLiteral(1));
+        Expression expression2 = new LessThan(slot2, new IntegerLiteral(3));
+        Expression expression3 = new EqualTo(slot3, new StringLiteral("abc"));
+
+        new Expectations() {
+            {
+                fileScan.getTable();
+                result = table;
+
+                fileScan.getOutput();
+                result = Lists.newArrayList(slot1, slot2, slot3, slot4);
+
+                table.getPartitionColumns();
+                result = Lists.newArrayList(col1, col2);
+
+                fileScan.getConjuncts();
+                result = Sets.newHashSet(expression1, expression2, expression3);
+
+                table.getDlaType();
+                result = DLAType.HIVE;
+            }
+        };
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator(planTranslatorContext, null);
+        Set<Expression> conjuncts = translator.getConjunctsWithoutPartitionPredicate(fileScan);
+        Assertions.assertEquals(1, conjuncts.size());
+        Assertions.assertEquals(expression3, conjuncts.toArray()[0]);
     }
 }

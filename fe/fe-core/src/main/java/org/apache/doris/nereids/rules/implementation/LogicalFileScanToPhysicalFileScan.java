@@ -23,6 +23,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 
+import com.google.common.collect.Sets;
+
 import java.util.Optional;
 
 /**
@@ -43,7 +45,8 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
                     fileScan.getTableSample(),
                     fileScan.getTableSnapshot(),
                     fileScan.getOperativeSlots(),
-                    fileScan.getScanParams())
+                    fileScan.getScanParams(),
+                    Sets.newHashSet())
         ).toRule(RuleType.LOGICAL_FILE_SCAN_TO_PHYSICAL_FILE_SCAN_RULE);
     }
 }

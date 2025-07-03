@@ -90,6 +90,7 @@ import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruneExpressionExtractor;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -243,6 +244,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -746,12 +748,44 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }
 
+    /**
+     * Get conjuncts without partition predicate if file scan table is HMS table.
+     * For Hive tables, we need to separate partition predicates from regular predicates
+     * to avoid incorrect predicate pushdown that could affect partition pruning.
+     * For Hudi and other table types, return all conjuncts as-is.
+     */
+    public Set<Expression> getConjunctsWithoutPartitionPredicate(PhysicalFileScan fileScan) {
+        ExternalTable tbl = fileScan.getTable();
+        if (tbl instanceof HMSExternalTable && ((HMSExternalTable) tbl).getDlaType() == DLAType.HIVE) {
+            Map<String, Slot> scanOutput = fileScan.getOutput()
+                    .stream()
+                    .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
+            Set<Slot> partitionSlots = ((HMSExternalTable) fileScan.getTable()).getPartitionColumns()
+                    .stream()
+                    .map(column -> scanOutput.get(column.getName().toLowerCase()))
+                    .collect(Collectors.toSet());
+            PartitionPruneExpressionExtractor.ExpressionEvaluableDetector detector =
+                    new PartitionPruneExpressionExtractor.ExpressionEvaluableDetector(partitionSlots);
+            Set<Expression> result = Sets.newHashSet();
+            for (Expression expression : fileScan.getConjuncts()) {
+                if (!detector.detect(expression)) {
+                    result.add(expression);
+                }
+            }
+            return result;
+        } else {
+            return fileScan.getConjuncts();
+        }
+    }
+
     @NotNull
     private PlanFragment getPlanFragmentForPhysicalFileScan(PhysicalFileScan fileScan, PlanTranslatorContext context,
             ScanNode scanNode,
             ExternalTable table, TupleDescriptor tupleDescriptor) {
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
+        // Add conjuncts handling for external table filters with proper partition predicate separation
+        scanNode.addConjuncts(translateToLegacyConjuncts(getConjunctsWithoutPartitionPredicate(fileScan)));
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
 
         TableName tableName = new TableName(null, "", "");
