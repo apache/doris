@@ -147,7 +147,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // this should be done before txn begin, or the txn may be begun successfully but failed to be allocated.
             if (!allocateTaskToBe(routineLoadTaskInfo)) {
                 // allocate failed, push it back to the queue to wait next scheduling
-                needScheduleTasksQueue.addFirst(routineLoadTaskInfo);
+                needScheduleTasksQueue.addLast(routineLoadTaskInfo);
                 return;
             }
         } catch (UserException e) {
@@ -311,7 +311,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     // 2. If not, try to find a better one with most idle slots.
     // return true if allocate successfully. return false if failed.
     // throw exception if unrecoverable errors happen.
-    private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
+    private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws UserException {
         long beId = routineLoadManager.getAvailableBeForTask(routineLoadTaskInfo.getJobId(),
                 routineLoadTaskInfo.getPreviousBeId());
         if (beId == -1L) {
