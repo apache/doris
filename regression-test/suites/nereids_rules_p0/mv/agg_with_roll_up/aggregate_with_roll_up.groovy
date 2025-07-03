@@ -170,8 +170,7 @@ suite("aggregate_with_roll_up") {
             l_suppkey
             """
     order_qt_query13_0_before "${query13_0}"
-    async_mv_rewrite_success(db, mv13_0, query13_0, "mv13_0", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv13_0, query13_0, "mv13_0", [NOT_IN_RBO])
+    async_mv_rewrite_success(db, mv13_0, query13_0, "mv13_0")
     order_qt_query13_0_after "${query13_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_0"""
 
