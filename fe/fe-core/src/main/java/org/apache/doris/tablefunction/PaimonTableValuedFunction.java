@@ -166,15 +166,19 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         int[] projections = getProjection(requiredFields);
         try {
             splits = hadoopAuthenticator.doAs(
-                    () -> paimonSysTable.newReadBuilder().withProjection(projections).withFilter(paimonPredicate)
-                            .newScan().plan().splits());
+                    () -> paimonSysTable.newReadBuilder()
+                            .withProjection(projections)
+                            .withFilter(paimonPredicate)
+                            .newScan()
+                            .plan()
+                            .splits());
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));
         }
 
         return splits
                 .stream()
-                .map(this::createMetaScanRange)
+                .map(split -> createMetaScanRange(split, paimonPredicate))
                 .collect(Collectors.toList());
     }
 
@@ -188,7 +192,7 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         return schema;
     }
 
-    private TMetaScanRange createMetaScanRange(Split split) {
+    private TMetaScanRange createMetaScanRange(Split split, List<Predicate> predicates) {
         TMetaScanRange tMetaScanRange = new TMetaScanRange();
         tMetaScanRange.setMetadataType(TMetadataType.PAIMON);
 
@@ -199,6 +203,7 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         tPaimonMetadataParams.setQueryType(queryType);
         tPaimonMetadataParams.setDbName(paimonTableName.getDb());
         tPaimonMetadataParams.setTblName(paimonTableName.getTbl());
+        tPaimonMetadataParams.setSerializedPredicate(PaimonUtil.encodeObjectToString(predicates));
         tPaimonMetadataParams.setHadoopProps(hadoopProps);
         tPaimonMetadataParams.setPaimonProps(paimonProps);
         tPaimonMetadataParams.setSerializedSplit(PaimonUtil.encodeObjectToString(split));

@@ -549,8 +549,9 @@ struct TPaimonMetadataParams {
   5: optional i64 db_id
   6: optional i64 tbl_id
   7: optional string serialized_split
-  8: optional map<string, string> hadoop_props
-  9: optional map<string, string> paimon_props
+  8: optional string serialized_predicate
+  9: optional map<string, string> hadoop_props
+  10: optional map<string, string> paimon_props
 }
 
 struct THudiMetadataParams {

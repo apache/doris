@@ -45,6 +45,7 @@ PaimonSysTableJniReader::PaimonSysTableJniReader(
     params["db_id"] = std::to_string(_range_params.db_id);
     params["tbl_id"] = std::to_string(_range_params.tbl_id);
     params["serialized_split"] = _range_params.serialized_split;
+    params["serialized_predicate"] = _range_params.serialized_predicate;
     params["required_fields"] = join(required_fields, ",");
     params["required_types"] = join(required_types, "#");
 

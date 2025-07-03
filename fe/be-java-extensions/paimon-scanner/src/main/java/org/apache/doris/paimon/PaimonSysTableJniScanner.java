@@ -25,6 +25,7 @@ import org.apache.doris.paimon.PaimonTableCache.PaimonTableCacheKey;
 import org.apache.doris.paimon.PaimonTableCache.TableExt;
 
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
@@ -61,6 +62,7 @@ public class PaimonSysTableJniScanner extends JniScanner {
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<DataType> paimonDataTypeList;
     private List<String> paimonAllFieldNames;
+    private final String predicate;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final long ctlId;
@@ -87,6 +89,7 @@ public class PaimonSysTableJniScanner extends JniScanner {
         }
         initTableInfo(columnTypes, requiredFields, batchSize);
         this.paimonSplit = PaimonUtils.deserialize(params.get("serialized_split"));
+        this.predicate = params.get("serialized_predicate");
         this.ctlId = Long.parseLong(params.get("ctl_id"));
         this.dbId = Long.parseLong(params.get("db_id"));
         this.tblId = Long.parseLong(params.get("tbl_id"));
@@ -135,7 +138,7 @@ public class PaimonSysTableJniScanner extends JniScanner {
     }
 
     @Override
-    protected int getNext() throws IOException {
+    protected int getNext() {
         try {
             return preExecutionAuthenticator.execute(this::readAndProcessNextBatch);
         } catch (Exception e) {
@@ -172,13 +175,24 @@ public class PaimonSysTableJniScanner extends JniScanner {
         }
         int[] projected = getProjected();
         readBuilder.withProjection(projected);
+        readBuilder.withFilter(getPredicates());
         reader = readBuilder.newRead().executeFilter().createReader(paimonSplit);
         paimonDataTypeList =
-                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+                Arrays.stream(projected)
+                        .mapToObj(i -> table.rowType().getTypeAt(i))
+                        .collect(Collectors.toList());
     }
 
     private int[] getProjected() {
         return Arrays.stream(fields).mapToInt(paimonAllFieldNames::indexOf).toArray();
+    }
+
+    private List<Predicate> getPredicates() {
+        List<Predicate> predicates = PaimonUtils.deserialize(predicate);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("predicates:{}", predicates);
+        }
+        return predicates;
     }
 
     private void resetDatetimeV2Precision() {
