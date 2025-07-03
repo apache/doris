@@ -15,13 +15,14 @@ age	int	Yes	true	\N
 email	text	Yes	true	\N	
 id	int	Yes	true	\N	
 name	text	Yes	true	\N	
+phone	text	Yes	true	\N	
 score	double	Yes	true	\N	
 
 -- !add_2 --
-1	Alice	25	95.5	\N
-2	Bob	30	87.2	\N
-3	Charlie	22	92.8	\N
-4	David	28	89.1	david@example.com
+1	Alice	25	95.5	\N	\N
+2	Bob	30	87.2	\N	\N
+3	Charlie	22	92.8	\N	\N
+4	David	28	89.1	david@example.com	123-456-7890
 
 -- !add_3 --
 4	david@example.com
@@ -37,14 +38,15 @@ age	int	Yes	true	\N
 email	text	Yes	true	\N	
 id	int	Yes	true	\N	
 name	text	Yes	true	\N	
+phone	text	Yes	true	\N	
 score	double	Yes	true	\N	
 
 -- !add_multi_2 --
-1	Alice	25	95.5	\N	\N
-2	Bob	30	87.2	\N	\N
-3	Charlie	22	92.8	\N	\N
-4	David	28	89.1	david@example.com	\N
-5	Eve	26	91.3	eve@example.com	{"city":"New York", "country":"USA"}
+1	Alice	25	95.5	\N	\N	\N
+2	Bob	30	87.2	\N	\N	\N
+3	Charlie	22	92.8	\N	\N	\N
+4	David	28	89.1	david@example.com	123-456-7890	\N
+5	Eve	26	91.3	eve@example.com	223-345-132	{"city":"New York", "country":"USA"}
 
 -- !add_multi_3 --
 5	{"city":"New York", "country":"USA"}
@@ -56,6 +58,7 @@ email	text	Yes	true	\N
 grade	double	Yes	true	\N	
 id	int	Yes	true	\N	
 name	text	Yes	true	\N	
+phone	text	Yes	true	\N	
 
 -- !rename_2 --
 1	95.5
@@ -65,9 +68,9 @@ name	text	Yes	true	\N
 5	91.3
 
 -- !rename_3 --
-1	Alice	25	95.5	\N	\N
-3	Charlie	22	92.8	\N	\N
-5	Eve	26	91.3	eve@example.com	{"city":"New York", "country":"USA"}
+1	Alice	25	95.5	\N	\N	\N
+3	Charlie	22	92.8	\N	\N	\N
+5	Eve	26	91.3	eve@example.com	223-345-132	{"city":"New York", "country":"USA"}
 
 -- !drop_1 --
 address	struct<city:text,country:text>	Yes	true	\N	
@@ -75,16 +78,73 @@ age	int	Yes	true	\N
 email	text	Yes	true	\N	
 grade	double	Yes	true	\N	
 id	int	Yes	true	\N	
+phone	text	Yes	true	\N	
 
 -- !drop_2 --
-1	25	95.5	\N	\N
-2	30	87.2	\N	\N
-3	22	92.8	\N	\N
-4	28	89.1	david@example.com	\N
-5	26	91.3	eve@example.com	{"city":"New York", "country":"USA"}
+1	25	95.5	\N	\N	\N
+2	30	87.2	\N	\N	\N
+3	22	92.8	\N	\N	\N
+4	28	89.1	david@example.com	123-456-7890	\N
+5	26	91.3	eve@example.com	223-345-132	{"city":"New York", "country":"USA"}
 
 -- !drop_3 --
 2	30
 4	28
 5	26
+
+-- !add_columns_1 --
+address	struct<city:text,country:text>	Yes	true	\N	
+age	int	Yes	true	\N	
+col1	float	Yes	true	\N	
+col2	text	Yes	true	\N	
+email	text	Yes	true	\N	
+grade	double	Yes	true	\N	
+id	int	Yes	true	\N	
+phone	text	Yes	true	\N	
+
+-- !add_columns_2 --
+1	\N	\N
+2	\N	\N
+3	\N	\N
+4	\N	\N
+5	\N	\N
+
+-- !modify_1 --
+address	struct<city:text,country:text>	Yes	true	\N	
+age	bigint	Yes	true	\N	
+col1	double	Yes	true	\N	
+col2	text	Yes	true	\N	
+email	text	Yes	true	\N	
+grade	double	Yes	true	\N	
+id	int	Yes	true	\N	
+phone	text	Yes	true	\N	
+
+-- !modify_2 --
+1	25	\N
+2	30	\N
+3	22	\N
+4	28	\N
+5	26	\N
+
+-- !modify_3 --
+2	30	87.2	\N	\N	\N	\N	\N
+4	28	89.1	david@example.com	123-456-7890	\N	\N	\N
+5	26	91.3	eve@example.com	223-345-132	{"city":"New York", "country":"USA"}	\N	\N
+
+-- !reorder_1 --
+address	struct<city:text,country:text>	Yes	true	\N	
+age	bigint	Yes	true	\N	
+col1	double	Yes	true	\N	
+col2	text	Yes	true	\N	
+email	text	Yes	true	\N	
+grade	double	Yes	true	\N	
+id	int	Yes	true	\N	
+phone	text	Yes	true	\N	
+
+-- !reorder_2 --
+1	25	\N	\N	95.5	\N	\N	\N
+2	30	\N	\N	87.2	\N	\N	\N
+3	22	\N	\N	92.8	\N	\N	\N
+4	28	\N	\N	89.1	123-456-7890	david@example.com	\N
+5	26	\N	\N	91.3	223-345-132	eve@example.com	{"city":"New York", "country":"USA"}
 
