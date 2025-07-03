@@ -7465,7 +7465,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx != null) {
             columnMappingList = new ArrayList<>();
             for (DorisParser.MappingExprContext mappingExpr : ctx.mappingSet) {
-                StringLiteral left = new StringLiteral(stripQuotes(mappingExpr.mappingCol.getText()));
+                UnboundSlot left = new UnboundSlot(mappingExpr.mappingCol.getText());
                 Expression right = getExpression(mappingExpr.expression());
                 EqualTo equalTo = new EqualTo(left, right);
                 columnMappingList.add(equalTo);
