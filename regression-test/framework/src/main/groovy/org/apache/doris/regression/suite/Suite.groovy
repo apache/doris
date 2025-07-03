@@ -2082,17 +2082,6 @@ class Suite implements GroovyInterceptable {
         return result.values().toList()
     }
 
-    // enable_sync_mv_cost_based_rewrite is true or not
-    boolean enable_sync_mv_cost_based_rewrite () {
-        def showVariable = "show variables like 'enable_sync_mv_cost_based_rewrite';"
-        List<List<Object>> result = sql(showVariable)
-        logger.info("enable_sync_mv_cost_based_rewrite = " + result)
-        if (result.isEmpty()) {
-            return false;
-        }
-        return Boolean.parseBoolean(result.get(0).get(1));
-    }
-
     // Given tables to decide whether the table partition row count statistic is ready or not
     boolean is_partition_statistics_ready(db, tables)  {
         boolean isReady = true;
@@ -2165,17 +2154,8 @@ class Suite implements GroovyInterceptable {
     }
 
     // mv not part in rewrite process
-    void mv_not_part_in(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean isContain = result.contains("${mv_name}")
-                    Assert.assertFalse(isContain)
-                }
-            }
-        }
+    void mv_not_part_in(query_sql, mv_name) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name)
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -2187,20 +2167,8 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv all not part in rewrite process
-    void mv_all_not_part_in(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean isContain = false;
-                    for (String mv_name : mv_names) {
-                        isContain = isContain || result.contains("${mv_name}")
-                    }
-                    Assert.assertFalse(isContain)
-                }
-            }
-        }
+    void mv_all_not_part_in(query_sql, mv_names) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -2215,23 +2183,14 @@ class Suite implements GroovyInterceptable {
     }
 
     // mv part in rewrite process, rewrte success and chosen by cbo
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
-    void mv_rewrite_success(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                               is_partition_statistics_ready = true) {
-        logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+    void mv_rewrite_success(query_sql, mv_name, is_partition_statistics_ready = true) {
+        logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
             // If partition statistics is no ready, degrade to without check cbo chosen
-            mv_rewrite_success_without_check_chosen(query_sql, mv_name, sync_cbo_rewrite)
-            return
-        }
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                contains("(${mv_name})")
-            }
+            mv_rewrite_success_without_check_chosen(query_sql, mv_name)
             return
         }
         explain {
@@ -2241,32 +2200,14 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, all rewrte success and chosen by cbo
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
-    void mv_rewrite_all_success( query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                                   is_partition_statistics_ready = true) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+    void mv_rewrite_all_success( query_sql, mv_names, is_partition_statistics_ready = true) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
             // If partition statistics is no ready, degrade to without check cbo chosen
-            mv_rewrite_all_success_without_check_chosen(query_sql, mv_names, sync_cbo_rewrite)
-            return
-        }
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean success = true;
-                    for (String mv_name : mv_names) {
-                        success = success && result.contains("(${mv_name})")
-                    }
-                    if (!success) {
-                        logger.info("mv_rewrite_all_success fail =" + result)
-                    }
-                    Assert.assertEquals(true, success)
-                }
-            }
+            mv_rewrite_all_success_without_check_chosen(query_sql, mv_names)
             return
         }
         explain {
@@ -2285,32 +2226,14 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, any of them rewrte success and chosen by cbo
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
-    void mv_rewrite_any_success(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                                   is_partition_statistics_ready = true) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+    void mv_rewrite_any_success(query_sql, mv_names, is_partition_statistics_ready = true) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
             // If partition statistics is no ready, degrade to without check cbo chosen
-            mv_rewrite_any_success_without_check_chosen(query_sql, mv_names, sync_cbo_rewrite)
-            return
-        }
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean success = false;
-                    for (String mv_name : mv_names) {
-                        success = success || result.contains("(${mv_name})")
-                    }
-                    if (!success) {
-                        logger.info("mv_rewrite_any_success fail =" + result)
-                    }
-                    Assert.assertEquals(true, success)
-                }
-            }
+            mv_rewrite_any_success_without_check_chosen(query_sql, mv_names)
             return
         }
         explain {
@@ -2329,28 +2252,8 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, all rewrte success without check if chosen by cbo
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_all_success_without_check_chosen(query_sql, mv_names,
-                                                        sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()){
+    void mv_rewrite_all_success_without_check_chosen(query_sql, mv_names) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean success = true;
-                    for (String mv_name : mv_names) {
-                        def splitResult = result.split("MaterializedViewRewriteFail")
-                        def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-                        success = success && (result.contains("(${mv_name})") || each_result)
-                    }
-                    if (!success) {
-                        logger.info("mv_rewrite_all_success_without_check_chosen fail =" + result)
-                    }
-                    Assert.assertEquals(true, success)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check {result ->
@@ -2368,28 +2271,8 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, any of them rewrte success without check if chosen by cbo or not
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_any_success_without_check_chosen(query_sql, mv_names,
-                                                     sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_any_success_without_check_chosen(query_sql, mv_names) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean success = false;
-                    for (String mv_name : mv_names) {
-                        def splitResult = result.split("MaterializedViewRewriteFail")
-                        def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-                        success = success || (result.contains("(${mv_name})") || each_result)
-                    }
-                    if (!success) {
-                        logger.info("mv_rewrite_any_success_without_check_chosen fail =" + result)
-                    }
-                    Assert.assertEquals(true, success)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -2406,20 +2289,8 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, rewrte success without check if chosen by cbo or not
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_success_without_check_chosen(query_sql, mv_name,
-                                                 sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_success_without_check_chosen(query_sql, mv_name) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    def splitResult = result.split("MaterializedViewRewriteFail")
-                    result.contains("(${mv_name})") || (splitResult.length == 2 ? splitResult[0].contains(mv_name) : false)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -2429,16 +2300,8 @@ class Suite implements GroovyInterceptable {
     }
 
     // single mv part in rewrite process, rewrte fail
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_fail(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_fail(query_sql, mv_name) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                notContains("(${mv_name})")
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             contains("${mv_name} fail")
@@ -2446,26 +2309,8 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, all rewrte fail
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_all_fail(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_all_fail(query_sql, mv_names) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean fail = true
-                    for (String mv_name : mv_names) {
-                        boolean stepFail = !result.contains("(${mv_name})")
-                        fail = fail && stepFail
-                    }
-                    if (!fail) {
-                        logger.info("mv_rewrite_all_fail =" + result)
-                    }
-                    Assert.assertEquals(true, fail)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check {result ->
@@ -2483,25 +2328,8 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv part in rewrite process, any rewrte fail
-    // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
-    void mv_rewrite_any_fail (query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+    void mv_rewrite_any_fail (query_sql, mv_names) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
-        if (!sync_cbo_rewrite) {
-            explain {
-                sql("${query_sql}")
-                check { result ->
-                    boolean fail = false
-                    for (String mv_name : mv_names) {
-                        fail = fail || !result.contains("(${mv_name})")
-                    }
-                    if (!fail) {
-                        logger.info("mv_rewrite_any_fail =" + result)
-                    }
-                    Assert.assertEquals(true, fail)
-                }
-            }
-            return
-        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -2529,7 +2357,7 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success(query_sql, mv_name, true)
+        mv_rewrite_success(query_sql, mv_name)
     }
 
     def async_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
@@ -2545,7 +2373,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success_without_check_chosen(query_sql, mv_name, true)
+        mv_rewrite_success_without_check_chosen(query_sql, mv_name)
     }
 
 
@@ -2562,7 +2390,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_fail(query_sql, mv_name, true)
+        mv_rewrite_fail(query_sql, mv_name)
     }
 
     def async_create_mv = { db, mv_sql, mv_name ->

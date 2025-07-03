@@ -50,9 +50,14 @@ public class ContainDistinctFunctionRollupHandler extends AggFunctionRollUpHandl
     public static final ContainDistinctFunctionRollupHandler INSTANCE = new ContainDistinctFunctionRollupHandler();
     public static Set<AggregateFunction> SUPPORTED_AGGREGATE_FUNCTION_SET = ImmutableSet.of(
             new Max(true, Any.INSTANCE), new Min(true, Any.INSTANCE),
+            new Max(true, Any.INSTANCE).withAlwaysNullable(true),
+            new Min(true, Any.INSTANCE).withAlwaysNullable(true),
             new Max(false, Any.INSTANCE), new Min(false, Any.INSTANCE),
-            new Count(true, Any.INSTANCE), new Sum(true, Any.INSTANCE),
-            new Avg(true, Any.INSTANCE));
+            new Max(false, Any.INSTANCE).withAlwaysNullable(true),
+            new Min(false, Any.INSTANCE).withAlwaysNullable(true),
+            new Count(true, Any.INSTANCE),
+            new Sum(true, Any.INSTANCE), new Sum(true, Any.INSTANCE).withAlwaysNullable(true),
+            new Avg(true, Any.INSTANCE), new Avg(true, Any.INSTANCE).withAlwaysNullable(true));
 
     @Override
     public boolean canRollup(AggregateFunction queryAggregateFunction,

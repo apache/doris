@@ -425,8 +425,14 @@ public class OlapQueryCacheTest {
         column.add(column4);
         column.add(column5);
 
-        table.setIndexMeta(new Long(2), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
+        table.setIndexMeta(2L, "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
                 KeysType.AGG_KEYS);
+        MaterializedIndex rollup = new MaterializedIndex(2L, IndexState.NORMAL);
+        part12.createRollupIndex(rollup);
+        part13.createRollupIndex(rollup);
+        part14.createRollupIndex(rollup);
+        part15.createRollupIndex(rollup);
+
         Deencapsulation.setField(table, "baseIndexId", 2);
 
         table.addPartition(part12);
