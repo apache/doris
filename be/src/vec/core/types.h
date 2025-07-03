@@ -29,7 +29,7 @@
 #include "common/consts.h"
 #include "util/binary_cast.hpp"
 #include "vec/common/int_exp.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/wide_integer_to_string.h"
 
 namespace doris {

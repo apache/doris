@@ -51,7 +51,7 @@
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/common/arena.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -857,9 +857,9 @@ struct NumericFieldTypeTraits<fieldType, false> : public BaseFieldTypeTraits<fie
 template <FieldType fieldType>
 struct FieldTypeTraits
         : public NumericFieldTypeTraits<
-                  fieldType,
-                  std::is_arithmetic_v<typename BaseFieldTypeTraits<fieldType>::CppType> &&
-                          std::is_signed_v<typename BaseFieldTypeTraits<fieldType>::CppType>> {};
+                  fieldType, IsArithmeticV<typename BaseFieldTypeTraits<fieldType>::CppType> &&
+                                     IsSignedV<typename BaseFieldTypeTraits<fieldType>::CppType>> {
+};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>

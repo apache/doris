@@ -494,7 +494,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
         return try_read_bool_text(x, rb);
     }
 
-    if constexpr (std::is_integral_v<typename DataType::FieldType>) {
+    if constexpr (IsIntegralV<typename DataType::FieldType>) {
         return try_read_int_text<typename DataType::FieldType, enable_strict_cast>(x, rb);
     }
 }

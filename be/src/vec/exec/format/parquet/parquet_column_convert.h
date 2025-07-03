@@ -20,9 +20,9 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "common/cast_set.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"

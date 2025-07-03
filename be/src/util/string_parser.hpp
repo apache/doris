@@ -40,7 +40,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/int_exp.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/data_types/number_traits.h"
 
 namespace doris {
@@ -440,7 +440,7 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
         return 0;
     }
 
-    using UnsignedT = wide::MakeUnsignedT<T>;
+    using UnsignedT = MakeUnsignedT<T>;
     UnsignedT val = 0;
     UnsignedT max_val = StringParser::numeric_limits<T>(false);
     bool negative = false;
@@ -515,7 +515,7 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
     T max_val = std::numeric_limits<T>::max();
     int i = 0;
 
-    using signedT = wide::MakeSignedT<T>;
+    using signedT = MakeSignedT<T>;
     // This is the fast path where the string cannot overflow.
     if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<signedT>())) {
         val = string_to_int_no_overflow<T>(s + i, len - i, result);
@@ -554,7 +554,7 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
 template <typename T>
 T StringParser::string_to_int_internal(const char* __restrict s, int64_t len, int base,
                                        ParseResult* result) {
-    using UnsignedT = wide::MakeUnsignedT<T>;
+    using UnsignedT = MakeUnsignedT<T>;
     UnsignedT val = 0;
     UnsignedT max_val = StringParser::numeric_limits<T>(false);
     bool negative = false;

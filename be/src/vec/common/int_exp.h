@@ -24,7 +24,7 @@
 #include <limits>
 #include <utility>
 
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 
 namespace exp_details {
 

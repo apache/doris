@@ -33,7 +33,7 @@
 #include <assert.h>
 
 #include "olap/uint24.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 
 // Portable handling of unaligned loads, stores, and copies.
 // On some platforms, like ARM, the copy functions can be more efficient

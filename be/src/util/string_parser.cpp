@@ -19,7 +19,7 @@
 
 #include <limits>
 
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 namespace doris {
 // Supported decimal number format:
 // <decimal> ::= <whitespace>* <value> <whitespace>*

@@ -195,8 +195,7 @@ bool need_replace_null_data_to_default(FunctionContext* context, const DataTypeP
                     max_result = ToDataType::get_max_digits_number(to_precision);
                     min_result = -max_result;
                 }
-                if constexpr (std::is_integral_v<ToFieldType> ||
-                              std::is_floating_point_v<ToFieldType>) {
+                if constexpr (IsIntegralV<ToFieldType> || std::is_floating_point_v<ToFieldType>) {
                     max_result = type_limit<ToFieldType>::max();
                     min_result = type_limit<ToFieldType>::min();
                     to_max_digits = NumberTraits::max_ascii_len<ToFieldType>();
