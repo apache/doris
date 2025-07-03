@@ -679,6 +679,13 @@ public class SchemaTable extends Table {
                             .column("REF_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("REF_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .build()))
+            .put("metrics",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "metrics", TableType.SCHEMA,
+                            builder().column("METRIC", ScalarType.createStringType())
+                                    .column("VALUE", ScalarType.createStringType())
+                                    .column("DESCRIPTION", ScalarType.createStringType())
+                                    .build())
+            )
             .build();
 
     private boolean fetchAllFe = false;

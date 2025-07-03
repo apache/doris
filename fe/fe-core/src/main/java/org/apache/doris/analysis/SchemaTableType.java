@@ -97,7 +97,11 @@ public enum SchemaTableType {
     SCH_ROUTINE_LOAD_JOBS("ROUTINE_LOAD_JOBS", "ROUTINE_LOAD_JOBS",
             TSchemaTableType.SCH_ROUTINE_LOAD_JOBS),
     SCH_VIEW_DEPENDENCY("VIEW_DEPENDENCY", "VIEW_DEPENDENCY",
-                    TSchemaTableType.SCH_VIEW_DEPENDENCY);
+                    TSchemaTableType.SCH_VIEW_DEPENDENCY),
+    SCH_FRONTEND_METRICS("FRONTEND_METRICS", "FRONTEND_METRICS",
+                    TSchemaTableType.SCH_FRONTEND_METRICS),
+    SCH_BACKEND_METRICS("BACKEND_METRICS", "BACKEND_METRICS",
+                    TSchemaTableType.SCH_BACKEND_METRICS);
 
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;

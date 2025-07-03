@@ -24,6 +24,7 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -70,6 +71,23 @@ public class DorisMetricRegistry {
                 visitor.visit(MetricVisitor.SYS_PREFIX, metric);
             }
         }
+    }
+
+    public List<Metric> getFrontendMetrics() {
+        List<Metric> result = new ArrayList<>();
+        for (Map.Entry<String, MetricList> entry : metrics.entrySet()) {
+            MetricList metricList = entry.getValue();
+            for (Metric metric : metricList.getMetrics()) {
+                result.add(metric);
+            }
+        }
+        for (Map.Entry<String, MetricList> entry : systemMetrics.entrySet()) {
+            MetricList metricList = entry.getValue();
+            for (Metric metric : metricList.getMetrics()) {
+                result.add(metric);
+            }
+        }
+        return result;
     }
 
     // the metrics by metric name

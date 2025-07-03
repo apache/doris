@@ -160,4 +160,13 @@ Status SchemaHelper::fetch_schema_table_data(const std::string& ip, const int32_
             });
 }
 
+Status SchemaHelper::get_frontend_metrics(const std::string& ip, const int32_t port,
+                                 const TGetFrontendMetricsRequest& request,
+                                 TGetFrontendMetricsResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->getFrontendMetrics(*result, request);
+            });
+}
+
 } // namespace doris
