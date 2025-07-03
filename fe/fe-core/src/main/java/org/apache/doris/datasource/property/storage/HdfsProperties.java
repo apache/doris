@@ -189,6 +189,10 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         return this.configuration;
     }
 
+    public boolean isKerberos() {
+        return "kerberos".equalsIgnoreCase(hdfsAuthenticationType);
+    }
+
     //fixme be should send use input params
     @Override
     public Map<String, String> getBackendConfigProperties() {
