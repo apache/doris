@@ -800,9 +800,7 @@ public class TypeCoercionUtils {
             }
         }
 
-        Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
-        Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
-        return divide.withChildren(newLeft, newRight);
+        return castChildren(divide, left, right, commonType);
     }
 
     private static Expression castChildren(Expression parent, Expression left, Expression right, DataType commonType) {
@@ -929,7 +927,7 @@ public class TypeCoercionUtils {
         }
 
         // add, subtract and multiply do not need to cast children for fixed point type
-        return binaryArithmetic.withChildren(castIfNotSameType(left, t1), castIfNotSameType(right, t2));
+        return castChildren(binaryArithmetic, left, right, commonType.promotion());
     }
 
     /**
