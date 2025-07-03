@@ -166,8 +166,8 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
         if (BACKEND_TABLE_ONLY_ROOT_READABLE.contains(tableName.toLowerCase())
                 && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(
                         ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN)) {
-            return true;
+            return false;
         }
-        return false;
+        return true;
     }
 }
