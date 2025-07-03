@@ -38,6 +38,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/pretty_printer.h"
+#include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -215,6 +216,9 @@ Status SegmentFlusher::_create_segment_writer(
 Status SegmentFlusher::_flush_segment_writer(
         std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, TabletSchemaSPtr flush_schema,
         int64_t* flush_size) {
+    MonotonicStopWatch total_timer;
+    total_timer.start();
+
     uint32_t row_num = writer->num_rows_written();
     _num_rows_updated += writer->num_rows_updated();
     _num_rows_deleted += writer->num_rows_deleted();
@@ -224,15 +228,23 @@ Status SegmentFlusher::_flush_segment_writer(
     if (row_num == 0) {
         return Status::OK();
     }
+
+    MonotonicStopWatch finalize_timer;
+    finalize_timer.start();
     uint64_t segment_file_size;
     uint64_t common_index_size;
     Status s = writer->finalize(&segment_file_size, &common_index_size);
+    finalize_timer.stop();
+
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
 
+    MonotonicStopWatch inverted_index_timer;
+    inverted_index_timer.start();
     int64_t inverted_index_file_size = 0;
     RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+    inverted_index_timer.stop();
 
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
                << " flushing filename: " << writer->data_dir_path()
@@ -259,7 +271,21 @@ Status SegmentFlusher::_flush_segment_writer(
 
     writer.reset();
 
+    MonotonicStopWatch collector_timer;
+    collector_timer.start();
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
+    collector_timer.stop();
+
+    total_timer.stop();
+
+    LOG(INFO) << "tablet_id:" << _context.tablet_id
+              << ", flushing rowset_dir: " << _context.tablet_path
+              << ", rowset_id:" << _context.rowset_id << ", data size:" << segstat.data_size
+              << ", index size:" << segstat.index_size
+              << ", timing breakdown: total=" << total_timer.elapsed_time_milliseconds() << "ms"
+              << ", finalize=" << finalize_timer.elapsed_time_milliseconds() << "ms"
+              << ", inverted_index=" << inverted_index_timer.elapsed_time_milliseconds() << "ms"
+              << ", collector=" << collector_timer.elapsed_time_milliseconds() << "ms";
 
     if (flush_size) {
         *flush_size = segment_file_size;
@@ -269,6 +295,9 @@ Status SegmentFlusher::_flush_segment_writer(
 
 Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                              TabletSchemaSPtr flush_schema, int64_t* flush_size) {
+    MonotonicStopWatch total_timer;
+    total_timer.start();
+
     uint32_t row_num = writer->num_rows_written();
     _num_rows_updated += writer->num_rows_updated();
     _num_rows_deleted += writer->num_rows_deleted();
@@ -278,15 +307,23 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     if (row_num == 0) {
         return Status::OK();
     }
+
+    MonotonicStopWatch finalize_timer;
+    finalize_timer.start();
     uint64_t segment_file_size;
     uint64_t common_index_size;
     Status s = writer->finalize(&segment_file_size, &common_index_size);
+    finalize_timer.stop();
+
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
 
+    MonotonicStopWatch inverted_index_timer;
+    inverted_index_timer.start();
     int64_t inverted_index_file_size = 0;
     RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+    inverted_index_timer.stop();
 
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
                << " flushing rowset_dir: " << _context.tablet_path
@@ -305,14 +342,24 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     segstat.data_size = segment_file_size;
     segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
-    LOG(INFO) << "tablet_id:" << _context.tablet_id
-              << ", flushing rowset_dir: " << _context.tablet_path
-              << ", rowset_id:" << _context.rowset_id << ", data size:" << segstat.data_size
-              << ", index size:" << segstat.index_size;
 
     writer.reset();
 
+    MonotonicStopWatch collector_timer;
+    collector_timer.start();
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
+    collector_timer.stop();
+
+    total_timer.stop();
+
+    LOG(INFO) << "tablet_id:" << _context.tablet_id
+              << ", flushing rowset_dir: " << _context.tablet_path
+              << ", rowset_id:" << _context.rowset_id << ", data size:" << segstat.data_size
+              << ", index size:" << segstat.index_size
+              << ", timing breakdown: total=" << total_timer.elapsed_time_milliseconds() << "ms"
+              << ", finalize=" << finalize_timer.elapsed_time_milliseconds() << "ms"
+              << ", inverted_index=" << inverted_index_timer.elapsed_time_milliseconds() << "ms"
+              << ", collector=" << collector_timer.elapsed_time_milliseconds() << "ms";
 
     if (flush_size) {
         *flush_size = segment_file_size;
