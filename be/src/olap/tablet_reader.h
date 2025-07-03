@@ -301,7 +301,8 @@ protected:
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
-    bool _aggregation = false;
+    // Indicates whether the tablets has do a aggregation in storage engine.
+    bool _is_pre_aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;

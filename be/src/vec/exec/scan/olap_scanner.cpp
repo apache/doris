@@ -129,6 +129,12 @@ Status OlapScanner::init() {
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
 
+    for (auto ctx : local_state->_common_expr_ctxs_push_down) {
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(ctx->clone(_state, context));
+        _common_expr_ctxs_push_down.emplace_back(context);
+    }
+
     for (auto pair : local_state->_slot_id_to_virtual_column_expr) {
         // Scanner will be executed in a different thread, so we need to clone the context.
         VExprContextSPtr context;
