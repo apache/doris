@@ -98,17 +98,15 @@ public class InitMaterializationContextHook implements PlannerHook {
             return;
         }
         // Create sync materialization context
-        if (cascadesContext.getConnectContext().getSessionVariable()
-                .isEnableSyncMvCostBasedRewrite()) {
-            for (TableIf tableIf : collectedTables) {
-                if (tableIf instanceof OlapTable) {
-                    for (MaterializationContext context : createSyncMvContexts(
-                            (OlapTable) tableIf, cascadesContext)) {
-                        cascadesContext.addMaterializationContext(context);
-                    }
+        for (TableIf tableIf : collectedTables) {
+            if (tableIf instanceof OlapTable) {
+                for (MaterializationContext context : createSyncMvContexts(
+                        (OlapTable) tableIf, cascadesContext)) {
+                    cascadesContext.addMaterializationContext(context);
                 }
             }
         }
+
         // Create async materialization context
         for (MaterializationContext context : createAsyncMaterializationContext(cascadesContext,
                 collectedTables)) {

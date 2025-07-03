@@ -19,8 +19,6 @@ suite("inner_join_x") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF"
-    sql "set enable_sync_mv_cost_based_rewrite=false"
-
 
     // =======================  test table with aggregate key ============================
     sql """
