@@ -434,9 +434,6 @@ public class ComputeSignatureHelper {
                 }
 
                 finalTypeScale = Math.max(finalTypeScale, targetScale); // init value -1 always promotes
-                System.out.println("finalTypeScale: " + finalTypeScale
-                        + ", targetScale: " + targetScale + ", inputType: " + inputType
-                        + ", nestedTargetType: " + nestedTargetType);
             }
         }
 
@@ -448,9 +445,6 @@ public class ComputeSignatureHelper {
         ImmutableList.Builder<DataType> newArgTypesBuilder = ImmutableList.builderWithExpectedSize(signature.arity);
         for (DataType signatureArgType : signature.argumentsTypes) {
             newArgTypesBuilder.add(TypeCoercionUtils.replaceTimesWithTargetPrecision(signatureArgType, finalTypeScale));
-            System.out.println("signatureArgType: " + signatureArgType
-                    + ", newArgType: " + TypeCoercionUtils.replaceTimesWithTargetPrecision(signatureArgType,
-                    finalTypeScale));
         }
         List<DataType> newArgTypes = newArgTypesBuilder.build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
