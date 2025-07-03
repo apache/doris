@@ -40,6 +40,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
+#include "olap/base_tablet.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -567,13 +568,23 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     res = check_version_continuity(consistent_rowsets);
                     if (res.ok() && max_cooldowned_version < version) {
                         // Pick consistent rowsets of remaining required version
-                        res = ref_tablet->capture_consistent_rowsets_unlocked(
-                                {max_cooldowned_version + 1, version}, &consistent_rowsets);
+                        auto ret = ref_tablet->capture_consistent_rowsets_unlocked(
+                                {max_cooldowned_version + 1, version}, CaptureRowsetOps {});
+                        if (ret) {
+                            consistent_rowsets = std::move(ret->rowsets);
+                        } else {
+                            res = std::move(ret.error());
+                        }
                     }
                 } else {
                     // get shortest version path
-                    res = ref_tablet->capture_consistent_rowsets_unlocked(Version(0, version),
-                                                                          &consistent_rowsets);
+                    auto ret = ref_tablet->capture_consistent_rowsets_unlocked(Version(0, version),
+                                                                               CaptureRowsetOps {});
+                    if (ret) {
+                        consistent_rowsets = std::move(ret->rowsets);
+                    } else {
+                        res = std::move(ret.error());
+                    }
                 }
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to select versions to span. res=" << res;
@@ -594,7 +605,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             if (ref_tablet->keys_type() == UNIQUE_KEYS &&
                 ref_tablet->enable_unique_key_merge_on_write()) {
                 delete_bitmap_snapshot =
-                        ref_tablet->tablet_meta()->delete_bitmap().snapshot(version);
+                        ref_tablet->tablet_meta()->delete_bitmap()->snapshot(version);
             }
         }
 

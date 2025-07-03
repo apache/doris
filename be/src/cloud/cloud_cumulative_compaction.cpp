@@ -385,7 +385,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         cloud_tablet()->set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
         cloud_tablet()->set_cumulative_layer_point(stats.cumulative_point());
         if (output_rowset_delete_bitmap) {
-            _tablet->tablet_meta()->delete_bitmap().merge(*output_rowset_delete_bitmap);
+            _tablet->tablet_meta()->delete_bitmap()->merge(*output_rowset_delete_bitmap);
         }
         if (stats.base_compaction_cnt() >= cloud_tablet()->base_compaction_cnt()) {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),

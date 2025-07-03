@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "gen_cpp/cloud.pb.h"
+#include "olap/base_tablet.h"
 #include "olap/compaction.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_meta.h"
@@ -273,7 +274,7 @@ Status CloudFullCompaction::modify_rowsets() {
         cloud_tablet()->set_base_compaction_cnt(stats.base_compaction_cnt());
         cloud_tablet()->set_cumulative_layer_point(stats.cumulative_point());
         if (output_rowset_delete_bitmap) {
-            _tablet->tablet_meta()->delete_bitmap().merge(*output_rowset_delete_bitmap);
+            _tablet->tablet_meta()->delete_bitmap()->merge(*output_rowset_delete_bitmap);
         }
         if (stats.cumulative_compaction_cnt() >= cloud_tablet()->cumulative_compaction_cnt()) {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
@@ -340,8 +341,9 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     int64_t max_version = cloud_tablet()->max_version().second;
     DCHECK(max_version >= _output_rowset->version().second);
     if (max_version > _output_rowset->version().second) {
-        RETURN_IF_ERROR(cloud_tablet()->capture_consistent_rowsets_unlocked(
-                {_output_rowset->version().second + 1, max_version}, &tmp_rowsets));
+        auto ret = DORIS_TRY(cloud_tablet()->capture_consistent_rowsets_unlocked(
+                {_output_rowset->version().second + 1, max_version}, CaptureRowsetOps {}));
+        tmp_rowsets = std::move(ret.rowsets);
     }
     for (const auto& it : tmp_rowsets) {
         int64_t cur_version = it->rowset_meta()->start_version();
@@ -372,7 +374,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
             .tag("input_segments", _input_segments)
             .tag("input_rowsets_total_size", _input_rowsets_total_size)
             .tag("update_bitmap_size", delete_bitmap->delete_bitmap.size());
-    _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
+    _tablet->tablet_meta()->delete_bitmap()->merge(*delete_bitmap);
     return Status::OK();
 }
 

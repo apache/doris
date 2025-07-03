@@ -34,6 +34,7 @@
 #include "exprs/function_filter.h"
 #include "gutil/strings/substitute.h"
 #include "io/io_common.h"
+#include "olap/base_tablet.h"
 #include "olap/delete_handler.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
@@ -91,12 +92,6 @@ class TabletReader {
     };
 
 public:
-    struct ReadSource {
-        std::vector<RowSetSplits> rs_splits;
-        std::vector<RowsetMetaSharedPtr> delete_predicates;
-        // Fill delete predicates with `rs_splits`
-        void fill_delete_predicates();
-    };
     // Params for Reader,
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
@@ -117,9 +112,12 @@ public:
             return BeExecVersionManager::get_newest_version();
         }
 
-        void set_read_source(ReadSource read_source) {
+        void set_read_source(TabletReadSource read_source, bool skip_delete_bitmap = false) {
             rs_splits = std::move(read_source.rs_splits);
             delete_predicates = std::move(read_source.delete_predicates);
+            if (tablet->enable_unique_key_merge_on_write() && !skip_delete_bitmap) {
+                delete_bitmap = std::move(read_source.delete_bitmap);
+            }
         }
 
         BaseTabletSPtr tablet;
@@ -148,7 +146,7 @@ public:
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
-        DeleteBitmap* delete_bitmap = nullptr;
+        std::shared_ptr<DeleteBitmap> delete_bitmap = nullptr;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;

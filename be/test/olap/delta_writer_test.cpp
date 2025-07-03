@@ -996,7 +996,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         StorageReadOptions opts;
         opts.stats = &stats;
         opts.tablet_schema = rowset1->tablet_schema();
-        opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
+        opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap()->get_agg(
                                               {rowset1->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
         std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset1->tablet_schema());
@@ -1024,7 +1024,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         StorageReadOptions opts;
         opts.stats = &stats;
         opts.tablet_schema = rowset2->tablet_schema();
-        opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
+        opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap()->get_agg(
                                               {rowset2->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
         std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset2->tablet_schema());
