@@ -151,6 +151,7 @@ public class IcebergTransaction implements Transaction {
                     "Should have no referenced data files for append.");
             Arrays.stream(result.dataFiles()).forEach(appendFiles::appendFile);
         }
+        appendFiles.commit();
     }
 
 
@@ -168,6 +169,7 @@ public class IcebergTransaction implements Transaction {
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
+                overwriteFiles.commit();
             }
             return;
         }
@@ -181,6 +183,7 @@ public class IcebergTransaction implements Transaction {
                     "Should have no referenced data files.");
             Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
         }
+        appendPartitionOp.commit();
     }
 
 }
