@@ -745,7 +745,7 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
                 i == '.' || i == '$' || i == '?') {
                 re_pattern->append(1, '\\');
             }
-            re_pattern->append(1, i);
+            re_pattern->append(1, pattern[i]);
         }
     }
 
