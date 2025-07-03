@@ -92,8 +92,8 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
     out->set_source_rowset_id(in.source_rowset_id());
     out->set_source_tablet_id(in.source_tablet_id());
-    if (in.has_split_schema()) {
-        out->mutable_split_schema()->CopyFrom(in.split_schema());
+    if (in.has___split_schema()) {
+        out->mutable___split_schema()->CopyFrom(in.___split_schema());
     }
 }
 
@@ -155,8 +155,8 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     out->set_source_rowset_id(in.source_rowset_id());
     out->set_source_tablet_id(in.source_tablet_id());
 
-    if (in.has_split_schema()) {
-        out->mutable_split_schema()->Swap(in.mutable_split_schema());
+    if (in.has___split_schema()) {
+        out->mutable___split_schema()->Swap(in.mutable___split_schema());
     }
 }
 
@@ -228,8 +228,8 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
     out->set_source_rowset_id(in.source_rowset_id());
     out->set_source_tablet_id(in.source_tablet_id());
-    if (in.has_split_schema()) {
-        out->mutable_split_schema()->CopyFrom(in.split_schema());
+    if (in.has___split_schema()) {
+        out->mutable___split_schema()->CopyFrom(in.___split_schema());
     }
 }
 
@@ -290,8 +290,8 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     out->mutable_inverted_index_file_info()->Swap(in.mutable_inverted_index_file_info());
     out->set_source_rowset_id(in.source_rowset_id());
     out->set_source_tablet_id(in.source_tablet_id());
-    if (in.has_split_schema()) {
-        out->mutable_split_schema()->Swap(in.mutable_split_schema());
+    if (in.has___split_schema()) {
+        out->mutable___split_schema()->Swap(in.mutable___split_schema());
     }
 }
 
