@@ -219,7 +219,7 @@ int64_t MemTxnKv::get_last_read_version() {
 }
 
 std::unique_ptr<FullRangeGetIterator> MemTxnKv::full_range_get(std::string begin, std::string end,
-                                                               FullRangeGetIteratorOptions opts) {
+                                                               FullRangeGetOptions opts) {
     return std::make_unique<memkv::FullRangeGetIterator>(std::move(begin), std::move(end),
                                                          std::move(opts));
 }
@@ -497,7 +497,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
 }
 
 FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
-                                           FullRangeGetIteratorOptions opts)
+                                           FullRangeGetOptions opts)
         : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {}
 
 FullRangeGetIterator::~FullRangeGetIterator() = default;
@@ -515,6 +515,7 @@ bool FullRangeGetIterator::has_next() {
             TxnErrorCode err = opts_.txn_kv->create_txn(&txn_);
             if (err != TxnErrorCode::TXN_OK) {
                 is_valid_ = false;
+                code_ = err;
                 return false;
             }
 
@@ -524,6 +525,7 @@ bool FullRangeGetIterator::has_next() {
         TxnErrorCode err = txn->get(begin_, end_, &inner_iter_, opts_.snapshot, 0);
         if (err != TxnErrorCode::TXN_OK) {
             is_valid_ = false;
+            code_ = err;
             return false;
         }
     }
@@ -537,6 +539,14 @@ std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterato
     }
 
     return inner_iter_->next();
+}
+
+std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::peek() {
+    if (!has_next()) {
+        return std::nullopt;
+    }
+
+    return inner_iter_->peek();
 }
 
 } // namespace doris::cloud::memkv

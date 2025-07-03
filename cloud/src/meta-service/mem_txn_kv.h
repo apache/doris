@@ -52,7 +52,7 @@ public:
     int init() override;
 
     std::unique_ptr<FullRangeGetIterator> full_range_get(std::string begin, std::string end,
-                                                         FullRangeGetIteratorOptions opts) override;
+                                                         FullRangeGetOptions opts) override;
 
     TxnErrorCode get_kv(const std::string& key, std::string* val, int64_t version);
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
@@ -239,7 +239,7 @@ public:
 
     ~RangeGetIterator() override = default;
 
-    bool has_next() override { return idx_ < kvs_size_; }
+    bool has_next() const override { return idx_ < kvs_size_; }
 
     std::pair<std::string_view, std::string_view> next() override {
         if (idx_ < 0 || idx_ >= kvs_size_) return {};
@@ -247,17 +247,28 @@ public:
         return {kv.first, kv.second};
     }
 
+    std::pair<std::string_view, std::string_view> peek() const override {
+        if (idx_ < 0 || idx_ >= kvs_size_) return {};
+        const auto& kv = kvs_[idx_];
+        return {kv.first, kv.second};
+    }
+
     void seek(size_t pos) override { idx_ = pos; }
 
-    bool more() override { return more_; }
+    bool more() const override { return more_; }
 
-    int size() override { return kvs_size_; }
+    int remaining() const override {
+        if (idx_ < 0 || idx_ >= kvs_size_) return 0;
+        return kvs_size_ - idx_;
+    }
+
+    int size() const override { return kvs_size_; }
     void reset() override { idx_ = 0; }
 
-    std::string next_begin_key() override {
+    std::string next_begin_key() const override {
         std::string k;
         if (!more()) return k;
-        auto& key = kvs_[kvs_size_ - 1].first;
+        const auto& key = kvs_[kvs_size_ - 1].first;
         k.reserve(key.size() + 1);
         k.append(key);
         k.push_back('\x00');
@@ -273,19 +284,24 @@ private:
 
 class FullRangeGetIterator final : public cloud::FullRangeGetIterator {
 public:
-    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetIteratorOptions opts);
+    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetOptions opts);
 
     ~FullRangeGetIterator() override;
 
-    bool is_valid() override { return is_valid_; }
+    bool is_valid() const override { return is_valid_; }
+
+    TxnErrorCode error_code() const override { return code_; }
 
     bool has_next() override;
 
     std::optional<std::pair<std::string_view, std::string_view>> next() override;
 
+    std::optional<std::pair<std::string_view, std::string_view>> peek() override;
+
 private:
-    FullRangeGetIteratorOptions opts_;
+    FullRangeGetOptions opts_;
     bool is_valid_ {true};
+    TxnErrorCode code_ {TxnErrorCode::TXN_OK};
     std::unique_ptr<cloud::RangeGetIterator> inner_iter_;
     std::string begin_;
     std::string end_;

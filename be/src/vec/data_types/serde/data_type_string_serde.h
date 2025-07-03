@@ -172,6 +172,9 @@ public:
 
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
