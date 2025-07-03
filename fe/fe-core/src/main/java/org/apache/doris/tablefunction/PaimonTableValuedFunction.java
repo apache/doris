@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -29,6 +30,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonUtil;
+import org.apache.doris.datasource.paimon.source.PaimonPredicateConverter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -38,9 +40,11 @@ import org.apache.doris.thrift.TPaimonMetadataParams;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -146,24 +150,32 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
-        int[] projections = requiredFileds.stream().mapToInt(
-                        field -> paimonSysTable.rowType().getFieldNames()
-                                .stream()
-                                .map(String::toLowerCase)
-                                .collect(Collectors.toList())
-                                .indexOf(field))
-                .toArray();
-        List<Split> splits;
+    public boolean supportsPredicate() {
+        return true;
+    }
 
+    @Override
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFields) {
+        return getMetaScanRanges(requiredFields, Collections.emptyList());
+    }
+
+    @Override
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFields, List<Expr> conjuncts) {
+        List<Predicate> paimonPredicate = doConvertPredicate(paimonSysTable, conjuncts);
+        List<Split> splits;
+        int[] projections = getProjection(requiredFields);
         try {
             splits = hadoopAuthenticator.doAs(
-                    () -> paimonSysTable.newReadBuilder().withProjection(projections).newScan().plan().splits());
+                    () -> paimonSysTable.newReadBuilder().withProjection(projections).withFilter(paimonPredicate)
+                            .newScan().plan().splits());
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));
         }
 
-        return splits.stream().map(this::createMetaScanRange).collect(Collectors.toList());
+        return splits
+                .stream()
+                .map(this::createMetaScanRange)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -193,5 +205,21 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
 
         tMetaScanRange.setPaimonParams(tPaimonMetadataParams);
         return tMetaScanRange;
+    }
+
+    private int[] getProjection(List<String> requiredFileds) {
+        return requiredFileds.stream().mapToInt(
+                        field -> paimonSysTable.rowType().getFieldNames()
+                                .stream()
+                                .map(String::toLowerCase)
+                                .collect(Collectors.toList())
+                                .indexOf(field))
+                .toArray();
+    }
+
+    private List<Predicate> doConvertPredicate(Table table, List<Expr> conjuncts) {
+        PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
+                table.rowType());
+        return paimonPredicateConverter.convertToPaimonExpr(conjuncts);
     }
 }

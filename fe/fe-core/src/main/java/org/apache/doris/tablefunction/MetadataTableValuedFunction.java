@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.tvf.source.MetadataScanNode;
@@ -60,7 +61,21 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
 
     public abstract TMetadataType getMetadataType();
 
-    public abstract List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds);
+    public abstract List<TMetaScanRange> getMetaScanRanges(List<String> requiredFields);
+
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFields, List<Expr> conjuncts) {
+        return getMetaScanRanges(requiredFields);
+    }
+
+    /**
+     * Check if this metadata table valued function supports predicate pushdown.
+     * Subclasses should override this method to return true if they support conjuncts.
+     *
+     * @return true if predicate pushdown is supported, false otherwise
+     */
+    public boolean supportsPredicate() {
+        return false;
+    }
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {

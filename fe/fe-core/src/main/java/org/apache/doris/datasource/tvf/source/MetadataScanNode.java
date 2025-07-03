@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.tvf.source;
 
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
@@ -69,11 +71,19 @@ public class MetadataScanNode extends ExternalScanNode {
 
     @Override
     protected void createScanRangeLocations() {
-        List<String> requiredFileds = desc.getSlots().stream()
-                .filter(slot -> slot.isMaterialized())
+        List<String> requiredFields = desc.getSlots().stream()
+                .filter(SlotDescriptor::isMaterialized)
                 .map(slot -> slot.getColumn().getName())
                 .collect(java.util.stream.Collectors.toList());
-        for (TMetaScanRange metaScanRange : tvf.getMetaScanRanges(requiredFileds)) {
+
+        List<TMetaScanRange> metaScanRanges;
+        if (tvf.supportsPredicate() && conjuncts != null && !conjuncts.isEmpty()) {
+            metaScanRanges = tvf.getMetaScanRanges(requiredFields, conjuncts);
+        } else {
+            metaScanRanges = tvf.getMetaScanRanges(requiredFields);
+        }
+
+        for (TMetaScanRange metaScanRange : metaScanRanges) {
             TScanRange scanRange = new TScanRange();
             scanRange.setMetaScanRange(metaScanRange);
 

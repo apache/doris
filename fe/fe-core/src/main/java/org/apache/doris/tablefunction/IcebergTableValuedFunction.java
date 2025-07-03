@@ -135,12 +135,12 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFields) {
         List<TMetaScanRange> scanRanges = Lists.newArrayList();
         CloseableIterable<FileScanTask> tasks;
         try {
             tasks = preExecutionAuthenticator.execute(() -> {
-                return sysTable.newScan().select(requiredFileds).planFiles();
+                return sysTable.newScan().select(requiredFields).planFiles();
             });
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));
