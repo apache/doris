@@ -294,41 +294,21 @@ constexpr inline int64_t max_i64(int digit_count) {
 }
 
 constexpr inline int count_digits_fast(int64_t n) {
-    // temporary solution
-    // std::string s = std::to_string(n);
-    // // If negative, subtract 1 for the minus sign
-    // if (n < 0) {
-    //     return s.length() - 1;
-    // }
-    // return s.length();
-
-    int digits = 1;
-    int64_t x = n;
-    if (x < 0) {
-        x = -x;
-        ++digits; // 负号
-    }
-    while (x >= 10) {
-        x /= 10;
-        ++digits;
-    }
-    return digits;
-
-    /*
-    // TODO: has bug, need to fix
-    uint64_t abs_n = n < 0 ? -n : n;
+    uint64_t abs_n = (n < 0 ? uint64_t(-n) : uint64_t(n));
     if (abs_n == 0) [[unlikely]] {
         return 1;
     }
-    int bits = 64 - __builtin_clzll(abs_n);
-    int digits = (bits * 1233) >> 12;
-    digits += 1;
 
-    if (abs_n < int_exp10(digits)) {
-        digits--;
+    int bits = 64 - __builtin_clzll(abs_n);
+    int d = (bits * 1233) >> 12;
+
+    if (abs_n < int_exp10(d)) {
+        --d;
+    } else if (abs_n >= int_exp10(d + 1)) {
+        ++d;
     }
-    return digits + 1;
-    */
+
+    return d + 1;
 }
 
 constexpr inline __int128 max_i128(int digit_count) {
