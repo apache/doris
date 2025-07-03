@@ -1374,11 +1374,9 @@ private:
             auto week = right_col.get_data_at(0);
             week_day = day_of_week(week);
             if (week_day == 0) {
-                return Status::InvalidArgument(
-                        "Function {} failed to parse day of the week : {} ".name, week);
+                return Status::InvalidArgument("Function {} failed to parse day of the week : {} ".name, week);
             }
         }
-
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!left_const) {
                 dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(i));
