@@ -1304,15 +1304,12 @@ public:
     static constexpr auto name = "previous_day"; // initializing the SQL function syntax call
     static FunctionPtr create() { return std::make_shared<FunctionPreviousDay>(); }
     String get_name() const override { return name; }
-    size_t get_number_of_arguments()
-            const override { // The function takes only two arguments (date, day_of_week)
-        return 2;
-    }
+    size_t get_number_of_arguments() const override { return 2; }// The function takes only two arguments (date, day_of_week)
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return std::make_shared<DataTypeDateV2>();
     }
 
-    // Processs the input columns - date , day_of_week
+    // Process the input columns - date , day_of_week
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 2);
@@ -1358,8 +1355,7 @@ private:
         }
         return it->second;
     }
-    static Status compute_prev_day(DateV2Value<DateV2ValueType>& dtv,
-                                   const int week_day) { // previous_day computation
+    static Status compute_previous_day(DateV2Value<DateV2ValueType>& dtv,const int week_day) { // previous_day computation
         auto days_to_subtract = (dtv.weekday() + 1 - week_day + 7) % 7;
         days_to_subtract = days_to_subtract == 0 ? 7 : days_to_subtract;
         dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, days_to_subtract, true));
@@ -1368,7 +1364,7 @@ private:
 
     template <bool left_const, bool right_const>
     static Status execute_vector(size_t input_rows_count, const ColumnDateV2& left_col,
-                                 const ColumnDateV2& right_col, const ColumnDateV2& res_col) {
+                                 const ColumnDateV2& right_col, ColumnDateV2& res_col) {
         DateV2Value<DateV2ValueType> dtv;
         int week_day;
         if constexpr (left_const) {
@@ -1383,10 +1379,7 @@ private:
             }
         }
 
-        res_col.reserve(input_rows_count);
-        auto& res_data = res_col.get_data(); // allocate space for the result
-
-        for (size_t i = 0; i < input_rows_count; i++) {
+        for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!left_const) {
                 dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(i));
             }
@@ -1398,8 +1391,8 @@ private:
                             "Function {} failed to parse day of the week : {}", name, week);
                 }
             }
-            RETURN_IF_ERROR(compute_prev_day(dtv, week_day));
-            res_data[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dtv);
+            RETURN_IF_ERROR(compute_previous_day(dtv, week_day));
+            res_col.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dtv));
         }
         return Status::OK();
     }
