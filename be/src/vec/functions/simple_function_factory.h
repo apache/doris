@@ -219,7 +219,7 @@ private:
     FunctionCreators function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=7. replace function to old version.
+    /// @TEMPORARY: for be_exec_version=3. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 
     template <typename Function>
@@ -227,10 +227,10 @@ private:
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
     }
 
-    /// @TEMPORARY: for be_exec_version=7
+    /// @TEMPORARY: for be_exec_version=3
     void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
-        if (fe_version_now < NEWEST_VERSION_EXPLODE_MULTI_PARAM &&
+        if (fe_version_now < NEWEST_VERSION_FUNCTION_SUBSTITUTE &&
             function_to_replace.find(name) != function_to_replace.end()) {
             name = function_to_replace[name];
         }
