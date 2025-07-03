@@ -420,17 +420,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
-                                qualifierWithoutTableName, unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot(), ImmutableList.of(), Optional.empty());
+                                qualifierWithoutTableName, ImmutableList.of(), Optional.empty(),
+                                unboundRelation.getTableSample(), unboundRelation.getTableSnapshot());
                         hudiScan = hudiScan.withScanParams(
                                 hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
                         return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
+                                ImmutableList.of(),
                                 unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot(),
-                                ImmutableList.of(),
                                 Optional.ofNullable(unboundRelation.getScanParams()));
                     }
                 case ICEBERG_EXTERNAL_TABLE:
@@ -458,17 +458,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             "please set enable_query_iceberg_views=true to enable query iceberg views");
                     }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                        qualifierWithoutTableName, unboundRelation.getTableSample(),
-                        unboundRelation.getTableSnapshot(), ImmutableList.of(),
+                        qualifierWithoutTableName, ImmutableList.of(),
+                        unboundRelation.getTableSample(),
+                        unboundRelation.getTableSnapshot(),
                         Optional.ofNullable(unboundRelation.getScanParams()));
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case LAKESOUl_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                            qualifierWithoutTableName, unboundRelation.getTableSample(),
+                            qualifierWithoutTableName, ImmutableList.of(),
+                            unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot(),
-                            ImmutableList.of(),
                             Optional.ofNullable(unboundRelation.getScanParams()));
                 case SCHEMA:
                     // schema table's name is case-insensitive, we need save its name in SQL text to get correct case.
