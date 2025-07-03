@@ -216,14 +216,14 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
     size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            auto serialized_value = std::make_unique<std::string>();
-            if (!var->serialize_one_row_to_string(row_id, serialized_value.get())) {
+            std::string* serialized_value;
+            if (!var->serialize_one_row_to_string(row_id, serialized_value)) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
                                        var->dump_structure());
             }
+            serialized_values.push_back(*serialized_value);
             size_t len = serialized_value->length();
             total_size += len;
-            serialized_values.push_back(std::move(*serialized_value));
             valid_row_indices.push_back(row_id);
         }
     }
@@ -245,8 +245,8 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
         size_t len = serialized_value.length();
         if (offset + len > total_size) {
             return Status::InternalError(
-                    "Buffer overflow when writing column data to ORC file. from {} to {} for total "
-                    "size {}. ",
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
                     offset, len, total_size);
         }
         memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);

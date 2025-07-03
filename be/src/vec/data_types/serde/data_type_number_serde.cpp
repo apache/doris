@@ -452,8 +452,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
                 size_t len = value_str.size();
                 if (offset + len > total_size) {
                     return Status::InternalError(
-                            "Buffer overflow when writing column data to ORC file. from {} to {} "
-                            "for total size {}. ",
+                            "Buffer overflow when writing column data to ORC file. offset {} with "
+                            "len {} exceed total_size {} . ",
                             offset, len, total_size);
                 }
                 strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());

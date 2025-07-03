@@ -175,8 +175,8 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
         size_t len = serialized_value.length();
         if (offset + len > total_size) {
             return Status::InternalError(
-                    "Buffer overflow when writing column data to ORC file. from {} to {} for total "
-                    "size {}. ",
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
                     offset, len, total_size);
         }
         memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);

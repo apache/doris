@@ -169,8 +169,8 @@ public:
                 size_t len = quantilestate_value.get_serialized_size();
                 if (offset + len > total_size) {
                     return Status::InternalError(
-                            "Buffer overflow when writing column data to ORC file. from {} to {} "
-                            "for total size {}. ",
+                            "Buffer overflow when writing column data to ORC file. offset {} with "
+                            "len {} exceed total_size {} . ",
                             offset, len, total_size);
                 }
                 quantilestate_value.serialize((uint8_t*)(bufferRef.data) + offset);

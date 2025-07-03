@@ -213,9 +213,9 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             auto serialized_value = IPv6Value::to_string(col_data[row_id]);
-            size_t len = serialized_value.length();
-            total_size += len;
             serialized_values.push_back(serialized_value);
+            size_t len = serialized_values.back().size();
+            total_size += len;
             valid_row_indices.push_back(row_id);
         }
     }
@@ -237,8 +237,8 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
         size_t len = serialized_value.length();
         if (offset + len > total_size) {
             return Status::InternalError(
-                    "Buffer overflow when writing column data to ORC file. from {} to {} for total "
-                    "size {}. ",
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
                     offset, len, total_size);
         }
         memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
