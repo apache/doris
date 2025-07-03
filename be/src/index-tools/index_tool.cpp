@@ -562,7 +562,7 @@ int main(int argc, char** argv) {
         auto dir = std::forward<T>(st).value();
         auto analyzer = _CLNEW lucene::analysis::standard95::StandardAnalyzer();
         // auto analyzer = _CLNEW lucene::analysis::SimpleAnalyzer<char>();
-        auto indexwriter = _CLNEW lucene::index::IndexWriter(dir, analyzer, true, true);
+        auto indexwriter = _CLNEW lucene::index::IndexWriter(dir.get(), analyzer, true, true);
         indexwriter->setRAMBufferSizeMB(512);
         indexwriter->setMaxFieldLength(0x7FFFFFFFL);
         indexwriter->setMergeFactor(100000000);
