@@ -24,12 +24,10 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.KeysDesc;
@@ -131,9 +129,7 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
-import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -406,15 +402,14 @@ public class InternalCatalog implements CatalogIf<Database> {
     /**
      * Entry of creating a database.
      *
-     * @param stmt
+     * @param dbName
+     * @param ifNotExists
+     * @param properties
      * @throws DdlException
      */
-    public void createDb(CreateDbStmt stmt) throws DdlException {
-        String fullDbName = stmt.getFullDbName();
-        Map<String, String> properties = stmt.getProperties();
-
+    public void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
         long id = Env.getCurrentEnv().getNextId();
-        Database db = new Database(id, fullDbName);
+        Database db = new Database(id, dbName);
         // check and analyze database properties before create database
         db.checkStorageVault(properties);
         db.setDbProperties(new DatabaseProperty(properties));
@@ -423,18 +418,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
         try {
-            if (fullNameToDb.containsKey(fullDbName)) {
-                if (stmt.isSetIfNotExists()) {
-                    LOG.info("create database[{}] which already exists", fullDbName);
+            if (fullNameToDb.containsKey(dbName)) {
+                if (ifNotExists) {
+                    LOG.info("create database[{}] which already exists", dbName);
                     return;
                 } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
                 }
             } else {
                 if (!db.tryWriteLock(100, TimeUnit.SECONDS)) {
-                    LOG.warn("try lock failed, create database failed {}", fullDbName);
+                    LOG.warn("try lock failed, create database failed {}", dbName);
                     ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT,
-                            "create database " + fullDbName + " time out");
+                            "create database " + dbName + " time out");
                 }
                 try {
                     unprotectCreateDb(db);
@@ -447,54 +442,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             unlock();
         }
-        LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
-    }
-
-    /**
-     * Entry of creating a database.
-     *
-     * @param command
-     * @throws DdlException
-     */
-    public void createDb(CreateDatabaseCommand command) throws DdlException {
-        String fullDbName = command.getDbName();
-        Map<String, String> properties = command.getProperties();
-
-        long id = Env.getCurrentEnv().getNextId();
-        Database db = new Database(id, fullDbName);
-        // check and analyze database properties before create database
-        db.checkStorageVault(properties);
-        db.setDbProperties(new DatabaseProperty(properties));
-
-        if (!tryLock(false)) {
-            throw new DdlException("Failed to acquire catalog lock. Try again");
-        }
-        try {
-            if (fullNameToDb.containsKey(fullDbName)) {
-                if (command.isIfNotExists()) {
-                    LOG.info("create database[{}] which already exists", fullDbName);
-                    return;
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
-                }
-            } else {
-                if (!db.tryWriteLock(100, TimeUnit.SECONDS)) {
-                    LOG.warn("try lock failed, create database failed {}", fullDbName);
-                    ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT,
-                            "create database " + fullDbName + " time out");
-                }
-                try {
-                    unprotectCreateDb(db);
-                    CreateDbInfo dbInfo = new CreateDbInfo(InternalCatalog.INTERNAL_CATALOG_NAME, db.getName(), db);
-                    Env.getCurrentEnv().getEditLog().logCreateDb(dbInfo);
-                } finally {
-                    db.writeUnlock();
-                }
-            }
-        } finally {
-            unlock();
-        }
-        LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
+        LOG.info("create dbName = " + dbName + ", id = " + id);
     }
 
     /**
@@ -914,15 +862,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("replay rename database {} to {}", dbName, newDbName);
     }
 
-    // Drop table
-    public void dropTable(DropTableStmt stmt) throws DdlException {
-        if (stmt == null) {
-            throw new DdlException("DropTableStmt is null");
-        }
-        dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(),
-                stmt.isSetIfExists(), stmt.isForceDrop());
-    }
-
+    @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv,
                           boolean ifExists, boolean force) throws DdlException {
         Map<String, Long> costTimes = new TreeMap<String, Long>();
@@ -3392,20 +3332,18 @@ public class InternalCatalog implements CatalogIf<Database> {
      * otherwise, it will only truncate those specified partitions.
      *
      */
-    public void truncateTable(TruncateTableCommand truncateTableCommand) throws DdlException {
-        boolean isForceDrop = truncateTableCommand.isForceDrop();
-        String database = truncateTableCommand.getTableNameInfo().getDb();
-        String tbl = truncateTableCommand.getTableNameInfo().getTbl();
-
+    public void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
+            String rawTruncateSql)
+            throws DdlException {
         // check, and save some info which need to be checked again later
         Map<String, Long> origPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
         OlapTable copiedTbl;
 
-        boolean truncateEntireTable = !truncateTableCommand.getPartitionNamesInfo().isPresent();
+        boolean truncateEntireTable = partitionNames == null;
 
-        Database db = (Database) getDbOrDdlException(database);
-        OlapTable olapTable = db.getOlapTableOrDdlException(tbl);
+        Database db = getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
 
         if (olapTable instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ConnectContext.get())) {
             throw new DdlException("Not allowed to perform current operation on async materialized view");
@@ -3418,14 +3356,14 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             olapTable.checkNormalStateForAlter();
             if (!truncateEntireTable) {
-                for (String partName : truncateTableCommand.getPartitionNamesInfo().get().getPartitionNames()) {
+                for (String partName : partitionNames.getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         throw new DdlException("Partition " + partName + " does not exist");
                     }
                     // If need absolutely correct, should check running txn here.
-                    // But if the txn is in prepare state, cann't known which partitions had load data.
-                    if ((isForceDrop) && (!partition.hasData())) {
+                    // But if the txn is in prepare state, can't known which partitions had load data.
+                    if ((forceDrop) && (!partition.hasData())) {
                         // if not force drop, then need to add partition to
                         // recycle bin, so behavior for recover would be clear
                         continue;
@@ -3437,8 +3375,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 for (Partition partition : olapTable.getPartitions()) {
                     // If need absolutely correct, should check running txn here.
-                    // But if the txn is in prepare state, cann't known which partitions had load data.
-                    if ((isForceDrop) && (!partition.hasData())) {
+                    // But if the txn is in prepare state, can't known which partitions had load data.
+                    if ((forceDrop) && (!partition.hasData())) {
                         // if not force drop, then need to add partition to
                         // recycle bin, so behavior for recover would be clear
                         continue;
@@ -3451,8 +3389,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             // if table currently has no partitions, this sql like empty command and do nothing, should return directly.
             // but if truncate whole table, the temporary partitions also need drop
             if (origPartitions.isEmpty() && (!truncateEntireTable || olapTable.getAllTempPartitions().isEmpty())) {
-                LOG.info("finished to truncate table {}, no partition contains data, do nothing",
-                        truncateTableCommand.getTableNameInfo().toSql());
+                LOG.info("finished to truncate table {}.{}, no partition contains data, do nothing",
+                        dbName, tableName);
                 return;
             }
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), IndexExtState.VISIBLE, false);
@@ -3590,13 +3528,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             //replace
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
-                truncateEntireTable, recyclePartitionParamMap, isForceDrop);
+                    truncateEntireTable, recyclePartitionParamMap, forceDrop);
 
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                     newPartitions, truncateEntireTable,
-                    truncateTableCommand.toSqlWithoutTable(), oldPartitions, isForceDrop);
+                            rawTruncateSql, oldPartitions, forceDrop);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
@@ -3607,14 +3545,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        PartitionNames partitionNames = truncateEntireTable ? null
-                : new PartitionNames(false, truncateTableCommand.getPartitionNamesInfo().get().getPartitionNames());
         Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNames);
         Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords, db.getId(), olapTable.getId(), 0);
-        LOG.info("finished to truncate table {}, partitions: {}",
-                truncateTableCommand.getTableNameInfo().toSql(),
-                !truncateTableCommand.getPartitionNamesInfo().isPresent()
-                    ? "null" : truncateTableCommand.getPartitionNamesInfo().get().getPartitionNames());
+        LOG.info("finished to truncate table {}.{}, partitions: {}", dbName, tableName, partitionNames);
     }
 
     private List<Partition> truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions,

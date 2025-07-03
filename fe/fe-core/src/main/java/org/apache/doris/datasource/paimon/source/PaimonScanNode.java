@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -189,7 +190,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private Map<Integer, String> getSchemaInfo(Long schemaId) {
         PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
-        TableSchema tableSchema = table.getPaimonSchemaCacheValue(schemaId).getTableSchema();
+        TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+                .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
         Map<Integer, String> columnIdToName = new HashMap<>(tableSchema.fields().size());
         for (DataField dataField : tableSchema.fields()) {
             columnIdToName.put(dataField.id(), dataField.name().toLowerCase());
