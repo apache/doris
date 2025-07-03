@@ -115,9 +115,6 @@ class SimpleFunctionFactory {
     /// @TEMPORARY: for be_exec_version=4
     constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 4;
 
-    /// @TEMPORARY: for be_exec_version=7.
-    constexpr static int NEWEST_VERSION_EXPLODE_MULTI_PARAM = 7;
-
 public:
     void register_function(const std::string& name, const Creator& ptr) {
         DataTypes types = ptr()->get_variadic_argument_types();
@@ -146,14 +143,6 @@ public:
     template <class Function>
     void register_function(std::string name) {
         register_function(name, &createDefaultFunction<Function>);
-    }
-
-    /// @TEMPORARY: for be_exec_version=7
-    template <class Function>
-    void register_alternative_function(std::string name) {
-        static std::string suffix {"_old"};
-        function_to_replace[name] = name + suffix;
-        register_function(name + suffix, &createDefaultFunction<Function>);
     }
 
     void register_alias(const std::string& name, const std::string& alias) {

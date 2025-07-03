@@ -35,8 +35,10 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbers;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbersOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuterV2;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplitOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeV2;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -52,6 +54,14 @@ public interface TableGeneratingFunctionVisitor<R, C> {
     }
 
     default R visitExplodeOuter(ExplodeOuter explodeOuter, C context) {
+        return visitTableGeneratingFunction(explodeOuter, context);
+    }
+
+    default R visitExplodeV2(ExplodeV2 explode, C context) {
+        return visitTableGeneratingFunction(explode, context);
+    }
+
+    default R visitExplodeOuterV2(ExplodeOuterV2 explodeOuter, C context) {
         return visitTableGeneratingFunction(explodeOuter, context);
     }
 

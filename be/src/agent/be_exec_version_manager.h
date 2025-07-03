@@ -40,6 +40,7 @@ public:
     }
 
     static int get_newest_version() { return max_be_exec_version; }
+    static int get_min_version() { return min_be_exec_version; }
 
 private:
     static const int max_be_exec_version;
