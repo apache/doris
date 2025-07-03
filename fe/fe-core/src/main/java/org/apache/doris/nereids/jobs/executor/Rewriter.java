@@ -135,6 +135,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
+import org.apache.doris.nereids.rules.rewrite.PushDownVirtualColumnsIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
@@ -506,6 +507,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // this rule is to collect filter on basic table for hbo usage
                     topDown(new CollectPredicateOnScan())
                 ),
+                topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topic("Push project and filter on cte consumer to cte producer",
                         topDown(
                                 new CollectFilterAboveConsumer(),

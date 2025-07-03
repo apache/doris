@@ -109,15 +109,6 @@ struct ColumnPredicateInfo {
     int32_t column_id;
 };
 
-class SegmentIterator;
-struct FuncExprParams {
-    ColumnId _column_id = 0;
-    uint32_t _unique_id = 0;
-    std::string _column_name;
-    SegmentIterator* _segment_iterator = nullptr;
-    std::shared_ptr<roaring::Roaring> result;
-};
-
 class SegmentIterator : public RowwiseIterator {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema);
@@ -221,12 +212,9 @@ private:
     // for vectorization implementation
     [[nodiscard]] Status _read_columns(const std::vector<ColumnId>& column_ids,
                                        vectorized::MutableColumns& column_block, size_t nrows);
-    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
-                                                bool set_block_rowid);
+    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read);
     void _replace_version_col(size_t num_rows);
-    Status _init_current_block(vectorized::Block* block,
-                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector,
-                               uint32_t nrows_read_limit);
+    Status _init_return_columns(vectorized::Block* block, uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _collect_runtime_filter_predicate();
@@ -375,6 +363,11 @@ private:
 
     void _clear_iterators();
 
+    // Initialize virtual columns in the block, set all virtual columns in the block to ColumnNothing
+    void _init_virtual_columns(vectorized::Block* block);
+    // Fallback logic for virtual column materialization, materializing all unmaterialized virtual columns through expressions
+    Status _materialization_of_virtual_column(vectorized::Block* block);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -424,8 +417,8 @@ private:
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
-    std::vector<ColumnId> _predicate_column_ids;
-    std::vector<ColumnId> _non_predicate_column_ids;
+    std::vector<ColumnId> _cols_read_by_column_predicate;
+    std::vector<ColumnId> _cols_read_by_common_expr;
     std::vector<ColumnId> _columns_to_filter;
     std::vector<ColumnId> _converted_column_ids;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
@@ -475,11 +468,23 @@ private:
 
     std::vector<uint8_t> _ret_flags;
 
+    /*
+    * column and column_predicates on it.
+    * a boolean value to indicate whether the column has been read by the index.
+    */
     std::unordered_map<ColumnId, std::unordered_map<ColumnPredicate*, bool>>
             _column_predicate_inverted_index_status;
 
+    /*
+    * column and common expr on it.
+    * a boolean value to indicate whether the column has been read by the index.
+    */
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
+
+    // cid to virtual column expr
+    std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;
+    std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
 };
 
 } // namespace segment_v2
