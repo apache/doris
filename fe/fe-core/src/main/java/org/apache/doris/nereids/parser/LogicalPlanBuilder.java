@@ -1907,7 +1907,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 multiFilePaths.add(filePath.getText().substring(1, filePath.getText().length() - 1));
             }
             List<String> filePaths = ddc.filePath == null ? ImmutableList.of() : multiFilePaths;
-            Map<String, Expression> colMappings = visitColMappingList(ddc.columnMapping);
+            Map<String, Expression> colMappings;
+            if (ddc.columnMapping == null) {
+                colMappings = ImmutableMap.of();
+            } else {
+                colMappings = new HashMap<>();
+                for (DorisParser.MappingExprContext mappingExpr : ddc.columnMapping.mappingSet) {
+                    colMappings.put(mappingExpr.mappingCol.getText(), getExpression(mappingExpr.expression()));
+                }
+            }
 
             LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
                     : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
@@ -7443,17 +7451,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Map<String, Expression> visitColMappingList(DorisParser.ColMappingListContext ctx) {
-        Map<String, Expression> colMappings;
+    public List<Expression> visitColMappingList(DorisParser.ColMappingListContext ctx) {
+        List<Expression> columnMappingList;
         if (ctx != null) {
-            colMappings = new HashMap<>();
+            columnMappingList = new ArrayList<>();
             for (DorisParser.MappingExprContext mappingExpr : ctx.mappingSet) {
-                colMappings.put(mappingExpr.mappingCol.getText(), getExpression(mappingExpr.expression()));
+                StringLiteral left = new StringLiteral(stripQuotes(mappingExpr.mappingCol.getText()));
+                Expression right = getExpression(mappingExpr.expression());
+                EqualTo equalTo = new EqualTo(left, right);
+                columnMappingList.add(equalTo);
             }
         } else {
-            colMappings = ImmutableMap.of();
+            columnMappingList = ImmutableList.of();
         }
-        return colMappings;
+        return columnMappingList;
     }
 
     private List<Expression> getColMappingList(DorisParser.ColMappingListContext ctx) {
@@ -7510,7 +7521,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             columns = ImmutableList.of();
         }
 
-        List<Expression> columnMappingList = getColMappingList(ctx.colMappingList());
+        List<Expression> columnMappingList = visitColMappingList(ctx.colMappingList());
 
         Map<String, String> properties;
         if (ctx.propertyClause() != null) {
