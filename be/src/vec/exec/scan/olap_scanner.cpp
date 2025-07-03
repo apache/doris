@@ -129,7 +129,7 @@ Status OlapScanner::init() {
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
 
-    for (auto ctx : local_state->_common_expr_ctxs_push_down) {
+    for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
         _common_expr_ctxs_push_down.emplace_back(context);
@@ -179,7 +179,6 @@ Status OlapScanner::init() {
                 //  so we have to use schema from a query plan witch FE puts it in query plans.
                 tablet_schema->clear_columns();
                 for (const auto& column_desc : olap_scan_node.columns_desc) {
-                    LOG_INFO("Column desc\n{}", apache::thrift::ThriftDebugString(column_desc));
                     tablet_schema->append_column(TabletColumn(column_desc));
                 }
                 if (olap_scan_node.__isset.schema_version) {

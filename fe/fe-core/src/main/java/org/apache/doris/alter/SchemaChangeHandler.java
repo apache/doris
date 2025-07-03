@@ -639,10 +639,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (col.isClusterKey()) {
                         throw new DdlException("Can not modify cluster key column: " + col.getName());
                     }
-                    /// If any ann index is built on this column, we should not allow to change the type
-                    if (olapTable.getIndexIdByName(col.getName()) != -1) {
-                        throw new DdlException("Can not modify column type when index is built on it: " + col.getName());
-                    }
                 }
             }
             if (hasColPos) {
