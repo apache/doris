@@ -40,7 +40,7 @@ suite("test_query_json_array", "query") {
     sql "insert into ${tableName} values(3,null,true,null,null);"
     sql "insert into ${tableName} values(4,null,null,'test','2022-01-01 11:11:11');"
     sql "insert into ${tableName} values(5,1,true,'test','2022-01-01 11:11:11');"
-    qt_sql2 """select json_array('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',k4,'k5', null,'k6','k6') from ${tableName} order by k0"""
+    qt_sql2 """select json_array('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',cast(k4 as string),'k5', null,'k6','k6') from ${tableName} order by k0"""
     sql "DROP TABLE ${tableName};"
 
     // test json_array with complex type
@@ -50,17 +50,38 @@ suite("test_query_json_array", "query") {
     qt_sql_array """ SELECT json_array(array(1,2)); """
     qt_sql_array """ SELECT json_array(array(1.1,2.2)); """
     qt_sql_array """ SELECT json_array(array(1.1,2)); """
-    qt_sql_array """ SELECT json_array(array(cast(1 as decimal), cast(1.2 as decimal))); """
+    
+    // Disable `enable_fold_constant_by_be`
+    // FIXME: different results with `enable_fold_constant_by_be=1`
+    """
+      ```
+      mysql> SELECT /*+ set_var(enable_fold_constant_by_be=1) */ json_array(array(cast(1 as decimal), cast(1.2 as decimal)));
+      +-------------------------------------------------------------+
+      | json_array(array(cast(1 as decimal), cast(1.2 as decimal))) |
+      +-------------------------------------------------------------+
+      | [[1.0,1.2]]                                                 |
+      +-------------------------------------------------------------+
+
+      mysql> SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_array(array(cast(1 as decimal), cast(1.2 as decimal)));
+      +-------------------------------------------------------------+
+      | json_array(array(cast(1 as decimal), cast(1.2 as decimal))) |
+      +-------------------------------------------------------------+
+      | [[1.000000000,1.200000000]]                                 |
+      +-------------------------------------------------------------+
+      ```
+    """
+    qt_sql_array """ SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_array(array(cast(1 as decimal), cast(1.2 as decimal))); """
+
     // map
-    qt_sql_map """ SELECT json_array(map('a', 'b', 'c', 'd')); """
-    qt_sql_map """ SELECT json_array(map('a', 1, 'c', 2)); """
-    qt_sql_map """ SELECT json_array(map('a', 1.1, 'c', 2.2)); """
-    qt_sql_map """ SELECT json_array(map('a', 1.1, 'c', 2)); """
-    qt_sql_map """ SELECT json_array(map('a', cast(1 as decimal), 'c', cast(1.2 as decimal))); """
+    qt_sql_map """ SELECT json_array(cast(map('a', 'b', 'c', 'd') as json)); """
+    qt_sql_map """ SELECT json_array(cast(map('a', 1, 'c', 2) as json)); """
+    qt_sql_map """ SELECT json_array(cast(map('a', 1.1, 'c', 2.2) as json)); """
+    qt_sql_map """ SELECT json_array(cast(map('a', 1.1, 'c', 2) as json)); """
+    qt_sql_map """ SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_array(cast(map('a', cast(1 as decimal), 'c', cast(1.2 as decimal)) as json)); """
     // struct
     qt_sql_struct """ SELECT json_array(named_struct('name', 'a', 'age', 1)); """
     qt_sql_struct """ SELECT json_array(named_struct('name', 'a', 'age', 1.1)); """
-    qt_sql_struct """ SELECT json_array(named_struct('name', 'a', 'age', cast(1 as decimal))); """
+    qt_sql_struct """ SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_array(named_struct('name', 'a', 'age', cast(1 as decimal))); """
     // json
     qt_sql_json """ SELECT json_array(cast('{\"a\":\"b\"}' as JSON)); """
     qt_sql_json """ SELECT json_array(cast('{\"a\":1}' as JSON)); """
@@ -91,6 +112,25 @@ suite("test_query_json_array", "query") {
     sql """insert into ${tableName} values(3, array('"a"', '"b"'), map('"a"', '"b"', '"c"', '"d"'), named_struct('name','"a"','age', 1), '{\"c\":\"d\"}');"""
     sql """insert into ${tableName} values(4, array(1,2), map(1,2), named_struct('name', 2, 'age',1), '{\"a\":\"b\"}');"""
     sql """insert into ${tableName} values(5, array(1,2,3,3), map(1,2,3,4), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
-    qt_sql3 "select json_array(k0,k1,k2,k3,k4) from ${tableName} order by k0;"
+    qt_sql3 "select json_array(k0,k1,cast(k2 as json),k3,k4) from ${tableName} order by k0;"
+    qt_sql3_ignore_null "select json_array_ignore_null(k0,k1,cast(k2 as json),k3,k4) from ${tableName} order by k0;"
     sql "DROP TABLE ${tableName};"
+
+    qt_sql_string """
+        select json_array('{"key1": "value", "key2": [1, "I am a string", 3]}');
+    """
+
+    qt_sql_string2 """
+        select json_array(json_parse('{"key1": "value", "key2": [1, "I am a string", 3]}'));
+    """
+
+    test {
+        sql "select json_array(map('a', 'b', 'c', 'd'));"
+        exception "Can not find the compatibility function signature: to_json(MAP<VARCHAR(1),VARCHAR(1)>)"
+    }
+
+    test {
+        sql "select json_array(now());"
+        exception "Can not find the compatibility function signature: to_json(DATETIME)"
+    }
 }
