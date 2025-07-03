@@ -7456,6 +7456,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return colMappings;
     }
 
+    private List<Expression> getColMappingList(DorisParser.ColMappingListContext ctx) {
+        List<Expression> columnMappingList;
+        if (ctx != null) {
+            columnMappingList = new ArrayList<>();
+            for (DorisParser.MappingExprContext mappingExpr : ctx.mappingSet) {
+                StringLiteral left = new StringLiteral(stripQuotes(mappingExpr.mappingCol.getText()));
+                Expression right = getExpression(mappingExpr.expression());
+                EqualTo equalTo = new EqualTo(left, right);
+                columnMappingList.add(equalTo);
+            }
+        } else {
+            columnMappingList = ImmutableList.of();
+        }
+        return columnMappingList;
+    }
+
     @Override
     public MysqlDataDescription visitMysqlDataDesc(DorisParser.MysqlDataDescContext ctx) {
         List<String> filePaths = new ArrayList<>();
@@ -7493,7 +7509,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             columns = ImmutableList.of();
         }
-        Map<String, Expression> colMappings = visitColMappingList(ctx.colMappingList());
+
+        List<Expression> columnMappingList = getColMappingList(ctx.colMappingList());
 
         Map<String, String> properties;
         if (ctx.propertyClause() != null) {
@@ -7511,7 +7528,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 lineDelimiter,
                 skipLines,
                 columns,
-                colMappings,
+                columnMappingList,
                 properties
         );
         return mysqlDataDescription;

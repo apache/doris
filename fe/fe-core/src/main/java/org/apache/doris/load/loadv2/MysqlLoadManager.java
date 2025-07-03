@@ -354,12 +354,10 @@ public class MysqlLoadManager {
             StringBuilder fieldString = new StringBuilder();
             fieldString.append(Joiner.on(",").join(fields));
 
-            List<Expression> columnMappingList = new ArrayList<>();
-            desc.getColumnsMapping().forEach((key, value) -> columnMappingList.add(value));
-            if (!columnMappingList.isEmpty()) {
+            if (!desc.getColumnMappingList().isEmpty()) {
                 fieldString.append(",");
                 List<String> mappings = new ArrayList<>();
-                for (Expression expression : columnMappingList) {
+                for (Expression expression : desc.getColumnMappingList()) {
                     mappings.add(expression.toSql().replaceAll("`", ""));
                 }
                 fieldString.append(Joiner.on(",").join(mappings));

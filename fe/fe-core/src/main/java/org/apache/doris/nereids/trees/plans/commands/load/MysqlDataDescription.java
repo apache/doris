@@ -39,7 +39,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -59,7 +58,7 @@ public class MysqlDataDescription {
     private Separator lineDelimiter;
     private int skipLines = 0;
     private List<String> columns;
-    private final Map<String, Expression> columnsMapping;
+    private final List<Expression> columnMappingList;
     private final Map<String, String> properties;
     private boolean isAnalyzed = false;
     private boolean clientLocal;
@@ -81,7 +80,7 @@ public class MysqlDataDescription {
                                 Optional<String> lineDelimiter,
                                 int skipLines,
                                 List<String> columns,
-                                Map<String, Expression> columnsMapping,
+                                List<Expression> columnMappingList,
                                 Map<String, String> properties) {
         Objects.requireNonNull(filePaths, "filePaths is null");
         Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
@@ -91,7 +90,7 @@ public class MysqlDataDescription {
         Objects.requireNonNull(lineDelimiter, "lineDelimiter is null");
         Objects.requireNonNull(skipLines, "skipLines is null");
         Objects.requireNonNull(columns, "columns is null");
-        Objects.requireNonNull(columnsMapping, "columnsMapping is null");
+        Objects.requireNonNull(columnMappingList, "columnMappingList is null");
         Objects.requireNonNull(properties, "properties is null");
 
         this.filePaths = filePaths;
@@ -103,7 +102,7 @@ public class MysqlDataDescription {
         this.lineDelimiter = new Separator(lineDelimiter.orElse(null));
         this.skipLines = skipLines;
         this.columns = columns;
-        this.columnsMapping = columnsMapping;
+        this.columnMappingList = columnMappingList;
         this.properties = properties;
         this.analysisMap.putAll(properties);
     }
@@ -146,8 +145,8 @@ public class MysqlDataDescription {
         return columns;
     }
 
-    public Map<String, Expression> getColumnsMapping() {
-        return columnsMapping;
+    public List<Expression> getColumnMappingList() {
+        return columnMappingList;
     }
 
     public Map<String, String> getProperties() {
@@ -269,15 +268,12 @@ public class MysqlDataDescription {
             Joiner.on(", ").appendTo(sb, columns).append(")");
         }
 
-        if (!columnsMapping.isEmpty()) {
-            List<Expression> columnMappingList = new ArrayList<>();
-            columnsMapping.forEach((key, value) -> columnMappingList.add(value));
-
+        if (!columnMappingList.isEmpty()) {
             sb.append(" SET (");
             Joiner.on(", ").appendTo(sb, Lists.transform(columnMappingList, new Function<Expression, Object>() {
                 @Override
-                public Object apply(Expression expression) {
-                    return expression.toSql();
+                public Object apply(Expression expr) {
+                    return expr.toSql();
                 }
             })).append(")");
         }
