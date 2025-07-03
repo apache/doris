@@ -729,23 +729,24 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
 
     // expect % and _, all chars should keep it literal mean.
     for (size_t i = 0; i < pattern.size(); i++) {
-        if (pattern[i] == LikeSearchState::escape_char && i + 1 < pattern.size() &&
+        char c = pattern[i];
+        if (c == LikeSearchState::escape_char && i + 1 < pattern.size() &&
             (pattern[i + 1] == '%' || pattern[i + 1] == '_')) {
             // convert "\%" and "\_" to literal "%" and "_"
             re_pattern->append(1, pattern[i + 1]);
             i++;
-        } else if (pattern[i] == '%') {
+        } else if (c == '%') {
             re_pattern->append(".*");
-        } else if (pattern[i] == '_') {
+        } else if (c == '_') {
             re_pattern->append(".");
         } else {
             // special for hyperscan: [, ], (, ), {, }, -, *, +, \, |, /, :, ^, ., $, ?
-            if (i == '[' || i == ']' || i == '(' || i == ')' || i == '{' || i == '}' || i == '-' ||
-                i == '*' || i == '+' || i == '\\' || i == '|' || i == '/' || i == ':' || i == '^' ||
-                i == '.' || i == '$' || i == '?') {
+            if (c == '[' || c == ']' || c == '(' || c == ')' || c == '{' || c == '}' || c == '-' ||
+                c == '*' || c == '+' || c == '\\' || c == '|' || c == '/' || c == ':' || c == '^' ||
+                c == '.' || c == '$' || c == '?') {
                 re_pattern->append(1, '\\');
             }
-            re_pattern->append(1, pattern[i]);
+            re_pattern->append(1, c);
         }
     }
 
