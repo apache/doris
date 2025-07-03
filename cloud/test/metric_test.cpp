@@ -26,9 +26,9 @@
 
 #include "common/bvars.h"
 #include "common/config.h"
-#include "meta-service/mem_txn_kv.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

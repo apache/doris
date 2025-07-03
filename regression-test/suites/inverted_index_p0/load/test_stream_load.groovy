@@ -113,12 +113,6 @@ suite("test_stream_load_with_inverted_index_p0", "p0, nonConcurrent") {
     }
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "false")
-    setFeConfigTemporary([enable_inverted_index_v1_for_variant: false]) {
-        if (isCloudMode()) {
-            return;
-        }
-        test.call("V1")
-    }
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "true")
 }

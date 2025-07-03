@@ -30,8 +30,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "meta-service/txn_kv_error.h"
 #include "txn_kv.h"
+#include "txn_kv_error.h"
 
 namespace doris::cloud {
 
@@ -57,6 +57,11 @@ public:
     TxnErrorCode get_kv(const std::string& key, std::string* val, int64_t version);
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
                         int limit, bool* more, std::map<std::string, std::string>* kv_list);
+
+    size_t total_kvs() const {
+        std::lock_guard<std::mutex> l(lock_);
+        return mem_kv_.size();
+    }
 
     int64_t get_count_ {};
     int64_t put_count_ {};
@@ -95,7 +100,7 @@ private:
 
     std::map<std::string, std::list<Version>> mem_kv_;
     std::unordered_map<std::string, std::list<LogItem>> log_kv_;
-    std::mutex lock_;
+    mutable std::mutex lock_;
     int64_t committed_version_ = 0;
     int64_t read_version_ = 0;
 };
@@ -140,6 +145,10 @@ public:
     TxnErrorCode get(std::string_view begin, std::string_view end,
                      std::unique_ptr<cloud::RangeGetIterator>* iter, bool snapshot = false,
                      int limit = 10000) override;
+
+    std::unique_ptr<cloud::FullRangeGetIterator> full_range_get(
+            std::string_view begin, std::string_view end,
+            cloud::FullRangeGetOptions opts = cloud::FullRangeGetOptions()) override;
 
     /**
      * Put a key-value pair in which key will in the form of

@@ -70,6 +70,7 @@ struct FullRangeGetOptions {
     std::vector<std::unique_ptr<RangeGetIterator>>* obj_pool = nullptr;
 
     FullRangeGetOptions(std::shared_ptr<TxnKv> _txn_kv) : txn_kv(std::move(_txn_kv)) {}
+    FullRangeGetOptions() = default;
 };
 
 class FullRangeGetIterator {
@@ -131,6 +132,19 @@ public:
     virtual TxnErrorCode get(std::string_view begin, std::string_view end,
                              std::unique_ptr<RangeGetIterator>* iter, bool snapshot = false,
                              int limit = 10000) = 0;
+
+    /**
+     * Get a full range of key-value pairs.
+     * @param begin the begin key, inclusive
+     * @param end the end key, exclusive
+     * @param opts options for full range get
+     * @return a FullRangeGetIterator for iterating over the key-value pairs in the specified range.
+     *         If the range is empty, the iterator will be valid but `has_next()` will return false.
+     *         If an error occurs, the iterator will be invalid and `error_code()` will return the error code.
+     */
+    virtual std::unique_ptr<FullRangeGetIterator> full_range_get(
+            std::string_view begin, std::string_view end,
+            FullRangeGetOptions opts = FullRangeGetOptions()) = 0;
 
     /**
      * Put a key-value pair in which key will in the form of
@@ -549,6 +563,10 @@ public:
     TxnErrorCode get(std::string_view begin, std::string_view end,
                      std::unique_ptr<cloud::RangeGetIterator>* iter, bool snapshot = false,
                      int limit = 10000) override;
+
+    std::unique_ptr<cloud::FullRangeGetIterator> full_range_get(
+            std::string_view begin, std::string_view end,
+            FullRangeGetOptions opts = FullRangeGetOptions()) override;
 
     /**
      * Put a key-value pair in which key will in the form of
