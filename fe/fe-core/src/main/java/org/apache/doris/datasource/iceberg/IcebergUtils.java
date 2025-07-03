@@ -615,17 +615,44 @@ public class IcebergUtils {
     }
 
     public static Literal<?> parseIcebergLiteral(String value, org.apache.iceberg.types.Type type) {
+        if (value == null) {
+            return null;
+        }
         switch (type.typeId()) {
             case BOOLEAN:
-                return Literal.of(Boolean.parseBoolean(value));
+                try {
+                    return Literal.of(Boolean.parseBoolean(value));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid Boolean string: " + value, e);
+                }
             case INTEGER:
             case DATE:
-                return Literal.of(Integer.parseInt(value));
+                try {
+                    return Literal.of(Integer.parseInt(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Int string: " + value, e);
+                }
             case LONG:
             case TIME:
             case TIMESTAMP:
             case TIMESTAMP_NANO:
-                return Literal.of(Long.parseLong(value));
+                try {
+                    return Literal.of(Long.parseLong(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Long string: " + value, e);
+                }
+            case FLOAT:
+                try {
+                    return Literal.of(Float.parseFloat(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Float string: " + value, e);
+                }
+            case DOUBLE:
+                try {
+                    return Literal.of(Double.parseDouble(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Double string: " + value, e);
+                }
             case STRING:
                 return Literal.of(value);
             case UUID:
