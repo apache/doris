@@ -2001,7 +2001,6 @@ TEST(VTimestampFunctionsTest, time) {
     static_cast<void>(check_function<DataTypeTimeV2, true>(func_name, input_types, data_set));
 }
 
-
 TEST(VTimestampFunctionsTest, previous_day_test) {
     std::string func_name = "previous_day";
     InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
