@@ -23,6 +23,7 @@
 #include "inverted_index_desc.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/tablet_schema.h"
 #include "util/debug_points.h"
 #include "util/slice.h"
@@ -516,14 +517,21 @@ lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
         assert(!exists);
     }
     auto* ret = _CLNEW FSIndexOutput();
+    ErrorContext error_context;
     try {
         ret->init(fs, fl);
     } catch (CLuceneError& err) {
-        ret->close();
-        _CLDELETE(ret)
-        LOG(WARNING) << "FSIndexOutput init error: " << err.what();
-        _CLTHROWA(CL_ERR_IO, "FSIndexOutput init error");
+        error_context.eptr = std::current_exception();
+        error_context.err_msg.append("FSIndexOutput init error: ");
+        error_context.err_msg.append(err.what());
+        LOG(ERROR) << error_context.err_msg;
     }
+    FINALLY_EXCEPTION({
+        if (error_context.eptr) {
+            FINALLY_CLOSE(ret);
+            _CLDELETE(ret);
+        }
+    })
     return ret;
 }
 
