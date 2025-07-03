@@ -35,6 +35,40 @@
 
 namespace doris {
 
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_segment_size(
+        "file_cache_event_driven_warm_up_requested_segment_size");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_segment_num(
+        "file_cache_event_driven_warm_up_requested_segment_num");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_index_size(
+        "file_cache_event_driven_warm_up_requested_index_size");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_index_num(
+        "file_cache_event_driven_warm_up_requested_index_num");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_submitted_tablet_num(
+        "file_cache_once_or_periodic_warm_up_submitted_tablet_num");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_finished_tablet_num(
+        "file_cache_once_or_periodic_warm_up_finished_tablet_num");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_submitted_segment_size(
+        "file_cache_once_or_periodic_warm_up_submitted_segment_size");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_submitted_segment_num(
+        "file_cache_once_or_periodic_warm_up_submitted_segment_num");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_submitted_index_size(
+        "file_cache_once_or_periodic_warm_up_submitted_index_size");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_submitted_index_num(
+        "file_cache_once_or_periodic_warm_up_submitted_index_num");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_finished_segment_size(
+        "file_cache_once_or_periodic_warm_up_finished_segment_size");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_finished_segment_num(
+        "file_cache_once_or_periodic_warm_up_finished_segment_num");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_finished_index_size(
+        "file_cache_once_or_periodic_warm_up_finished_index_size");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_finished_index_num(
+        "file_cache_once_or_periodic_warm_up_finished_index_num");
+bvar::Adder<uint64_t> g_file_cache_recycle_cache_requested_segment_num(
+        "file_cache_recycle_cache_requested_segment_num");
+bvar::Adder<uint64_t> g_file_cache_recycle_cache_requested_index_num(
+        "file_cache_recycle_cache_requested_index_num");
+bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_call_unix_ts(
+        "file_cache_warm_up_rowset_last_call_unix_ts", 0);
 bvar::Adder<uint64_t> file_cache_warm_up_failed_task_num("file_cache_warm_up", "failed_task_num");
 
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
@@ -217,6 +251,7 @@ void CloudWarmUpManager::handle_jobs() {
                     }
                 }
             }
+            g_file_cache_once_or_periodic_warm_up_finished_tablet_num << 1;
         }
 
         timespec time;
@@ -285,6 +320,7 @@ void CloudWarmUpManager::add_job(const std::vector<TJobMeta>& job_metas) {
         std::lock_guard lock(_mtx);
         std::for_each(job_metas.begin(), job_metas.end(), [this](const TJobMeta& meta) {
             _pending_job_metas.emplace_back(std::make_shared<JobMeta>(meta));
+            g_file_cache_once_or_periodic_warm_up_submitted_tablet_num << meta.tablet_ids.size();
         });
     }
     _cond.notify_all();
