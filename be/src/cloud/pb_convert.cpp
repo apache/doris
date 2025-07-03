@@ -93,7 +93,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     out->set_source_rowset_id(in.source_rowset_id());
     out->set_source_tablet_id(in.source_tablet_id());
     if (in.has___split_schema()) {
-        out->mutable___split_schema()->CopyFrom(in.___split_schema());
+        out->mutable___split_schema()->CopyFrom(in.__split_schema());
     }
 }
 
@@ -229,7 +229,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     out->set_source_rowset_id(in.source_rowset_id());
     out->set_source_tablet_id(in.source_tablet_id());
     if (in.has___split_schema()) {
-        out->mutable___split_schema()->CopyFrom(in.___split_schema());
+        out->mutable___split_schema()->CopyFrom(in.__split_schema());
     }
 }
 
