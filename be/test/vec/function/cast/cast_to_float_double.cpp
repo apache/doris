@@ -1388,8 +1388,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             for (auto h : hours) {
                 for (auto m : minutes) {
                     for (auto s : seconds) {
-                        auto time_val =
-                                doris::TimeValue::make_time_with_negative(negative, h, m, s);
+                        auto time_val = doris::TimeValue::make_time(h, m, s, negative);
                         auto expect_cast_result = static_cast<ToT>(time_val);
                         data_set.push_back({{time_val}, expect_cast_result});
                         // dbg_str +=

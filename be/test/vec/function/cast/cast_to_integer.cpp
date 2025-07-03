@@ -1851,8 +1851,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             for (auto h : hours) {
                 for (auto m : minutes) {
                     for (auto s : seconds) {
-                        auto time_val =
-                                doris::TimeValue::make_time_with_negative(negative, h, m, s);
+                        auto time_val = doris::TimeValue::make_time(h, m, s, negative);
                         if (time_val > std::numeric_limits<IntType>::max() ||
                             time_val < std::numeric_limits<IntType>::min()) {
                             DataSet data_set_tmp;

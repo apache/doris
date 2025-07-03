@@ -60,7 +60,7 @@ public:
 
     // Construct time based on hour/minute/second/microsecond
     template <bool CHECK = false>
-    static TimeType make_time(int32_t hour, int32_t minute, int32_t second, int32_t microsecond = 0,
+    static TimeType make_time(int64_t hour, int64_t minute, int64_t second, int64_t microsecond = 0,
                               bool negative = false) {
         if constexpr (CHECK) {
             if (std::abs(hour) >= 838 || std::abs(minute) >= 60 || std::abs(second) >= 60 ||
@@ -73,8 +73,7 @@ public:
         DCHECK(hour >= 0 && minute >= 0 && second >= 0 && microsecond >= 0)
                 << "Hour, minute, second and microsecond must be non-negative but got " << hour
                 << ":" << minute << ":" << second << "." << microsecond;
-        int64_t value = ((int64_t)hour * ONE_HOUR_MICROSECONDS) +
-                        ((int64_t)minute * ONE_MINUTE_MICROSECONDS) +
+        int64_t value = (hour * ONE_HOUR_MICROSECONDS) + (minute * ONE_MINUTE_MICROSECONDS) +
                         (second * ONE_SECOND_MICROSECONDS) + microsecond;
         return static_cast<TimeType>(negative ? -value : value);
     }
@@ -102,21 +101,25 @@ public:
         select hour(cast(-121314 as time)),minute(cast(-121314 as time)),second(cast(-121314 as time)); -> 12	13	14 
     */
     static int32_t hour(TimeType time) {
-        return (int32_t)std::abs(static_cast<int64_t>(limit_with_bound(time) / ONE_HOUR_MICROSECONDS));
+        return (int32_t)std::abs(
+                static_cast<int64_t>(limit_with_bound(time) / ONE_HOUR_MICROSECONDS));
     }
 
     static int32_t minute(TimeType time) {
-        return (int32_t)std::abs((static_cast<int64_t>(limit_with_bound(time)) % ONE_HOUR_MICROSECONDS) /
-                                             ONE_MINUTE_MICROSECONDS);
+        return (int32_t)std::abs(
+                (static_cast<int64_t>(limit_with_bound(time)) % ONE_HOUR_MICROSECONDS) /
+                ONE_MINUTE_MICROSECONDS);
     }
 
     static int32_t second(TimeType time) {
-        return (int32_t)std::abs((static_cast<int64_t>(limit_with_bound(time)) / ONE_SECOND_MICROSECONDS) %
-                                             ONE_MINUTE_SECONDS);
+        return (int32_t)std::abs(
+                (static_cast<int64_t>(limit_with_bound(time)) / ONE_SECOND_MICROSECONDS) %
+                ONE_MINUTE_SECONDS);
     }
 
     static int32_t microsecond(TimeType time) {
-        return (int32_t)std::abs(static_cast<int64_t>(limit_with_bound(time)) % ONE_SECOND_MICROSECONDS);
+        return (int32_t)std::abs(static_cast<int64_t>(limit_with_bound(time)) %
+                                 ONE_SECOND_MICROSECONDS);
     }
 
     static int8_t sign(TimeType time) { return (time < 0) ? -1 : 1; }
