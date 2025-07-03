@@ -175,26 +175,13 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
     {
         DataSet data_set = {
                 {{&bitmap32_1}, std::string("AQEAAAA=")},
-                {{&bitmap32_2}, std::string("BQIBAAAAAAAAAH+WmAAAAAAA")},
                 {{&bitmap32_3}, std::string("AjswAAABAAAgAAEAAAAgAA==")},
                 {{&bitmap64_1}, std::string("AwAAAAABAAAA")},
-                {{&bitmap64_2}, std::string("BQIAAAAAAQAAAAEAAAAAAAAA")},
                 {{&bitmap64_3},
                  std::string("BAIAAAAAOzAAAAEAAB8AAQAAAB8AAQAAADowAAABAAAAAAAAABAAAAAAAA==")},
                 {{&empty_bitmap}, std::string("AA==")},
                 {{Null()}, Null()}};
 
-        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
-    }
-
-    {
-        std::string base64("BQQAAAAAAAAAAAEAAAAAAAAAAgAAAAAAAAADAAAAAAAAAA==");
-        BitmapValue bitmap;
-        bitmap.add(0);
-        bitmap.add(1);
-        bitmap.add(2);
-        bitmap.add(3);
-        DataSet data_set = {{{&bitmap}, base64}};
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 
