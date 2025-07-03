@@ -730,11 +730,20 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
     // expect % and _, all chars should keep it literal mean.
     for (size_t i = 0; i < pattern.size(); i++) {
         char c = pattern[i];
-        if (c == LikeSearchState::escape_char && i + 1 < pattern.size() &&
-            (pattern[i + 1] == '%' || pattern[i + 1] == '_')) {
-            // convert "\%" and "\_" to literal "%" and "_"
-            re_pattern->append(1, pattern[i + 1]);
-            i++;
+        if (c == '\\' && i + 1 < pattern.size()) {
+            char next_c = pattern[i + 1];
+            if (next_c == '%' || next_c == '_') {
+                // convert "\%" and "\_" to literal "%" and "_"
+                re_pattern->append(1, next_c);
+                i++;
+            } else if (next_c == '\\') {
+                // keep valid escape "\\"
+                re_pattern->append("\\\\");
+                i++;
+            } else {
+                // keep invalid escape "\" as literal "\"
+                re_pattern->append("\\\\");
+            }
         } else if (c == '%') {
             re_pattern->append(".*");
         } else if (c == '_') {
