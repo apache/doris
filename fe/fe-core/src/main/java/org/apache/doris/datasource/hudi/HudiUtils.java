@@ -334,8 +334,7 @@ public class HudiUtils {
 
     public static HudiSchemaCacheValue getSchemaCacheValue(HMSExternalTable hmsTable, String queryInstant) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
-        SchemaCacheKey key = new HudiSchemaCacheKey(hmsTable.getDbName(), hmsTable.getName(),
-                Long.parseLong(queryInstant));
+        SchemaCacheKey key = new HudiSchemaCacheKey(hmsTable.getOrBuildNameMapping(), Long.parseLong(queryInstant));
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(key);
         return (HudiSchemaCacheValue) schemaCacheValue.get();
     }
