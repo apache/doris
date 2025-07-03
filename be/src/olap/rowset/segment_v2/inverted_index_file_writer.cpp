@@ -206,6 +206,10 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
         err.set(CL_ERR_IO, "debug point: copyFile_openInput_error");
     });
     if (!open) {
+        if (err.number() == CL_ERR_EmptyIndexSegment) {
+            LOG(WARNING) << "InvertedIndexFileWriter::copyFile: " << fileName << " is empty";
+            return;
+        }
         throw err;
     }
 
