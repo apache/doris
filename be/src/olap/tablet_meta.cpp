@@ -1472,13 +1472,13 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
                 val->bitmap |= reinterpret_cast<DeleteBitmapAggCache::Value*>(
                                        DeleteBitmapAggCache::instance()->value(handle2))
                                        ->bitmap;
-                DeleteBitmapAggCache::instance()->release(handle2);
                 VLOG_DEBUG << "get agg cache version=" << start_version
                            << " for tablet=" << _tablet_id
                            << ", rowset=" << std::get<0>(bmk).to_string()
                            << ", segment=" << std::get<1>(bmk);
                 start_version += 1;
             }
+            DeleteBitmapAggCache::instance()->release(handle2);
         }
         {
             std::shared_lock l(lock);
