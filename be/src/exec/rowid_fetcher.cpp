@@ -534,15 +534,21 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                     }
                 }
 
-                if (first_file_mapping->type == FileMappingType::INTERNAL) {
-                    RETURN_IF_ERROR(read_batch_doris_format_row(
-                            request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
-                            stats, &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
-                            &lookup_row_data_ms));
-                } else {
-                    RETURN_IF_ERROR(read_batch_external_row(
-                            request_block_desc, id_file_map, slots, first_file_mapping, tquery_id,
-                            result_blocks[i], &external_init_reader_ms, &external_get_block_ms));
+                try {
+                    if (first_file_mapping->type == FileMappingType::INTERNAL) {
+                        RETURN_IF_ERROR(read_batch_doris_format_row(
+                                request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
+                                stats, &acquire_tablet_ms, &acquire_rowsets_ms,
+                                &acquire_segments_ms, &lookup_row_data_ms));
+                    } else {
+                        RETURN_IF_ERROR(read_batch_external_row(
+                                request_block_desc, id_file_map, slots, first_file_mapping,
+                                tquery_id, result_blocks[i], &external_init_reader_ms,
+                                &external_get_block_ms));
+                    }
+                } catch (const Exception& e) {
+                    return Status::Error<false>(e.code(), "Row id fetch failed because {}",
+                                                e.what());
                 }
 
                 // after read the block, shrink char type block

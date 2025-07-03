@@ -132,4 +132,20 @@ int decode_int64(std::string_view* in, int64_t* val) {
     return 0;
 }
 
+uint32_t encode_versionstamp(const Versionstamp& vs, std::string* b) {
+    uint32_t index = b->size();
+    b->reserve(b->size() + 11); // 1 byte for tag + 10 bytes for versionstamp
+    b->push_back(static_cast<char>(EncodingTag::VERSIONSTAMP_TAG));
+    b->insert(b->end(), vs.data().begin(), vs.data().end());
+    return index + 1; // return the index of the versionstamp in the buffer.
+}
+
+int decode_versionstamp(std::string_view* in, Versionstamp* vs) {
+    if (in->size() < 11) return -1; // Insufficient length to decode versionstamp
+    if (in->at(0) != EncodingTag::VERSIONSTAMP_TAG) return -2; // Invalid tag
+    *vs = reinterpret_cast<const uint8_t*>(in->data() + 1);
+    in->remove_prefix(11);
+    return 0;
+}
+
 } // namespace doris::cloud

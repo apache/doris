@@ -22,8 +22,6 @@
 #include <iostream>
 #include <string>
 
-#include "olap/olap_common.h"
-
 namespace doris {
 
 // 24bit int type, used to store date type in storage
@@ -44,7 +42,7 @@ public:
         return *this;
     }
 
-    uint24_t& operator=(const uint128_t& value) {
+    uint24_t& operator=(const unsigned __int128& value) {
         data[0] = static_cast<uint8_t>(value);
         data[1] = static_cast<uint8_t>(value >> 8);
         data[2] = static_cast<uint8_t>(value >> 16);

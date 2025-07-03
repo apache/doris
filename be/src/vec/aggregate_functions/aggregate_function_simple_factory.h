@@ -56,7 +56,7 @@ public:
 
 private:
     using AggregateFunctions = std::unordered_map<std::string, Creator>;
-    constexpr static std::string_view combiner_names[] = {"_foreach"};
+    constexpr static std::string_view combiner_names[] = {"_foreach", "_foreachv2"};
     AggregateFunctions aggregate_functions;
     AggregateFunctions nullable_aggregate_functions;
     std::unordered_map<std::string, std::string> function_alias;
@@ -64,6 +64,14 @@ private:
 public:
     static bool is_foreach(const std::string& name) {
         constexpr std::string_view suffix = "_foreach";
+        if (name.length() < suffix.length()) {
+            return false;
+        }
+        return name.substr(name.length() - suffix.length()) == suffix;
+    }
+
+    static bool is_foreachv2(const std::string& name) {
+        constexpr std::string_view suffix = "_foreachv2";
         if (name.length() < suffix.length()) {
             return false;
         }

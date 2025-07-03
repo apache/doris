@@ -27,6 +27,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
  */
 public class HudiMvccSnapshot implements MvccSnapshot {
     private final TablePartitionValues tablePartitionValues;
+    private final long timestamp;
 
     /**
      * Creates a new HudiMvccSnapshot with the specified partition values.
@@ -34,11 +35,16 @@ public class HudiMvccSnapshot implements MvccSnapshot {
      * @param tablePartitionValues The partition values for the snapshot
      * @throws IllegalArgumentException if tablePartitionValues is null
      */
-    public HudiMvccSnapshot(TablePartitionValues tablePartitionValues) {
+    public HudiMvccSnapshot(TablePartitionValues tablePartitionValues, Long timeStamp) {
         if (tablePartitionValues == null) {
             throw new IllegalArgumentException("TablePartitionValues cannot be null");
         }
+        this.timestamp = timeStamp;
         this.tablePartitionValues = tablePartitionValues;
+    }
+
+    public long getTimestamp() {
+        return timestamp;
     }
 
     /**

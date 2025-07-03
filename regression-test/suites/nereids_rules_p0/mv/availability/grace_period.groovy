@@ -240,7 +240,7 @@ suite("grace_period") {
             o_orderdate,
             l_partkey,
             l_suppkey""",
-            15,
+            150000,
             "l_shipdate")
 
     sql """
@@ -308,7 +308,9 @@ suite("grace_period") {
         l_suppkey;
         """, mv_partition_allow_staleness_name)
     sql "SET enable_materialized_view_rewrite=true"
-    Thread.sleep(15000);
+
+    sql """ALTER MATERIALIZED VIEW ${mv_partition_allow_staleness_name} set('grace_period'='0');"""
+
     // after 10s when partition table, and query use the partition changed, should fail
     mv_not_part_in(
         """

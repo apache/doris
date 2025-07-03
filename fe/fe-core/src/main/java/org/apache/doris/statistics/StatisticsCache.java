@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -24,6 +25,8 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -88,8 +91,8 @@ public class StatisticsCache {
                 .executor(threadPool)
                 .buildAsync(partitionColumnStatisticCacheLoader);
 
-    public ColumnStatistic getColumnStatistics(long catalogId, long dbId, long tblId, long idxId, String colName) {
-        ConnectContext ctx = ConnectContext.get();
+    public ColumnStatistic getColumnStatistics(
+            long catalogId, long dbId, long tblId, long idxId, String colName, ConnectContext ctx) {
         if (ctx != null && ctx.getState().isInternal()) {
             return ColumnStatistic.UNKNOWN;
         }
@@ -99,11 +102,25 @@ public class StatisticsCache {
         } catch (Exception e) {
             return ColumnStatistic.UNKNOWN;
         }
+        return doGetColumnStatistics(catalogId, dbId, tblId, idxId, colName, ctx);
+    }
+
+    public OlapTableStatistics getOlapTableStats(OlapScan olapScan) {
+        return new OlapTableStatistics(olapScan);
+    }
+
+    private ColumnStatistic doGetColumnStatistics(
+            long catalogId, long dbId, long tblId, long idxId, String colName, ConnectContext ctx) {
         StatisticsCacheKey k = new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName);
         try {
             CompletableFuture<Optional<ColumnStatistic>> f = columnStatisticsCache.get(k);
             if (f.isDone()) {
-                return f.get().orElse(ColumnStatistic.UNKNOWN);
+                Optional<ColumnStatistic> columnStatistic = f.get();
+                // why the columnStatistic maybe null?
+                if (columnStatistic == null || !columnStatistic.isPresent()) {
+                    return ColumnStatistic.UNKNOWN;
+                }
+                return columnStatistic.get();
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
@@ -112,8 +129,7 @@ public class StatisticsCache {
     }
 
     public PartitionColumnStatistic getPartitionColumnStatistics(long catalogId, long dbId, long tblId, long idxId,
-                                                  String partName, String colName) {
-        ConnectContext ctx = ConnectContext.get();
+                                                  String partName, String colName, ConnectContext ctx) {
         if (ctx != null && ctx.getState().isInternal()) {
             return PartitionColumnStatistic.UNKNOWN;
         }
@@ -123,6 +139,11 @@ public class StatisticsCache {
         } catch (Exception e) {
             return PartitionColumnStatistic.UNKNOWN;
         }
+        return doGetPartitionColumnStatistics(catalogId, dbId, tblId, idxId, partName, colName);
+    }
+
+    private PartitionColumnStatistic doGetPartitionColumnStatistics(
+            long catalogId, long dbId, long tblId, long idxId, String partName, String colName) {
         PartitionColumnStatisticCacheKey k = new PartitionColumnStatisticCacheKey(
                 catalogId, dbId, tblId, idxId, partName, colName);
         try {
@@ -220,7 +241,7 @@ public class StatisticsCache {
         long retryTimes = 0;
         while (!StatisticsUtil.statsTblAvailable()) {
             try {
-                Thread.sleep(100L);
+                Thread.sleep(1000L);
             } catch (InterruptedException e) {
                 // IGNORE
             }
@@ -344,5 +365,55 @@ public class StatisticsCache {
             }
         }
         return true;
+    }
+
+    /**
+     * OlapTableStatistics:
+     *   this class is used to combine normalized id logic between columns in one olap table,
+     *   so we can skip compute id for per column
+     */
+    public class OlapTableStatistics {
+        public final OlapTable olapTable;
+        public final long selectIndexId;
+        public final long catalogId;
+        public final long schemaId;
+        public final long tableId;
+
+        public OlapTableStatistics(OlapScan logicalOlapScan) {
+            this.olapTable = logicalOlapScan.getTable();
+            long selectedIndexId = logicalOlapScan.getSelectedIndexId();
+
+            DatabaseIf database = olapTable.getDatabase();
+            CatalogIf catalog = database == null ? null : database.getCatalog();
+            this.catalogId = catalog == null ? -1 : catalog.getId();
+            this.schemaId = database == null ? -1 : database.getId();
+            this.tableId = olapTable.getId();
+
+            if (selectedIndexId == olapTable.getBaseIndexId()) {
+                this.selectIndexId = -1;
+            } else {
+                this.selectIndexId = selectedIndexId;
+            }
+        }
+
+        // this method can avoid compute table and select index id
+        public ColumnStatistic getColumnStatistics(String colName, ConnectContext ctx) {
+            if (ctx != null && ctx.getState().isInternal()) {
+                return ColumnStatistic.UNKNOWN;
+            }
+            return doGetColumnStatistics(
+                    catalogId, schemaId, tableId, selectIndexId, colName, ctx
+            );
+        }
+
+        public PartitionColumnStatistic getPartitionColumnStatistics(
+                String partName, String colName, ConnectContext ctx) {
+            if (ctx != null && ctx.getState().isInternal()) {
+                return PartitionColumnStatistic.UNKNOWN;
+            }
+            return doGetPartitionColumnStatistics(
+                    catalogId, schemaId, tableId, selectIndexId, partName, colName
+            );
+        }
     }
 }

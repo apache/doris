@@ -209,6 +209,8 @@ protected:
     void seekInternal(const int64_t position) override;
     // IndexInput methods
     void readInternal(uint8_t* b, const int32_t len) override;
+
+    friend class DorisFSDirectoryTest;
 };
 
 class DorisFSDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {

@@ -183,7 +183,20 @@ public class FrontendOptions {
             // so we call localAddr.getCanonicalHostName() at here
             return localAddr.getCanonicalHostName();
         }
-        return InetAddresses.toAddrString(localAddr);
+        return getIpByLocalAddr(localAddr);
+    }
+
+    /**
+     * get ip from addr
+     * @param addr InetAddress
+     * @return ip
+     */
+    public static String getIpByLocalAddr(InetAddress addr) {
+        String addrString = InetAddresses.toAddrString(addr);
+        if (addrString.contains("%")) {
+            addrString = addrString.split("%")[0];
+        }
+        return addrString;
     }
 
     private static void analyzePriorityCidrs() {

@@ -433,13 +433,13 @@ suite("test_partial_update_row_store_schema_change", "p0") {
     });
 
     // test load data with all key column, should fail because
-    // it don't have any value columns
+    // it inserts a new row when partial_update_new_key_behavior=ERROR
     streamLoad {
         table "${tableName}"
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
-        set 'strict_mode', 'true'
+        set 'partial_update_new_key_behavior', 'ERROR'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'
@@ -452,9 +452,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
-            assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.toString().contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR"))
         }
     }
 
@@ -1045,7 +1043,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'partial_columns', 'true'
-        set 'strict_mode', 'true'
+        set 'partial_update_new_key_behavior', 'ERROR'
         set 'columns', 'c0, c1'
 
         file 'schema_change/load_with_key_column.csv'
@@ -1058,9 +1056,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
-            assertEquals(0, json.NumberUnselectedRows)
+            assertTrue(json.Message.toString().contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR"))
         }
     }
 

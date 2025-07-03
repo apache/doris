@@ -698,6 +698,16 @@ public class Util {
         return sw.toString();
     }
 
+    public static Throwable getRootCause(Throwable t) {
+        Throwable p = t;
+        Throwable r = t;
+        while (p != null) {
+            r = p;
+            p = p.getCause();
+        }
+        return r;
+    }
+
     public static long sha256long(String str) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

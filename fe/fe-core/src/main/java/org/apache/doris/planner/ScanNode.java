@@ -24,7 +24,6 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -43,7 +42,6 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudPartition;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
@@ -53,7 +51,6 @@ import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
@@ -62,7 +59,6 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -123,26 +119,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         this.desc = desc;
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        this.analyzer = analyzer;
-        // materialize conjuncts in where
-        analyzer.materializeSlots(conjuncts);
-    }
-
-    /**
-     * Helper function to parse a "host:port" address string into TNetworkAddress
-     * This is called with ipaddress:port when doing scan range assigment.
-     */
-    protected static TNetworkAddress addressToTNetworkAddress(String address) {
-        TNetworkAddress result = new TNetworkAddress();
-        String[] hostPort = address.split(":");
-        result.hostname = hostPort[0];
-        result.port = Integer.parseInt(hostPort[1]);
-        return result;
-    }
-
     protected List<Column> getColumns() {
         if (columns == null && desc.getTable() != null) {
             columns = desc.getTable().getBaseSchema();
@@ -152,10 +128,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public TupleDescriptor getTupleDesc() {
         return desc;
-    }
-
-    public void setSortColumn(String column) {
-        sortColumn = column;
     }
 
     /**
@@ -186,13 +158,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
      *                           maximum.
      */
     public abstract List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
-
-    // If scan is key search, should not enable the shared scan opt to prevent the performance problem
-    // 1. where contain the eq or in expr of key column slot
-    // 2. key column slot is distribution column and first column
-    protected boolean isKeySearch() {
-        return false;
-    }
 
     private void computeColumnFilter(Column column, SlotDescriptor slotDesc, PartitionInfo partitionsInfo) {
         // Set `columnFilters` all the time because `DistributionPruner` also use this.
@@ -593,105 +558,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 .addValue(super.debugString()).toString();
     }
 
-    // Some of scan node(eg, DataGenScanNode) does not need to check column priv
-    // (because the it has no corresponding catalog/db/table info)
-    // Subclass may override this method.
-    public boolean needToCheckColumnPriv() {
-        return true;
-    }
-
-    public void setOutputSmap(ExprSubstitutionMap smap, Analyzer analyzer) {
-        outputSmap = smap;
-        if (smap.getRhs().stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
-            if (outputTupleDesc == null) {
-                outputTupleDesc = analyzer.getDescTbl().createTupleDescriptor("OlapScanNode");
-            }
-            if (projectList == null) {
-                projectList = Lists.newArrayList();
-            }
-            // setOutputSmap may be called multiple times
-            // this happens if the olap table is in the most inner sub-query block in the cascades sub-queries
-            // create a tmpSmap for the later setOutputSmap call
-            ExprSubstitutionMap tmpSmap = new ExprSubstitutionMap(
-                    Lists.newArrayList(outputTupleDesc.getSlots().stream()
-                            .filter(slot -> slot.isMaterialized())
-                            .map(slot -> new SlotRef(slot))
-                            .collect(Collectors.toList())),
-                    Lists.newArrayList(projectList));
-            Set<SlotId> allOutputSlotIds = outputTupleDesc.getSlots().stream().map(slot -> slot.getId())
-                    .collect(Collectors.toSet());
-            List<Expr> newRhs = Lists.newArrayList();
-            List<Expr> rhs = smap.getRhs();
-            for (int i = 0; i < smap.size(); ++i) {
-                Expr rhsExpr = rhs.get(i);
-                if (!(rhsExpr instanceof SlotRef) || !(allOutputSlotIds.contains(((SlotRef) rhsExpr).getSlotId()))) {
-                    rhsExpr = rhsExpr.substitute(tmpSmap);
-                    if (rhsExpr.isBound(desc.getId())) {
-                        SlotDescriptor slotDesc = analyzer.addSlotDescriptor(outputTupleDesc);
-                        slotDesc.initFromExpr(rhsExpr);
-                        if (rhsExpr instanceof SlotRef) {
-                            slotDesc.setSrcColumn(((SlotRef) rhsExpr).getColumn());
-                            slotDesc.setIsMaterialized(((SlotRef) rhsExpr).getDesc().isMaterialized());
-                        } else {
-                            slotDesc.setIsMaterialized(true);
-                        }
-                        if (slotDesc.isMaterialized()) {
-                            slotDesc.materializeSrcExpr();
-                            projectList.add(rhsExpr);
-                        }
-                        newRhs.add(new SlotRef(slotDesc));
-                        allOutputSlotIds.add(slotDesc.getId());
-                        outputSlotToProjectExpr.put(slotDesc.getId(), rhsExpr);
-                    } else {
-                        newRhs.add(rhs.get(i));
-                    }
-                } else {
-                    newRhs.add(rhsExpr);
-                }
-            }
-            outputSmap.updateRhsExprs(newRhs);
-        }
-    }
-
-    @Override
-    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
-        if (outputTupleDesc != null && requiredSlotIdSet != null) {
-            Preconditions.checkNotNull(outputSmap);
-            ArrayList<SlotId> materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
-            Preconditions.checkState(projectList != null && projectList.size() <= materializedSlotIds.size(),
-                    "projectList's size should be less than materializedSlotIds's size");
-            boolean hasNewSlot = false;
-            if (projectList.size() < materializedSlotIds.size()) {
-                // need recreate projectList based on materializedSlotIds
-                hasNewSlot = true;
-            }
-
-            // find new project expr from outputSmap based on requiredSlotIdSet
-            ArrayList<SlotId> allSlots = outputTupleDesc.getAllSlotIds();
-            for (SlotId slotId : requiredSlotIdSet) {
-                if (!materializedSlotIds.contains(slotId) && allSlots.contains(slotId)) {
-                    SlotDescriptor slot = outputTupleDesc.getSlot(slotId.asInt());
-                    for (Expr expr : outputSmap.getRhs()) {
-                        if (expr instanceof SlotRef && ((SlotRef) expr).getSlotId() == slotId) {
-                            slot.setIsMaterialized(true);
-                            outputSlotToProjectExpr.put(slotId, expr.getSrcSlotRef());
-                            hasNewSlot = true;
-                        }
-                    }
-                }
-            }
-
-            if (hasNewSlot) {
-                // recreate the project list
-                projectList.clear();
-                materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
-                for (SlotId slotId : materializedSlotIds) {
-                    projectList.add(outputSlotToProjectExpr.get(slotId));
-                }
-            }
-        }
-    }
-
     public List<TupleId> getOutputTupleIds() {
         if (outputTupleDesc != null) {
             return Lists.newArrayList(outputTupleDesc.getId());
@@ -699,33 +565,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return tupleIds;
     }
 
-    public StatsDelta genStatsDelta() throws AnalysisException {
-        return null;
-    }
-
-    public StatsDelta genQueryStats() throws UserException {
-        StatsDelta delta = genStatsDelta();
-        if (delta == null) {
-            return null;
-        }
-        for (SlotDescriptor slot : desc.getMaterializedSlots()) {
-            if (slot.isScanSlot() && slot.getColumn() != null) {
-                delta.addQueryStats(slot.getColumn().getName());
-            }
-        }
-
-        for (Expr expr : conjuncts) {
-            List<SlotId> slotIds = Lists.newArrayList();
-            expr.getIds(null, slotIds);
-            for (SlotId slotId : slotIds) {
-                SlotDescriptor slot = desc.getSlot(slotId.asInt());
-                if (slot.getColumn() != null) {
-                    delta.addFilterStats(slot.getColumn().getName());
-                }
-            }
-        }
-        return delta;
-    }
 
     // Create a single scan range locations for the given backend policy.
     // Used for those scan nodes which do not require data location.

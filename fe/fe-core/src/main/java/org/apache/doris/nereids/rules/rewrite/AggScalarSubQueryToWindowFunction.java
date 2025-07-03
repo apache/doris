@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -101,6 +102,9 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
      */
     @Override
     public Plan rewriteRoot(Plan plan, JobContext context) {
+        if (!plan.containsType(Filter.class, LogicalApply.class, LogicalAggregate.class)) {
+            return plan;
+        }
         return plan.accept(this, context);
     }
 
@@ -246,7 +250,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
      * 2. outer table list - inner table list should only remain 1 table
      * 3. the remaining table in step 2 should be correlated table for inner plan
      */
-    private boolean checkRelation(List<Expression> correlatedSlots) {
+    private boolean checkRelation(List<Slot> correlatedSlots) {
         List<CatalogRelation> outerTables = outerPlans.stream().filter(CatalogRelation.class::isInstance)
                 .map(CatalogRelation.class::cast)
                 .collect(Collectors.toList());
@@ -274,9 +278,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                 .filter(node -> outerIds.contains(node.getTable().getId()))
                 .map(LogicalRelation.class::cast)
                 .map(LogicalRelation::getOutputExprIdSet).flatMap(Collection::stream).collect(Collectors.toSet());
-        return ExpressionUtils.collect(correlatedSlots, NamedExpression.class::isInstance).stream()
-                .map(NamedExpression.class::cast)
-                .allMatch(e -> correlatedRelationOutput.contains(e.getExprId()));
+        return correlatedSlots.stream().allMatch(e -> correlatedRelationOutput.contains(e.getExprId()));
     }
 
     private void createSlotMapping(List<CatalogRelation> outerTables, List<CatalogRelation> innerTables) {
@@ -366,10 +368,9 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         return windowFilter;
     }
 
-    private WindowExpression createWindowFunction(List<Expression> correlatedSlots, AggregateFunction function) {
+    private WindowExpression createWindowFunction(List<Slot> correlatedSlots, AggregateFunction function) {
         // partition by clause is set by all the correlated slots.
-        Preconditions.checkArgument(correlatedSlots.stream().allMatch(Slot.class::isInstance));
-        return new WindowExpression(function, correlatedSlots, Collections.emptyList());
+        return new WindowExpression(function, ImmutableList.copyOf(correlatedSlots), Collections.emptyList());
     }
 
     private static class ExpressionIdenticalChecker extends DefaultExpressionVisitor<Boolean, Expression> {

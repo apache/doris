@@ -18,8 +18,6 @@
 package org.apache.doris.datasource.property;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateRepositoryStmt;
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.QueryStmt;
@@ -50,6 +48,10 @@ import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -140,9 +142,14 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "   'AWS_BUCKET' = 'bucket',\n"
                 + "   's3_validity_check' = 'false'"
                 + ");";
-        CreateResourceStmt analyzedResourceStmt = createStmt(queryOld);
-        Assertions.assertEquals(analyzedResourceStmt.getProperties().size(), 8);
-        Resource resource = Resource.fromStmt(analyzedResourceStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(queryOld);
+        Assertions.assertTrue(logicalPlan instanceof CreateResourceCommand);
+        CreateResourceCommand command = (CreateResourceCommand) logicalPlan;
+        command.getInfo().validate();
+
+        Assertions.assertEquals(command.getInfo().getProperties().size(), 8);
+        Resource resource = Resource.fromCommand(command);
         // will add converted properties
         Assertions.assertEquals(resource.getCopiedProperties().size(), 20);
 
@@ -158,9 +165,13 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "   's3.bucket' = 'bucket',\n"
                 + "   's3_validity_check' = 'false'"
                 + ");";
-        CreateResourceStmt analyzedResourceStmtNew = createStmt(queryNew);
-        Assertions.assertEquals(analyzedResourceStmtNew.getProperties().size(), 8);
-        Resource newResource = Resource.fromStmt(analyzedResourceStmtNew);
+        logicalPlan = nereidsParser.parseSingle(queryNew);
+        Assertions.assertTrue(logicalPlan instanceof CreateResourceCommand);
+        command = (CreateResourceCommand) logicalPlan;
+        command.getInfo().validate();
+
+        Assertions.assertEquals(command.getInfo().getProperties().size(), 8);
+        Resource newResource = Resource.fromCommand(command);
         // will add converted properties
         Assertions.assertEquals(newResource.getCopiedProperties().size(), 14);
 
@@ -179,9 +190,14 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'AWS_SECRET_KEY'='skk',\n"
                 + "    'AWS_REGION' = 'us-east-1'\n"
                 + ");";
-        CreateRepositoryStmt analyzedStmt = createStmt(s3Repo);
-        Assertions.assertEquals(analyzedStmt.getProperties().size(), 4);
-        Repository repository = getRepository(analyzedStmt, "s3_repo");
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(s3Repo);
+        Assertions.assertTrue(logicalPlan instanceof CreateRepositoryCommand);
+        CreateRepositoryCommand command = (CreateRepositoryCommand) logicalPlan;
+        command.validate();
+
+        Assertions.assertEquals(command.getProperties().size(), 4);
+        Repository repository = getRepository(command, "s3_repo");
         Assertions.assertEquals(4, repository.getRemoteFileSystem().getProperties().size());
 
         String s3RepoNew = "CREATE REPOSITORY `s3_repo_new`\n"
@@ -193,14 +209,18 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    's3.access_key' = 'akk',\n"
                 + "    's3.secret_key' = 'skk'\n"
                 + ");";
-        CreateRepositoryStmt analyzedStmtNew = createStmt(s3RepoNew);
-        Assertions.assertEquals(analyzedStmtNew.getProperties().size(), 3);
-        Repository repositoryNew = getRepository(analyzedStmtNew, "s3_repo_new");
+        logicalPlan = nereidsParser.parseSingle(s3RepoNew);
+        Assertions.assertTrue(logicalPlan instanceof CreateRepositoryCommand);
+        command = (CreateRepositoryCommand) logicalPlan;
+        command.validate();
+
+        Assertions.assertEquals(command.getProperties().size(), 3);
+        Repository repositoryNew = getRepository(command, "s3_repo_new");
         Assertions.assertEquals(3, repositoryNew.getRemoteFileSystem().getProperties().size());
     }
 
-    private static Repository getRepository(CreateRepositoryStmt analyzedStmt, String name) throws DdlException {
-        Env.getCurrentEnv().getBackupHandler().createRepository(analyzedStmt);
+    private static Repository getRepository(CreateRepositoryCommand command, String name) throws DdlException {
+        Env.getCurrentEnv().getBackupHandler().createRepository(command);
         return Env.getCurrentEnv().getBackupHandler().getRepoMgr().getRepo(name);
     }
 
@@ -217,14 +237,19 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'bos_accesskey' = 'akk',\n"
                 + "    'bos_secret_accesskey'='skk'\n"
                 + ");";
-        CreateRepositoryStmt analyzedStmt = createStmt(bosBroker);
-        analyzedStmt.getProperties();
-        Assertions.assertEquals(analyzedStmt.getProperties().size(), 3);
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(bosBroker);
+        Assertions.assertTrue(logicalPlan instanceof CreateRepositoryCommand);
+        CreateRepositoryCommand command = (CreateRepositoryCommand) logicalPlan;
+        command.validate();
+
+        Assertions.assertEquals(command.getProperties().size(), 3);
 
         List<Pair<String, Integer>> brokers = ImmutableList.of(Pair.of("127.0.0.1", 9999));
         Env.getCurrentEnv().getBrokerMgr().addBrokers("bos_broker", brokers);
 
-        Repository repositoryNew = getRepository(analyzedStmt, "bos_broker_repo");
+        Repository repositoryNew = getRepository(command, "bos_broker_repo");
         Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
     }
 

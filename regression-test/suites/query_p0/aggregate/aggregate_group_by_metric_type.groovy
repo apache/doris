@@ -37,11 +37,6 @@ suite("aggregate_group_by_metric_type") {
     }
 
     test {
-        sql "select user_ids from test_group_by_hll_and_bitmap order by user_ids"
-        exception "${error_msg}"
-    }
-
-    test {
         sql "select hll_set from test_group_by_hll_and_bitmap order by hll_set"
         exception "${error_msg}"
     }
@@ -69,28 +64,6 @@ suite("aggregate_group_by_metric_type") {
         exception "${error_msg}"
     }
     sql "DROP TABLE test_group_by_hll_and_bitmap"
-
-    sql "DROP TABLE IF EXISTS test_group_by_array"
-    sql """
-        CREATE TABLE IF NOT EXISTS test_group_by_array (id int, c_array array<int>) ENGINE=OLAP DUPLICATE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1 properties("replication_num" = "1");
-        """
-    sql "insert into test_group_by_array values(1, [1,2,3])"
-
-    test {
-        sql "select distinct c_array from test_group_by_array"
-        exception "${error_msg}"
-    }
-    test {
-        sql "select c_array from test_group_by_array order by c_array"
-        exception "${error_msg}"
-    }
-    test {
-        sql "select c_array,count(*) from test_group_by_array group by c_array"
-        exception "${error_msg}"
-    }
-
-    sql "DROP TABLE test_group_by_array"
 
     sql "DROP TABLE IF EXISTS test_group_by_struct"
 

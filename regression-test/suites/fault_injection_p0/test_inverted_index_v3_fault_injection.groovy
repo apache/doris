@@ -28,8 +28,7 @@ suite("test_inverted_index_v3_fault_injection", "nonConcurrent"){
       `request` text NULL COMMENT "",
       `status` int(11) NULL COMMENT "",
       `size` int(11) NULL COMMENT "",
-      INDEX clientip_idx (`clientip`) COMMENT '',
-      INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
+      INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true", "dict_compression" = "true") COMMENT ''
       ) ENGINE=OLAP
       DUPLICATE KEY(`@timestamp`)
       COMMENT "OLAP"

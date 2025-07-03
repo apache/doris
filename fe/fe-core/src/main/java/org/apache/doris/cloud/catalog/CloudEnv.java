@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.analysis.CreateStageStmt;
 import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Env;
@@ -325,15 +324,6 @@ public class CloudEnv extends Env {
 
     public boolean getEnableStorageVault() {
         return this.enableStorageVault;
-    }
-
-    public void createStage(CreateStageStmt stmt) throws DdlException {
-        if (Config.isNotCloudMode()) {
-            throw new DdlException("stage is only supported in cloud mode");
-        }
-        if (!stmt.isDryRun()) {
-            ((CloudInternalCatalog) getInternalCatalog()).createStage(stmt.toStageProto(), stmt.isIfNotExists());
-        }
     }
 
     public void createStage(CreateStageCommand command) throws DdlException {

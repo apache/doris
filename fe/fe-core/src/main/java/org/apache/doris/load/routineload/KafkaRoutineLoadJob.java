@@ -46,6 +46,7 @@ import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
@@ -677,6 +678,31 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> ret = new HashMap<>();
         customProperties.forEach((k, v) -> ret.put("property." + k, v));
         return ret;
+    }
+
+    @Override
+    public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
+        Map<String, String> jobProperties = command.getAnalyzedJobProperties();
+        KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
+        if (null != dataSourceProperties) {
+            // if the partition offset is set by timestamp, convert it to real offset
+            convertOffset(dataSourceProperties);
+        }
+
+        writeLock();
+        try {
+            if (getState() != JobState.PAUSED) {
+                throw new DdlException("Only supports modification of PAUSED jobs");
+            }
+
+            modifyPropertiesInternal(jobProperties, dataSourceProperties);
+
+            AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
+                    jobProperties, dataSourceProperties);
+            Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
+        } finally {
+            writeUnlock();
+        }
     }
 
     @Override

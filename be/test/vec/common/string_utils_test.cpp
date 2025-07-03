@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include "vec/functions/like.h"
+
 namespace doris::vectorized {
 
 class StringUtilsTest : public ::testing::Test {
@@ -213,6 +215,16 @@ TEST_F(StringUtilsTest, TestIsValidIdentifierBegin) {
         EXPECT_FALSE(is_valid_identifier_begin(static_cast<char>(c)))
                 << "Failed for character with code " << static_cast<int>(c);
     }
+}
+
+TEST_F(StringUtilsTest, replace_pattern_by_escape) {
+    EXPECT_EQ(replace_pattern_by_escape(StringRef {"abcdef"}, 'A'), "abcdef");
+    EXPECT_EQ(replace_pattern_by_escape(StringRef {"abc^%def"}, '^'), "abc\\%def");
+    EXPECT_EQ(replace_pattern_by_escape(StringRef {"abc^^ef"}, '^'), "abc^ef");
+    EXPECT_EQ(replace_pattern_by_escape(StringRef {"abc^^^ef"}, '^'), "abc^^ef");
+    EXPECT_EQ(replace_pattern_by_escape(StringRef {"abc^^^_ef"}, '^'), "abc^\\_ef");
+    EXPECT_EQ(replace_pattern_by_escape(StringRef {"abc^^^_^ef"}, '^'), "abc^\\_^ef");
+    EXPECT_EQ(replace_pattern_by_escape(StringRef {"\\abc^^^_^ef"}, '^'), "\\\\abc^\\_^ef");
 }
 
 } // namespace doris::vectorized
