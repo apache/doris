@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -188,9 +189,13 @@ public class JoinEstimation {
                         buildColStats = buildStats.findColumnStatistics(equal.right());
                     }
                     if (buildColStats != null) {
-                        double buildSel = Math.min(buildStats.getRowCount() / buildColStats.count, 1.0);
-                        buildSel = Math.max(buildSel, UNKNOWN_COL_STATS_FILTER_SEL_LOWER_BOUND);
-                        sel = Math.min(sel, buildSel);
+                        if (buildColStats.count == 0) {
+                            sel = 1;
+                        } else {
+                            double buildSel = Math.min(buildStats.getRowCount() / buildColStats.count, 1.0);
+                            buildSel = Math.max(buildSel, UNKNOWN_COL_STATS_FILTER_SEL_LOWER_BOUND);
+                            sel = Math.min(sel, buildSel);
+                        }
                     }
                 }
             }
@@ -359,11 +364,10 @@ public class JoinEstimation {
      * we estimate the numNulls as inner_join_rows - semi_join_rows
      */
     private static void updateNumNullsForOuterJoin(Statistics crossJoinStats, Statistics targetSide,
-                                            double innerJoinRowCount, double semiJoinRowCount) {
-        double numNulls = Math.max(1, innerJoinRowCount - semiJoinRowCount);
+                                                   double supplementNulls) {
         for (Map.Entry<Expression, ColumnStatistic> entry : targetSide.columnStatistics().entrySet()) {
             ColumnStatistic colStats = new ColumnStatisticBuilder(entry.getValue())
-                    .setNumNulls(numNulls)
+                    .setNumNulls(supplementNulls)
                     .build();
             crossJoinStats.addColumnStats(entry.getKey(), colStats);
         }
@@ -389,22 +393,32 @@ public class JoinEstimation {
             return innerJoinStats;
         } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
             double rowCount = Math.max(leftStats.getRowCount(), innerJoinStats.getRowCount());
-            Statistics semiStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, join);
-            updateNumNullsForOuterJoin(crossJoinStats, rightStats, rowCount, semiStats.getRowCount());
+            LogicalJoin leftSemi = ((LogicalJoin) join).withJoinType(JoinType.LEFT_SEMI_JOIN);
+            Statistics semiStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, leftSemi);
+            double supplementNull = Math.max(0, leftStats.getRowCount() - semiStats.getRowCount());
+            updateNumNullsForOuterJoin(crossJoinStats, rightStats, supplementNull);
             updateJoinConditionColumnStatistics(crossJoinStats, join);
             return crossJoinStats.withRowCountAndEnforceValid(rowCount);
         } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
             double rowCount = Math.max(rightStats.getRowCount(), innerJoinStats.getRowCount());
-            Statistics semiStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, join);
-            updateNumNullsForOuterJoin(crossJoinStats, leftStats, rowCount, semiStats.getRowCount());
+            LogicalJoin rightSemi = ((LogicalJoin) join).withJoinType(JoinType.RIGHT_SEMI_JOIN);
+            Statistics semiStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, rightSemi);
+            double supplementNull = Math.max(0, rightStats.getRowCount() - semiStats.getRowCount());
+            updateNumNullsForOuterJoin(crossJoinStats, leftStats, supplementNull);
             updateJoinConditionColumnStatistics(crossJoinStats, join);
             return crossJoinStats.withRowCountAndEnforceValid(rowCount);
         } else if (joinType == JoinType.FULL_OUTER_JOIN) {
             double rowCount = Math.max(leftStats.getRowCount(), innerJoinStats.getRowCount());
             rowCount = Math.max(rightStats.getRowCount(), rowCount);
-            Statistics semiStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, join);
-            updateNumNullsForOuterJoin(crossJoinStats, leftStats, rowCount, semiStats.getRowCount());
-            updateNumNullsForOuterJoin(crossJoinStats, rightStats, rowCount, semiStats.getRowCount());
+            LogicalJoin leftSemiJoin = ((LogicalJoin) join).withJoinType(JoinType.LEFT_SEMI_JOIN);
+            Statistics leftSemiStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, leftSemiJoin);
+            double supplementNullRight = Math.max(0, leftStats.getRowCount() - leftSemiStats.getRowCount());
+            updateNumNullsForOuterJoin(crossJoinStats, rightStats, supplementNullRight);
+
+            LogicalJoin rightSemiJoin = ((LogicalJoin) join).withJoinType(JoinType.RIGHT_SEMI_JOIN);
+            Statistics rightSemiStats = estimateSemiOrAnti(leftStats, leftStats, innerJoinStats, rightSemiJoin);
+            double supplementNullLeft = Math.max(0, rightStats.getRowCount() - rightSemiStats.getRowCount());
+            updateNumNullsForOuterJoin(crossJoinStats, rightStats, supplementNullLeft);
             updateJoinConditionColumnStatistics(crossJoinStats, join);
             return crossJoinStats.withRowCountAndEnforceValid(rowCount);
         } else if (joinType == JoinType.CROSS_JOIN) {
