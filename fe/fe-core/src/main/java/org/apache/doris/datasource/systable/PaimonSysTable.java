@@ -56,7 +56,7 @@ public class PaimonSysTable extends SysTable {
         this.tableName = tableName;
     }
 
-    public static List<PaimonSysTable> getSupportedIcebergSysTables() {
+    public static List<PaimonSysTable> getSupportedPaimonSysTables() {
         return SUPPORTED_PAIMON_SYS_TABLES;
     }
 
