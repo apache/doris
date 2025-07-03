@@ -37,7 +37,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
-public class HMSProperties extends AbstractHMSProperties{
+public class HMSProperties extends AbstractHMSProperties {
 
     @Getter
     @ConnectorProperty(names = {"hive.metastore.uris", "uri"},
@@ -87,13 +87,12 @@ public class HMSProperties extends AbstractHMSProperties{
     @ConnectorProperty(names = {"hive.enable_hms_events_incremental_sync"},
             required = false,
             description = "Whether to enable incremental sync of hms events.")
-    private String hmsEventsIncrementalSyncEnabledStr;
+    private boolean hmsEventsIncrementalSyncEnabledInput = Config.enable_hms_events_incremental_sync;
 
     @ConnectorProperty(names = {"hive.hms_events_batch_size_per_rpc"},
             required = false,
             description = "The batch size of hms events per rpc.")
-    private String hmsEventisBatchSizePerRpcString;
-
+    private int hmsEventisBatchSizePerRpcInput = Config.hms_events_batch_size_per_rpc;
 
 
     private Map<String, String> userOverriddenHiveConfig = new HashMap<>();
@@ -137,12 +136,8 @@ public class HMSProperties extends AbstractHMSProperties{
 
 
     private void initRefreshParams() {
-        if (StringUtils.isNotBlank(hmsEventsIncrementalSyncEnabledStr)) {
-            this.hmsEventsIncrementalSyncEnabled = BooleanUtils.toBoolean(hmsEventsIncrementalSyncEnabledStr);
-        }
-        if (StringUtils.isNotBlank(hmsEventisBatchSizePerRpcString)) {
-            this.hmsEventsBatchSizePerRpc = Integer.parseInt(hmsEventisBatchSizePerRpcString);
-        }
+        this.hmsEventsIncrementalSyncEnabled = BooleanUtils.toBoolean(hmsEventsIncrementalSyncEnabledInput);
+        this.hmsEventsBatchSizePerRpc = hmsEventisBatchSizePerRpcInput;
     }
 
     private void initHiveConf() {
@@ -180,7 +175,7 @@ public class HMSProperties extends AbstractHMSProperties{
                         hiveMetastoreClientPrincipal, hiveMetastoreClientKeytab},
                         "hive.metastore.client.principal and hive.metastore.client.keytab cannot be set when "
                                 + "hive.metastore.authentication.type is simple"
-                        )
+                )
                 .requireIf(hiveMetastoreAuthenticationType, "kerberos", new String[]{
                         hiveMetastoreClientPrincipal, hiveMetastoreClientKeytab},
                         "hive.metastore.client.principal and hive.metastore.client.keytab are required when "

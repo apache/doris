@@ -23,11 +23,8 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
-import org.apache.doris.common.security.authentication.SimpleAuthenticationConfig;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -40,7 +37,6 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.metastore.AbstractHMSProperties;
-import org.apache.doris.datasource.property.metastore.HMSProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemProviderImpl;
@@ -49,9 +45,7 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -103,29 +97,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return hmsProperties;
     }
 
-    private HiveConf getHiveConf() {
-        if (StringUtils.isNotBlank(catalogProperty.getProperties().get("hive.metastore.type"))) {
-            HiveConf hiveConf = new HiveConf();
-            for (Map.Entry<String, String> entry : catalogProperty.getHadoopProperties().entrySet()) {
-                hiveConf.set(entry.getKey(), entry.getValue());
-            }
-            return hiveConf;
-        }
-        return getHmsProperties().getHiveConf();
-    }
-
     private HadoopAuthenticator getHadoopAuthenticator() {
-        if (StringUtils.isNotBlank(catalogProperty.getProperties().get("hive.metastore.type"))) {
-            SimpleAuthenticationConfig authConfig = (SimpleAuthenticationConfig) AuthenticationConfig
-                    .getSimpleAuthenticationConfig(getHiveConf());
-            return new HadoopSimpleAuthenticator(authConfig);
-        }
         return getHmsProperties().getHdfsAuthenticator();
     }
 
     private void initHmsProperties() {
         try {
-            this.hmsProperties = (HMSProperties) MetastoreProperties.create(catalogProperty.getProperties());
+            this.hmsProperties = (AbstractHMSProperties) MetastoreProperties.create(catalogProperty.getProperties());
         } catch (UserException e) {
             throw new RuntimeException("Failed to create HMSProperties from catalog properties", e);
         }
@@ -142,7 +120,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                               String comment) {
         super(catalogId, name, InitCatalogLog.Type.HMS, comment);
-        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -212,7 +189,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         initHmsProperties();
         initPreExecutionAuthenticator();
-        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(getHiveConf(), this);
+        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hmsProperties.getHiveConf(), this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
                 ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE,

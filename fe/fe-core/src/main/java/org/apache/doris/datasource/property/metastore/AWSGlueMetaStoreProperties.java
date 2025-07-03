@@ -21,75 +21,43 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.collect.Maps;
 import lombok.Getter;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
-import java.util.regex.Pattern;
 
-public class AWSGlueMetaStoreProperties extends AWSGlueMetaStoreBaseProperties {
-    
+public class AWSGlueMetaStoreProperties extends MetastoreProperties {
+
+    private AWSGlueMetaStoreBaseProperties baseProperties;
 
     @ConnectorProperty(names = {"glue.catalog_id"},
             description = "The catalog id of the AWS Glue.",
             supported = false)
     private String glueCatalogId = "";
 
-
     public AWSGlueMetaStoreProperties(Map<String, String> origProps) {
         super(Type.GLUE, origProps);
     }
 
-    /**
-     * The pattern of the AWS Glue endpoint.
-     * FYI: https://docs.aws.amazon.com/general/latest/gr/glue.html#glue_region
-     * eg:
-     * glue.us-east-1.amazonaws.com↳
-     * <p>
-     * glue-fips.us-east-1.api.aws
-     * <p>
-     * glue-fips.us-east-1.amazonaws.com
-     * <p>
-     * glue.us-east-1.api.aws
-     */
-    private static final Pattern ENDPOINT_PATTERN = Pattern.compile(
-            "^(https?://)?(glue|glue-fips)\\.[a-z0-9-]+\\.(api\\.aws|amazonaws\\.com)$"
-    );
 
     @Override
-    protected void checkRequiredProperties() {
-        if (StringUtils.isBlank(glueAccessKey)
-                || StringUtils.isBlank(glueSecretKey)
-                || StringUtils.isBlank(glueEndpoint)) {
-            throw new IllegalArgumentException("AWS Glue properties(glue.access_key, glue.secret_key, glue.endpoint) "
-                    + "are not set correctly.");
-        }
-        checkGlueEndpoint();
+    protected void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        baseProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
+        baseProperties.check();
     }
 
-    private void checkGlueEndpoint() {
-        if (!ENDPOINT_PATTERN.matcher(glueEndpoint).matches()) {
-            throw new IllegalArgumentException("AWS Glue properties (glue.endpoint) are not set correctly: "
-                    + glueEndpoint);
-        }
-    }
 
     public AWSCatalogMetastoreClientCredentials getAWSCatalogMetastoreClientCredentials() {
-        return new AWSCatalogMetastoreClientCredentials(glueEndpoint, glueAccessKey, glueSecretKey);
+        return new AWSCatalogMetastoreClientCredentials(baseProperties.glueEndpoint, baseProperties.glueAccessKey,
+                baseProperties.glueSecretKey);
     }
 
     public void toIcebergGlueCatalogProperties(Map<String, String> catalogProps) {
         // See AwsClientProperties.java for property keys
         catalogProps.put("client.credentials-provider",
                 "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
-        catalogProps.put("client.credentials-provider.glue.access_key", glueAccessKey);
-        catalogProps.put("client.credentials-provider.glue.secret_key", glueSecretKey);
-        catalogProps.put("client.region", getRegionFromGlueEndpoint());
-    }
-
-    private String getRegionFromGlueEndpoint() {
-        // https://glue.ap-northeast-1.amazonaws.com
-        // -> ap-northeast-1
-        return glueEndpoint.split("\\.")[1];
+        catalogProps.put("client.credentials-provider.glue.access_key", baseProperties.glueAccessKey);
+        catalogProps.put("client.credentials-provider.glue.secret_key", baseProperties.glueSecretKey);
+        catalogProps.put("client.region", baseProperties.getRegionFromGlueEndpoint());
     }
 
     @Getter
