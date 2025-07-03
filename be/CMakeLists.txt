@@ -347,9 +347,9 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
 endif()
 
 if (ARCH_ARM)
-    add_compile_options(-march=armv8-a+crc)
+    add_compile_options(-march=${ARM_MARCH})
+    message(STATUS "ARM_MARCH is ${ARM_MARCH}")
 endif()
-#
 
 if (WITH_MYSQL)
     add_definitions(-DDORIS_WITH_MYSQL)
