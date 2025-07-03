@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "resource-manager/resource_manager.h"
 
 using namespace doris::cloud;
