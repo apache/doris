@@ -30,8 +30,8 @@
 #include "common/config.h"
 #include "common/stats.h"
 #include "cpp/sync_point.h"
-#include "meta-service/txn_kv.h"
 #include "meta-service/txn_lazy_committer.h"
+#include "meta-store/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
