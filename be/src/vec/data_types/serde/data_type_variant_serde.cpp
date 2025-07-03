@@ -218,10 +218,7 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
         if (cur_batch->notNull[row_id] == 1) {
             // avoid move the string data, use emplace_back to construct in place
             serialized_values.emplace_back();
-            if (!var->serialize_one_row_to_string(row_id, &serialized_values.back())) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                                       var->dump_structure());
-            }
+            RETURN_IF_ERROR(var->serialize_one_row_to_string(row_id, &serialized_values.back()));
             size_t len = serialized_values.back().length();
             total_size += len;
             valid_row_indices.push_back(row_id);
