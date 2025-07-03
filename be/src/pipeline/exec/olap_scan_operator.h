@@ -53,7 +53,6 @@ public:
     }
     Status hold_tablets();
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
 
 private:
