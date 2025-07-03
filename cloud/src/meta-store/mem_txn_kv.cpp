@@ -284,6 +284,13 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     return inner_get(begin_k, end_k, iter, snapshot, limit);
 }
 
+std::unique_ptr<cloud::FullRangeGetIterator> Transaction::full_range_get(
+        std::string_view begin, std::string_view end, cloud::FullRangeGetOptions opts) {
+    opts.txn = this;
+    opts.txn_kv.reset();
+    return kv_->full_range_get(std::string(begin), std::string(end), std::move(opts));
+}
+
 TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bool snapshot) {
     // Read your writes.
     auto it = writes_.find(key);

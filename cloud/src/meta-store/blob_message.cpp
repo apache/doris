@@ -109,7 +109,7 @@ TxnErrorCode ValueBuf::get(Transaction* txn, std::string_view key, bool snapshot
         int64_t suffix;
         if (decode_int64(&k, &suffix) != 0) [[unlikely]] {
             LOG_WARNING("failed to decode key").tag("key", hex(k));
-            return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+            return TxnErrorCode::TXN_INVALID_DATA;
         }
         ver = suffix >> 56 & 0xff;
     }
