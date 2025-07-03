@@ -3113,8 +3113,6 @@ bool DateV2Value<T>::datetime_trunc() {
         } else if constexpr (unit == YEAR) {
             date_v2_value_.day_ = 1;
             date_v2_value_.month_ = 1;
-        } else {
-            return false;
         }
     }
     return true;
