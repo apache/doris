@@ -22,18 +22,6 @@
 namespace doris::cloud {
 
 // clang-format off
-// Prefix
-static const char* INSTANCE_KEY_PREFIX = "instance";
-
-static const char* TXN_KEY_PREFIX      = "txn";
-static const char* VERSION_KEY_PREFIX  = "version";
-static const char* META_KEY_PREFIX     = "meta";
-static const char* RECYCLE_KEY_PREFIX  = "recycle";
-static const char* STATS_KEY_PREFIX    = "stats";
-static const char* JOB_KEY_PREFIX      = "job";
-static const char* COPY_KEY_PREFIX     = "copy";
-static const char* VAULT_KEY_PREFIX    = "storage_vault";
-
 // Infix
 static const char* TXN_KEY_INFIX_LABEL                  = "txn_label";
 static const char* TXN_KEY_INFIX_INFO                   = "txn_info";
