@@ -397,11 +397,6 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
         }
-        if (MaterializedViewUtils.containMaterializedViewHook(statementContext)
-                && MaterializedViewUtils.containTableQueryOperator(cascadesContext.getRewritePlan())) {
-            // if query used table operator, not rewrite by mv
-            MaterializedViewUtils.removeMaterializedViewHooks(statementContext);
-        }
     }
 
     /**
