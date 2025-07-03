@@ -2121,4 +2121,28 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
+
+TEST(FunctionJsonbTEST, JsonbToJson) {
+    std::string func_name = "to_json";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
+
+        DataSet data_set = {
+                {{Null()}, Null()},
+                {{UInt8(1)}, STRING("true")},
+                {{UInt8(0)}, STRING("false")},
+        };
+        static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+    }
+
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("to_json", {Nullable {PrimitiveType::TYPE_INT}},
+                                                {{{INT(1000000000)}, STRING("1000000000")}}));
+
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("to_json", {Nullable {PrimitiveType::TYPE_VARCHAR}},
+                                                {{{STRING("hello")}, STRING(R"("hello")")}}));
+}
+
 } // namespace doris::vectorized

@@ -19,6 +19,8 @@
 
 #include <string>
 
+#include "meta-store/versionstamp.h"
+
 namespace doris::cloud {
 
 struct EncodingTag {
@@ -27,6 +29,7 @@ struct EncodingTag {
         BYTES_TAG = 0x10,
         NEGATIVE_FIXED_INT_TAG = 0x11,
         POSITIVE_FIXED_INT_TAG = 0x12,
+        VERSIONSTAMP_TAG = 0x13,
     };
 
     // Magic value used for encoding
@@ -41,7 +44,7 @@ struct EncodingTag {
  * Encodes a byte sequence. Order is preserved.
  *
  * e.g.
- * 
+ *
  * 0xdead00beef => 0x10 dead 00ff beef 0001
  *
  * @param bytes byte sequence to encode
@@ -57,6 +60,29 @@ void encode_bytes(std::string_view bytes, std::string* b);
  * @return 0 for success otherwise error
  */
 int decode_bytes(std::string_view* in, std::string* out);
+
+/**
+ * Encodes a versionstamp.
+ * The versionstamp is encoded as a 10-byte array with a tag.
+ * The first byte is the tag (0x13 for versionstamp),
+ * followed by the 10 bytes of the versionstamp.
+ *
+ * @param vs The versionstamp to encode
+ * @param b Output string where the encoded versionstamp will be appended
+ * @return The index of the versionstamp in the buffer
+ */
+uint32_t encode_versionstamp(const Versionstamp& vs, std::string* b);
+
+/**
+ * Decodes a versionstamp.
+ * The input string must start with the versionstamp tag (0x13),
+ * followed by the 10 bytes of the versionstamp.
+ *
+ * @param in Input string view containing the encoded versionstamp
+ * @param vs Output versionstamp object where the decoded versionstamp will be stored
+ * @return 0 for success, otherwise error
+ */
+int decode_versionstamp(std::string_view* in, Versionstamp* vs);
 
 /**
  * Encodes int64 to 8-byte big endian

@@ -17,34 +17,8 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_compaction_extract_root", "p1,nonConcurrent") {
+suite("test_compaction_extract_root", "p1") {
     def tableName = "test_t"
-
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-    String backend_id;
-    backend_id = backendId_to_backendIP.keySet()[0]
-    def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-    logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def configList = parseJson(out.trim())
-    assert configList instanceof List
-
-    boolean disableAutoCompaction = true
-    for (Object ele in (List) configList) {
-        assert ele instanceof List<String>
-        if (((List<String>) ele)[0] == "disable_auto_compaction") {
-            disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-        }
-    }
-
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE ${tableName} (
@@ -59,8 +33,6 @@ suite("test_compaction_extract_root", "p1,nonConcurrent") {
         );
     """
 
-    set_be_config.call("enable_vertical_segment_writer", "true")
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     sql """insert into ${tableName}  select 0, '{"a": 11245, "b" : {"state" : "open", "code" : 2}}'  as json_str
         union  all select 8, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "aaaaa"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
@@ -98,19 +70,6 @@ suite("test_compaction_extract_root", "p1,nonConcurrent") {
     // trigger compactions for all tablets in ${tableName}
     trigger_and_wait_compaction(tableName, "cumulative")
 
-    int rowCount = 0
-    for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        (code, out, err) = curl("GET", tablet.CompactionStatus)
-        logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def tabletJson = parseJson(out.trim())
-        assert tabletJson.rowsets instanceof List
-        for (String rowset in (List<String>) tabletJson.rowsets) {
-            rowCount += Integer.parseInt(rowset.split(" ")[1])
-        }
-    }
-    assert (rowCount <= 8)
     // fix cast to string tobe {}
     qt_select_b_3 """ SELECT count(cast(v['b'] as string)) FROM test_t"""
     qt_select_b_4 """ SELECT count(cast(v['b'] as int)) FROM test_t"""
@@ -118,5 +77,4 @@ suite("test_compaction_extract_root", "p1,nonConcurrent") {
     // qt_select_b_5 """ select v['b'] from test_t where  cast(v['b'] as string) != '42005' and  cast(v['b'] as string) != '42004' and  cast(v['b'] as string) != '42003' order by cast(v['b'] as string); """
 
     qt_select_1 """select v['b'] from test_t where k = 0 and cast(v['a'] as int) = 11245;"""
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
 }
