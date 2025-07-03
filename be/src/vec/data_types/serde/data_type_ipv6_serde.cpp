@@ -213,8 +213,8 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             auto serialized_value = IPv6Value::to_string(col_data[row_id]);
-            serialized_values.push_back(serialized_value);
-            size_t len = serialized_values.back().size();
+            serialized_values.push_back(std::move(serialized_value));
+            size_t len = serialized_values.back().length();
             total_size += len;
             valid_row_indices.push_back(row_id);
         }

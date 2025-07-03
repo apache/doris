@@ -293,10 +293,11 @@ Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
     size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            char* buf[64];
-            size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id]).to_buffer(*buf);
+            char buf[64];
+            size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id]).to_buffer(buf);
             total_size += len;
-            serialized_values.emplace_back(*buf);
+            // avoid copy
+            serialized_values.emplace_back(buf, len);
             valid_row_indices.push_back(row_id);
         }
     }
