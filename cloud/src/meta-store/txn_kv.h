@@ -21,6 +21,7 @@
 #include <foundationdb/fdb_c_options.g.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -261,6 +262,11 @@ public:
     virtual size_t delete_bytes() const = 0;
 
     /**
+     * @brief return the bytes of the get values consumed.
+     **/
+    virtual size_t get_bytes() const = 0;
+
+    /**
      * @brief return the bytes of the put key and values consumed.
      **/
     virtual size_t put_bytes() const = 0;
@@ -312,6 +318,11 @@ public:
      * @return size
      */
     virtual int size() const = 0;
+
+    /**
+     * Get all FDBKeyValue's bytes.
+     */
+    virtual int64_t get_total_bytes() const = 0;
 
     /**
      * Get the remaining size of the range, some kinds of iterators may not support this function.
@@ -485,6 +496,14 @@ public:
 
     int size() const override { return kvs_size_; }
 
+    int64_t get_total_bytes() const override {
+        int64_t total_bytes_ {};
+        for (int i = 0; i < kvs_size_; i++) {
+            total_bytes_ += kvs_[i].key_length + kvs_[i].value_length;
+        }
+        return total_bytes_;
+    }
+
     int remaining() const override {
         if (idx_ < 0 || idx_ >= kvs_size_) return 0;
         return kvs_size_ - idx_;
@@ -613,6 +632,8 @@ public:
 
     size_t put_bytes() const override { return put_bytes_; }
 
+    size_t get_bytes() const override { return get_bytes_; }
+
 private:
     std::shared_ptr<Database> db_ {nullptr};
     bool commited_ = false;
@@ -623,6 +644,7 @@ private:
     size_t num_del_keys_ {0};
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};
+    size_t get_bytes_ {0};
     size_t put_bytes_ {0};
     size_t approximate_bytes_ {0};
 };

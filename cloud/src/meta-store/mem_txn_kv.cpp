@@ -23,10 +23,12 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <ostream>
 #include <string>
 
+#include "common/defer.h"
 #include "cpp/sync_point.h"
 #include "meta-store/txn_kv_error.h"
 #include "txn_kv.h"
@@ -255,6 +257,10 @@ void Transaction::put(std::string_view key, std::string_view val) {
 
 TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snapshot) {
     std::lock_guard<std::mutex> l(lock_);
+    val->clear();
+    DORIS_CLOUD_DEFER {
+        get_bytes_ += val->size();
+    };
     std::string k(key.data(), key.size());
     // the key set by atomic_xxx can't not be read before the txn is committed.
     // if it is read, the txn will not be able to commit.
@@ -349,6 +355,9 @@ TxnErrorCode Transaction::inner_get(const std::string& begin, const std::string&
     std::vector<std::pair<std::string, std::string>> kv_list(kv_map.begin(), kv_map.end());
     num_get_keys_ += kv_list.size();
     kv_->get_count_ += kv_list.size();
+    get_bytes_ += std::accumulate(kv_list.begin(), kv_list.end(), 0, [](auto init, auto it) {
+        return init + it.first.size() + it.second.size();
+    });
     *iter = std::make_unique<memkv::RangeGetIterator>(std::move(kv_list), more);
     return TxnErrorCode::TXN_OK;
 }
@@ -489,6 +498,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         }
         std::string val;
         auto ret = inner_get(k, &val, opts.snapshot);
+        get_bytes_ += val.size();
         ret == TxnErrorCode::TXN_OK ? res->push_back(val) : res->push_back(std::nullopt);
     }
     kv_->get_count_ += keys.size();

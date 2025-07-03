@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -204,6 +205,8 @@ public:
 
     size_t put_bytes() const override { return put_bytes_; }
 
+    size_t get_bytes() const override { return get_bytes_; }
+
 private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
 
@@ -230,6 +233,7 @@ private:
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};
     size_t put_bytes_ {0};
+    size_t get_bytes_ {0};
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {
@@ -260,6 +264,12 @@ public:
     int remaining() const override {
         if (idx_ < 0 || idx_ >= kvs_size_) return 0;
         return kvs_size_ - idx_;
+    }
+
+    int64_t get_total_bytes() const override {
+        return std::accumulate(kvs_.begin(), kvs_.end(), 0, [](auto init, auto it) {
+            return init + it.first.size() + it.second.size();
+        });
     }
 
     int size() const override { return kvs_size_; }

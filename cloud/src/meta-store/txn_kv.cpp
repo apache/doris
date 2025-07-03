@@ -407,6 +407,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
                      << " key=" << hex(key);
         return cast_as_txn_code(err);
     }
+    get_bytes_ += len;
 
     if (!found) return TxnErrorCode::TXN_KEY_NOT_FOUND;
     *val = std::string((char*)ret, len);
@@ -440,6 +441,7 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     std::unique_ptr<RangeGetIterator> ret(new RangeGetIterator(fut));
     RETURN_IF_ERROR(ret->init());
     num_get_keys_ += ret->size();
+    get_bytes_ += ret->get_total_bytes();
     g_bvar_txn_kv_get_count_normalized << ret->size();
 
     *(iter) = std::move(ret);
@@ -665,6 +667,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
                 res->push_back(std::nullopt);
                 continue;
             }
+            get_bytes_ += len;
             res->push_back(std::string((char*)ret, len));
         }
         futures.clear();
