@@ -214,7 +214,6 @@ public class MaterializedViewUtils {
             structInfoMap.refresh(ownerGroup, cascadesContext, new BitSet(), new HashSet<>(),
                     sessionVariable.isEnableMaterializedViewNestRewrite());
             structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
-
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
             ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
             if (!queryTableSets.isEmpty()) {
