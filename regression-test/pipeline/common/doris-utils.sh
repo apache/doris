@@ -220,7 +220,7 @@ function stop_doris_grace() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local ret=0
     local keywords="detected memory leak|undefined-behavior"
-    if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
+    if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
         echo "INFO: doris be stopped gracefully."
         echo "INFO: try to find keywords ${keywords} in be.out"
         if [[ -f "${DORIS_HOME}"/be/log/be.out ]]; then
@@ -235,7 +235,7 @@ function stop_doris_grace() {
     else
         echo "ERROR: doris be stop grace failed." && ret=1
     fi
-    if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
+    if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
         echo "INFO: doris fe stopped gracefully."
     else
         echo "ERROR: doris fe stop grace failed." && ret=1
