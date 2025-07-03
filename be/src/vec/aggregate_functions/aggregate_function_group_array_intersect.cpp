@@ -20,6 +20,8 @@
 
 #include "vec/aggregate_functions/aggregate_function_group_array_intersect.h"
 
+#include "vec/aggregate_functions/helpers.h"
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
@@ -48,42 +50,11 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
     const auto& nested_type = remove_nullable(
             dynamic_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
-    AggregateFunctionPtr res = nullptr;
+    AggregateFunctionPtr res =
+            creator_with_numeric_type::create<AggregateFunctionGroupArrayIntersect>(
+                    argument_types, result_is_nullable);
 
-    switch (nested_type->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_BOOLEAN>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_TINYINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_TINYINT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_SMALLINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_SMALLINT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_INT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_INT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_BIGINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_BIGINT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_LARGEINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_LARGEINT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_FLOAT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_FLOAT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_DOUBLE:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_DOUBLE>>(
-                argument_types, result_is_nullable);
-        break;
-    default:
+    if (!res) {
         res = AggregateFunctionPtr(create_with_extra_types(nested_type, argument_types));
     }
 
