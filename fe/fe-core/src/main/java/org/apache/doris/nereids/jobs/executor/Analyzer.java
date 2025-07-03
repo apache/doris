@@ -19,7 +19,7 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
-import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
@@ -49,6 +49,7 @@ import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
+import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
@@ -129,7 +130,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                     new NormalizeRepeat()
             ),
-            bottomUp(new AdjustAggregateNullableForEmptySet()),
             // consider sql with user defined var @t_zone
             // set @t_zone='GMT';
             // SELECT
@@ -182,7 +182,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(
                     // merge normal filter and hidden column filter
                     new MergeFilters()
-            )
+            ),
+            custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
         );
     }
 }

@@ -23,7 +23,6 @@ import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
@@ -271,8 +270,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new SimplifyEncodeDecode()
                         )
                 ),
-                // please note: this rule must run before NormalizeAggregate
-                topDown(new AdjustAggregateNullableForEmptySet()),
                 // The rule modification needs to be done after the subquery is unnested,
                 // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
                 // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
@@ -403,9 +400,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class),
                         topDown(
                                 new EliminateGroupBy(),
-                                new MergeAggregate(),
+                                new MergeAggregate()
                                 // need to adjust min/max/sum nullable attribute after merge aggregate
-                                new AdjustAggregateNullableForEmptySet()
                         )
                 ),
                 topic("Eager aggregation",

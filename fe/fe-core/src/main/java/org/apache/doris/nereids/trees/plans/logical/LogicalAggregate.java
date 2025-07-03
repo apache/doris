@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
+import org.apache.doris.nereids.trees.expressions.visitor.visitors.AdjustAggFuncNullableReplacer;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -146,7 +147,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressions = ImmutableList.copyOf(groupByExpressions);
-        this.outputExpressions = ImmutableList.copyOf(outputExpressions);
+        boolean noGroupby = groupByExpressions.isEmpty();
+        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
+        outputExpressions.forEach(output -> builder.add(
+                (NamedExpression) AdjustAggFuncNullableReplacer.INSTANCE.replace(output, noGroupby)));
+        this.outputExpressions = builder.build();
         this.normalized = normalized;
         this.ordinalIsResolved = ordinalIsResolved;
         this.generated = generated;
