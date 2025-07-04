@@ -356,7 +356,7 @@ public:
     void add_segments_file_size(const std::vector<size_t>& seg_file_size);
 
     // Return -1 if segment file size is unknown
-    int64_t segment_file_size(int seg_id);
+    int64_t segment_file_size(int seg_id) const;
 
     const auto& segments_file_size() const { return _rowset_meta_pb.segments_file_size(); }
 

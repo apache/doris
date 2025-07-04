@@ -1360,6 +1360,7 @@ struct TGetBinlogResult {
 
 struct TGetTabletReplicaInfosRequest {
     1: required list<i64> tablet_ids
+    2: optional i64 warm_up_job_id
 }
 
 struct TGetTabletReplicaInfosResult {
