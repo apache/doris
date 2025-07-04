@@ -23,10 +23,12 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <ostream>
 #include <string>
 
+#include "common/defer.h"
 #include "cpp/sync_point.h"
 #include "meta-store/txn_kv_error.h"
 #include "txn_kv.h"
@@ -249,12 +251,15 @@ void Transaction::put(std::string_view key, std::string_view val) {
     op_list_.emplace_back(ModifyOpType::PUT, k, v);
     ++num_put_keys_;
     kv_->put_count_++;
+    kv_->put_bytes_ += key.size() + val.size();
     put_bytes_ += key.size() + val.size();
     approximate_bytes_ += key.size() + val.size();
 }
 
 TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snapshot) {
     std::lock_guard<std::mutex> l(lock_);
+    num_get_keys_++;
+    kv_->get_count_++;
     std::string k(key.data(), key.size());
     // the key set by atomic_xxx can't not be read before the txn is committed.
     // if it is read, the txn will not be able to commit.
@@ -272,8 +277,6 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     RangeGetOptions options = opts;
     TEST_SYNC_POINT_CALLBACK("memkv::Transaction::get", &options.batch_limit);
     std::lock_guard<std::mutex> l(lock_);
-    num_get_keys_++;
-    kv_->get_count_++;
     std::string begin_k(begin.data(), begin.size());
     std::string end_k(end.data(), end.size());
     // TODO: figure out what happen if range_get has part of unreadable_keys
@@ -311,6 +314,8 @@ TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bo
             return TxnErrorCode::TXN_KEY_NOT_FOUND;
         }
     }
+    get_bytes_ += val->size();
+    kv_->get_bytes_ += val->size();
     return TxnErrorCode::TXN_OK;
 }
 
@@ -359,6 +364,10 @@ TxnErrorCode Transaction::inner_get(const std::string& begin, const std::string&
     std::vector<std::pair<std::string, std::string>> kv_list(kv_map.begin(), kv_map.end());
     num_get_keys_ += kv_list.size();
     kv_->get_count_ += kv_list.size();
+    for (auto& [k, v] : kv_list) {
+        get_bytes_ += k.size() + v.size();
+        kv_->get_bytes_ += k.size() + v.size();
+    }
     *iter = std::make_unique<memkv::RangeGetIterator>(std::move(kv_list), more);
     return TxnErrorCode::TXN_OK;
 }
@@ -372,6 +381,7 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_KEY, k, v);
 
     ++num_put_keys_;
+    kv_->put_bytes_ += key_prefix.size() + val.size();
     put_bytes_ += key_prefix.size() + val.size();
     approximate_bytes_ += key_prefix.size() + val.size();
 }
@@ -385,6 +395,7 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_VAL, k, v);
 
     ++num_put_keys_;
+    kv_->put_bytes_ += key.size() + value.size();
     put_bytes_ += key.size() + value.size();
     approximate_bytes_ += key.size() + value.size();
 }
@@ -399,6 +410,7 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
 
     ++num_put_keys_;
     put_bytes_ += key.size() + 8;
+    kv_->put_bytes_ += key.size() + 8;
     approximate_bytes_ += key.size() + 8;
 }
 
@@ -422,6 +434,7 @@ void Transaction::remove(std::string_view key) {
     op_list_.emplace_back(ModifyOpType::REMOVE, k, "");
 
     ++num_del_keys_;
+    kv_->del_bytes_ += key.size();
     delete_bytes_ += key.size();
     approximate_bytes_ += key.size();
 }
@@ -443,6 +456,7 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
     kv_->del_count_ += 2;
     // same as normal txn
     num_del_keys_ += 2;
+    kv_->del_bytes_ += begin.size() + end.size();
     delete_bytes_ += begin.size() + end.size();
     approximate_bytes_ += begin.size() + end.size();
 }
@@ -499,6 +513,8 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         }
         std::string val;
         auto ret = inner_get(k, &val, opts.snapshot);
+        get_bytes_ += val.size();
+        kv_->get_bytes_ += val.size();
         ret == TxnErrorCode::TXN_OK ? res->push_back(val) : res->push_back(std::nullopt);
     }
     kv_->get_count_ += keys.size();
