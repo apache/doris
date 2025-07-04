@@ -195,8 +195,8 @@ int Checker::start() {
                 }
             }
 
-            if (config::enable_mow_compaction_key_check) {
-                if (int ret = checker->do_mow_compaction_key_check(); ret != 0) {
+            if (config::enable_mow_job_key_check) {
+                if (int ret = checker->do_mow_job_key_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -1573,11 +1573,11 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check(int version) {
     return (failed_tablets_num > 0) ? 1 : 0;
 }
 
-int InstanceChecker::do_mow_compaction_key_check() {
+int InstanceChecker::do_mow_job_key_check() {
     std::unique_ptr<RangeGetIterator> it;
-    std::string begin = mow_tablet_compaction_key({instance_id_, 0, 0});
-    std::string end = mow_tablet_compaction_key({instance_id_, INT64_MAX, 0});
-    MowTabletCompactionPB mow_tablet_compaction;
+    std::string begin = mow_tablet_job_key({instance_id_, 0, 0});
+    std::string end = mow_tablet_job_key({instance_id_, INT64_MAX, 0});
+    MowTabletJobPB mow_tablet_job;
     do {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -1587,7 +1587,7 @@ int InstanceChecker::do_mow_compaction_key_check() {
         }
         err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get mow tablet compaction key, err=" << err;
+            LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
             return -1;
         }
         int64_t now = duration_cast<std::chrono::seconds>(
@@ -1599,18 +1599,18 @@ int InstanceChecker::do_mow_compaction_key_check() {
             k1.remove_prefix(1);
             std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
             decode_key(&k1, &out);
-            // 0x01 "meta" ${instance_id} "mow_tablet_comp" ${table_id} ${initiator}
+            // 0x01 "meta" ${instance_id} "mow_tablet_job" ${table_id} ${initiator}
             auto table_id = std::get<int64_t>(std::get<0>(out[3]));
             auto initiator = std::get<int64_t>(std::get<0>(out[4]));
-            if (!mow_tablet_compaction.ParseFromArray(v.data(), v.size())) [[unlikely]] {
-                LOG(WARNING) << "failed to parse MowTabletCompactionPB";
+            if (!mow_tablet_job.ParseFromArray(v.data(), v.size())) [[unlikely]] {
+                LOG(WARNING) << "failed to parse MowTabletJobPB";
                 return -1;
             }
-            int64_t expiration = mow_tablet_compaction.expiration();
-            //check compaction key failed should meet both following two condition:
-            //1.compaction key is expired
-            //2.table lock key is not found or key is not expired
-            if (expiration < now - config::compaction_key_check_expiration_diff_seconds) {
+            int64_t expiration = mow_tablet_job.expiration();
+            // check job key failed should meet both following two condition:
+            // 1. job key is expired
+            // 2. table lock key is not found or key is not expired
+            if (expiration < now - config::mow_job_key_check_expiration_diff_seconds) {
                 std::string lock_key =
                         meta_delete_bitmap_update_lock_key({instance_id_, table_id, -1});
                 std::string lock_val;
@@ -1632,7 +1632,7 @@ int InstanceChecker::do_mow_compaction_key_check() {
                 }
                 if (reason != "") {
                     LOG(WARNING) << fmt::format(
-                            "[compaction key check fails] compaction key check fail for "
+                            "[compaction key check fails] mow job key check fail for "
                             "instance_id={}, table_id={}, initiator={}, expiration={}, now={}, "
                             "reason={}",
                             instance_id_, table_id, initiator, expiration, now, reason);
