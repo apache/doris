@@ -90,7 +90,7 @@ private:
         RuntimeState state;
         state.set_desc_tbl(desc_tbl);
         status = context->prepare(&state, row_desc);
-        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok()) << status.to_string();
 
         // build search argument
         auto sarg_builder = orc::SearchArgumentFactory::newBuilder();
