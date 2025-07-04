@@ -38,7 +38,7 @@ suite('multi_distinct_window') {
 
     qt_sum "select id, v1, sum(distinct v1) over() from multi order by id;"
 
-    qt_sum_partition "select id, v1, sum(distinct v1) over(partition by id) from multi orde by id;"
+    qt_sum_partition "select id, v1, sum(distinct v1) over(partition by id) from multi order by id;"
 
     qt_distinct_group_concat "select id, v1, group_concat(distinct v2) over() from multi order by id;"
 
