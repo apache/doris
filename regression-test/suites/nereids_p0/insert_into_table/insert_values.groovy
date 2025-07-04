@@ -160,4 +160,21 @@ suite('nereids_insert_into_values') {
         """
 
     qt_select_test_insert_cast_interval "select * from test_insert_cast_interval"
+
+    multi_sql """
+        drop table if exists test_insert_more_string;
+        CREATE TABLE test_insert_more_string (
+            `r_regionkey` int NULL,
+            `r_name` varchar(25) NULL,
+            `r_comment` varchar(152) NULL
+        )
+        DUPLICATE KEY(`r_regionkey`)
+        DISTRIBUTED BY HASH(`r_regionkey`)
+        BUCKETS 1 PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        insert into test_insert_more_string values (3, "akljalkjbalkjsldkrjewokjfalksdjflaksjfdlaskjfalsdkfjalsdfjkasfdl", "aa")
+        """
+
+    qt_select_test_insert_more_string "select * from test_insert_more_string"
 }
