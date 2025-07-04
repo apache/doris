@@ -160,7 +160,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     // exponential moving average
-    private static long ema(ArrayList<Long> history, int period) {
+    private static long ema(List<Long> history, int period) {
         double alpha = 2.0 / (period + 1);
         double ema = history.get(0);
         for (int i = 1; i < history.size(); i++) {
@@ -169,7 +169,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return (long) ema;
     }
 
-    private static long getNextPartitionSize(ArrayList<Long> historyPartitionsSize) {
+    private static long getNextPartitionSize(List<Long> historyPartitionsSize) {
         if (historyPartitionsSize.size() < 2) {
             return historyPartitionsSize.get(0);
         }
@@ -199,46 +199,63 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             return Pair.of(property.getBuckets(), 0);
         }
 
-        // auto bucket
-        // get all history partitions
+        List<Partition> partitions = getHistoricalPartitions(table, nowPartitionName);
+        List<Long> visibleVersions = getVisibleVersions(partitions, table, partitionName, property.getBuckets());
+
+        List<Partition> hasDataPartitions = filterDataPartitions(partitions, visibleVersions);
+        if (hasDataPartitions.isEmpty()) {
+            return handleNoDataPartitions(table, partitionName, property.getBuckets());
+        }
+
+        return calculateBuckets(hasDataPartitions);
+    }
+
+    private static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName) {
         RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
-        List<Partition> partitions = idToItems.stream()
+        return idToItems.stream()
                 .map(entry -> table.getPartition(entry.getKey()))
                 .filter(partition -> partition != null && !partition.getName().equals(nowPartitionName))
                 .collect(Collectors.toList());
-        List<Long> visibleVersions = null;
-        try {
-            visibleVersions = Partition.getVisibleVersions(partitions);
-        } catch (RpcException e) {
-            LOG.warn("autobucket use property's buckets get visible version fail, table: [{}-{}], "
-                    + "partition: {}, buckets num: {}, exception: ",
-                    table.getName(), table.getId(), partitionName, property.getBuckets(), e);
-            return Pair.of(property.getBuckets(), 0);
-        }
+    }
 
-        List<Partition> hasDataPartitions = Lists.newArrayList();
+    private static List<Long> getVisibleVersions(List<Partition> partitions, OlapTable table,
+                                                 String partitionName, int defaultBuckets) {
+        try {
+            return Partition.getVisibleVersions(partitions);
+        } catch (RpcException e) {
+            LOG.warn("auto bucket use property's buckets get visible version fail, table: [{}-{}], "
+                    + "partition: {}, buckets num: {}, exception: ",
+                    table.getName(), table.getId(), partitionName, defaultBuckets, e);
+            return Collections.emptyList(); // Return empty list to indicate failure
+        }
+    }
+
+    private static List<Partition> filterDataPartitions(List<Partition> partitions, List<Long> visibleVersions) {
+        List<Partition> hasDataPartitions = new ArrayList<>();
         for (int i = 0; i < partitions.size(); i++) {
             if (visibleVersions.get(i) >= 2) {
                 hasDataPartitions.add(partitions.get(i));
             }
         }
+        return hasDataPartitions;
+    }
 
-        // no exist history partition data
-        if (hasDataPartitions.isEmpty()) {
-            LOG.info("auto bucket use property's buckets due to all partitions no data, table: [{}-{}], "
-                    + "partition: {}, buckets num: {}",
-                    table.getName(), table.getId(), partitionName, property.getBuckets());
-            return Pair.of(property.getBuckets(), 0);
-        }
+    private static Pair<Integer, Integer> handleNoDataPartitions(OlapTable table,
+                                                                 String partitionName, int defaultBuckets) {
+        LOG.info("auto bucket use property's buckets due to all partitions no data, table: [{}-{}], "
+                + "partition: {}, buckets num: {}", table.getName(), table.getId(), partitionName, defaultBuckets);
+        return Pair.of(defaultBuckets, 0);
+    }
 
-        ArrayList<Long> partitionSizeArray = new ArrayList<>();
-        ArrayList<Long> sizeUnknownArray = new ArrayList<>();
+    private static Pair<Integer, Integer> calculateBuckets(List<Partition> hasDataPartitions) {
+        List<Long> partitionSizeArray = new ArrayList<>();
+        List<Long> sizeUnknownArray = new ArrayList<>();
+
         for (Partition hasDataPartition : hasDataPartitions) {
             long partitionSize = hasDataPartition.getDataSizeExcludeEmptyReplica(true);
             if (partitionSize == 0) {
-                // fe may restart, TabletStatMgr thread not get replica size
                 sizeUnknownArray.add(partitionSize);
             } else {
                 partitionSizeArray.add(partitionSize);
@@ -248,26 +265,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         int size = hasDataPartitions.size();
         Preconditions.checkState(size > 0, "hasDataPartitions size must be greater than 0");
         int previousPartitionBucketsNum = hasDataPartitions.get(size - 1).getDistributionInfo().getBucketNum();
+
         if (hasDataPartitions.size() == sizeUnknownArray.size()) {
-            // this table all partitions size Not synchronized yet
-            // bucket num is previous partition
             LOG.info("TabletStatMgr not synchronized partitions size yet, so use previous partition bucket num");
             return Pair.of(previousPartitionBucketsNum, previousPartitionBucketsNum);
         }
-        // ATTN: The following two scenarios both use auto bucket to calculate the bucket logic:
-        // 1. hasDataPartitions.size == partitionSizeArray.size, TabletStatMgr has get all partition size
-        // 2. partitionSizeArray.size < hasDataPartitions.size, TabletStatMgr thread synchronizes some size data
 
         long estimatePartitionSize = getNextPartitionSize(partitionSizeArray);
-        // plus 5 for uncompressed data
         long uncompressedPartitionSize = estimatePartitionSize * 5;
         int bucketsNum = AutoBucketUtils.getBucketsNum(uncompressedPartitionSize, Config.autobucket_min_buckets);
-        LOG.info("autobucket calc with {} history partitions, {} history partitions size not sync size yet,"
-                + " table: [{}-{}], partition: {}, buckets num: {}, "
-                + " estimate partition size: {}, last partitions(partition name, local size, remote size): {}",
-                sizeUnknownArray.size(), hasDataPartitions.size(),
-                table.getName(), table.getId(), partitionName, bucketsNum,
-                estimatePartitionSize,
+
+        LOG.info("auto bucket calc with {} history partitions, {} history partitions size not sync size yet,"
+                + " buckets num: {}, estimate partition size: {}, last partitions: {}",
+                hasDataPartitions.size(), sizeUnknownArray.size(), bucketsNum, estimatePartitionSize,
                 hasDataPartitions.stream()
                         .skip(Math.max(0, hasDataPartitions.size() - 7))
                         .map(partition -> "(" + partition.getName() + ", " + partition.getDataSize(true)
