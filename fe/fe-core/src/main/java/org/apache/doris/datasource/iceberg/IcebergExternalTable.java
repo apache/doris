@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
@@ -102,6 +103,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
     }
 
+    // refresh table after altered
+    private void refreshTable() throws DdlException {
+        
+        Env.getCurrentEnv().getRefreshManager().refreshTable(getCatalog().getName(),
+                getDbName(), getName(), false);
+    }
+
     private void addOneColumn(UpdateSchema updateSchema, Column column) {
         org.apache.iceberg.types.Type dorisType = IcebergUtils.dorisTypeToIcebergType(column.getType());
         Literal<?> defaultValue = IcebergUtils.parseIcebergLiteral(column.getDefaultValue(), dorisType);
@@ -125,6 +133,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             throw new DdlException("Failed to add column: " + column.getName() + " to table: " + getName()
                     + ", error message is: " + e.getMessage(), e);
         }
+        refreshTable();
     }
 
     @Override
@@ -142,6 +151,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             throw new DdlException("Failed to add columns to table: " + getName()
                     + ", error message is: " + e.getMessage(), e);
         }
+        refreshTable();
     }
 
     @Override
@@ -156,6 +166,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             throw new DdlException("Failed to drop column: " + name + " from table: " + getName()
                     + ", error message is: " + e.getMessage(), e);
         }
+        refreshTable();
     }
 
     @Override
@@ -170,6 +181,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             throw new DdlException("Failed to rename column: " + oldName + " to: " + newName
                     + " in table: " + getName() + ", error message is: " + e.getMessage(), e);
         }
+        refreshTable();
     }
 
     @Override
@@ -189,6 +201,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             throw new DdlException("Failed to update column: " + column.getName() + " to type: " + icebergType
                     + " in table: " + getName() + ", error message is: " + e.getMessage(), e);
         }
+        refreshTable();
     }
 
     @Override
@@ -211,6 +224,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             throw new DdlException("Failed to reorder columns in table: " + getName()
                     + ", error message is: " + e.getMessage(), e);
         }
+        refreshTable();
     }
 
     @Override
