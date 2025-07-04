@@ -1592,7 +1592,7 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto& rowset : pre_rowsets) {
         for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
-            auto d = tablet_meta()->delete_bitmap().get_agg_without_cache(
+            auto d = tablet_meta()->delete_bitmap()->get_agg_without_cache(
                     {rowset->rowset_id(), seg_id, end_version}, start_version);
             if (d->isEmpty()) {
                 continue;
@@ -1608,7 +1608,7 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
             remove_delete_bitmap_key_ranges.emplace_back(start_key, end_key);
         }
     }
-    tablet_meta()->delete_bitmap().merge(*new_delete_bitmap);
+    tablet_meta()->delete_bitmap()->merge(*new_delete_bitmap);
 }
 
 void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rowset_count,
@@ -1625,7 +1625,7 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
     std::set<RowsetId> useless_rowsets;
     std::map<RowsetId, std::vector<int64_t>> useless_rowset_versions;
     {
-        _tablet_meta->delete_bitmap().traverse_rowset_and_version(
+        _tablet_meta->delete_bitmap()->traverse_rowset_and_version(
                 // 0: rowset and rowset with version exists
                 // -1: rowset does not exist
                 // -2: rowset exist, rowset with version does not exist

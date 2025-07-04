@@ -606,7 +606,7 @@ void CloudTablet::remove_unused_rowsets() {
             continue;
         }
         auto& key_ranges = std::get<1>(*it);
-        tablet_meta()->delete_bitmap().remove(key_ranges);
+        tablet_meta()->delete_bitmap()->remove(key_ranges);
         it = _unused_delete_bitmap.erase(it);
         removed_delete_bitmap_num++;
     }
@@ -1166,7 +1166,7 @@ void CloudTablet::agg_delete_bitmap_for_compaction(
         std::map<std::string, int64_t>& pre_rowset_to_versions) {
     for (auto& rowset : pre_rowsets) {
         for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
-            auto d = tablet_meta()->delete_bitmap().get_agg_without_cache(
+            auto d = tablet_meta()->delete_bitmap()->get_agg_without_cache(
                     {rowset->rowset_id(), seg_id, end_version}, start_version);
             if (d->isEmpty()) {
                 continue;

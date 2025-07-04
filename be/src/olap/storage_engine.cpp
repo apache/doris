@@ -1257,7 +1257,7 @@ void StorageEngine::start_delete_unused_rowset() {
                 ++it;
                 continue;
             }
-            tablet->tablet_meta()->delete_bitmap().remove(key_ranges);
+            tablet->tablet_meta()->delete_bitmap()->remove(key_ranges);
             tablets_to_save_meta.emplace(tablet_id);
             it = _unused_delete_bitmap.erase(it);
         }
