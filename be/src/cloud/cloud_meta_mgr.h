@@ -18,6 +18,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <future>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -50,7 +51,13 @@ class TabletIndexPB;
 using StorageVaultInfos = std::vector<
         std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
 
+// run tasks in bthread with concurrency and wait until all tasks done
+// it stops running tasks if there are any tasks return !ok, leaving some tasks untouched
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency);
+
+// An async wrap of `bthread_fork_join` declared previously using promise-future
+void bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency,
+                       std::future<Status>* fut);
 
 class CloudMetaMgr {
 public:
