@@ -436,9 +436,6 @@ public class Alter {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
             }
         }
-        // refresh table after altered
-        Env.getCurrentEnv().getRefreshManager().refreshTable(table.getCatalog().getName(),
-                table.getDbName(), table.getName(), false);
     }
 
     private boolean needChangeMTMVState(List<AlterClause> alterClauses) {
