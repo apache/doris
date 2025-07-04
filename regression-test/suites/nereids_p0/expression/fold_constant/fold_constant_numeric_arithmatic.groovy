@@ -244,6 +244,17 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT COSH(709.782712893384)") // Near overflow boundary
     testFoldConst("SELECT COSH(-709.782712893384)") // Near negative overflow boundary
 
+//Cot function cases
+    testFoldConst("SELECT COT(PI()) AS cot_case_1") //cot(π) = null
+    testFoldConst("SELECT COT(0) AS cot_case_2") //cot(0) = null
+    testFoldConst("SELECT COT(PI()/2) AS cot_case_3") //cot(π/2)
+    testFoldConst("SELECT COT(PI()/4)")
+    testFoldConst("SELECT COT(PI()/6)")
+    testFoldConst("SELECT COT(-PI())") // Negative PI
+    testFoldConst("SELECT COT(1E-308)") // Very small number
+    testFoldConst("SELECT COT(-1E-308)") // Very small negative number
+    testFoldConst("SELECT COT(NULL)") // NULL handling
+
 //CountEqual function cases
     testFoldConst("SELECT COUNT(CASE WHEN 5 = 5 THEN 1 END) AS countequal_case_1") //1 (true)
     testFoldConst("SELECT COUNT(CASE WHEN 5 = 3 THEN 1 END) AS countequal_case_2") //0 (false)
