@@ -258,13 +258,8 @@ void Transaction::put(std::string_view key, std::string_view val) {
 
 TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snapshot) {
     std::lock_guard<std::mutex> l(lock_);
-    val->clear();
-    DORIS_CLOUD_DEFER {
-        num_get_keys_++;
-        kv_->get_count_++;
-        get_bytes_ += val->size();
-        kv_->get_bytes_ += val->size();
-    };
+    num_get_keys_++;
+    kv_->get_count_++;
     std::string k(key.data(), key.size());
     // the key set by atomic_xxx can't not be read before the txn is committed.
     // if it is read, the txn will not be able to commit.
@@ -319,6 +314,8 @@ TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bo
             return TxnErrorCode::TXN_KEY_NOT_FOUND;
         }
     }
+    get_bytes_ += val->size();
+    kv_->get_bytes_ += val->size();
     return TxnErrorCode::TXN_OK;
 }
 
