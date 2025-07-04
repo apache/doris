@@ -20,6 +20,7 @@
 #include <gen_cpp/AgentService_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -39,9 +40,11 @@
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset_builder.h"
 #include "olap/schema.h"
@@ -55,7 +58,10 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "testutil/desc_tbl_builder.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_struct.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -1047,4 +1053,195 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
 }
+
+TEST_F(TestDeltaWriter, write_sigle_block_statistics_segment_meta_pb) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
+    TCreateTabletReq request;
+    create_tablet_request(10010, 270068330, &request);
+    Status res = engine_ref->create_tablet(request, profile.get());
+    EXPECT_EQ(Status::OK(), res);
+
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet();
+    ObjectPool obj_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
+    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    auto param = std::make_shared<OlapTableSchemaParam>();
+
+    PUniqueId load_id;
+    load_id.set_hi(0);
+    load_id.set_lo(0);
+    WriteRequest write_req;
+    write_req.tablet_id = 10010;
+    write_req.schema_hash = 270068330;
+    write_req.txn_id = 20002;
+    write_req.partition_id = 30003;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = true;
+    write_req.table_schema_param = param;
+
+    // test vec delta writer
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
+    EXPECT_NE(delta_writer, nullptr);
+
+    vectorized::Block block;
+    for (const auto& slot_desc : tuple_desc->slots()) {
+        block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
+                                                       slot_desc->type(), slot_desc->col_name()));
+    }
+
+    auto columns = block.mutate_columns();
+    {
+        int8_t k1 = -127;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+
+        int16_t k2 = -32767;
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+
+        int32_t k3 = -2147483647;
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        int64_t k4 = -9223372036854775807L;
+        columns[3]->insert_data((const char*)&k4, sizeof(k4));
+
+        int128_t k5 = -90000;
+        columns[4]->insert_data((const char*)&k5, sizeof(k5));
+
+        VecDateTimeValue k6;
+        k6.from_date_str("2048-11-10", 10);
+        auto k6_int = k6.to_int64();
+        columns[5]->insert_data((const char*)&k6_int, sizeof(k6_int));
+
+        VecDateTimeValue k7;
+        k7.from_date_str("2636-08-16 19:39:43", 19);
+        auto k7_int = k7.to_int64();
+        columns[6]->insert_data((const char*)&k7_int, sizeof(k7_int));
+
+        columns[7]->insert_data("abcd", 4);
+        columns[8]->insert_data("abcde", 5);
+
+        DecimalV2Value decimal_value;
+        decimal_value.assign_from_double(1.1);
+        columns[9]->insert_data((const char*)&decimal_value, sizeof(decimal_value));
+
+        DateV2Value<DateV2ValueType> date_v2;
+        date_v2.from_date_str("2048-11-10", 10);
+        auto date_v2_int = date_v2.to_date_int_val();
+        columns[10]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
+
+        int8_t v1 = -127;
+        columns[11]->insert_data((const char*)&v1, sizeof(v1));
+
+        int16_t v2 = -32767;
+        columns[12]->insert_data((const char*)&v2, sizeof(v2));
+
+        int32_t v3 = -2147483647;
+        columns[13]->insert_data((const char*)&v3, sizeof(v3));
+
+        int64_t v4 = -9223372036854775807L;
+        columns[14]->insert_data((const char*)&v4, sizeof(v4));
+
+        int128_t v5 = -90000;
+        columns[15]->insert_data((const char*)&v5, sizeof(v5));
+
+        VecDateTimeValue v6;
+        v6.from_date_str("2048-11-10", 10);
+        auto v6_int = v6.to_int64();
+        columns[16]->insert_data((const char*)&v6_int, sizeof(v6_int));
+
+        VecDateTimeValue v7;
+        v7.from_date_str("2636-08-16 19:39:43", 19);
+        auto v7_int = v7.to_int64();
+        columns[17]->insert_data((const char*)&v7_int, sizeof(v7_int));
+
+        columns[18]->insert_data("abcd", 4);
+        columns[19]->insert_data("abcde", 5);
+
+        decimal_value.assign_from_double(1.1);
+        columns[20]->insert_data((const char*)&decimal_value, sizeof(decimal_value));
+
+        date_v2.from_date_str("2048-11-10", 10);
+        date_v2_int = date_v2.to_date_int_val();
+        columns[21]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
+
+        res = delta_writer->write(&block, {0});
+        ASSERT_TRUE(res.ok());
+    }
+
+    res = delta_writer->close();
+    EXPECT_EQ(Status::OK(), res);
+    res = delta_writer->build_rowset();
+    EXPECT_EQ(Status::OK(), res);
+    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    EXPECT_EQ(Status::OK(), res);
+
+    // publish version success
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
+    std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
+    OlapMeta* meta = tablet->data_dir()->get_meta();
+    Version version;
+    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
+    std::cout << "start to add rowset version:" << version.first << "-" << version.second
+              << std::endl;
+    std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
+    engine_ref->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
+                                                       &tablet_related_rs);
+    for (auto& tablet_rs : tablet_related_rs) {
+        std::cout << "start to publish txn" << std::endl;
+        RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+        res = engine_ref->txn_manager()->publish_txn(
+                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
+                tablet_rs.first.tablet_uid, version, &stats, extend_tablet_txn_info_lifetime);
+        ASSERT_TRUE(res.ok());
+        std::cout << "start to add inc rowset:" << rowset->rowset_id()
+                  << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
+                  << "-" << rowset->version().second << std::endl;
+        res = tablet->add_inc_rowset(rowset);
+        ASSERT_TRUE(res.ok());
+    }
+    ASSERT_EQ(1, tablet->num_rows());
+
+    std::vector<RowsetSharedPtr> all_rowsets;
+    res = tablet->capture_consistent_rowsets_unlocked(
+            Version(0, tablet->get_rowset_with_max_version()->end_version()), &all_rowsets);
+    EXPECT_EQ(Status::OK(), res);
+
+    auto total_column_data_size = 0;
+    auto total_segoemt_data_footprint = 0;
+
+    for (auto& rs : all_rowsets) {
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        Status res = ((BetaRowset*)rs.get())->load_segments(&segments);
+
+        for (const auto& segment : segments) {
+            std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+
+            res = segment->get_segment_footer(footer_pb_shared, nullptr);
+            EXPECT_EQ(Status::OK(), res);
+
+            auto seg_footprint = footer_pb_shared->data_footprint();
+
+            for (const auto& column : footer_pb_shared->columns()) {
+                auto column_data_size = column.estimate_total_data_size();
+                total_column_data_size += column_data_size;
+            }
+
+            total_segoemt_data_footprint += seg_footprint;
+        }
+    }
+
+    EXPECT_EQ(total_column_data_size, total_segoemt_data_footprint);
+
+    res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
+    EXPECT_EQ(Status::OK(), res);
+}
+
 } // namespace doris
