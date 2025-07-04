@@ -29,8 +29,8 @@
 #include <vector>
 
 #include "common/util.h"
-#include "meta-service/codec.h"
-#include "meta-service/keys.h"
+#include "meta-store/codec.h"
+#include "meta-store/keys.h"
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

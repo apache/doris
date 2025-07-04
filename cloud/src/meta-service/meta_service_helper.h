@@ -34,9 +34,9 @@
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
@@ -209,6 +209,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     case TxnErrorCode::TXN_MAYBE_COMMITTED:
     case TxnErrorCode::TXN_TIMEOUT:
     case TxnErrorCode::TXN_INVALID_ARGUMENT:
+    case TxnErrorCode::TXN_INVALID_DATA:
     case TxnErrorCode::TXN_UNIDENTIFIED_ERROR:
         if constexpr (category == ErrCategory::READ) {
             return MetaServiceCode::KV_TXN_GET_ERR;

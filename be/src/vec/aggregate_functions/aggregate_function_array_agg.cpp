@@ -32,8 +32,8 @@ AggregateFunctionPtr do_create_agg_function_collect(const DataTypes& argument_ty
                 AggregateFunctionArrayAgg<AggregateFunctionArrayAggData<T>>>(argument_types,
                                                                              result_is_nullable);
     } else {
-        return creator_without_type::create<AggregateFunctionCollect<
-                AggregateFunctionCollectListData<T, std::false_type>, std::false_type>>(
+        return creator_without_type::create<
+                AggregateFunctionCollect<AggregateFunctionCollectListData<T, false>, false>>(
                 argument_types, result_is_nullable);
     }
 }
@@ -82,9 +82,7 @@ AggregateFunctionPtr create_aggregate_function_array_agg(const std::string& name
     case PrimitiveType::TYPE_IPV6:
         return do_create_agg_function_collect<TYPE_IPV6>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_STRING:
-        return do_create_agg_function_collect<TYPE_STRING>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_CHAR:
-        return do_create_agg_function_collect<TYPE_CHAR>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_VARCHAR:
         return do_create_agg_function_collect<TYPE_VARCHAR>(argument_types, result_is_nullable);
     default:
