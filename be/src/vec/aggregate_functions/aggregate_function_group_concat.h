@@ -91,7 +91,7 @@ struct AggregateFunctionGroupConcatData {
     StringRef get() const { return StringRef {data.data(), data.size()}; }
 
     void write(BufferWritable& buf) const {
-        write_binary(StringRef {data.data(), data.size()}, buf);
+        write_binary(data, buf);
         write_binary(separator, buf);
         write_binary(inited, buf);
     }

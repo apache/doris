@@ -206,7 +206,7 @@ struct AggregateFunctionArrayAggData<T> {
             write_binary(null_map->data()[i], buf);
         }
         for (size_t i = 0; i < size; i++) {
-            write_string_binary(nested_column->get_data_at(i), buf);
+            write_binary(nested_column->get_data_at(i), buf);
         }
     }
 
@@ -223,7 +223,7 @@ struct AggregateFunctionArrayAggData<T> {
 
         StringRef s;
         for (size_t i = 0; i < size; i++) {
-            read_string_binary(s, buf);
+            read_binary(s, buf);
             nested_column->insert_data(s.data, s.size);
         }
     }

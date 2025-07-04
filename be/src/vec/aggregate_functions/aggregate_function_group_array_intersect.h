@@ -222,15 +222,15 @@ public:
         auto& init = data.init;
         const bool is_set_contain_null = set->contain_null();
 
-        write_pod_binary(is_set_contain_null, buf);
-        write_pod_binary(init, buf);
+        write_binary(is_set_contain_null, buf);
+        write_binary(init, buf);
         write_var_uint(set->size(), buf);
         HybridSetBase::IteratorBase* it = set->begin();
 
         while (it->has_next()) {
             const typename PrimitiveTypeTraits<T>::CppType* value_ptr =
                     static_cast<const typename PrimitiveTypeTraits<T>::CppType*>(it->get_value());
-            write_int_binary((*value_ptr), buf);
+            write_binary((*value_ptr), buf);
             it->next();
         }
     }
@@ -240,15 +240,15 @@ public:
         auto& data = this->data(place);
         bool is_set_contain_null;
 
-        read_pod_binary(is_set_contain_null, buf);
+        read_binary(is_set_contain_null, buf);
         data.value->change_contain_null_value(is_set_contain_null);
-        read_pod_binary(data.init, buf);
+        read_binary(data.init, buf);
         UInt64 size;
         read_var_uint(size, buf);
 
         typename PrimitiveTypeTraits<T>::CppType element;
         for (UInt64 i = 0; i < size; ++i) {
-            read_int_binary(element, buf);
+            read_binary(element, buf);
             data.value->insert(static_cast<void*>(&element));
         }
     }
@@ -461,14 +461,14 @@ public:
         auto& init = data.init;
         const bool is_set_contain_null = set->contain_null();
 
-        write_pod_binary(is_set_contain_null, buf);
-        write_pod_binary(init, buf);
+        write_binary(is_set_contain_null, buf);
+        write_binary(init, buf);
         write_var_uint(set->size(), buf);
 
         HybridSetBase::IteratorBase* it = set->begin();
         while (it->has_next()) {
             const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
-            write_string_binary(*value, buf);
+            write_binary(*value, buf);
             it->next();
         }
     }
@@ -478,15 +478,15 @@ public:
         auto& data = this->data(place);
         bool is_set_contain_null;
 
-        read_pod_binary(is_set_contain_null, buf);
+        read_binary(is_set_contain_null, buf);
         data.value->change_contain_null_value(is_set_contain_null);
-        read_pod_binary(data.init, buf);
+        read_binary(data.init, buf);
         UInt64 size;
         read_var_uint(size, buf);
 
         StringRef element;
         for (UInt64 i = 0; i < size; ++i) {
-            element = read_string_binary_into(*arena, buf);
+            element = read_binary_into(*arena, buf);
             data.value->insert((void*)element.data, element.size);
         }
     }
