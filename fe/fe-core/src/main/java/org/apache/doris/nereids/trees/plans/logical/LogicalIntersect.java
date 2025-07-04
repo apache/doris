@@ -60,7 +60,7 @@ public class LogicalIntersect extends LogicalSetOperation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalIntersect",
+        return Utils.toSqlStringSkipNull("LogicalIntersect",
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,

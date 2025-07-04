@@ -145,6 +145,6 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
             args.add("hint");
             args.add(hint.getExplainString());
         }
-        return Utils.toSqlString("UsingJoin[" + id.asInt() + "]", args.toArray());
+        return Utils.toSqlStringSkipNull("UsingJoin[" + id.asInt() + "]", args.toArray());
     }
 }

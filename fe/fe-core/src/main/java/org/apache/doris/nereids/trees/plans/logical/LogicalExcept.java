@@ -60,7 +60,7 @@ public class LogicalExcept extends LogicalSetOperation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalExcept",
+        return Utils.toSqlStringSkipNull("LogicalExcept",
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,

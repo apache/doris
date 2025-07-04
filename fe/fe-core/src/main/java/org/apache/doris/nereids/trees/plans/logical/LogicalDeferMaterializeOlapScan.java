@@ -165,7 +165,7 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalDeferMaterializeOlapScan[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalDeferMaterializeOlapScan[" + id.asInt() + "]",
                 "olapScan", logicalOlapScan,
                 "deferMaterializeSlotIds", deferMaterializeSlotIds,
                 "columnIdSlot", columnIdSlot,

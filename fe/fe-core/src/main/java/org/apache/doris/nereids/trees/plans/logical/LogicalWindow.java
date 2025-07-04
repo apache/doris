@@ -156,7 +156,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalWindow",
+        return Utils.toSqlStringSkipNull("LogicalWindow",
                 "windowExpressions", windowExpressions,
                 "isChecked", isChecked,
                 "stats", statistics

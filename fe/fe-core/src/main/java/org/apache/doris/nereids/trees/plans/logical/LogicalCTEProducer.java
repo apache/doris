@@ -92,7 +92,7 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalCteProducer[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalCteProducer[" + id.asInt() + "]",
                 "cteId", cteId,
                 "stats", statistics);
     }

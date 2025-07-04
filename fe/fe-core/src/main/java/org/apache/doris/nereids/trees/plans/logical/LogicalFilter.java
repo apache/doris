@@ -121,7 +121,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalFilter[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalFilter[" + id.asInt() + "]",
                 "predicates", getPredicate(),
                 "stats", statistics
         );

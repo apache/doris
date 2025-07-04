@@ -195,6 +195,30 @@ public class Utils {
         }
 
         for (int i = 0; i < variables.length - 1; i += 2) {
+            if (!"".equals(toStringOrNull(variables[i + 1]))) {
+                if (i != 0) {
+                    stringBuilder.append(", ");
+                }
+                stringBuilder.append(toStringOrNull(variables[i])).append("=").append(toStringOrNull(variables[i + 1]));
+            }
+        }
+
+        return stringBuilder.append(" )").toString();
+    }
+
+    /**
+     * same as toSqlString, but skip null obj
+     */
+    public static String toSqlStringSkipNull(String planName, Object... variables) {
+        Preconditions.checkState(variables.length % 2 == 0);
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(planName).append(" ( ");
+
+        if (variables.length == 0) {
+            return stringBuilder.append(" )").toString();
+        }
+
+        for (int i = 0; i < variables.length - 1; i += 2) {
             if (!skipEmptyOrNull(variables[i + 1])) {
                 if (i != 0) {
                     stringBuilder.append(", ");

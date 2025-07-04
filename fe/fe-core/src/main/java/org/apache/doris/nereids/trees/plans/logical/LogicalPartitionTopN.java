@@ -136,7 +136,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalPartitionTopN",
+        return Utils.toSqlStringSkipNull("LogicalPartitionTopN",
             "function", function,
             "partitionKeys", partitionKeys,
             "orderKeys", orderKeys,

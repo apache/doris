@@ -100,7 +100,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalFileScan",
+        return Utils.toSqlStringSkipNull("LogicalFileScan",
                 "qualified", qualifiedName(),
                 "output", getOutput(),
                 "operativeCols", operativeSlots,
