@@ -267,9 +267,10 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
 }
 
 TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
-                              std::unique_ptr<cloud::RangeGetIterator>* iter, bool snapshot,
-                              int limit) {
-    TEST_SYNC_POINT_CALLBACK("memkv::Transaction::get", &limit);
+                              std::unique_ptr<cloud::RangeGetIterator>* iter,
+                              const RangeGetOptions& opts) {
+    RangeGetOptions options = opts;
+    TEST_SYNC_POINT_CALLBACK("memkv::Transaction::get", &options.batch_limit);
     std::lock_guard<std::mutex> l(lock_);
     num_get_keys_++;
     kv_->get_count_++;
@@ -281,7 +282,14 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
         LOG(WARNING) << "read unreadable key, abort";
         return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
     }
-    return inner_get(begin_k, end_k, iter, snapshot, limit);
+    return inner_get(begin_k, end_k, iter, options);
+}
+
+std::unique_ptr<cloud::FullRangeGetIterator> Transaction::full_range_get(
+        std::string_view begin, std::string_view end, cloud::FullRangeGetOptions opts) {
+    opts.txn = this;
+    opts.txn_kv.reset();
+    return kv_->full_range_get(std::string(begin), std::string(end), std::move(opts));
 }
 
 TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bool snapshot) {
@@ -307,10 +315,12 @@ TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bo
 }
 
 TxnErrorCode Transaction::inner_get(const std::string& begin, const std::string& end,
-                                    std::unique_ptr<cloud::RangeGetIterator>* iter, bool snapshot,
-                                    int limit) {
+                                    std::unique_ptr<cloud::RangeGetIterator>* iter,
+                                    const RangeGetOptions& opts) {
     bool more = false;
     std::map<std::string, std::string> kv_map;
+    int limit = opts.batch_limit;
+    bool snapshot = opts.snapshot;
     TxnErrorCode err = kv_->get_kv(begin, end, read_version_, limit, &more, &kv_map);
     if (err != TxnErrorCode::TXN_OK) {
         return err;
