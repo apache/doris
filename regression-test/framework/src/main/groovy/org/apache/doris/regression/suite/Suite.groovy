@@ -2889,6 +2889,86 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def checkProfileNew = { addrSet  ->
+        def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
+        def query_profile_api = { check_func ->
+            httpTest {
+                op "get"
+                endpoint feEndPoint
+                uri "/rest/v1/query_profile"
+                check check_func
+                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+            }
+        }
+
+        query_profile_api.call() {
+            respCode, body ->
+                //log.info("query profile resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.msg.equalsIgnoreCase("success"))
+                log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+                log.info("lw query profile resp: ${json.data.rows[0]['Profile ID']}".toString())
+                checkProfileNew1.call(addrSet, json.data.rows[0]['Profile ID'])
+        }
+    }
+
+    def checkProfileNew1 = {addrSet, query_id  ->
+        def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
+        def query_profile_api = { check_func ->
+            httpTest {
+                op "get"
+                endpoint feEndPoint
+                uri "/api/profile?query_id=${query_id}"
+                check check_func
+                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+            }
+        }
+
+        query_profile_api.call() {
+            respCode, body ->
+                //log.info("query profile resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.msg.equalsIgnoreCase("success"))
+                //log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+
+                def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
+                if (instanceLineMatcher.find()) {
+                    // 提取出IP等信息的部分
+                    def instancesStr = instanceLineMatcher.group(1).trim()
+
+                    // 拆分各个实例，实例格式类似 "10.16.10.11:9713:4"
+                    def instanceEntries = instancesStr.split(/\s*,\s*/)
+
+                    // 定义存储解析结果的列表
+                    def result = []
+
+                    // 每个实例使用正则表达式解析IP和端口（忽略最后一个数字）
+                    instanceEntries.each { entry ->
+                        def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
+                        if(matcher.matches()){
+                            def ip = matcher.group(1)
+                            def port = matcher.group(2)
+                            //result << [ip: ip, port: port]
+                            //result << [ip:port]
+                            result.add(ip+":"+port)
+                        }
+                    }
+ 
+                    // 输出解析结果
+                    println "actual ip port："
+                    result.each { println it }
+                    println "expect ip port："
+                    addrSet.each { println it }
+                    //result.each { assertTrue(addrSet.contains(it)) }
+                    assertTrue(addrSet.containsAll(result))
+                } else {
+                    println "未找到实例信息。"
+                }
+        }
+    }
+
     def rename_cloud_cluster = { cluster_name, cluster_id ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
