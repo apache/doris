@@ -26,7 +26,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
@@ -213,7 +212,7 @@ public class StatementContext implements Closeable {
             = new TreeMap<>(new Pair.PairComparator<>());
     // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
     // the value is the auto-increment id in the cascades context
-    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
+    private final Map<List<String>, TableId> tableIdMapping = new LinkedHashMap<>();
     // Record the materialization statistics by id which is used for cost estimation.
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
@@ -838,13 +837,12 @@ public class StatementContext implements Closeable {
 
     /** Get table id with lazy */
     public TableId getTableId(TableIf tableIf) {
-        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
-        TableId tableId = this.tableIdMapping.get(tableIdentifier);
+        TableId tableId = this.tableIdMapping.get(tableIf.getFullQualifiers());
         if (tableId != null) {
             return tableId;
         }
         tableId = StatementScopeIdGenerator.newTableId();
-        this.tableIdMapping.put(tableIdentifier, tableId);
+        this.tableIdMapping.put(tableIf.getFullQualifiers(), tableId);
         return tableId;
     }
 
