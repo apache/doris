@@ -108,7 +108,6 @@ public class ColumnDef {
         public static String NOW = "now";
         public static String BITMAP_EMPTY = "BITMAP_EMPTY";
         public static String HLL_EMPTY = "HLL_EMPTY";
-        public static String BITMAP_EMPTY = "BITMAP_EMPTY";
         public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
