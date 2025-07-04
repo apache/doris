@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "vec/common/string_utils/string_utils.h"
+#include "util/string_parser.hpp" // IWYU pragma: keep
 
 namespace doris::vectorized {
 

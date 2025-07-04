@@ -20,7 +20,7 @@
 
 #include "vec/data_types/nested_utils.h"
 
-#include "vec/common/string_utils/string_utils.h"
+#include "util/string_parser.hpp"
 
 namespace doris::vectorized {
 

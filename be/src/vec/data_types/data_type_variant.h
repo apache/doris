@@ -76,8 +76,9 @@ public:
 
     Field get_field(const TExprNode& node) const override;
 
+    using SerDeType = DataTypeVariantSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeVariantSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         node->set_type(TTypeNodeType::VARIANT);

@@ -80,7 +80,7 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
         check_function_for_cast<DataTypeTimeV2, 3>(input_types, data_set);
     }
 
-    // Test casting from Decimal Type FIXME:not support now
+    // Test casting from Decimal Type
     {
         InputTypeSet input_types_d32_p0s0 = {{PrimitiveType::TYPE_DECIMAL64, 5, 18}};
         DataSet data_set_d32_p0s0 = {{{DECIMAL64(123456, 0, 5)}, std::string("12:34:56.000")},
@@ -93,18 +93,17 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
                                      {{DECIMAL64(20001212, 0, 5)}, std::string("838:59:59.000")},
                                      {{DECIMAL64(67, 0, 5)}, std::string("00:01:07.000")},
                                      {{Null()}, Null()}};
-        check_function_for_cast<DataTypeTimeV2, 3>(input_types_d32_p0s0, data_set_d32_p0s0, true,
-                                                   true);
+        check_function_for_cast<DataTypeTimeV2, 3>(input_types_d32_p0s0, data_set_d32_p0s0, true
+                                                   );
     }
 }
 
 TEST_F(FunctionCastTest, test_from_datetime_to_time) {
     // Cast from DateTimeV2 (as string) to TimeV2
     InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
-    // FIXME: now it's wrong. need support cast with scale. and must store legal value in memory.
     DataSet data_set = {
-            {{std::string("2012-02-05 12:12:12.123456")}, std::string("838:59:59.0000")}};
-    check_function_for_cast<DataTypeTimeV2, 4>(input_types, data_set, true, false, true);
+            {{std::string("2012-02-05 12:12:12.123456")}, std::string("12:12:12.1235")}};
+    check_function_for_cast<DataTypeTimeV2, 4>(input_types, data_set, true);
 }
 
 } // namespace doris::vectorized
