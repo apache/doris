@@ -974,8 +974,8 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b) {
 
 DeleteBitmapAggCache::DeleteBitmapAggCache(size_t capacity)
         : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
-                         LRUCacheType::SIZE, config::delete_bitmap_agg_cache_stale_sweep_time_sec,
-                         256) {}
+                                       LRUCacheType::SIZE,
+                                       config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
 
 DeleteBitmapAggCache* DeleteBitmapAggCache::instance() {
     return ExecEnv::GetInstance()->delete_bitmap_agg_cache();
