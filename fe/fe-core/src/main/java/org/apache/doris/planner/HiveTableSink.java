@@ -26,6 +26,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HiveProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -60,6 +61,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             add(TFileFormatType.FORMAT_CSV_PLAIN);
             add(TFileFormatType.FORMAT_ORC);
             add(TFileFormatType.FORMAT_PARQUET);
+            add(TFileFormatType.FORMAT_TEXT);
         }};
 
     public HiveTableSink(HMSExternalTable targetTable) {
@@ -181,6 +183,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 compressType = targetTable.getRemoteTable().getParameters().get("parquet.compression");
                 break;
             case FORMAT_CSV_PLAIN:
+            case FORMAT_TEXT:
                 compressType = targetTable.getRemoteTable().getParameters().get("text.compression");
                 if (Strings.isNullOrEmpty(compressType)) {
                     compressType = ConnectContext.get().getSessionVariable().hiveTextCompression();
@@ -219,8 +222,13 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     private void setSerDeProperties(THiveTableSink tSink) {
         THiveSerDeProperties serDeProperties = new THiveSerDeProperties();
         Table table = targetTable.getRemoteTable();
+        String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
         // 1. set field delimiter
-        serDeProperties.setFieldDelim(HiveProperties.getFieldDelimiter(table));
+        if (HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE.equals(serDeLib)) {
+            serDeProperties.setFieldDelim(HiveProperties.getFieldDelimiter(table, true));
+        } else {
+            serDeProperties.setFieldDelim(HiveProperties.getFieldDelimiter(table));
+        }
         // 2. set line delimiter
         serDeProperties.setLineDelim(HiveProperties.getLineDelimiter(table));
         // 3. set collection delimiter

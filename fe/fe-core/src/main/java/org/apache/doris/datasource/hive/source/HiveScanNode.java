@@ -437,6 +437,8 @@ public class HiveScanNode extends FileQueryScanNode {
                 type = TFileFormatType.FORMAT_TEXT;
             } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_CSV_SERDE)) {
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
+                type = TFileFormatType.FORMAT_TEXT;
             } else {
                 throw new UserException("Unsupported hive table serde: " + serDeLib);
             }
@@ -487,11 +489,13 @@ public class HiveScanNode extends FileQueryScanNode {
         // TODO: support skip footer count
         fileAttributes.setSkipLines(HiveProperties.getSkipHeaderCount(table));
         String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
-        if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")) {
+        if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")
+                || serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-            // set properties of LazySimpleSerDe
-            // 1. set column separator
-            textParams.setColumnSeparator(HiveProperties.getFieldDelimiter(table));
+            // set properties of LazySimpleSerDe and MultiDelimitSerDe
+            // 1. set column separator (MultiDelimitSerDe supports multi-character delimiters)
+            boolean supportMultiChar = serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE);
+            textParams.setColumnSeparator(HiveProperties.getFieldDelimiter(table, supportMultiChar));
             // 2. set line delimiter
             textParams.setLineDelimiter(HiveProperties.getLineDelimiter(table));
             // 3. set mapkv delimiter
