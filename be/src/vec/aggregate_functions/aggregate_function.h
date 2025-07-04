@@ -211,7 +211,8 @@ public:
     virtual void add_range_single_place(int64_t partition_start, int64_t partition_end,
                                         int64_t frame_start, int64_t frame_end,
                                         AggregateDataPtr place, const IColumn** columns,
-                                        Arena*) const = 0;
+                                        Arena* arena, UInt8* use_null_result,
+                                        UInt8* could_use_previous_result) const = 0;
 
     virtual void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
                                          const size_t num_rows, Arena*) const = 0;
@@ -244,6 +245,41 @@ public:
         for (size_t i = start; i < end; ++i) {
             insert_result_into(place, to);
         }
+    }
+
+    /// some agg function like sum/count/avg/min/max could support incremental mode,
+    /// eg sum(col) over (rows between 3 preceding and 3 following), could resue the previous result
+    /// sum[i] = sum[i-1] - col[x] + col[y]
+    virtual bool supported_incremental_mode() const { return false; }
+
+    /**
+    * Executes the aggregate function in incremental mode.
+    * This is a virtual function that should be overridden by aggregate functions supporting incremental calculation.
+    * 
+    * @param partition_start Start position of the current partition (inclusive)
+    * @param partition_end End position of the current partition (exclusive)
+    * @param frame_start Start position of the current window frame (inclusive)
+    * @param frame_end End position of the current window frame (exclusive)
+    * @param place Memory location to store aggregation results
+    * @param columns Input columns for aggregation
+    * @param arena Memory pool for allocations
+    * @param previous_is_nul Whether previous value is NULL, if true, no need to subtract previous value
+    * @param end_is_nul Whether the end boundary is NULL, if true, no need to add end value
+    * @param has_null Whether the current column contains NULL values
+    * @param use_null_result Output: whether to use NULL as result when the frame is empty
+    * @param could_use_previous_result Output: whether previous result can be reused
+    * @throws doris::Exception when called on a function that doesn't support incremental mode
+    */
+    virtual void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
+                                                   int64_t frame_start, int64_t frame_end,
+                                                   AggregateDataPtr place, const IColumn** columns,
+                                                   Arena* arena, bool previous_is_nul,
+                                                   bool end_is_nul, bool has_null,
+                                                   UInt8* use_null_result,
+                                                   UInt8* could_use_previous_result) const {
+        throw doris::Exception(Status::FatalError(
+                "Aggregate function " + get_name() +
+                " does not support cumulative mode, but it is called in cumulative mode"));
     }
 
 protected:
@@ -318,16 +354,24 @@ public:
             derived->add(place, columns, i, arena);
         }
     }
-    //now this is use for sum/count/avg/min/max win function, other win function should override this function in class
-    //stddev_pop/stddev_samp/variance_pop/variance_samp/hll_union_agg/group_concat
+
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena* arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
         const Derived* derived = assert_cast<const Derived*>(this);
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
         for (int64_t i = frame_start; i < frame_end; ++i) {
             derived->add(place, columns, i, arena);
+        }
+        if (frame_start >= frame_end) {
+            if (!*could_use_previous_result) {
+                *use_null_result = true;
+            }
+        } else {
+            *use_null_result = false;
+            *could_use_previous_result = true;
         }
     }
 

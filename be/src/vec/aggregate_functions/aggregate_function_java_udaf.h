@@ -354,13 +354,22 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena*, UInt8* current_window_empty,
+                                UInt8* current_window_has_inited) const override {
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
         int64_t places_address = reinterpret_cast<int64_t>(place);
         Status st = this->data(_exec_place)
                             .add(places_address, true, columns, frame_start, frame_end,
                                  argument_types, 0);
+        if (frame_start >= frame_end) {
+            if (!*current_window_has_inited) {
+                *current_window_empty = true;
+            }
+        } else {
+            *current_window_empty = false;
+            *current_window_has_inited = true;
+        }
         if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
