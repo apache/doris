@@ -62,6 +62,7 @@ Status SchemaHelper::list_table_status(const std::string& ip, const int32_t port
                 client->listTableStatus(*result, request);
             });
 }
+
 Status SchemaHelper::list_table_metadata_name_ids(const std::string& ip, const int32_t port,
                                                   const doris::TGetTablesParams& request,
                                                   TListTableMetadataNameIdsResult* result) {
@@ -157,6 +158,24 @@ Status SchemaHelper::fetch_schema_table_data(const std::string& ip, const int32_
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
             ip, port, [&request, &result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(*result, request);
+            });
+}
+
+Status SchemaHelper::fetch_backends(const std::string& ip, const int32_t port,
+                                    const TFetchBackendsRequest& request,
+                                    TFetchBackendsResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->fetchBackends(*result, request);
+            });
+}
+
+Status SchemaHelper::fetch_frontends(const std::string& ip, const int32_t port,
+                                     const TFetchFrontendsRequest& request,
+                                     TFetchFrontendsResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->fetchFrontends(*result, request);
             });
 }
 
