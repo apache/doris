@@ -452,6 +452,7 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     }
 
     for (int64_t path_id : path_ids) {
+        auto start = std::chrono::steady_clock::now();
         int64_t start_version = -1;
         int64_t end_version = -1;
         std::vector<RowsetSharedPtr> stale_rowsets;
@@ -464,9 +465,11 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
             if (rs_it != _stale_rs_version_map.end()) {
                 expired_rowsets.push_back(rs_it->second);
                 stale_rowsets.push_back(rs_it->second);
-                LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
-                          << " rowset_id=" << rs_it->second->rowset_id().to_string()
-                          << " version=" << rs_it->first.to_string();
+                if (config::enable_delete_stale_rowset_log) {
+                    LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
+                              << " rowset_id=" << rs_it->second->rowset_id().to_string()
+                              << " version=" << rs_it->first.to_string();
+                }
                 _stale_rs_version_map.erase(rs_it);
             } else {
                 LOG(WARNING) << "cannot find stale rowset " << v_ts->version() << " in tablet "
@@ -484,6 +487,13 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
         Version version(start_version, end_version);
         if (!stale_rowsets.empty()) {
             deleted_stale_rowsets.emplace_back(version, std::move(stale_rowsets));
+        }
+        auto end = std::chrono::steady_clock::now();
+        auto cost = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        if (config::enable_delete_stale_rowset_log) {
+            LOG(INFO) << "[verbose] delete stale rowsets, tablet_id=" << tablet_id()
+                      << ", path_id=" << path_id << ", version=" << version.to_string()
+                      << ", rowsets_num=" << stale_rowsets.size() << ", cost(us)=" << cost;
         }
     }
     {

@@ -503,7 +503,10 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
-
+    LOG_INFO("[verbose] enter sync_tablet_rowsets")
+            .tag("tablet_id", tablet->tablet_id())
+            .tag("table_id", tablet->table_id())
+            .tag("full_sync", options.full_sync);
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
     int tried = 0;
@@ -590,6 +593,11 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                     std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
             sync_stats->get_remote_rowsets_num += resp.rowset_meta().size();
         }
+        LOG_INFO("[verbose] sync_tablet_rowsets")
+                .tag("tablet_id", tablet_id)
+                .tag("table_id", table_id)
+                .tag("rpc_cost",
+                     std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
 
         // If is mow, the tablet has no delete bitmap in base rowsets.
         // So dont need to sync it.
@@ -695,7 +703,17 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         });
         {
             const auto& stats = resp.stats();
+            auto t1 = std::chrono::steady_clock::now();
             std::unique_lock wlock(tablet->get_header_lock());
+            auto t2 = std::chrono::steady_clock::now();
+            auto cost = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+            if (tablet->enable_unique_key_merge_on_write() &&
+                cost > config::sync_rowsets_hold_lock_threshold_ms) {
+                LOG_INFO("[verbose] sync_tablet_rowsets get meta_lock")
+                        .tag("tablet_id", tablet->tablet_id())
+                        .tag("cost_ms", cost)
+                        .tag("rowset_num", resp.rowset_meta().size());
+            }
 
             // ATTN: we are facing following data race
             //
@@ -796,6 +814,10 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                             stats.num_rows(), stats.data_size());
         }
+        LOG_INFO("[verbose] finish sync_tablet_rowsets")
+                .tag("tablet_id", tablet->tablet_id())
+                .tag("table_id", tablet->table_id())
+                .tag("rowset_num", resp.rowset_meta().size());
         return Status::OK();
     }
 }
