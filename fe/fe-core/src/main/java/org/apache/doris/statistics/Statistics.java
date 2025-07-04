@@ -167,9 +167,14 @@ public class Statistics {
     }
 
     public boolean isInputSlotsUnknown(Set<Slot> inputs) {
-        return inputs.stream()
-                .allMatch(s -> expressionToColumnStats.containsKey(s)
-                        && expressionToColumnStats.get(s).isUnKnown);
+        boolean unknown = true;
+        for (Slot input : inputs) {
+            if (!(expressionToColumnStats.containsKey(input)
+                    && expressionToColumnStats.get(input).isUnKnown)) {
+                unknown = false;
+            }
+        }
+        return unknown;
     }
 
     public double computeTupleSize(List<Slot> slots) {

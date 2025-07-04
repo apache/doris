@@ -24,7 +24,6 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -145,7 +144,7 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
-        Assertions.assertEquals(49.945, ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(49.90005, ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
@@ -182,7 +181,7 @@ public class StatsCalculatorTest {
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(200));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(300));
 
-        ImmutableSet and = ImmutableSet.of(new And(eq1, eq2));
+        ImmutableSet and = ImmutableSet.of(eq1, eq2);
         ImmutableSet or = ImmutableSet.of(new Or(eq1, eq2));
 
         Group childGroup = newFakeGroup();

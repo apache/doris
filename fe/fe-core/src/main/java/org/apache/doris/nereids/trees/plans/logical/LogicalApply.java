@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -61,7 +62,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     private final Optional<Expression> typeCoercionExpr;
 
     // correlation column
-    private final List<Expression> correlationSlot;
+    private final List<Slot> correlationSlot;
     // correlation Conjunction
     private final Optional<Expression> correlationFilter;
     // The slot replaced by the subquery in MarkJoin
@@ -83,7 +84,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
 
     private LogicalApply(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
-            List<Expression> correlationSlot, SubQueryType subqueryType, boolean isNot,
+            List<Slot> correlationSlot, SubQueryType subqueryType, boolean isNot,
             Optional<Expression> compareExpr, Optional<Expression> typeCoercionExpr,
             Optional<Expression> correlationFilter,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
@@ -107,7 +108,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         this.isMarkJoinSlotNotNull = isMarkJoinSlotNotNull;
     }
 
-    public LogicalApply(List<Expression> correlationSlot, SubQueryType subqueryType, boolean isNot,
+    public LogicalApply(List<Slot> correlationSlot, SubQueryType subqueryType, boolean isNot,
             Optional<Expression> compareExpr, Optional<Expression> typeCoercionExpr,
             Optional<Expression> correlationFilter, Optional<MarkJoinSlotReference> markJoinSlotReference,
             boolean needAddSubOutputToProjects, boolean inProject, boolean isMarkJoinSlotNotNull,
@@ -129,7 +130,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         return typeCoercionExpr.orElseGet(() -> right().getOutput().get(0));
     }
 
-    public List<Expression> getCorrelationSlot() {
+    public List<Slot> getCorrelationSlot() {
         return correlationSlot;
     }
 
@@ -187,13 +188,19 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.<Slot>builder()
-                .addAll(left().getOutput())
-                .addAll(markJoinSlotReference.isPresent()
-                    ? ImmutableList.of(markJoinSlotReference.get()) : ImmutableList.of())
-                .addAll(needAddSubOutputToProjects
-                    ? ImmutableList.of(right().getOutput().get(0)) : ImmutableList.of())
-                .build();
+        ImmutableList.Builder<Slot> builder = ImmutableList.builder();
+        builder.addAll(left().getOutput());
+        if (markJoinSlotReference.isPresent()) {
+            builder.add(markJoinSlotReference.get());
+        }
+        if (needAddSubOutputToProjects) {
+            if (isScalar()) {
+                builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(), correlationSlot));
+            } else {
+                builder.add(right().getOutput().get(0));
+            }
+        }
+        return builder.build();
     }
 
     @Override

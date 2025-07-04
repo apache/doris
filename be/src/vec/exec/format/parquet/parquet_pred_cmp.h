@@ -21,7 +21,6 @@
 #include <cstring>
 #include <vector>
 
-#include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
 #include "exec/olap_common.h"
 #include "gutil/endian.h"
@@ -81,7 +80,7 @@ private:
         Int128 value = buf_start[0] & 0x80 ? -1 : 0;
         memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - encoded_data.size(), buf_start,
                encoded_data.size());
-        value = BigEndian::ToHost128(value);
+        value = to_endian<std::endian::big>(value);
         if (dest_scale > scale) {
             value *= DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dest_scale - scale);
         } else if (dest_scale < scale) {

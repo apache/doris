@@ -364,7 +364,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
               << ", bytes/allocated_bytes: " << PrettyPrinter::print_bytes(block.bytes()) << "/"
               << PrettyPrinter::print_bytes(block.allocated_bytes());
     // 1. Dispose the overflow of ColumnString
-    // 2. Finalize the ColumnObject to speed up
+    // 2. Finalize the ColumnVariant to speed up
     for (auto& data : block) {
         data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
         if (p._need_finalize_variant_column) {

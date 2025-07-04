@@ -152,10 +152,11 @@ suite("part_partition_invalid", "p0,external,external_docker") {
     // refresh catalog cache
     sql """ REFRESH CATALOG ${hive_catalog_name} PROPERTIES("invalid_cache" = "true"); """
     mv_rewrite_success(query_sql, mv_name)
+    // in 2.1 and 3.0 should not compensate union all, in 3.1 and master should compensate union all
     order_qt_after_modify_data_and_refresh_catalog """ ${query_sql}"""
 
-    // query invalid partition data, should hit mv, because not check now.
-    mv_rewrite_fail("""
+    // query invalid partition data, should not part in mv rewrite
+    mv_not_part_in("""
             ${query_sql} where o_orderdate = '2023-10-19';
         """, mv_name)
     order_qt_after_modify_and_refresh_catalog_19 """ ${query_sql} where o_orderdate = '2023-10-19';"""
@@ -179,6 +180,7 @@ suite("part_partition_invalid", "p0,external,external_docker") {
     // refresh catalog cache
     sql """ REFRESH CATALOG ${hive_catalog_name} PROPERTIES("invalid_cache" = "true"); """
     mv_rewrite_success(query_sql, mv_name)
+    // in 2.1 and 3.0 should not compensate union all, in 3.1 and master should compensate union all
     order_qt_after_add_data_with_refresh_catalog """ ${query_sql}"""
 
     // query invalid partition data, should hit mv, because not check now.
@@ -188,8 +190,8 @@ suite("part_partition_invalid", "p0,external,external_docker") {
 
     order_qt_after_add_and_refresh_catalog_19 """ ${query_sql} where o_orderdate = '2023-10-19';"""
 
-    // query valid partition data, should hit mv
-    mv_rewrite_fail("""
+    // query valid partition data, mv should not part in mv rewrite
+    mv_not_part_in("""
             ${query_sql} where o_orderdate = '2023-10-20';
         """, mv_name)
     order_qt_after_add_and_refresh_catalog_20 """ ${query_sql} where o_orderdate = '2023-10-20';"""

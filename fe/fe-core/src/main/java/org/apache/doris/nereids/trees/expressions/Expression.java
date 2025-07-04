@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -39,10 +40,10 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.Lists;
@@ -66,11 +67,11 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     // Mark this expression is from predicate infer or something else infer
     private final boolean inferred;
     private final boolean hasUnbound;
-    private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(
+    private final Supplier<Set<Slot>> inputSlots = LazyCompute.of(
             () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
     private final int fastChildrenHashCode;
-    private final Supplier<String> toSqlCache = Suppliers.memoize(this::computeToSql);
-    private final Supplier<Integer> hashCodeCache = Suppliers.memoize(this::computeHashCode);
+    private final Supplier<String> toSqlCache = LazyCompute.of(this::computeToSql);
+    private final Supplier<Integer> hashCodeCache = LazyCompute.of(this::computeHashCode);
 
     protected Expression(Expression... children) {
         super(children);
@@ -117,6 +118,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.compareWidthAndDepth = compareWidthAndDepth;
                 this.fastChildrenHashCode = fastChildrenHashCode;
         }
+        checkLimit();
         this.inferred = false;
         this.hasUnbound = hasUnbound || this instanceof Unbound;
     }
@@ -170,8 +172,20 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.compareWidthAndDepth = compareWidthAndDepth && supportCompareWidthAndDepth();
                 this.fastChildrenHashCode = fastChildrenhashCode;
         }
+        checkLimit();
         this.inferred = inferred;
         this.hasUnbound = hasUnbound || this instanceof Unbound;
+    }
+
+    private void checkLimit() {
+        if (depth > Config.expr_depth_limit) {
+            throw new AnalysisException(String.format("Exceeded the maximum depth of an "
+                    + "expression tree (%s).", Config.expr_depth_limit));
+        }
+        if (width > Config.expr_children_limit) {
+            throw new AnalysisException(String.format("Exceeded the maximum children of an "
+                    + "expression tree (%s).", Config.expr_children_limit));
+        }
     }
 
     public Alias alias(String alias) {

@@ -67,6 +67,8 @@ public class InternalSchema {
                 new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         TABLE_STATS_SCHEMA.add(
                 new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+        TABLE_STATS_SCHEMA.add(
+                new ColumnDef("hot_value", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
 
         // partition statistics table
         PARTITION_STATS_SCHEMA = new ArrayList<>();

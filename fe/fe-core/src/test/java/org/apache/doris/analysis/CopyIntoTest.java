@@ -31,6 +31,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.TestWithFeService;
@@ -88,7 +91,13 @@ public class CopyIntoTest extends TestWithFeService {
         String query = "create stage if not exists ex_stage_1 " + OBJ_INFO
                 + ", 'default.file.type' = 'csv', 'default.file.column_separator'=\",\" "
                 + ", 'default.copy.on_error' = 'max_filter_ratio_0.4', 'default.copy.size_limit' = '100')";
-        externalStagePB = ((CreateStageStmt) UtFrameUtils.parseAndAnalyzeStmt(query, connectContext)).toStageProto();
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(query);
+        CreateStageCommand command = (CreateStageCommand) parsed;
+        command.validate();
+        externalStagePB =  command.toStageProto();
+
         internalStagePB = StagePB.newBuilder().setType(StageType.INTERNAL).addMysqlUserName("test")
                 .setStageId(INTERNAL_STAGE_ID).setObjInfo(externalStagePB.getObjInfo()).build();
     }
@@ -96,15 +105,25 @@ public class CopyIntoTest extends TestWithFeService {
     @Ignore
     @Test
     public void testCopyInto() throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+
         String query1 = "create stage if not exists ex_stage_2 " + OBJ_INFO + ")";
-        StagePB stagePB1 = ((CreateStageStmt) UtFrameUtils.parseAndAnalyzeStmt(query1, connectContext)).toStageProto();
+        LogicalPlan parsed = nereidsParser.parseSingle(query1);
+        CreateStageCommand command = (CreateStageCommand) parsed;
+        command.validate();
+        StagePB stagePB1 =  command.toStageProto();
+
         List<StagePB> stages1 = Lists.newArrayList(stagePB1);
         String query2 = "create stage if not exists ex_stage_3 " + OBJ_INFO
                 + ", 'default.file.type' = 'csv', 'default.file.column_separator' = ',' "
                 + ", 'default.copy.on_error' = 'continue', 'default.copy.size_limit' = '100'"
                 + ", 'default.copy.load_parallelism' = '2'"
                 + ", 'default.copy.strict_mode' = 'false')";
-        StagePB stagePB2 = ((CreateStageStmt) UtFrameUtils.parseAndAnalyzeStmt(query2, connectContext)).toStageProto();
+
+        parsed = nereidsParser.parseSingle(query2);
+        command = (CreateStageCommand) parsed;
+        command.validate();
+        StagePB stagePB2 =  command.toStageProto();
         List<StagePB> stages2 = Lists.newArrayList(stagePB2);
 
         new Expectations(Env.getCurrentInternalCatalog()) {

@@ -15,9 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_except", "query") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
+suite("except", "query") {
+    sql """
+        SET enable_nereids_planner=true;
+        SET enable_fallback_to_original_planner=false;
+        set runtime_filter_type=2;
+        set enable_runtime_filter_prune=false;
+        """
+
     sql "drop table if exists t1;"
     sql "drop table if exists t2;"
     sql "drop table if exists t3;"

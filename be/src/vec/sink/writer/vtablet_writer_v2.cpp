@@ -112,6 +112,7 @@ Status VTabletWriterV2::_incremental_open_streams(
                     VLOG_DEBUG << "incremental open stream (" << partition->id << ", " << tablet_id
                                << ")";
                 }
+                _build_tablet_replica_info(tablet_id, partition);
             }
         }
     }
@@ -347,10 +348,26 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
                     _indexes_from_node[node].emplace_back(tablet);
                     known_indexes.insert(index.index_id);
                 }
+                _build_tablet_replica_info(tablet_id, partition);
             }
         }
     }
     return Status::OK();
+}
+
+void VTabletWriterV2::_build_tablet_replica_info(const int64_t tablet_id,
+                                                 VOlapTablePartition* partition) {
+    if (partition != nullptr) {
+        int total_replicas_num =
+                partition->total_replica_num == 0 ? _num_replicas : partition->total_replica_num;
+        int load_required_replicas_num = partition->load_required_replica_num == 0
+                                                 ? (_num_replicas + 1) / 2
+                                                 : partition->load_required_replica_num;
+        _tablet_replica_info[tablet_id] =
+                std::make_pair(total_replicas_num, load_required_replicas_num);
+    } else {
+        _tablet_replica_info[tablet_id] = std::make_pair(_num_replicas, (_num_replicas + 1) / 2);
+    }
 }
 
 void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
@@ -680,8 +697,7 @@ Status VTabletWriterV2::close(Status exec_status) {
             });
 
             std::vector<TTabletCommitInfo> tablet_commit_infos;
-            RETURN_IF_ERROR(
-                    _create_commit_info(tablet_commit_infos, _load_stream_map, _num_replicas));
+            RETURN_IF_ERROR(_create_commit_info(tablet_commit_infos, _load_stream_map));
             _state->add_tablet_commit_infos(tablet_commit_infos);
         }
 
@@ -761,8 +777,7 @@ void VTabletWriterV2::_calc_tablets_to_commit() {
 }
 
 Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
-                                            std::shared_ptr<LoadStreamMap> load_stream_map,
-                                            int num_replicas) {
+                                            std::shared_ptr<LoadStreamMap> load_stream_map) {
     std::unordered_map<int64_t, int> failed_tablets;
     std::unordered_map<int64_t, Status> failed_reason;
     load_stream_map->for_each([&](int64_t dst_id, LoadStreamStubs& streams) {
@@ -785,7 +800,11 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
     });
 
     for (auto [tablet_id, replicas] : failed_tablets) {
-        if (replicas > (num_replicas - 1) / 2) {
+        auto [total_replicas_num, load_required_replicas_num] = _tablet_replica_info[tablet_id];
+        int max_failed_replicas = total_replicas_num == 0
+                                          ? (_num_replicas - 1) / 2
+                                          : total_replicas_num - load_required_replicas_num;
+        if (replicas > max_failed_replicas) {
             LOG(INFO) << "tablet " << tablet_id
                       << " failed on majority backends: " << failed_reason[tablet_id];
             return Status::InternalError("tablet {} failed on majority backends: {}", tablet_id,

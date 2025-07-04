@@ -739,8 +739,6 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                             query_ctx->set_rsc_info = true;
                         }
 
-                        _set_scan_concurrency(params, query_ctx.get());
-
                         RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
 
                         if (parent.__isset.runtime_filter_info) {
@@ -882,18 +880,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     RETURN_IF_ERROR(context->submit());
     return Status::OK();
-}
-
-template <typename Param>
-void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query_ctx) {
-#ifndef BE_TEST
-    // If the token is set, the scan task will use limited_scan_pool in scanner scheduler.
-    // Otherwise, the scan task will use local/remote scan pool in scanner scheduler
-    if (params.query_options.__isset.resource_limit &&
-        params.query_options.resource_limit.__isset.cpu_limit) {
-        query_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
-    }
-#endif
 }
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {

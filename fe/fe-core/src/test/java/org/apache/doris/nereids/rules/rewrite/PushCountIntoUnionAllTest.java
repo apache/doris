@@ -48,9 +48,9 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .rewrite()
                 .matches(
                         logicalAggregate(
-                              logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)),
-                                      logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)))
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                              logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)),
+                                      logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
         String sql2 = "select id,count(*) from (select id,a from t1 union all select id,a from t1 where id>10) t group by id;";
         PlanChecker.from(connectContext)
@@ -58,9 +58,9 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .rewrite()
                 .matches(
                         logicalAggregate(
-                                logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)),
-                                        logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)))
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                                logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)),
+                                        logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
     }
 
@@ -73,7 +73,7 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .matches(
                         logicalAggregate(
                                 logicalUnion(logicalAggregate(), logicalAggregate())
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
         String sql2 = "select count(*) from (select id,a from t1 union all select id,a from t1 where id>10) t;";
         PlanChecker.from(connectContext)
@@ -82,7 +82,7 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .matches(
                         logicalAggregate(
                                 logicalUnion(logicalAggregate(), logicalAggregate())
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
     }
 
@@ -94,9 +94,9 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .rewrite()
                 .matches(
                         logicalAggregate(
-                                logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)),
-                                        logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)))
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                                logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)),
+                                        logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
     }
 
@@ -108,11 +108,11 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .rewrite()
                 .matches(
                         logicalAggregate(
-                                logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)
+                                logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)
                                         && agg.getGroupByExpressions().size() == 1),
-                                        logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)
+                                        logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)
                                                 && agg.getGroupByExpressions().size() == 1))
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
     }
 
@@ -124,11 +124,11 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .rewrite()
                 .matches(
                         logicalAggregate(
-                                logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)
+                                logicalUnion(logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)
                                                 && agg.getGroupByExpressions().size() == 1),
-                                        logicalAggregate().when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Count.class)
+                                        logicalAggregate().when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Count.class)
                                                 && agg.getGroupByExpressions().size() == 1))
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
     }
 
@@ -141,7 +141,7 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .nonMatch(
                         logicalAggregate(
                                 logicalUnion(logicalAggregate(), logicalAggregate())
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
     }
 
@@ -154,7 +154,7 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .nonMatch(
                         logicalAggregate(
                                 logicalUnion(logicalAggregate(), logicalAggregate())
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
 
         String sql2 = "select count(1), sum(id) from (select id,a from t1 union all select id,a from t1 where id>10 union all select 1,3) t;";
@@ -164,7 +164,7 @@ public class PushCountIntoUnionAllTest extends TestWithFeService implements Memo
                 .nonMatch(
                         logicalAggregate(
                                 logicalUnion(logicalAggregate(), logicalAggregate())
-                        ).when(agg -> ExpressionUtils.containsType(agg.getOutputExpressions(), Sum0.class))
+                        ).when(agg -> ExpressionUtils.containsTypes(agg.getOutputExpressions(), Sum0.class))
                 );
     }
 }

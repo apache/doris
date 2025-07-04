@@ -47,6 +47,11 @@ public class TimeV2Literal extends Literal {
         init(s);
     }
 
+    public TimeV2Literal(String s) {
+        super(TimeV2Type.forTypeFromString(s));
+        init(s);
+    }
+
     /**
      * C'tor time literal.
      */
@@ -84,16 +89,9 @@ public class TimeV2Literal extends Literal {
         }
     }
 
-    protected String normalize(String s) {
+    protected static String normalize(String s) {
         // remove suffix/prefix ' '
         s = s.trim();
-        if (s.charAt(0) == '-') {
-            s = s.substring(1);
-            negative = true;
-        } else if (s.charAt(0) == '+') {
-            s = s.substring(1);
-            negative = false;
-        }
         // just a number
         if (!s.contains(":")) {
             String tail = "";
@@ -111,6 +109,7 @@ public class TimeV2Literal extends Literal {
             } else if (len == 4) {
                 s = "00:" + s.substring(0, 2) + ":" + s.substring(2);
             } else {
+                // minute and second must be 2 digits. others put in front as hour
                 s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
             }
             return s + tail;
@@ -125,6 +124,12 @@ public class TimeV2Literal extends Literal {
     // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
     protected void init(String s) throws AnalysisException {
         s = normalize(s);
+        if (s.charAt(0) == '-') {
+            negative = true;
+            s = s.substring(1);
+        } else if (s.charAt(0) == '+') {
+            s = s.substring(1);
+        }
         // start parse string
         String[] parts = s.split(":");
         if (parts.length != 3) {
@@ -178,6 +183,24 @@ public class TimeV2Literal extends Literal {
     protected static boolean checkRange(double hour, int minute, int second, int microsecond) {
         return hour > 838 || minute > 59 || second > 59 || microsecond > 999999 || minute < 0 || second < 0
                 || microsecond < 0;
+    }
+
+    /**
+     * determine scale by time string. didn't check if the string is valid.
+     */
+    public static int determineScale(String s) {
+        // find point
+        s = normalize(s);
+        int pointIndex = s.indexOf('.');
+        if (pointIndex < 0) {
+            return 0; // no point, scale is 0
+        }
+        String microPart = s.substring(pointIndex + 1);
+        int len = microPart.length();
+        while (len > 0 && microPart.charAt(len - 1) == '0') {
+            len--; // remove trailing zeros
+        }
+        return Math.min(len, 6); // max scale is 6
     }
 
     public int getHour() {

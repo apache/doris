@@ -92,7 +92,8 @@ public class TableRefInfo {
      * translateToLegacyTableRef
      */
     public TableRef translateToLegacyTableRef() {
-        TableName tableName = new TableName(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl());
+        TableName tableName = tableNameInfo != null
+                ? new TableName(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl()) : null;
         String alias = tableAlias;
         PartitionNames partitionNames =
                 partitionNamesInfo != null ? partitionNamesInfo.translateToLegacyPartitionNames() : null;

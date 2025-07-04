@@ -44,13 +44,19 @@ public class DistinctPredicatesRule implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesTopType(CompoundPredicate.class).then(DistinctPredicatesRule::distinct)
+                matchesTopType(CompoundPredicate.class)
+                        .then(DistinctPredicatesRule::distinct)
                         .toRule(ExpressionRuleType.DISTINCT_PREDICATES)
         );
     }
 
     private static Expression distinct(CompoundPredicate expr) {
         List<Expression> extractExpressions = ExpressionUtils.extract(expr);
+        if (extractExpressions.size() <= 1) {
+            return expr;
+        } else if (extractExpressions.size() == 2 && !extractExpressions.get(0).equals(extractExpressions.get(1))) {
+            return expr;
+        }
         Set<Expression> distinctExpressions = new LinkedHashSet<>(extractExpressions);
         if (distinctExpressions.size() != extractExpressions.size()) {
             return ExpressionUtils.compound(expr instanceof And, Lists.newArrayList(distinctExpressions));

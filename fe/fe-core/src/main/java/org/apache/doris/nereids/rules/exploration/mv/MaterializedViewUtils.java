@@ -81,6 +81,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -182,7 +183,7 @@ public class MaterializedViewUtils {
         // If plan belong to some group, construct it with group struct info
         if (plan.getGroupExpression().isPresent()) {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
-            StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
+            StructInfoMap structInfoMap = ownerGroup.getStructInfoMap();
             // Refresh struct info in current level plan from top to bottom
             structInfoMap.refresh(ownerGroup, cascadesContext, new HashSet<>());
             structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
@@ -267,7 +268,12 @@ public class MaterializedViewUtils {
         rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         try {
             rewrittenPlanContext.getConnectContext().setSkipAuth(true);
-            rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+            AtomicReference<Plan> rewriteResult = new AtomicReference<>();
+            rewrittenPlanContext.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+                rewriteResult.set(planRewriter.apply(rewrittenPlanContext));
+            });
+            cascadesContext.addPlanProcesses(rewrittenPlanContext.getPlanProcesses());
+            rewrittenPlan = rewriteResult.get();
         } finally {
             rewrittenPlanContext.getConnectContext().setSkipAuth(false);
             // Recover old disable rules variable

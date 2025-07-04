@@ -39,6 +39,10 @@ public:
                      int nesting_level = 1)
             : DataTypeSerDe(nesting_level), key_serde(_key_serde), value_serde(_value_serde) {}
 
+    std::string get_name() const override {
+        return "Map(" + key_serde->get_name() + ", " + value_serde->get_name() + ")";
+    }
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,

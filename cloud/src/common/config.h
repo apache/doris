@@ -47,6 +47,8 @@ CONF_Int64(fdb_txn_timeout_ms, "10000");
 CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
 
+CONF_String(bvar_max_dump_multi_dimension_metric_num, "5000");
+
 // logging
 CONF_String(log_dir, "./log/");
 CONF_String(log_level, "info"); // info warn error fatal
@@ -104,6 +106,8 @@ CONF_mInt64(delete_bitmap_storage_optimize_v2_check_skip_seconds, "300"); // 5mi
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
+// enable recycler metrics statistics
+CONF_Bool(enable_recycler_metrics, "false");
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
@@ -334,5 +338,8 @@ CONF_Validator(azure_log_level,
 CONF_mString(ca_cert_file_paths,
              "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
              "/etc/ssl/ca-bundle.pem");
+
+CONF_Bool(enable_split_rowset_meta_pb, "false");
+CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
 
 } // namespace doris::cloud::config

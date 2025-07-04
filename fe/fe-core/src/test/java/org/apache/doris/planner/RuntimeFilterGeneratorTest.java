@@ -157,7 +157,7 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 4);
         Assert.assertEquals(hashJoinNode.getRuntimeFilters().size(), 4);
         Assert.assertEquals(lhsScanNode.getRuntimeFilters().size(), 4);
-        String rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        String rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString, rfString.contains("RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains("RF001[bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
@@ -165,7 +165,7 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertTrue(rfString.contains(
                 "RF003[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint"));
 
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString, rfString.contains("RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains("RF001[bloom] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -186,7 +186,7 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 4);
         Assert.assertEquals(hashJoinNode.getRuntimeFilters().size(), 4);
         Assert.assertEquals(lhsScanNode.getRuntimeFilters().size(), 4);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString, rfString.contains(
                 "RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains("RF001[bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
@@ -194,7 +194,7 @@ public class RuntimeFilterGeneratorTest {
                 "RF002[min_max] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF003[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString, rfString.contains(
                 "RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -217,8 +217,8 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 0);
         Assert.assertEquals(hashJoinNode.getRuntimeFilters().size(), 0);
         Assert.assertEquals(lhsScanNode.getRuntimeFilters().size(), 0);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true), "");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false), "");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(), "");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(), "");
     }
 
     @Disabled
@@ -245,8 +245,8 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true), "");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false), "");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(), "");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(), "");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 0);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 0);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 0);
@@ -261,11 +261,11 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(),
                         "RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)(-1/0/2097152)\n",
-                        hashJoinNode.getRuntimeFilterExplainString(true));
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
-                        lhsScanNode.getRuntimeFilterExplainString(false),
+                        hashJoinNode.getRuntimeFilterExplainString());
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(),
+                        lhsScanNode.getRuntimeFilterExplainString(),
                         "RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
@@ -281,9 +281,9 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(),
                 "RF000[bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)(-1/0/2097152)\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(),
                 "RF000[bloom] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
@@ -299,12 +299,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        String rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        String rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString, rfString.contains(
                 "RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString, rfString.contains(
                 "RF001[bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString, rfString.contains(
                 "RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString, rfString.contains(
@@ -323,9 +323,9 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(),
                 "RF000[min_max] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)(-1/0/2097152)\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(),
                 "RF000[min_max] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
@@ -341,12 +341,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF001[min_max] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -365,13 +365,13 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF001[min_max] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
 
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[bloom] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -390,14 +390,14 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF001[bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF002[min_max] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -418,9 +418,9 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(),
                 "RF000[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)(-1/0/2097152)\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(),
                 "RF000[in_or_bloom] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
@@ -436,13 +436,13 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF001[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
 
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -461,12 +461,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF001[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[bloom] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -485,14 +485,14 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF001[bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF002[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -513,12 +513,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[min_max] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF001[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[min_max] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -537,14 +537,14 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                         "RF001[min_max] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                         "RF002[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -566,14 +566,14 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                 "RF001[min_max] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                         "RF002[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[bloom] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(
@@ -594,7 +594,7 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        rfString = hashJoinNode.getRuntimeFilterExplainString(true);
+        rfString = hashJoinNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
@@ -603,7 +603,7 @@ public class RuntimeFilterGeneratorTest {
                         "RF002[min_max] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
         Assert.assertTrue(rfString.contains(
                         "RF003[in_or_bloom] <- CAST(`test_db`.`test_rhs_tbl`.`test_rhs_col` AS bigint)"));
-        rfString = lhsScanNode.getRuntimeFilterExplainString(false);
+        rfString = lhsScanNode.getRuntimeFilterExplainString();
         Assert.assertTrue(rfString.contains(
                 "RF000[in] -> `test_db`.`test_lhs_tbl`.`test_lhs_col`"));
         Assert.assertTrue(rfString.contains(

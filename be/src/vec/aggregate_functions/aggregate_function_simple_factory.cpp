@@ -29,6 +29,7 @@ namespace doris::vectorized {
 
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFactory& factory);
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_sum0(AggregateFunctionSimpleFactory& factory);
@@ -130,11 +131,13 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_functions_corr_welford(instance);
         register_aggregate_function_covar_pop(instance);
         register_aggregate_function_covar_samp(instance);
-        register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_skewness(instance);
         register_aggregate_function_kurtosis(instance);
         register_aggregate_function_approx_top_k(instance);
         register_aggregate_function_approx_top_sum(instance);
+        // Register foreach and foreachv2 functions
+        register_aggregate_function_combinator_foreach(instance);
+        register_aggregate_function_combinator_foreachv2(instance);
     });
     return instance;
 }

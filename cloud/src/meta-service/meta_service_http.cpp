@@ -48,9 +48,9 @@
 #include "common/configbase.h"
 #include "common/logging.h"
 #include "common/string_util.h"
-#include "meta-service/keys.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "meta_service.h"
 #include "rate-limiter/rate_limiter.h"
 

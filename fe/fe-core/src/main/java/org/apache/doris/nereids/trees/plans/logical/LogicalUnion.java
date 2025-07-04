@@ -58,18 +58,21 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     // it is necessary to keep the filter on the agg and push the filter down to each child of the union.
     private final boolean hasPushedFilter;
 
+    /** LogicalUnion */
     public LogicalUnion(Qualifier qualifier, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, children);
         this.hasPushedFilter = false;
         this.constantExprsList = ImmutableList.of();
     }
 
+    /** LogicalUnion */
     public LogicalUnion(Qualifier qualifier, List<List<NamedExpression>> constantExprsList, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, children);
         this.hasPushedFilter = false;
         this.constantExprsList = constantExprsList;
     }
 
+    /** LogicalUnion */
     public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
             List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs, children);
@@ -78,6 +81,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
+    /** LogicalUnion */
     public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
             List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,

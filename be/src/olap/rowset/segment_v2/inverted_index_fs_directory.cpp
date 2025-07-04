@@ -204,35 +204,46 @@ void DorisFSDirectory::FSIndexInput::seekInternal(const int64_t position) {
 void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     CND_PRECONDITION(_handle != nullptr, "shared file handle has closed");
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
-    std::lock_guard<std::mutex> wlock(_handle->_shared_lock);
 
-    int64_t position = getFilePointer();
-    if (_pos != position) {
-        _pos = position;
-    }
+    int64_t inverted_index_io_timer = 0;
+    {
+        SCOPED_RAW_TIMER(&inverted_index_io_timer);
 
-    if (_handle->_fpos != _pos) {
+        std::lock_guard<std::mutex> wlock(_handle->_shared_lock);
+
+        int64_t position = getFilePointer();
+        if (_pos != position) {
+            _pos = position;
+        }
+
+        if (_handle->_fpos != _pos) {
+            _handle->_fpos = _pos;
+        }
+
+        Slice result {b, (size_t)len};
+        size_t bytes_read = 0;
+        Status st = _handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx);
+        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error", {
+            st = Status::InternalError(
+                    "debug point: "
+                    "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
+        })
+        if (!st.ok()) {
+            _CLTHROWA(CL_ERR_IO, "read past EOF");
+        }
+        bufferLength = len;
+        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",
+                        { bytes_read = len + 10; })
+        if (bytes_read != len) {
+            _CLTHROWA(CL_ERR_IO, "read error");
+        }
+        _pos += bufferLength;
         _handle->_fpos = _pos;
     }
 
-    Slice result {b, (size_t)len};
-    size_t bytes_read = 0;
-    Status st = _handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx);
-    DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error", {
-        st = Status::InternalError(
-                "debug point: DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
-    })
-    if (!st.ok()) {
-        _CLTHROWA(CL_ERR_IO, "read past EOF");
+    if (_io_ctx.file_cache_stats != nullptr) {
+        _io_ctx.file_cache_stats->inverted_index_io_timer += inverted_index_io_timer;
     }
-    bufferLength = len;
-    DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",
-                    { bytes_read = len + 10; })
-    if (bytes_read != len) {
-        _CLTHROWA(CL_ERR_IO, "read error");
-    }
-    _pos += bufferLength;
-    _handle->_fpos = _pos;
 }
 
 void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fs, const char* path) {

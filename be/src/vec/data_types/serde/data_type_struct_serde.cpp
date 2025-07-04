@@ -43,6 +43,23 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
     return std::nullopt;
 }
 
+std::string DataTypeStructSerDe::get_name() const {
+    size_t size = elem_names.size();
+    std::stringstream s;
+
+    s << "Struct(";
+    for (size_t i = 0; i < size; ++i) {
+        if (i != 0) {
+            s << ", ";
+        }
+        s << elem_names[i] << ":";
+        s << elem_serdes_ptrs[i]->get_name();
+    }
+    s << ")";
+
+    return s.str();
+}
+
 Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {
@@ -315,6 +332,35 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
                 struct_column.get_column(i), row_num, bw, options,
                 hive_text_complex_type_delimiter_level + 1));
     }
+    return Status::OK();
+}
+
+Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                      JsonbWriter& writer) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(from_column);
+
+    if (!writer.writeStartObject()) {
+        return Status::InternalError("writeStartObject failed");
+    }
+
+    for (size_t i = 0; i < elem_serdes_ptrs.size(); ++i) {
+        // check key
+        if (elem_names[i].size() > std::numeric_limits<uint8_t>::max()) {
+            return Status::InternalError("key size exceeds max limit {} ", elem_names[i]);
+        }
+        // write key
+        if (!writer.writeKey(elem_names[i].data(), (uint8_t)elem_names[i].size())) {
+            return Status::InternalError("writeKey failed : {}", elem_names[i]);
+        }
+        // write value
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->serialize_column_to_jsonb(struct_column.get_column(i),
+                                                                       row_num, writer));
+    }
+
+    if (!writer.writeEndObject()) {
+        return Status::InternalError("writeEndObject failed");
+    }
+
     return Status::OK();
 }
 

@@ -17,6 +17,7 @@
 
 #include "recycler/recycler.h"
 
+#include <butil/strings/string_split.h>
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -34,11 +35,11 @@
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_accessor.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
@@ -53,6 +54,7 @@ using namespace doris;
 static const std::string instance_id = "instance_id_recycle_test";
 static int64_t current_time = 0;
 static constexpr int64_t db_id = 1000;
+static RecyclerMetricsContext ctx;
 
 static doris::cloud::RecyclerThreadPoolGroup thread_group;
 
@@ -258,8 +260,11 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
     rowset_pb.set_creation_time(current_time);
     if (num_inverted_indexes > 0) {
         auto schema = rowset_pb.mutable_tablet_schema();
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int i = 0; i < num_inverted_indexes; ++i) {
-            schema->add_index()->set_index_id(i);
+            auto index = schema->add_index();
+            index->set_index_id(i);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
     rowset_pb.SerializeToString(&val);
@@ -277,6 +282,24 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
         auto path = segment_path(tablet_id, rowset_id, i);
         accessor->put_file(path, "");
         for (int j = 0; j < num_inverted_indexes; ++j) {
+            std::string key1;
+            std::string val1;
+            MetaTabletIdxKeyInfo key_info1 {instance_id, tablet_id};
+            meta_tablet_idx_key(key_info1, &key1);
+            TabletIndexPB tablet_table;
+            tablet_table.set_db_id(db_id);
+            tablet_table.set_index_id(j);
+            tablet_table.set_tablet_id(tablet_id);
+            if (!tablet_table.SerializeToString(&val1)) {
+                return -1;
+            }
+            if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+                return -1;
+            }
+            txn->put(key1, val1);
+            if (txn->commit() != TxnErrorCode::TXN_OK) {
+                return -1;
+            }
             auto path = inverted_index_path_v1(tablet_id, rowset_id, i, j, "");
             accessor->put_file(path, "");
         }
@@ -1105,7 +1128,7 @@ TEST(RecyclerTest, recycle_tablet) {
 
     ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
 
-    ASSERT_EQ(0, recycler.recycle_tablets(table_id, index_id));
+    ASSERT_EQ(0, recycler.recycle_tablets(table_id, index_id, ctx));
 
     // check rowset does not exist on s3
     std::unique_ptr<ListIterator> list_iter;
@@ -2538,6 +2561,129 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
     ASSERT_NE(checker.do_inverted_check(), 0);
 }
 
+TEST(CheckerTest, inverted_check_recycle_idx_file) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+
+    for (int t = 10001; t <= 10100; ++t) {
+        for (int v = 0; v < 10; ++v) {
+            int ret = create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 1, 3);
+            ASSERT_EQ(ret, 0) << "Failed to create committed rs: " << ret;
+        }
+    }
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    int64_t tablet_id_to_delete_index = -1;
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        std::vector<std::string> str;
+        butil::SplitString(file->path, '/', &str);
+        int64_t tablet_id = atol(str[1].c_str());
+
+        // only delete one index files of ever tablet for mock recycle
+        // The reason for not select "delete all idx file" is that inverted checking cannot handle this case
+        // forward checking is required.
+        if (file->path.ends_with(".idx") && tablet_id_to_delete_index != tablet_id) {
+            accessor->delete_file(file->path);
+            tablet_id_to_delete_index = tablet_id;
+        }
+    }
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+}
+
+TEST(CheckerTest, forward_check_recycle_idx_file) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+
+    for (int t = 10001; t <= 10100; ++t) {
+        for (int v = 0; v < 10; ++v) {
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 1, 3);
+        }
+    }
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        // delete all index files of ever tablet for mock recycle
+        if (file->path.ends_with(".idx")) {
+            accessor->delete_file(file->path);
+        }
+    }
+    ASSERT_EQ(checker.do_check(), 1);
+}
+
 TEST(CheckerTest, normal) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -3518,16 +3664,17 @@ TEST(RecyclerTest, delete_rowset_data) {
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB
         constexpr int index_id = 10001, tablet_id = 10002;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         for (int i = 0; i < 10; ++i) {
             auto rowset = create_rowset(resource_id, tablet_id, index_id, 5, schemas[i % 5]);
             create_recycle_rowset(
                     txn_kv.get(), accessor.get(), rowset,
                     static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), true);
 
-            rowset_pbs.emplace_back(std::move(rowset));
+            rowset_pbs.emplace(rowset.rowset_id_v2(), std::move(rowset));
         }
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET));
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET,
+                                                 ctx));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
@@ -3623,16 +3770,17 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB
         constexpr int index_id = 10001, tablet_id = 10002;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         for (int i = 0; i < 10; ++i) {
             auto rowset = create_rowset(resource_id, tablet_id, index_id, 5, schemas[i % 5]);
             create_recycle_rowset(
                     txn_kv.get(), accessor.get(), rowset,
                     static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), true);
 
-            rowset_pbs.emplace_back(std::move(rowset));
+            rowset_pbs.emplace(rowset.rowset_id_v2(), std::move(rowset));
         }
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET));
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET,
+                                                 ctx));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
@@ -3789,7 +3937,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 
     // recycle tablet will fail because unuseful obj accessor can not connectted
-    EXPECT_EQ(recycler.recycle_tablet(0), -1);
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
     // however, useful mock accessor can recycle tablet
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 1);
 }
@@ -3871,7 +4019,7 @@ TEST(RecyclerTest, recycle_tablet_without_resource_id) {
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 
     // recycle tablet will fail because unuseful obj accessor can not connectted
-    EXPECT_EQ(recycler.recycle_tablet(0), -1);
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
     // no resource id, cannot recycle
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 }
@@ -3953,7 +4101,7 @@ TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 
     // recycle tablet will fail because unuseful obj accessor can not connectted
-    EXPECT_EQ(recycler.recycle_tablet(0), -1);
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
     // no resource id, cannot recycle
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
 }
@@ -4176,7 +4324,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         doris::RowsetMetaCloudPB rowset;
         rowset.set_rowset_id(0); // useless but required
         rowset.set_rowset_id_v2("1");
@@ -4188,7 +4336,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
         rowset.mutable_tablet_schema()->CopyFrom(schema);
         create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1);
         rowset.clear_tablet_schema();
-        rowset_pbs.emplace_back(rowset);
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
 
         std::unordered_set<std::string> list_files;
         std::unique_ptr<ListIterator> iter;
@@ -4203,7 +4351,8 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
         EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
         EXPECT_TRUE(list_files.contains("data/10000/1_0_1.idx"));
 
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET));
+        ASSERT_EQ(0,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
         list_files.clear();
         iter.reset();
         EXPECT_EQ(accessor->list_all(&iter), 0);
@@ -4255,7 +4404,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         doris::RowsetMetaCloudPB rowset;
         rowset.set_rowset_id(0); // useless but required
         rowset.set_rowset_id_v2("1");
@@ -4267,7 +4416,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
         rowset.mutable_tablet_schema()->CopyFrom(schema);
         create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
         rowset.clear_tablet_schema();
-        rowset_pbs.emplace_back(rowset);
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
 
         std::unordered_set<std::string> list_files;
         std::unique_ptr<ListIterator> iter;
@@ -4282,7 +4431,8 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
         EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
         EXPECT_TRUE(list_files.contains("data/10000/1_0.idx"));
 
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET));
+        ASSERT_EQ(0,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
         list_files.clear();
         iter.reset();
         EXPECT_EQ(accessor->list_all(&iter), 0);
@@ -4339,7 +4489,7 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         doris::RowsetMetaCloudPB rowset;
         rowset.set_rowset_id(0); // useless but required
         rowset.set_rowset_id_v2("1");
@@ -4351,7 +4501,7 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
         rowset.mutable_tablet_schema()->CopyFrom(schema);
         create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
         rowset.clear_tablet_schema();
-        rowset_pbs.emplace_back(rowset);
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
 
         rowset.set_rowset_id(0); // useless but required
         rowset.set_rowset_id_v2("2");
@@ -4363,7 +4513,7 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
         rowset.mutable_tablet_schema()->CopyFrom(schema);
         create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
         rowset.clear_tablet_schema();
-        rowset_pbs.emplace_back(rowset);
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
 
         std::unordered_set<std::string> list_files;
         std::unique_ptr<ListIterator> iter;
@@ -4380,7 +4530,8 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
         EXPECT_TRUE(list_files.contains("data/20000/2_0.dat"));
         EXPECT_TRUE(list_files.contains("data/20000/2_0.idx"));
 
-        EXPECT_EQ(-1, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET));
+        EXPECT_EQ(-1,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
         list_files.clear();
         iter.reset();
         EXPECT_EQ(accessor->list_all(&iter), 0);

@@ -270,6 +270,8 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
     CHECK_S3_CLIENT(client);
     auto key = DORIS_TRY(get_key(path));
 
+    VLOG_DEBUG << "key:" << key << " path:" << path;
+
     auto resp = client->head_object({.bucket = _bucket, .key = key});
 
     if (resp.resp.status.code == ErrorCode::OK) {

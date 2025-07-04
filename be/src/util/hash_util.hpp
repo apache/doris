@@ -24,9 +24,11 @@
 #include <xxh3.h>
 #include <zlib.h>
 
+#include <bit>
 #include <functional>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "gutil/endian.h"
 #include "gutil/hash/city.h"
 #include "runtime/define_primitive_type.h"
 #include "util/cpu_info.h"
@@ -228,18 +230,22 @@ public:
 
         while (data != end) {
             uint64_t k;
-#if (BYTE_ORDER == BIG_ENDIAN)
-            k = (uint64_t)data[0];
-            k |= (uint64_t)data[1] << 8;
-            k |= (uint64_t)data[2] << 16;
-            k |= (uint64_t)data[3] << 24;
-            k |= (uint64_t)data[4] << 32;
-            k |= (uint64_t)data[5] << 40;
-            k |= (uint64_t)data[6] << 48;
-            k |= (uint64_t)data[7] << 56;
-#else
-            k = *((uint64_t*)data);
-#endif
+            if constexpr (std::endian::native == std::endian::big) {
+                k = (uint64_t)data[0];
+                k |= (uint64_t)data[1] << 8;
+                k |= (uint64_t)data[2] << 16;
+                k |= (uint64_t)data[3] << 24;
+                k |= (uint64_t)data[4] << 32;
+                k |= (uint64_t)data[5] << 40;
+                k |= (uint64_t)data[6] << 48;
+                k |= (uint64_t)data[7] << 56;
+            } else if constexpr (std::endian::native == std::endian::little) {
+                k = *((uint64_t*)data);
+            } else {
+                static_assert(std::endian::native == std::endian::big ||
+                                      std::endian::native == std::endian::little,
+                              "Unsupported endianness");
+            }
 
             k *= m;
             k ^= k >> r;
