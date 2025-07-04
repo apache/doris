@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cctype>
+
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <exception>
@@ -77,6 +78,7 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exec/format/orc/orc_file_reader.h"
 #include "vec/exec/format/table/transactional_hive_common.h"
+#include "vec/exec/scan/file_scanner.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vectorized_fn_call.h"
@@ -246,10 +248,11 @@ void OrcReader::_init_profile() {
     if (_profile != nullptr) {
         static const char* orc_profile = "OrcReader";
         ADD_TIMER_WITH_LEVEL(_profile, orc_profile, 1);
-        _orc_profile.read_time = ADD_TIMER_WITH_LEVEL(_profile, "FileReadTime", 1);
+        _orc_profile.read_time =
+                ADD_TIMER_WITH_LEVEL(_profile, FileScanner::FileReadTimeProfile, 1);
         _orc_profile.read_calls = ADD_COUNTER_WITH_LEVEL(_profile, "FileReadCalls", TUnit::UNIT, 1);
-        _orc_profile.read_bytes =
-                ADD_COUNTER_WITH_LEVEL(_profile, "FileReadBytes", TUnit::BYTES, 1);
+        _orc_profile.read_bytes = ADD_COUNTER_WITH_LEVEL(
+                _profile, FileScanner::FileReadBytesProfile, TUnit::BYTES, 1);
         _orc_profile.column_read_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ColumnReadTime", orc_profile, 1);
         _orc_profile.get_batch_time =
@@ -1086,44 +1089,47 @@ Status OrcReader::set_fill_columns(
         _row_reader_options.include(_read_file_cols);
         _row_reader_options.setEnableLazyDecoding(true);
 
-        uint64_t number_of_stripes = _reader->getNumberOfStripes();
-        auto all_stripes_needed = _reader->getNeedReadStripes(_row_reader_options);
+        //orc reader should not use the tiny stripe optimization when reading by row id.
+        if (!_read_line_mode_mode) {
+            uint64_t number_of_stripes = _reader->getNumberOfStripes();
+            auto all_stripes_needed = _reader->getNeedReadStripes(_row_reader_options);
 
-        int64_t range_end_offset = _range_start_offset + _range_size;
+            int64_t range_end_offset = _range_start_offset + _range_size;
 
-        bool all_tiny_stripes = true;
-        std::vector<io::PrefetchRange> tiny_stripe_ranges;
+            bool all_tiny_stripes = true;
+            std::vector<io::PrefetchRange> tiny_stripe_ranges;
 
-        for (uint64_t i = 0; i < number_of_stripes; i++) {
-            std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
-            uint64_t strip_start_offset = strip_info->getOffset();
-            uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
+            for (uint64_t i = 0; i < number_of_stripes; i++) {
+                std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(i);
+                uint64_t strip_start_offset = strip_info->getOffset();
+                uint64_t strip_end_offset = strip_start_offset + strip_info->getLength();
 
-            if (strip_start_offset >= range_end_offset || strip_end_offset < _range_start_offset ||
-                !all_stripes_needed[i]) {
-                continue;
+                if (strip_start_offset >= range_end_offset ||
+                    strip_end_offset < _range_start_offset || !all_stripes_needed[i]) {
+                    continue;
+                }
+                if (strip_info->getLength() > _orc_tiny_stripe_threshold_bytes) {
+                    all_tiny_stripes = false;
+                    break;
+                }
+
+                tiny_stripe_ranges.emplace_back(strip_start_offset, strip_end_offset);
             }
-            if (strip_info->getLength() > _orc_tiny_stripe_threshold_bytes) {
-                all_tiny_stripes = false;
-                break;
+            if (all_tiny_stripes && number_of_stripes > 0) {
+                std::vector<io::PrefetchRange> prefetch_merge_ranges =
+                        io::PrefetchRange::merge_adjacent_seq_ranges(tiny_stripe_ranges,
+                                                                     _orc_max_merge_distance_bytes,
+                                                                     _orc_once_max_read_bytes);
+                auto range_finder = std::make_shared<io::LinearProbeRangeFinder>(
+                        std::move(prefetch_merge_ranges));
+
+                auto* orc_input_stream_ptr = static_cast<ORCFileInputStream*>(_reader->getStream());
+                orc_input_stream_ptr->set_all_tiny_stripes();
+                auto& orc_file_reader = orc_input_stream_ptr->get_file_reader();
+                auto orc_inner_reader = orc_input_stream_ptr->get_inner_reader();
+                orc_file_reader = std::make_shared<io::RangeCacheFileReader>(
+                        _profile, orc_inner_reader, range_finder);
             }
-
-            tiny_stripe_ranges.emplace_back(strip_start_offset, strip_end_offset);
-        }
-        if (all_tiny_stripes && number_of_stripes > 0) {
-            std::vector<io::PrefetchRange> prefetch_merge_ranges =
-                    io::PrefetchRange::merge_adjacent_seq_ranges(tiny_stripe_ranges,
-                                                                 _orc_max_merge_distance_bytes,
-                                                                 _orc_once_max_read_bytes);
-            auto range_finder =
-                    std::make_shared<io::LinearProbeRangeFinder>(std::move(prefetch_merge_ranges));
-
-            auto* orc_input_stream_ptr = static_cast<ORCFileInputStream*>(_reader->getStream());
-            orc_input_stream_ptr->set_all_tiny_stripes();
-            auto& orc_file_reader = orc_input_stream_ptr->get_file_reader();
-            auto orc_inner_reader = orc_input_stream_ptr->get_inner_reader();
-            orc_file_reader = std::make_shared<io::RangeCacheFileReader>(_profile, orc_inner_reader,
-                                                                         range_finder);
         }
 
         if (!_lazy_read_ctx.can_lazy_read) {
