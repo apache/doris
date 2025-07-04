@@ -42,6 +42,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 std::unordered_map<void*, size_t> RecordSizeMemoryAllocator::_allocated_sizes;
 std::mutex RecordSizeMemoryAllocator::_mutex;
 
@@ -479,4 +480,5 @@ template class Allocator<false, true, false, RecordSizeMemoryAllocator>;
 template class Allocator<false, false, true, RecordSizeMemoryAllocator>;
 template class Allocator<false, false, false, RecordSizeMemoryAllocator>;
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -22,6 +22,7 @@
 
 #include "vec/core/wide_integer.h"
 namespace common {
+#include "common/compile_check_begin.h"
 template <typename T>
 inline bool add_overflow(T x, T y, T& res) {
     return __builtin_add_overflow(x, y, &res);
@@ -168,4 +169,5 @@ inline bool mul_overflow(wide::Int256 x, wide::Int256 y, wide::Int256& res) {
     wide::UInt256 b = (y > 0) ? y : -y;
     return (a * b) / b != a;
 }
+#include "common/compile_check_end.h"
 } // namespace common

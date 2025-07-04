@@ -23,6 +23,7 @@
 #include "vec/common/format_ip.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /// Result array could be indexed with all possible uint8 values without extra check.
 /// For values greater than 128 we will store same value as for 128 (all bits set).
@@ -67,4 +68,5 @@ inline const std::array<uint8_t, 16>& get_cidr_mask_ipv6(uint8_t prefix_len) {
     return IPV6_RAW_MASK_ARRAY[prefix_len];
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

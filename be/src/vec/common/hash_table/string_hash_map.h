@@ -24,6 +24,7 @@
 #include "vec/common/hash_table/string_hash_table.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 template <typename Key, typename TMapped>
 struct StringHashMapCell : public HashMapCell<Key, TMapped, StringHashTableHash, HashTableNoState> {
     using Base = HashMapCell<Key, TMapped, StringHashTableHash, HashTableNoState>;
@@ -156,4 +157,5 @@ public:
     }
     bool has_null_key_data() const { return false; }
 };
+#include "common/compile_check_end.h"
 } // namespace doris
