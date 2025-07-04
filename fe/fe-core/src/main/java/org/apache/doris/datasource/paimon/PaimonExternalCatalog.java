@@ -23,6 +23,7 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -128,23 +129,26 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonTable(String dbName, String tblName) {
+    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> catalog.getTable(Identifier.create(dbName, tblName)));
+            return hadoopAuthenticator.doAs(() -> catalog.getTable(
+                    Identifier.create(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName())));
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
-                    + dbName + "." + tblName + ", because " + e.getMessage(), e);
+                    + nameMapping.getLocalDbName() + "." + nameMapping.getLocalTblName() + ", because "
+                    + e.getMessage(), e);
         }
     }
 
-    public List<Partition> getPaimonPartitions(String dbName, String tblName) {
+    public List<Partition> getPaimonPartitions(NameMapping nameMapping) {
         makeSureInitialized();
         try {
             return hadoopAuthenticator.doAs(() -> {
                 List<Partition> partitions = new ArrayList<>();
                 try {
-                    partitions = catalog.listPartitions(Identifier.create(dbName, tblName));
+                    partitions = catalog.listPartitions(
+                            Identifier.create(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
                 } catch (Catalog.TableNotExistException e) {
                     LOG.warn("TableNotExistException", e);
                 }
@@ -152,7 +156,8 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
             });
         } catch (IOException e) {
             throw new RuntimeException("Failed to get Paimon table partitions:" + getName() + "."
-                + dbName + "." + tblName + ", because " + e.getMessage(), e);
+                    + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName()
+                    + ", because " + e.getMessage(), e);
         }
     }
 

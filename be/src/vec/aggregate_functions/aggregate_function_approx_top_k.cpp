@@ -17,7 +17,6 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_top_k.h"
 
-#include "common/exception.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"

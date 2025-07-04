@@ -100,12 +100,15 @@ const char* DataTypeHLL::deserialize(const char* buf, MutableColumnPtr* column,
 
         auto& data_column = assert_cast<ColumnHLL&>(*origin_column);
         auto& data = data_column.get_data();
-
+        data.resize(real_have_saved_num);
+        if (real_have_saved_num == 0) {
+            // If real_have_saved_num is 0, we don't need to deserialize any data.
+            return buf;
+        }
         std::vector<size_t> hll_size_array(real_have_saved_num);
         memcpy(hll_size_array.data(), buf, sizeof(size_t) * real_have_saved_num);
         buf += sizeof(size_t) * real_have_saved_num;
 
-        data.resize(real_have_saved_num);
         for (int i = 0; i < real_have_saved_num; ++i) {
             data[i].deserialize(Slice(buf, hll_size_array[i]));
             buf += hll_size_array[i];
