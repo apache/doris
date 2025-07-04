@@ -240,6 +240,10 @@ public class OlapTableSink extends DataSink {
 
         tOlapTableSchemaParam = createSchema(tSink.getDbId(), dstTable, analyzer);
         tOlapTablePartitionParam = createPartition(tSink.getDbId(), dstTable, analyzer);
+        for (TOlapTablePartition partition : tOlapTablePartitionParam.getPartitions()) {
+            partition.setTotalReplicaNum(dstTable.getPartitionTotalReplicasNum(partition.getId()));
+            partition.setLoadRequiredReplicaNum(dstTable.getLoadRequiredReplicaNum(partition.getId()));
+        }
         tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
 
         tSink.setSchema(tOlapTableSchemaParam);
