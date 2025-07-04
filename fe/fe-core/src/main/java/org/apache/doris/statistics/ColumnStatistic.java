@@ -263,8 +263,9 @@ public class ColumnStatistic {
     @Override
     public String toString() {
         return isUnKnown ? "unknown(" + count + ")"
-                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, avgSizeByte=%f",
-                ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte);
+                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, "
+                                + "avgSizeByte=%f, hotValues=(%s)",
+                ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte, getStringHotValues());
     }
 
     public JSONObject toJson() {
