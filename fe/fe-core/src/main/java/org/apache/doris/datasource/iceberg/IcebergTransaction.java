@@ -25,7 +25,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
-import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
@@ -49,7 +48,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 public class IcebergTransaction implements Transaction {
 
