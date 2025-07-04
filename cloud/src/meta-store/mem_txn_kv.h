@@ -138,13 +138,15 @@ public:
     TxnErrorCode get(std::string_view key, std::string* val, bool snapshot = false) override;
     /**
      * Closed-open range
-     * @param snapshot if true, key range will not be included in txn conflict detection this time
-     * @param limit if non-zero, indicates the maximum number of key-value pairs to return
+     * @param begin inclusive
+     * @param end exclusive
+     * @param iter output param for the iterator to iterate over the key-value pairs in the specified range.
+     * @param opts options for range get
      * @return TXN_OK for success, otherwise for error
      */
     TxnErrorCode get(std::string_view begin, std::string_view end,
-                     std::unique_ptr<cloud::RangeGetIterator>* iter, bool snapshot = false,
-                     int limit = 10000) override;
+                     std::unique_ptr<cloud::RangeGetIterator>* iter,
+                     const RangeGetOptions& opts) override;
 
     std::unique_ptr<cloud::FullRangeGetIterator> full_range_get(
             std::string_view begin, std::string_view end,
@@ -217,8 +219,8 @@ private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
 
     TxnErrorCode inner_get(const std::string& begin, const std::string& end,
-                           std::unique_ptr<cloud::RangeGetIterator>* iter, bool snapshot,
-                           int limit);
+                           std::unique_ptr<cloud::RangeGetIterator>* iter,
+                           const RangeGetOptions& opts);
 
     std::shared_ptr<MemTxnKv> kv_ {nullptr};
     bool commited_ = false;
@@ -281,6 +283,21 @@ public:
         k.reserve(key.size() + 1);
         k.append(key);
         k.push_back('\x00');
+        return k;
+    }
+
+    std::string prev_end_key() const override {
+        if (!more()) return {};
+        std::string k(kvs_[kvs_size_ - 1].first);
+        if (k.empty()) {
+            // The minimum key, return an empty string
+        } else if (k.back() == '\x00') {
+            // If the last byte is a null byte, we should remove it
+            k.pop_back();
+        } else {
+            // Otherwise, we should decrement the last byte
+            k.back() -= 1;
+        }
         return k;
     }
 
