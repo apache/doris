@@ -117,9 +117,8 @@ public:
 #ifndef BE_TEST
 private:
 #endif
-    static Status _create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
-                                      std::shared_ptr<LoadStreamMap> load_stream_map,
-                                      int num_replicas);
+    Status _create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
+                               std::shared_ptr<LoadStreamMap> load_stream_map);
 
 private:
     Status _init_row_distribution();
@@ -131,6 +130,8 @@ private:
     Status _open_streams_to_backend(int64_t dst_id, LoadStreamStubs& streams);
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
+
+    void _build_tablet_replica_info(const int64_t tablet_id, VOlapTablePartition* partition);
 
     Status _send_new_partition_batch();
 
@@ -230,6 +231,9 @@ private:
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
+
+    // tablet_id -> <total replicas num, load required replicas num>
+    std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
 };
 
 } // namespace vectorized
