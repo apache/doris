@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -78,6 +79,15 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         }
         authConf = AuthenticationConfig.getKerberosConfig(conf);
         hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authConf);
+        initPreExecutionAuthenticator();
+    }
+
+    @Override
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator();
+            preExecutionAuthenticator.setHadoopAuthenticator(hadoopAuthenticator);
+        }
     }
 
     public String getCatalogType() {
@@ -138,6 +148,21 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
             throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
                     + nameMapping.getLocalDbName() + "." + nameMapping.getLocalTblName() + ", because "
                     + e.getMessage(), e);
+        }
+    }
+
+    public org.apache.paimon.table.Table getPaimonTable(String dbName, String tblName, String queryType) {
+        return getPaimonTable(dbName, tblName, null, queryType);
+    }
+
+    public org.apache.paimon.table.Table getPaimonTable(String dbName, String tblName, String branch,
+            String queryType) {
+        makeSureInitialized();
+        try {
+            return hadoopAuthenticator.doAs(() -> catalog.getTable(new Identifier(dbName, tblName, branch, queryType)));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
+                    + dbName + "." + tblName + ", because " + e.getMessage(), e);
         }
     }
 
