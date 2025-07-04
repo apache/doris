@@ -24,18 +24,10 @@ import java.util.List;
 
 /**
  * This interface defines operations for managing table metadata, including:
- * - Setting or removing table properties
- * - Adding, deleting, and renaming columns
- * - Adding, deleting, and renaming nested fields
- * - Reordering top-level columns and nested struct fields
- * - Widening the type of int, float, and decimal fields
- * - Making required columns optional
+ * - Adding, deleting, modify and renaming columns
+ * - Reordering top-level columns fields
  */
 public interface TableMetadataOps {
-    default void setTableProperty(String key, String value) throws DdlException {
-        throw new UnsupportedOperationException("Set table property operation is not supported for this table type.");
-    }
-
     default void addColumn(Column column) throws DdlException {
         throw new UnsupportedOperationException("Add column operation is not supported for this table type.");
     }
