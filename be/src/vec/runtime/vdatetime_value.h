@@ -1422,7 +1422,7 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
         int64_t second = ts_value2.datetime_diff_in_seconds(ts_value1);
         return second;
     } else {
-        static_assert(false);
+        static_assert(unit == YEAR, "Unsupported TimeUnit for datetime_diff");
     }
 }
 
@@ -1532,7 +1532,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         // no precision loss
         return ts_value2.datetime_diff_in_microseconds(ts_value1);
     } else {
-        static_assert(false);
+        static_assert(UNIT == YEAR, "Unsupported TimeUnit for datetime_diff");
     }
     // Rethink the default return value
     return 0;
