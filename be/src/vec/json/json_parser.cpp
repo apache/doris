@@ -59,8 +59,14 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
     if (element.isObject()) {
         traverseObject(element.getObject(), ctx);
     } else if (element.isArray()) {
-        has_nested = false;
+        if (ctx.has_nested) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Nesting of array in Nested array within variant subcolumns is "
+                                   "currently not supported.");
+        }
+        ctx.has_nested = false;
         check_has_nested_object(element);
+        ctx.has_nested = has_nested;
         if (has_nested && !ctx.enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
@@ -137,6 +143,7 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseContext& ctx) {
     /// Traverse elements of array and collect an array of fields by each path.
     ParseArrayContext array_ctx;
+    array_ctx.has_nested = ctx.has_nested;
     array_ctx.total_size = array.size();
     for (auto it = array.begin(); it != array.end(); ++it) {
         traverseArrayElement(*it, array_ctx);
@@ -162,18 +169,14 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
                                                       ParseArrayContext& ctx) {
     ParseContext element_ctx;
+    element_ctx.has_nested = ctx.has_nested;
     traverse(element, element_ctx);
-    auto& [_, paths, values, flatten_nested] = element_ctx;
+    auto& [_, paths, values, flatten_nested, has_nested] = element_ctx;
     size_t size = paths.size();
     size_t keys_to_update = ctx.arrays_by_path.size();
     for (size_t i = 0; i < size; ++i) {
         if (values[i].is_null()) {
             continue;
-        }
-        if (values[i].get_type() == PrimitiveType::TYPE_ARRAY) {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Nesting of array in array within variant subcolumns is "
-                                   "currently not supported.");
         }
         UInt128 hash = PathInData::get_parts_hash(paths[i]);
         auto found = ctx.arrays_by_path.find(hash);
