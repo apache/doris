@@ -45,10 +45,9 @@ namespace doris {
 // json path cannot contains: ", [, ]
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
 
-rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths,
-                                             rapidjson::Value* document,
-                                             rapidjson::Document::AllocatorType& mem_allocator,
-                                             bool is_insert_null) {
+rapidjson::Value* NO_SANITIZE_UNDEFINED
+JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
+                           rapidjson::Document::AllocatorType& mem_allocator, bool is_insert_null) {
     rapidjson::Value* root = document;
     rapidjson::Value* array_obj = nullptr;
     for (int i = 1; i < parsed_paths.size(); i++) {
@@ -67,7 +66,7 @@ rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed
         if (LIKELY(!col.empty())) {
             if (root->IsArray()) {
                 array_obj = static_cast<rapidjson::Value*>(
-                        mem_allocator.Malloc(sizeof(rapidjson::Value)));
+                        mem_allocator.Malloc(RAPIDJSON_ALIGN(sizeof(rapidjson::Value))));
                 array_obj->SetArray();
                 bool is_null = true;
 
@@ -124,7 +123,7 @@ rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed
                 } else if (index == -2) {
                     // [*]
                     array_obj = static_cast<rapidjson::Value*>(
-                            mem_allocator.Malloc(sizeof(rapidjson::Value)));
+                            mem_allocator.Malloc(RAPIDJSON_ALIGN(sizeof(rapidjson::Value))));
                     array_obj->SetArray();
 
                     for (int j = 0; j < root->Size(); j++) {
@@ -154,7 +153,7 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
     return get_json_array_from_parsed_json(vec, document, mem_allocator, wrap_explicitly);
 }
 
-rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
+rapidjson::Value* NO_SANITIZE_UNDEFINED JsonFunctions::get_json_array_from_parsed_json(
         const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
         rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
     *wrap_explicitly = false;
@@ -166,7 +165,8 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         // the json path is "$", just return entire document
         // wrapper an array
         rapidjson::Value* array_obj = nullptr;
-        array_obj = static_cast<rapidjson::Value*>(mem_allocator.Malloc(sizeof(rapidjson::Value)));
+        array_obj = static_cast<rapidjson::Value*>(
+                mem_allocator.Malloc(RAPIDJSON_ALIGN(sizeof(rapidjson::Value))));
         array_obj->SetArray();
         array_obj->PushBack(*document, mem_allocator);
         return array_obj;
@@ -177,7 +177,8 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         return nullptr;
     } else if (!root->IsArray() && wrap_explicitly) {
         rapidjson::Value* array_obj = nullptr;
-        array_obj = static_cast<rapidjson::Value*>(mem_allocator.Malloc(sizeof(rapidjson::Value)));
+        array_obj = static_cast<rapidjson::Value*>(
+                mem_allocator.Malloc(RAPIDJSON_ALIGN(sizeof(rapidjson::Value))));
         array_obj->SetArray();
         rapidjson::Value copy;
         copy.CopyFrom(*root, mem_allocator);
