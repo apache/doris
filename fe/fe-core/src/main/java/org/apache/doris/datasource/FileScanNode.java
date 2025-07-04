@@ -105,7 +105,13 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
 
         output.append(prefix);
-        if (isBatchMode()) {
+        boolean isBatch;
+        try {
+            isBatch = isBatchMode();
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+        if (isBatch) {
             output.append("(approximate)");
         }
         output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
@@ -113,7 +119,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
                 .append("\n");
 
-        if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
+        if (detailLevel == TExplainLevel.VERBOSE && !isBatch) {
             output.append(prefix).append("backends:").append("\n");
             Multimap<Long, TFileRangeDesc> scanRangeLocationsMap = ArrayListMultimap.create();
             // 1. group by backend id
