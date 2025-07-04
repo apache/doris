@@ -1499,7 +1499,16 @@ message RecycleInstanceRequest {
     repeated string instance_ids = 1;
 }
 
+message StatisticsRecycleRequest {
+    repeated string instance_ids = 1;
+    repeated string resource_type = 2;
+}
+
 message RecycleInstanceResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message StatisticsRecycleResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
@@ -1910,6 +1919,7 @@ service MetaService {
 service RecyclerService {
     rpc recycle_instance(RecycleInstanceRequest) returns (RecycleInstanceResponse);
     rpc http(MetaServiceHttpRequest) returns (MetaServiceHttpResponse);
+    rpc statistics_recycle(StatisticsRecycleRequest) returns (StatisticsRecycleResponse);
 };
 
 // vim: et ts=4 sw=4:

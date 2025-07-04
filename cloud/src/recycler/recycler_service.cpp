@@ -23,6 +23,11 @@
 #include <gen_cpp/cloud.pb.h>
 #include <google/protobuf/util/json_util.h>
 
+#include <algorithm>
+#include <functional>
+#include <numeric>
+#include <sstream>
+
 #include "common/config.h"
 #include "common/defer.h"
 #include "common/logging.h"
@@ -34,6 +39,7 @@
 #include "recycler/meta_checker.h"
 #include "recycler/recycler.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/util.h"
 
 namespace doris::cloud {
 
@@ -51,6 +57,211 @@ RecyclerServiceImpl::RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler
           txn_lazy_committer_(std::move(txn_lazy_committer)) {}
 
 RecyclerServiceImpl::~RecyclerServiceImpl() = default;
+
+void RecyclerServiceImpl::statistics_recycle(
+        ::google::protobuf::RpcController* controller,
+        const ::doris::cloud::StatisticsRecycleRequest* request,
+        ::doris::cloud::StatisticsRecycleResponse* response, ::google::protobuf::Closure* done) {
+    auto* ctrl = static_cast<brpc::Controller*>(controller);
+    LOG(INFO) << "rpc from " << ctrl->remote_side() << " request=" << request->ShortDebugString();
+    brpc::ClosureGuard closure_guard(done);
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    DORIS_CLOUD_DEFER {
+        response->mutable_status()->set_code(code);
+        response->mutable_status()->set_msg(msg);
+        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
+                  << "statistics_recycle"
+                  << " " << ctrl->remote_side() << " " << msg;
+    };
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = "failed to create txn";
+        return;
+    }
+
+    static std::map<std::string, std::function<void(InstanceRecycler&)>> resource_handlers = {
+            {"index",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_indexes();
+             }},
+            {"partition",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_partitions();
+             }},
+            {"tmp_rowset",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_tmp_rowsets();
+             }},
+            {"rowset",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_rowsets();
+             }},
+            {"abort_timeout_txn",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_abort_timeout_txn();
+             }},
+            {"expired_txn_label",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_expired_txn_label();
+             }},
+            {"version",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_versions();
+             }},
+            {"copy_job",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_copy_jobs();
+             }},
+            {"stage",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_stage();
+             }},
+            {"expired_stage_object",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_expired_stage_objects();
+             }},
+            {"tablet",
+             [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_partitions();
+                 instance_recycler.scan_and_statistics_indexes();
+             }},
+            {"segment", [](InstanceRecycler& instance_recycler) {
+                 instance_recycler.scan_and_statistics_partitions();
+                 instance_recycler.scan_and_statistics_indexes();
+                 instance_recycler.scan_and_statistics_rowsets();
+                 instance_recycler.scan_and_statistics_tmp_rowsets();
+             }}};
+
+    std::set<std::string> resource_types;
+    for (const auto& resource_type : request->resource_type()) {
+        if (resource_type == "*") {
+            std::for_each(resource_handlers.begin(), resource_handlers.end(),
+                          [&](const auto& it) { resource_types.emplace(it.first); });
+            break;
+        } else {
+            if (!resource_handlers.contains(resource_type)) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format(
+                        "invalid resource type: {}, valid resource_type have [{}]", resource_type,
+                        std::accumulate(resource_handlers.begin(), resource_handlers.end(),
+                                        std::string(), [](const std::string& acc, const auto& it) {
+                                            return acc.empty() ? it.first : acc + ", " + it.first;
+                                        }));
+                LOG_WARNING(msg);
+                return;
+            } else {
+                resource_types.emplace(resource_type);
+            }
+        }
+    }
+
+    std::set<std::string> instance_ids;
+    std::vector<InstanceInfoPB> instances;
+    get_all_instances(txn_kv_.get(), instances);
+
+    for (const auto& instance_id : request->instance_ids()) {
+        if (instance_id == "*") {
+            std::for_each(instances.begin(), instances.end(), [&](const InstanceInfoPB& instance) {
+                instance_ids.emplace(instance.instance_id());
+            });
+            break;
+        } else {
+            if (std::find_if(instances.begin(), instances.end(),
+                             [&](const InstanceInfoPB& instance) {
+                                 return instance.instance_id() == instance_id;
+                             }) == instances.end()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format("invalid instance id: {}", instance_id);
+                LOG_WARNING(msg);
+                return;
+            } else {
+                instance_ids.emplace(instance_id);
+            }
+        }
+    }
+
+    LOG(INFO) << "begin to statistics recycle for "
+              << std::accumulate(instance_ids.begin(), instance_ids.end(), std::string(),
+                                 [](const std::string& acc, const std::string& id) {
+                                     return acc.empty() ? id : acc + ", " + id;
+                                 });
+
+    auto worker_pool = std::make_unique<SimpleThreadPool>(
+            config::instance_recycler_statistics_recycle_worker_pool_size, "statistics_recycle");
+    worker_pool->start();
+
+    for (const auto& id : instance_ids) {
+        InstanceKeyInfo key_info {id};
+        std::string key;
+        instance_key(key_info, &key);
+        std::string val;
+        err = txn->get(key, &val);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = MetaServiceCode::KV_TXN_GET_ERR;
+            msg = fmt::format("failed to get instance, instance_id={}, err={}", id, err);
+            LOG_WARNING(msg);
+            continue;
+        }
+        InstanceInfoPB instance;
+        if (!instance.ParseFromString(val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("malformed instance info, key={}, val={}", hex(key), hex(val));
+            LOG_WARNING(msg);
+            continue;
+        }
+        auto instance_recycler = std::make_shared<InstanceRecycler>(
+                txn_kv_, instance, recycler_->_thread_pool_group, txn_lazy_committer_);
+
+        if (int r = instance_recycler->init(); r != 0) {
+            LOG(WARNING) << "failed to init instance recycler, instance_id=" << id << " ret=" << r;
+            continue;
+        }
+        // if empty, statistics all resources
+        if (resource_types.empty()) {
+            for (const auto& [_, func] : resource_handlers) {
+                worker_pool->submit([&instance_recycler, &func]() { func(*instance_recycler); });
+            }
+        } else {
+            for (const auto& resource_type : resource_types) {
+                if (auto it = resource_handlers.find(resource_type);
+                    it != resource_handlers.end()) {
+                    worker_pool->submit(
+                            [&it, &instance_recycler]() { it->second(*instance_recycler); });
+                }
+            }
+        }
+    }
+
+    worker_pool->stop();
+    std::stringstream ss;
+    for_each(instance_ids.begin(), instance_ids.end(), [&](const std::string& id) {
+        ss << "instance_id:    " << id << "\n";
+        for_each(resource_types.begin(), resource_types.end(), [&](const auto& resource_type) {
+            int64_t to_recycle_num = 0;
+            int64_t to_recycle_bytes = 0;
+            std::string type = "recycle_" + resource_type;
+            if (type == "recycle_segment" || type == "recycle_tablet") {
+                to_recycle_num = g_bvar_recycler_instance_last_round_to_recycle_num.get(
+                        {"global_recycler", type});
+                to_recycle_bytes = g_bvar_recycler_instance_last_round_to_recycle_bytes.get(
+                        {"global_recycler", type});
+            } else {
+                to_recycle_num = g_bvar_recycler_instance_last_round_to_recycle_num.get({id, type});
+                to_recycle_bytes =
+                        g_bvar_recycler_instance_last_round_to_recycle_bytes.get({id, type});
+            }
+            ss << "\t\t" << resource_type << ".last_round_to_recycle_num : " << to_recycle_num
+               << "\n";
+            ss << "\t\t" << resource_type << ".last_round_to_recycle_bytes: " << to_recycle_bytes
+               << "\n";
+        });
+    });
+    msg = ss.str();
+}
 
 void RecyclerServiceImpl::recycle_instance(::google::protobuf::RpcController* controller,
                                            const ::doris::cloud::RecycleInstanceRequest* request,
@@ -324,6 +535,23 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
         }
         RecycleInstanceResponse res;
         recycle_instance(cntl, &req, &res, nullptr);
+        code = res.status().code();
+        msg = res.status().msg();
+        response_body = msg;
+        return;
+    }
+
+    if (unresolved_path == "statistics_recycle") {
+        StatisticsRecycleRequest req;
+        auto st = google::protobuf::util::JsonStringToMessage(request_body, &req);
+        if (!st.ok()) {
+            msg = "failed to StatisticsRecycleRequest, error: " + st.message().ToString();
+            response_body = msg;
+            LOG(WARNING) << msg;
+            return;
+        }
+        StatisticsRecycleResponse res;
+        statistics_recycle(cntl, &req, &res, nullptr);
         code = res.status().code();
         msg = res.status().msg();
         response_body = msg;
