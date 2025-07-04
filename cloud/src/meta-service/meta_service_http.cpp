@@ -75,9 +75,8 @@ extern int decrypt_instance_info(InstanceInfoPB& instance, const std::string& in
                                  MetaServiceCode& code, std::string& msg,
                                  std::shared_ptr<Transaction>& txn);
 
-extern void get_partition_boundaries_count(
-        std::vector<std::string>& partition_boundaries,
-        std::unordered_map<std::string, size_t>& partition_count);
+extern void get_kv_range_boundaries_count(std::vector<std::string>& partition_boundaries,
+                                          std::unordered_map<std::string, size_t>& partition_count);
 
 template <typename Message>
 static google::protobuf::util::Status parse_json_message(const std::string& unresolved_path,
@@ -537,7 +536,7 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
     }
     std::unordered_map<std::string, size_t> partition_count;
-    get_partition_boundaries_count(partition_boundaries, partition_count);
+    get_kv_range_boundaries_count(partition_boundaries, partition_count);
 
     // sort ranges by count
     std::vector<std::pair<std::string, size_t>> meta_ranges;

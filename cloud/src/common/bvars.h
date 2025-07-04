@@ -479,5 +479,4 @@ extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter;
 
 // meta ranges
-extern mBvarStatus<int64_t> g_bvar_meta_ranges_category_total;
-extern mBvarStatus<int64_t> g_bvar_meta_ranges_partition_count;
+extern mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count;
