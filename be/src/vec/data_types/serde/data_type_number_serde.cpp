@@ -456,7 +456,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
                             "len {} exceed total_size {} . ",
                             offset, len, total_size);
                 }
-                strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
+                // do not use strcpy here, because this buffer is not null-terminated
+                memcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str(), len);
                 cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
                 cur_batch->length[row_id] = len;
                 offset += len;
