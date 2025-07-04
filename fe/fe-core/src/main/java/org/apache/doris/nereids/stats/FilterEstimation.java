@@ -110,7 +110,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     if (conjunct instanceof ComparisonPredicate) {
                         Statistics partial = conjunct.accept(this, new EstimationContext(inputStats));
                         if (partial.getRowCount() == 0) {
-                            for (Slot slot: conjunct.getInputSlots()) {
+                            for (Slot slot : conjunct.getInputSlots()) {
                                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
                             }
                         }
