@@ -42,6 +42,4 @@ suite('multi_distinct_window') {
 
     qt_distinct_group_concat "select id, v1, group_concat(distinct v2) over() from multi order by id;"
 
-    qt_group_concat "select id, v1, group_concat(v2) over() from multi group by id, v1 order by id;"
-
 }

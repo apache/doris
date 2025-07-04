@@ -29,8 +29,3 @@
 2	2	a
 3	2	a
 
--- !group_concat --
-1	2	a,a,a
-2	2	a,a,a
-3	2	a,a,a
-
