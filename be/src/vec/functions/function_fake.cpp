@@ -185,7 +185,7 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer<FunctionExplodeV2>(factory, "explode_v2");
     register_table_function_expand_outer<FunctionExplode>(factory, "explode_v1");
     factory.register_alias("explode_v1", "explode");
-    factory.register_alias("explode_v1", "explode_outer");
+    factory.register_alias("explode_v1_outer", "explode_outer");
 
     register_table_function_expand_outer<FunctionExplodeMap>(factory, "explode_map");
 
