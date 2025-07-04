@@ -94,7 +94,7 @@ function install_java() {
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
         sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
     fi
-    # doris master and branch-3.0 use java-17
+    # doris master branch use java-17
     if ! java -version >/dev/null ||
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*')" ]]; then
         sudo apt update && sudo apt install openjdk-17-jdk -y >/dev/null
@@ -137,10 +137,10 @@ function start_doris_fe() {
         if [[ -n "${fe_version}" ]] && [[ "${fe_version}" != "NULL" ]]; then
             echo "INFO: doris fe started, fe version: ${fe_version}" && return 0
         else
-            echo "${i}/60, Wait for Frontend ready, sleep 2 seconds ..." && sleep 2
+            echo "${i}/60, Wait for Frontend ready, sleep 5 seconds ..." && sleep 5
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Start Doris Frontend Failed after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Start Doris Frontend Failed after 5 mins wait..." && return 1; fi
 }
 
 function start_doris_be() {
@@ -194,10 +194,10 @@ function check_doris_ready() {
             [[ ${be_ready_count} -eq 1 ]]; then
             echo -e "INFO: Doris cluster ready, be version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
         else
-            echo 'Wait for backends ready, sleep 2 seconds ...' && sleep 2
+            echo 'Wait for backends ready, sleep 5 seconds ...' && sleep 5
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Doris cluster not ready after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Doris cluster not ready after 5 mins wait..." && return 1; fi
 
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
@@ -206,14 +206,26 @@ function check_doris_ready() {
 
 function stop_doris() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
-    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
     if "${DORIS_HOME}"/be/bin/stop_be.sh && "${DORIS_HOME}"/fe/bin/stop_fe.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
         echo "WARNING: force stoped doris"
     fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
+}
+
+function stop_doris_grace() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if "${DORIS_HOME}"/be/bin/stop_be.sh --grace && "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
+        echo "INFO: normally stoped doris --grace"
+    else
+        pgrep -fi doris | xargs kill -9 &>/dev/null
+        echo "WARNING: force stoped doris"
+    fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; fi
 }
 
 function clean_fdb() {
@@ -293,10 +305,10 @@ function restart_doris() {
             [[ ${be_ready_count} -eq 1 ]]; then
             echo -e "INFO: ${be_ready_count} Backends ready, version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
         else
-            echo 'Wait for Backends ready, sleep 2 seconds ...' && sleep 2
+            echo 'Wait for Backends ready, sleep 5 seconds ...' && sleep 5
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Backend not ready after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Backend not ready after 5 mins wait..." && return 1; fi
 
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
@@ -521,6 +533,47 @@ function set_doris_session_variables_from_file() {
     fi
 }
 
+_monitor_regression_log() {
+    if ! command -v inotifywait >/dev/null; then
+        apt install inotify-tools -y
+    fi
+
+    # Path to the log directory
+    local LOG_DIR="${DORIS_HOME}"/regression-test/log
+
+    # keyword to search for in the log files
+    local KEYWORD="Reach limit of connections"
+
+    local query_port
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+
+    echo "INFO: start monitoring the log files in ${LOG_DIR} for the keyword '${KEYWORD}'"
+
+    local start_row=1
+    local filepath=""
+    set +x
+    # Monitor the log directory for new files and changes, only one file
+    # shellcheck disable=SC2034
+    inotifywait -m -e modify "${LOG_DIR}" | while read -r directory events filename; do
+        filepath="${directory}${filename}"
+        if [[ ! -f "${filepath}" ]]; then continue; fi
+        total_rows=$(wc -l "${filepath}" | awk '{print $1}')
+        if [[ -n ${total_rows} ]] && [[ ${start_row} -ge ${total_rows} ]]; then
+            start_row=${total_rows}
+        fi
+        # shellcheck disable=SC2250
+        if sed -n "${start_row},\$p" "${filepath}" | grep -a -q "${KEYWORD}"; then
+            matched=$(grep -a -n "${KEYWORD}" "${filepath}")
+            start_row=$(echo "${matched}" | tail -n1 | cut -d: -f1)
+            echo "WARNING: find '${matched}' in ${filepath}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+            mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;' | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+        fi
+        start_row=$((start_row + 1))
+        # echo "start_row ${start_row}" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+    done
+
+}
+
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local archive_name="$1"
@@ -590,6 +643,11 @@ wait_coredump_file_ready() {
             initial_size=${current_size}
         fi
     done
+}
+
+clear_coredump() {
+    echo -e "INFO: clear coredump files \n$(ls /var/lib/apport/coredump/)"
+    rm -rf /var/lib/apport/coredump/*
 }
 
 archive_doris_coredump() {
