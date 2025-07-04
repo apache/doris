@@ -773,6 +773,15 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
+
+    if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
+      mkdir -p "${DORIS_OUTPUT}/fe/arthas"
+      rm -rf "${DORIS_OUTPUT}/fe/arthas/*"
+      unzip -o "${DORIS_OUTPUT}/fe/lib/arthas-packaging-*.jar" arthas-bin.zip -d "${DORIS_OUTPUT}/fe/arthas/"
+      unzip -o "${DORIS_OUTPUT}/fe/arthas/arthas-bin.zip" -d "${DORIS_OUTPUT}/fe/arthas/"
+      rm "${DORIS_OUTPUT}/fe/arthas/math-game.jar"
+      rm "${DORIS_OUTPUT}/fe/arthas/arthas-bin.zip"
+    fi
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
