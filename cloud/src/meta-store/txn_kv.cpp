@@ -441,7 +441,7 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     std::unique_ptr<RangeGetIterator> ret(new RangeGetIterator(fut));
     RETURN_IF_ERROR(ret->init());
     num_get_keys_ += ret->size();
-    get_bytes_ += ret->get_total_bytes();
+    get_bytes_ += ret->get_kv_bytes();
     g_bvar_txn_kv_get_count_normalized << ret->size();
 
     *(iter) = std::move(ret);

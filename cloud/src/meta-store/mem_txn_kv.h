@@ -59,6 +59,9 @@ public:
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
                         int limit, bool* more, std::map<std::string, std::string>* kv_list);
 
+    int64_t get_bytes_ {};
+    int64_t put_bytes_ {};
+    int64_t del_bytes_ {};
     int64_t get_count_ {};
     int64_t put_count_ {};
     int64_t del_count_ {};
@@ -266,10 +269,10 @@ public:
         return kvs_size_ - idx_;
     }
 
-    int64_t get_total_bytes() const override {
-        return std::accumulate(kvs_.begin(), kvs_.end(), 0, [](auto init, auto it) {
-            return init + it.first.size() + it.second.size();
-        });
+    int64_t get_kv_bytes() const override {
+        int64_t kv_bytes {};
+        for (auto& [k, v] : kvs_) kv_bytes += k.size() + v.size();
+        return kv_bytes;
     }
 
     int size() const override { return kvs_size_; }

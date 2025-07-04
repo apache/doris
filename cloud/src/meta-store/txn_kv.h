@@ -323,7 +323,7 @@ public:
      * Get all FDBKeyValue's bytes include key's bytes
      * RangeGetIterator created by get range, when get range the keys in the range too.
      */
-    virtual int64_t get_total_bytes() const = 0;
+    virtual int64_t get_kv_bytes() const = 0;
 
     /**
      * Get the remaining size of the range, some kinds of iterators may not support this function.
@@ -497,7 +497,7 @@ public:
 
     int size() const override { return kvs_size_; }
 
-    int64_t get_total_bytes() const override {
+    int64_t get_kv_bytes() const override {
         int64_t total_bytes_ {};
         for (int i = 0; i < kvs_size_; i++) {
             total_bytes_ += kvs_[i].key_length + kvs_[i].value_length;
