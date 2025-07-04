@@ -106,11 +106,10 @@ public class CatalogProperty {
     }
 
     private void reInitCatalogStorageProperties() {
-        this.storagePropertiesMap = new HashMap<>();
         List<StorageProperties> storageProperties;
         try {
             storageProperties = StorageProperties.createAll(this.properties);
-            this.storagePropertiesMap.putAll(storageProperties.stream()
+            this.storagePropertiesMap = (storageProperties.stream()
                     .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity())));
         } catch (UserException e) {
             throw new RuntimeException(e);

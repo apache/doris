@@ -17,25 +17,36 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 
 import java.util.Map;
 
-public class HMSDlfMetaStoreProperties extends AbstractHMSProperties {
+public class HMSAliyunDLFMetaStoreProperties extends AbstractHMSProperties {
 
-    public HMSDlfMetaStoreProperties(Map<String, String> origProps) {
+    private AliyunDLFBaseProperties baseProperties;
+
+    public HMSAliyunDLFMetaStoreProperties(Map<String, String> origProps) {
         super(Type.DLF, origProps);
     }
 
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        hiveConf = new HiveConf();
-        origProps.forEach((key, value) -> {
-            if (StringUtils.isNotBlank(value)) {
-                hiveConf.set(key, value);
-            }
-        });
+        baseProperties = AliyunDLFBaseProperties.of(origProps);
+        initHiveConf();
     }
+
+    private void initHiveConf() {
+        // @see com.aliyun.datalake.metastore.hive.common.utils.ConfigUtils
+        // todo support other parameters
+        hiveConf = new HiveConf();
+        hiveConf.set("dlf.catalog.accessKeyId", baseProperties.dlfAccessKey);
+        hiveConf.set("dlf.catalog.accessKeySecret", baseProperties.dlfSecretKey);
+        hiveConf.set("dlf.catalog.endpoint", baseProperties.dlfEndpoint);
+        hiveConf.set("dlf.catalog.region", baseProperties.dlfRegion);
+        hiveConf.set("dlf.catalog.securityToken", baseProperties.dlfSessionToken);
+        hiveConf.set("dlf.catalog.id", baseProperties.dlfUid);
+    }
+
+
 }

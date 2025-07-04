@@ -31,7 +31,7 @@ public class HMSPropertiesFactory implements MetastorePropertiesFactory {
         register("default", HMSProperties::new);
         register("hms", HMSProperties::new);
         register("glue", HMSGlueMetaStoreProperties::new);
-        register("dlf", HMSDlfMetaStoreProperties::new);
+        register("dlf", HMSAliyunDLFMetaStoreProperties::new);
     }
 
     public static void register(String subType, Function<Map<String, String>, MetastoreProperties> constructor) {

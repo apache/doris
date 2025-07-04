@@ -27,6 +27,7 @@ import org.apache.hadoop.conf.Configuration;
 
 import java.net.URI;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -49,17 +50,18 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     @Setter
     @ConnectorProperty(names = {"oss.hdfs.endpoint",
-            "oss.endpoint"},
+            "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint"},
             description = "The endpoint of OSS.")
     protected String endpoint = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key"}, description = "The access key of OSS.")
+    @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key", "dlf.access_key", "dlf.catalog.accessKeyId"},
+            description = "The access key of OSS.")
     protected String accessKey = "";
 
     @ConnectorProperty(names = {"oss.hdfs.secret_key", "oss.secret_key"}, description = "The secret key of OSS.")
     protected String secretKey = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.region", "oss.region"},
+    @ConnectorProperty(names = {"oss.hdfs.region", "oss.region", "dlf.region"},
             required = false,
             description = "The region of OSS.")
     protected String region;
@@ -81,17 +83,19 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
             description = "The security token of OSS.")
     protected String securityToken = "";
 
-    private static final String OSS_ENDPOINT_KEY_NAME = "oss.endpoint";
+    private static final Set<String> OSS_ENDPOINT_KEY_NAME = ImmutableSet.of("oss.hdfs.endpoint",
+            "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint");
 
     private Map<String, String> backendConfigProperties;
 
-    private static final Pattern ENDPOINT_PATTERN = Pattern
-            .compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com");
+    private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
+                    .compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
+            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
 
     private static final Set<String> supportSchema = ImmutableSet.of("oss", "hdfs");
 
     protected OSSHdfsProperties(Map<String, String> origProps) {
-        super(Type.HDFS, origProps);
+        super(Type.OSS, origProps);
     }
 
     private static final String OSS_HDFS_PREFIX_KEY = "oss.hdfs.";
@@ -102,36 +106,59 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         if (enable) {
             return true;
         }
-        String endpoint = props.get(OSS_ENDPOINT_KEY_NAME);
+        String endpoint = OSS_ENDPOINT_KEY_NAME.stream()
+                .map(props::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
         if (StringUtils.isBlank(endpoint)) {
             return false;
         }
-        return endpoint.endsWith(OSS_HDFS_ENDPOINT_SUFFIX);
+        return endpoint.endsWith(OSS_HDFS_ENDPOINT_SUFFIX) || endpoint.contains(DLF_ENDPOINT_KEY_WORDS);
     }
 
     @Override
     protected void checkRequiredProperties() {
         super.checkRequiredProperties();
-        if (!endpointIsValid(endpoint)) {
+        if (!isValidEndpoint(endpoint)) {
             throw new IllegalArgumentException("Property oss.endpoint is required and must be a valid OSS endpoint.");
         }
+    }
+
+    public static Optional<String> extractRegion(String endpoint) {
+        for (Pattern pattern : ENDPOINT_PATTERN) {
+            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
+            if (matcher.matches()) {
+                return Optional.ofNullable(matcher.group(1));
+            }
+        }
+        return Optional.empty();
+    }
+
+    public static boolean isValidEndpoint(String endpoint) {
+        for (Pattern pattern : ENDPOINT_PATTERN) {
+            if (pattern.matcher(endpoint.toLowerCase()).matches()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        Matcher matcher = ENDPOINT_PATTERN.matcher(endpoint.toLowerCase());
-        if (!matcher.matches()) {
+        if (!isValidEndpoint(endpoint.toLowerCase())) {
             throw new IllegalArgumentException("The endpoint is not a valid OSS HDFS endpoint: " + endpoint
                     + ". It should match the pattern: <region>.oss-dls.aliyuncs.com");
         }
         // Extract region from the endpoint, e.g., "cn-shanghai.oss-dls.aliyuncs.com" -> "cn-shanghai"
         if (StringUtils.isBlank(this.region)) {
-            this.region = matcher.group(1);
-            if (StringUtils.isBlank(this.region)) {
+            Optional<String> regionOptional = extractRegion(endpoint);
+            if (!regionOptional.isPresent()) {
                 throw new IllegalArgumentException("The region extracted from the endpoint is empty. "
                         + "Please check the endpoint format: {} or set oss.region" + endpoint);
             }
+            this.region = regionOptional.get();
         }
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
@@ -140,6 +167,8 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     }
 
     private static final String OSS_HDFS_ENDPOINT_SUFFIX = ".oss-dls.aliyuncs.com";
+
+    private static final String DLF_ENDPOINT_KEY_WORDS = "dlf";
 
     private boolean endpointIsValid(String endpoint) {
         // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
@@ -199,6 +228,6 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     @Override
     public String getStorageName() {
-        return "HDFS";
+        return "OSSHDFS";
     }
 }
