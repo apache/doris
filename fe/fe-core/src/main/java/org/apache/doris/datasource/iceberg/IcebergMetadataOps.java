@@ -289,7 +289,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void dropTableImpl(DropTableStmt stmt) throws DdlException {
         try {
             preExecutionAuthenticator.execute(() -> {
-                if (getExternalCatalog().getMetadataOps().viewExists(dbName, tableName)) {
+                if (getExternalCatalog().getMetadataOps().viewExists(stmt.getDbName(), stmt.getTableName())) {
                     performDropView(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());
                 } else {
                     performDropTable(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());

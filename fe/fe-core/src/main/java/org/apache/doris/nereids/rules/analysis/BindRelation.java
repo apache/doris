@@ -450,8 +450,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             "please set enable_query_iceberg_views=true to enable query iceberg views");
                     }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                        qualifierWithoutTableName, unboundRelation.getTableSample(),
-                        unboundRelation.getTableSnapshot(), ImmutableList.of(),
+                            qualifierWithoutTableName, unboundRelation.getTableSample(),
+                            unboundRelation.getTableSnapshot(),
                         Optional.ofNullable(unboundRelation.getScanParams()));
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
