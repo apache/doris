@@ -237,7 +237,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             for (DataField field : columns) {
                 Column column = new Column(field.name().toLowerCase(),
                         PaimonUtil.paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
-                        field.id());
+                        -1);
+                PaimonUtil.updatePaimonColumnUniqueId(column, field);
                 dorisColumns.add(column);
                 if (partitionColumnNames.contains(field.name())) {
                     partitionColumns.add(column);

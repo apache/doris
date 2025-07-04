@@ -48,7 +48,7 @@ class GenericReader;
 class ShardedKVCache;
 class VExprContext;
 
-class TransactionalHiveReader : public TableFormatReader {
+class TransactionalHiveReader : public TableFormatReader, public TableSchemaChangeHelper {
     ENABLE_FACTORY_CREATOR(TransactionalHiveReader);
 
 public:

@@ -1279,4 +1279,5 @@ public class Column implements GsonPostProcessable {
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
     }
+
 }
