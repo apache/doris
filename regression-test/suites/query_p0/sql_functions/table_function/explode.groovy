@@ -76,7 +76,6 @@ suite("explode") {
     def dataFile = "am.json"
     sql """ DROP TABLE IF EXISTS $testTable; """
     // TODO support more subcolumns count
-    sql "set global_variant_max_subcolumns_count = 0"
     sql """
         CREATE TABLE `$testTable` (
           `id` bigint(20) NULL,
