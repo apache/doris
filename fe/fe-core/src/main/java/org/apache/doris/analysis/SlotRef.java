@@ -650,47 +650,6 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple)
-            throws AnalysisException {
-        Expr originExpr = stmt.getExprFromAliasSMap(this);
-        if (!(originExpr instanceof SlotRef)) {
-            return true; // means this is alias of other expr.
-        }
-
-        SlotRef aliasExpr = (SlotRef) originExpr;
-        if (aliasExpr.getColumnName() == null) {
-            if (desc.getSourceExprs() != null) {
-                for (Expr expr : desc.getSourceExprs()) {
-                    if (!expr.matchExprs(exprs, stmt, ignoreAlias, tuple)) {
-                        return false;
-                    }
-                }
-            }
-            return true; // means this is alias of other expr.
-        }
-
-        String name = MaterializedIndexMeta.normalizeName(aliasExpr.toSqlWithoutTbl());
-        if (aliasExpr.desc != null) {
-            if (!isBound(tuple.getId()) && !tuple.getColumnNames().contains(name)) {
-                return true; // means this from other scan node.
-            }
-
-            if (!aliasExpr.desc.isMaterialized()) {
-                return true; // means this is unused field after triming.
-            }
-        }
-
-        for (Expr expr : exprs) {
-            if (CreateMaterializedViewStmt.isMVColumnNormal(name)
-                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
-                            .mvColumnBreaker(name))) {
-                return true;
-            }
-        }
-        return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
-    }
-
-    @Override
     public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
         if (!forPushDownPredicatesToView) {
             return this;

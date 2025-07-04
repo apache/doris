@@ -34,8 +34,6 @@ import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
@@ -44,7 +42,6 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringLiteral;
@@ -196,7 +193,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -979,8 +975,6 @@ public class StmtExecutor {
                 throw new TException("This is in a transaction, only insert, update, delete, "
                         + "commit, rollback is acceptable.");
             }
-            // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
-            analyzeVariablesInStmt();
 
             if (!context.isTxnModel()) {
                 // analyze this query
@@ -1093,27 +1087,6 @@ public class StmtExecutor {
      * get variables in stmt.
      */
     private void analyzeVariablesInStmt() throws DdlException {
-        analyzeVariablesInStmt(parsedStmt);
-    }
-
-    private void analyzeVariablesInStmt(StatementBase statement) throws DdlException {
-        SessionVariable sessionVariable = context.getSessionVariable();
-        if (statement instanceof SelectStmt) {
-            SelectStmt selectStmt = (SelectStmt) statement;
-            Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
-            if (optHints == null) {
-                optHints = new HashMap<>();
-            }
-            if (optHints != null) {
-                sessionVariable.setIsSingleSetVar(true);
-                if (selectStmt.isFromInsert()) {
-                    optHints.put("enable_page_cache", "false");
-                }
-                for (String key : optHints.keySet()) {
-                    VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
-                }
-            }
-        }
     }
 
     private boolean isQuery() {
@@ -1248,17 +1221,6 @@ public class StmtExecutor {
         }
 
         analyzer = new Analyzer(context.getEnv(), context);
-
-        // Convert show statement to select statement here
-        if (parsedStmt instanceof ShowStmt) {
-            SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
-            if (selectStmt != null) {
-                // Need to set origin stmt for new "parsedStmt"(which is selectStmt here)
-                // Otherwise, the log printing may result in NPE
-                selectStmt.setOrigStmt(parsedStmt.getOrigStmt());
-                setParsedStmt(selectStmt);
-            }
-        }
 
         // convert unified load stmt here
         if (parsedStmt instanceof UnifiedLoadStmt) {
@@ -1412,25 +1374,6 @@ public class StmtExecutor {
 
             parsedStmt.rewriteExprs(rewriter);
             reAnalyze = rewriter.changed();
-            if (analyzer.containSubquery()) {
-                parsedStmt = setParsedStmt(StmtRewriter.rewrite(analyzer, parsedStmt));
-                reAnalyze = true;
-            }
-            if (parsedStmt instanceof SelectStmt) {
-                if (StmtRewriter.rewriteByPolicy(parsedStmt, analyzer)
-                        || StmtRewriter.rewriteForRandomDistribution(parsedStmt, analyzer)) {
-                    reAnalyze = true;
-                }
-            }
-            if (parsedStmt instanceof SetOperationStmt) {
-                List<SetOperationStmt.SetOperand> operands = ((SetOperationStmt) parsedStmt).getOperands();
-                for (SetOperationStmt.SetOperand operand : operands) {
-                    if (StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer)
-                            || StmtRewriter.rewriteForRandomDistribution(operand.getQueryStmt(), analyzer)) {
-                        reAnalyze = true;
-                    }
-                }
-            }
             if (reAnalyze) {
                 // The rewrites should have no user-visible effect. Remember the original result
                 // types and column labels to restore them after the rewritten stmt has been
@@ -1721,22 +1664,6 @@ public class StmtExecutor {
                 && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
             if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
-                return;
-            }
-        }
-
-        // handle select .. from xx  limit 0
-        // TODO support arrow flight sql
-        if (channel != null && parsedStmt instanceof SelectStmt) {
-            SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
-            if (parsedSelectStmt.getLimit() == 0) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("ignore handle limit 0 ,sql:{}", parsedSelectStmt.toSql());
-                }
-
-                sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(), exprToType(queryStmt.getResultExprs()));
-                context.getState().setEof();
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
