@@ -562,7 +562,7 @@ public class TableRef implements ParseNode, Writable {
             switch (extTable.getDlaType()) {
                 case ICEBERG:
                     if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
-                        String asOfTime = tableSnapshot.getTime();
+                        String asOfTime = tableSnapshot.getValue();
                         Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
                         if (!matcher.matches()) {
                             throw new AnalysisException("Invalid datetime string: " + asOfTime);
@@ -574,7 +574,7 @@ public class TableRef implements ParseNode, Writable {
                         throw new AnalysisException("Hudi table only supports timestamp as snapshot ID");
                     }
                     try {
-                        tableSnapshot.setTime(HudiUtils.formatQueryInstant(tableSnapshot.getTime()));
+                        tableSnapshot.setValue(HudiUtils.formatQueryInstant(tableSnapshot.getValue()));
                     } catch (Exception e) {
                         throw new AnalysisException("Failed to parse hudi timestamp: " + e.getMessage(), e);
                     }
@@ -584,7 +584,7 @@ public class TableRef implements ParseNode, Writable {
             }
         } else if (tableType == TableIf.TableType.ICEBERG_EXTERNAL_TABLE) {
             if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
-                String asOfTime = tableSnapshot.getTime();
+                String asOfTime = tableSnapshot.getValue();
                 Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
                 if (!matcher.matches()) {
                     throw new AnalysisException("Invalid datetime string: " + asOfTime);

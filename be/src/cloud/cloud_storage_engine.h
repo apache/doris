@@ -137,7 +137,7 @@ public:
     std::shared_ptr<CloudCumulativeCompactionPolicy> cumu_compaction_policy(
             std::string_view compaction_policy);
 
-    void sync_storage_vault(bool check = false);
+    void sync_storage_vault();
 
     io::FileCacheBlockDownloader& file_cache_block_downloader() const {
         return *_file_cache_block_downloader;
@@ -219,6 +219,8 @@ private:
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
     CumuPolices _cumulative_compaction_policies;
+
+    std::atomic_bool first_sync_storage_vault {true};
 };
 
 } // namespace doris

@@ -49,8 +49,8 @@ bvar::Adder<uint64_t> g_file_cache_download_failed_num("file_cache_download_fail
 FileCacheBlockDownloader::FileCacheBlockDownloader(CloudStorageEngine& engine) : _engine(engine) {
     _poller = std::thread(&FileCacheBlockDownloader::polling_download_task, this);
     auto st = ThreadPoolBuilder("FileCacheBlockDownloader")
-                      .set_min_threads(4)
-                      .set_max_threads(16)
+                      .set_min_threads(config::file_cache_downloader_thread_num_min)
+                      .set_max_threads(config::file_cache_downloader_thread_num_max)
                       .build(&_workers);
     CHECK(st.ok()) << "failed to create FileCacheBlockDownloader";
 }

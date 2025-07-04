@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <bthread/countdown_event.h>
+
 #include <condition_variable>
 #include <deque>
 #include <mutex>
@@ -79,6 +81,9 @@ private:
     void handle_jobs();
     std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id);
 
+    void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,
+                               int64_t expiration_time,
+                               std::shared_ptr<bthread::CountdownEvent> wait);
     std::mutex _mtx;
     std::condition_variable _cond;
     int64_t _cur_job_id {0};

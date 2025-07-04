@@ -1131,6 +1131,9 @@ DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 
+DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
+DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 // inverted index searcher cache size
@@ -1191,6 +1194,7 @@ DEFINE_Int32(segment_cache_capacity, "-1");
 DEFINE_Int32(segment_cache_fd_percentage, "20");
 DEFINE_mInt32(estimated_mem_per_column_reader, "512");
 DEFINE_Int32(segment_cache_memory_percentage, "5");
+DEFINE_Bool(enable_segment_cache_prune, "true");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");

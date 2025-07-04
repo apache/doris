@@ -100,6 +100,7 @@ public class DescribeStmt extends ShowStmt implements NotFallbackInParser {
 
     private boolean isAllTables;
     private boolean isOlapTable = false;
+    private boolean showComment = false;
 
     TableValuedFunctionRef tableValuedFunctionRef;
     boolean isTableValuedFunction;
@@ -357,6 +358,7 @@ public class DescribeStmt extends ShowStmt implements NotFallbackInParser {
             if (isTableValuedFunction) {
                 return totalRows;
             }
+            showComment = ConnectContext.get().getSessionVariable().showColumnCommentInDescribe;
             Preconditions.checkNotNull(node);
             List<List<String>> rows = node.fetchResult().getRows();
             List<List<String>> res = new ArrayList<>();
@@ -382,6 +384,9 @@ public class DescribeStmt extends ShowStmt implements NotFallbackInParser {
             ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
             for (String col : IndexSchemaProcNode.TITLE_NAMES) {
                 builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
+            }
+            if (showComment) {
+                builder.addColumn(new Column(IndexSchemaProcNode.COMMENT_COLUMN_TITLE, ScalarType.createStringType()));
             }
             return builder.build();
         } else {

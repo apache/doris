@@ -1155,6 +1155,7 @@ DECLARE_mBool(enbale_dump_error_file);
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
 DECLARE_mInt64(cache_lock_wait_long_tail_threshold_us);
 DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
+
 // Base compaction may retrieve and produce some less frequently accessed data,
 // potentially affecting the file cache hit rate.
 // This configuration determines whether to retain the output within the file cache.
@@ -1168,6 +1169,8 @@ DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
+DECLARE_Int32(file_cache_downloader_thread_num_min);
+DECLARE_Int32(file_cache_downloader_thread_num_max);
 
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 
@@ -1232,6 +1235,8 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 DECLARE_Int32(segment_cache_capacity);
 DECLARE_Int32(segment_cache_fd_percentage);
 DECLARE_Int32(segment_cache_memory_percentage);
+DECLARE_Bool(enable_segment_cache_prune);
+
 DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog

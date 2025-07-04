@@ -73,7 +73,7 @@ suite("test_predefine_type_multi_index", "p1"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
     """
 
     // 2015

@@ -115,7 +115,9 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                 .tag("request_type", "SET_BATCH")
                 .tag("job_id", request.job_id)
                 .tag("batch_id", request.batch_id)
-                .tag("jobs size", request.job_metas.size());
+                .tag("jobs size", request.job_metas.size())
+                .tag("tablet num of first meta",
+                     request.job_metas.empty() ? 0 : request.job_metas[0].tablet_ids.size());
         bool retry = false;
         st = manager.check_and_set_batch_id(request.job_id, request.batch_id, &retry);
         if (!retry && st) {

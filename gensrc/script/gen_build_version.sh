@@ -29,8 +29,8 @@ set -eo pipefail
 
 build_version_prefix="doris"
 build_version_major=3
-build_version_minor=0
-build_version_patch=6
+build_version_minor=1
+build_version_patch=0
 build_version_hotfix=0
 build_version_rc_version="rc01"
 

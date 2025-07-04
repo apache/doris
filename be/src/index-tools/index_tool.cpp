@@ -120,9 +120,9 @@ std::vector<std::string> split(const std::string& s, char delimiter) {
 
 void search(lucene::store::Directory* dir, std::string& field, std::string& token,
             std::string& pred) {
-    IndexReader* reader = IndexReader::open(dir);
+    lucene::index::IndexReader* reader = lucene::index::IndexReader::open(dir);
 
-    IndexReader* newreader = reader->reopen();
+    lucene::index::IndexReader* newreader = reader->reopen();
     if (newreader != reader) {
         reader->close();
         _CLDELETE(reader);
@@ -172,7 +172,14 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
 
         doris::TQueryOptions queryOptions;
         ConjunctionQuery conjunct_query(s, queryOptions, nullptr);
-        conjunct_query.add(field_ws, terms);
+        InvertedIndexQueryInfo query_info;
+        query_info.field_name = field_ws;
+        for (auto& term : terms) {
+            doris::segment_v2::TermInfo term_info;
+            term_info.term = term;
+            query_info.term_infos.push_back(term_info);
+        }
+        conjunct_query.add(query_info);
         conjunct_query.search(result);
 
         total += result.cardinality();
@@ -195,7 +202,7 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
 }
 
 void check_terms_stats(lucene::store::Directory* dir) {
-    IndexReader* r = IndexReader::open(dir);
+    lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
     printf("Max Docs: %d\n", r->maxDoc());
     printf("Num Docs: %d\n", r->numDocs());
@@ -563,7 +570,7 @@ int main(int argc, char** argv) {
         auto dir = std::forward<T>(st).value();
         auto analyzer = _CLNEW lucene::analysis::standard95::StandardAnalyzer();
         // auto analyzer = _CLNEW lucene::analysis::SimpleAnalyzer<char>();
-        auto indexwriter = _CLNEW lucene::index::IndexWriter(dir, analyzer, true, true);
+        auto indexwriter = _CLNEW lucene::index::IndexWriter(dir.get(), analyzer, true, true);
         indexwriter->setRAMBufferSizeMB(512);
         indexwriter->setMaxFieldLength(0x7FFFFFFFL);
         indexwriter->setMergeFactor(100000000);

@@ -1313,7 +1313,8 @@ const ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key
     return &node->data;
 }
 
-size_t ColumnObject::Subcolumn::serialize_text_json(size_t n, BufferWritable& output) const {
+size_t ColumnObject::Subcolumn::serialize_text_json(size_t n, BufferWritable& output,
+                                                    DataTypeSerDe::FormatOptions opt) const {
     if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
         output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
                      DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
@@ -1328,7 +1329,6 @@ size_t ColumnObject::Subcolumn::serialize_text_json(size_t n, BufferWritable& ou
     }
 
     ind -= num_of_defaults_in_prefix;
-    DataTypeSerDe::FormatOptions opt;
     for (size_t i = 0; i < data.size(); ++i) {
         const auto& part = data[i];
         const auto& part_type_serde = data_serdes[i];
@@ -1497,7 +1497,6 @@ void ColumnObject::serialize_one_row_to_string(int row, std::string* output) con
         // TODO preallocate memory
         serialize_one_row_to_json_format(row, write_buffer, nullptr);
     }
-
     write_buffer.commit();
     auto str_ref = tmp_col->get_data_at(0);
     *output = std::string(str_ref.data, str_ref.size);
@@ -1739,14 +1738,14 @@ void ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWrita
         // Serialize value of current path.
         if (auto subcolumn_it = subcolumn_path_map.find(path);
             subcolumn_it != subcolumn_path_map.end()) {
-            subcolumn_it->second.serialize_text_json(row_num, output);
+            subcolumn_it->second.serialize_text_json(row_num, output, {.escape_char = '\\'});
         } else {
             // To serialize value stored in shared data we should first deserialize it from binary format.
             Subcolumn tmp_subcolumn(0, true);
             const auto& data = ColumnObject::deserialize_from_sparse_column(
                     sparse_data_values, index_in_sparse_data_values++);
             tmp_subcolumn.insert(data.first, data.second);
-            tmp_subcolumn.serialize_text_json(0, output);
+            tmp_subcolumn.serialize_text_json(0, output, {.escape_char = '\\'});
         }
     }
 
@@ -1755,10 +1754,6 @@ void ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWrita
         writeChar('}', output);
     }
     writeChar('}', output);
-#ifndef NDEBUG
-    // check if it is a valid json
-#endif
-    return;
 }
 
 size_t ColumnObject::Subcolumn::get_non_null_value_size() const {

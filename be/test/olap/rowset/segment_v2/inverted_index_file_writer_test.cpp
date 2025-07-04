@@ -601,5 +601,61 @@ TEST_F(InvertedIndexFileWriterTest, WriteV2ExceptionHandlingTest) {
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
 
+TEST_F(InvertedIndexFileWriterTest, CopyFileEmptyFileTest) {
+    // This test uses the existing MockDorisFSDirectoryOpenInput class
+    auto mock_dir = std::make_shared<MockDorisFSDirectoryOpenInput>();
+    std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
+            ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(), _rowset_id,
+            _seg_id, 1, "suffix1");
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(local_fs_index_path).ok());
+    mock_dir->init(_fs, local_fs_index_path.c_str());
+
+    // Create test files
+    std::vector<std::string> files = {"_0.fnm", "_0.frq", "_0.tii"};
+    for (const auto& file : files) {
+        auto out_file =
+                std::unique_ptr<lucene::store::IndexOutput>(mock_dir->createOutput(file.c_str()));
+        out_file->writeString("test content");
+        out_file->close();
+    }
+
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2);
+
+    // Setup mock to simulate CL_ERR_EmptyIndexSegment error for _0.frq file
+    EXPECT_CALL(*mock_dir,
+                openInput(::testing::StrEq("_0.frq"), ::testing::_, ::testing::_, ::testing::_))
+            .WillOnce(::testing::Invoke([&](const char* name, lucene::store::IndexInput*& ret,
+                                            CLuceneError& err_ref, int32_t bufferSize) {
+                err_ref.set(CL_ERR_EmptyIndexSegment,
+                            std::string("Empty index segment for file: ").append(name).c_str());
+                return false;
+            }));
+
+    // Test copyFile with the mock directory
+    uint8_t buffer[16384];
+
+    // Create a temporary output stream to test copyFile
+    auto* ram_dir = new lucene::store::RAMDirectory();
+    auto* output = ram_dir->createOutput("test_output");
+
+    // Before the fix, this would throw an exception
+    // After the fix, this should log a warning and return gracefully
+    EXPECT_NO_THROW({ writer.copyFile("_0.frq", mock_dir.get(), output, buffer, sizeof(buffer)); });
+
+    // The output should remain valid (not corrupted by the exception)
+    EXPECT_NE(output, nullptr);
+
+    // Clean up
+    output->close();
+    _CLLDELETE(output);
+    ram_dir->close();
+    _CLLDELETE(ram_dir);
+
+    // Clean up the test directory
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
+}
+
 } // namespace segment_v2
 } // namespace doris

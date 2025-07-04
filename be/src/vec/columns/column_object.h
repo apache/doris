@@ -144,7 +144,8 @@ public:
 
         size_t get_non_null_value_size() const;
 
-        size_t serialize_text_json(size_t n, BufferWritable& output) const;
+        size_t serialize_text_json(size_t n, BufferWritable& output,
+                                   DataTypeSerDe::FormatOptions opt = {}) const;
 
         const DataTypeSerDeSPtr& get_least_common_type_serde() const {
             return least_common_type.get_serde();

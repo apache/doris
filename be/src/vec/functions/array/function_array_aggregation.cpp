@@ -228,7 +228,8 @@ struct ArrayAggregateImpl {
             execute_type<Date>(res, type, data, offsets) ||
             execute_type<DateTime>(res, type, data, offsets) ||
             execute_type<DateV2>(res, type, data, offsets) ||
-            execute_type<DateTimeV2>(res, type, data, offsets)) {
+            execute_type<DateTimeV2>(res, type, data, offsets) ||
+            execute_type<String>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
         } else {
@@ -236,29 +237,22 @@ struct ArrayAggregateImpl {
         }
     }
 
-    template <typename Element>
-    static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
-                             const ColumnArray::Offsets64& offsets) {
-        using ColVecType = ColumnVectorOrDecimal<Element>;
-        using ResultType = ArrayAggregateResult<Element, operation, enable_decimal256>;
-        using ColVecResultType = ColumnVectorOrDecimal<ResultType>;
+    template <typename ColumnType, typename CreateColumnFunc>
+    static bool execute_type_impl(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
+                                  const ColumnArray::Offsets64& offsets,
+                                  CreateColumnFunc create_column_func) {
         using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
 
-        const ColVecType* column =
+        const ColumnType* column =
                 data->is_nullable()
-                        ? check_and_get_column<ColVecType>(
+                        ? check_and_get_column<ColumnType>(
                                   static_cast<const ColumnNullable*>(data)->get_nested_column())
-                        : check_and_get_column<ColVecType>(&*data);
+                        : check_and_get_column<ColumnType>(&*data);
         if (!column) {
             return false;
         }
 
-        ColumnPtr res_column;
-        if constexpr (IsDecimalNumber<Element>) {
-            res_column = ColVecResultType::create(0, column->get_scale());
-        } else {
-            res_column = ColVecResultType::create();
-        }
+        ColumnPtr res_column = create_column_func(column);
         res_column = make_nullable(res_column);
         static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
@@ -282,7 +276,38 @@ struct ArrayAggregateImpl {
         }
         res_ptr = std::move(res_column);
         return true;
-    };
+    }
+
+    template <typename Element>
+    static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
+                             const ColumnArray::Offsets64& offsets) {
+        using ColVecType = ColumnVectorOrDecimal<Element>;
+        using ResultType = ArrayAggregateResult<Element, operation, enable_decimal256>;
+        using ColVecResultType = ColumnVectorOrDecimal<ResultType>;
+
+        return execute_type_impl<ColVecType>(
+                res_ptr, type, data, offsets, [](const ColVecType* column) -> ColumnPtr {
+                    if constexpr (IsDecimalNumber<Element>) {
+                        return ColVecResultType::create(0, column->get_scale());
+                    } else {
+                        return ColVecResultType::create();
+                    }
+                });
+    }
+
+    template <>
+    static bool execute_type<String>(ColumnPtr& res_ptr, const DataTypePtr& type,
+                                     const IColumn* data, const ColumnArray::Offsets64& offsets) {
+        if (operation == AggregateOperation::SUM || operation == AggregateOperation::PRODUCT ||
+            operation == AggregateOperation::AVERAGE) {
+            return false;
+        }
+        using ColumnType = ColumnString;
+
+        return execute_type_impl<ColumnType>(
+                res_ptr, type, data, offsets,
+                [](const ColumnType*) -> ColumnPtr { return ColumnString::create(); });
+    }
 };
 
 struct NameArrayMin {
