@@ -14,9 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_binary.h"
+
 #include "vec/core/types.h"
+#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 

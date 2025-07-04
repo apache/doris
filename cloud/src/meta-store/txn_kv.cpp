@@ -53,6 +53,20 @@
 
 namespace doris::cloud {
 
+static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector) {
+    // Keep consistent with FDB_KEYSEL_* constants.
+    switch (selector) {
+    case RangeKeySelector::FIRST_GREATER_OR_EQUAL:
+        return {0, 1};
+    case RangeKeySelector::FIRST_GREATER_THAN:
+        return {1, 1};
+    case RangeKeySelector::LAST_LESS_OR_EQUAL:
+        return {1, 0};
+    case RangeKeySelector::LAST_LESS_THAN:
+        return {0, 0};
+    }
+}
+
 int FdbTxnKv::init() {
     network_ = std::make_shared<fdb::Network>(FDBNetworkOption {});
     int ret = network_->init();
@@ -113,9 +127,11 @@ TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* bounda
     std::string begin_key(fdb_partition_key_prefix());
     std::string end_key(fdb_partition_key_end());
 
+    RangeGetOptions opts;
+    opts.snapshot = true;
     std::unique_ptr<RangeGetIterator> iter;
     do {
-        code = txn->get(begin_key, end_key, &iter, true);
+        code = txn->get(begin_key, end_key, &iter, opts);
         if (code != TxnErrorCode::TXN_OK) {
             if (code == TxnErrorCode::TXN_TOO_OLD) {
                 code = create_txn_with_system_access(&txn);
@@ -415,20 +431,24 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
 }
 
 TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
-                              std::unique_ptr<cloud::RangeGetIterator>* iter, bool snapshot,
-                              int limit) {
+                              std::unique_ptr<cloud::RangeGetIterator>* iter,
+                              const RangeGetOptions& opts) {
     StopWatch sw;
     approximate_bytes_ += begin.size() + end.size();
     DORIS_CLOUD_DEFER {
         g_bvar_txn_kv_range_get << sw.elapsed_us();
     };
 
+    int limit = opts.batch_limit;
+    fdb_bool_t snapshot = opts.snapshot ? 1 : 0;
+    fdb_bool_t reverse = opts.reverse ? 1 : 0;
+    auto [begin_or_equal, begin_offset] = apply_key_selector(opts.begin_key_selector);
+    auto [end_or_equal, end_offset] = apply_key_selector(opts.end_key_selector);
     FDBFuture* fut = fdb_transaction_get_range(
-            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)begin.data(), begin.size()),
-            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
+            txn_, (uint8_t*)begin.data(), begin.size(), begin_or_equal, begin_offset,
+            (uint8_t*)end.data(), end.size(), end_or_equal, end_offset, limit,
             0 /*target_bytes, unlimited*/, FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
-            //       FDBStreamingMode::FDB_STREAMING_MODE_ITERATOR,
-            0 /*iteration*/, snapshot, false /*reverse*/);
+            0 /*iteration*/, snapshot, reverse);
 
     RETURN_IF_ERROR(await_future(fut));
     auto err = fdb_future_get_error(fut);
@@ -447,6 +467,15 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     *(iter) = std::move(ret);
 
     return TxnErrorCode::TXN_OK;
+}
+
+std::unique_ptr<cloud::FullRangeGetIterator> Transaction::full_range_get(std::string_view begin,
+                                                                         std::string_view end,
+                                                                         FullRangeGetOptions opts) {
+    // We don't need to hold a reference to the TxnKv here, since there is a txn full range iterator.
+    opts.txn = this;
+    opts.txn_kv.reset();
+    return std::make_unique<FullRangeGetIterator>(std::string(begin), std::string(end), opts);
 }
 
 void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_view val) {
@@ -713,7 +742,7 @@ bool FullRangeGetIterator::has_next() {
     if (inner_iter_->has_next()) {
         if (prefetch()) {
             TEST_SYNC_POINT("fdb.FullRangeGetIterator.has_next_prefetch");
-            async_inner_get(inner_iter_->next_begin_key());
+            async_get_next_batch();
         }
         return true;
     }
@@ -723,7 +752,7 @@ bool FullRangeGetIterator::has_next() {
     }
 
     if (!fut_) {
-        async_inner_get(inner_iter_->next_begin_key());
+        async_get_next_batch();
         if (!is_valid()) {
             return false;
         }
@@ -773,7 +802,7 @@ void FullRangeGetIterator::await_future() {
 }
 
 void FullRangeGetIterator::init() {
-    async_inner_get(begin_);
+    async_inner_get(begin_, end_);
     if (!is_valid()) {
         return;
     }
@@ -786,7 +815,7 @@ bool FullRangeGetIterator::prefetch() {
            (opts_.exact_limit <= 0 || num_consumed_ + inner_iter_->remaining() < opts_.exact_limit);
 }
 
-void FullRangeGetIterator::async_inner_get(std::string_view begin) {
+void FullRangeGetIterator::async_inner_get(std::string_view begin, std::string_view end) {
     DCHECK(!fut_);
 
     auto* txn = static_cast<Transaction*>(opts_.txn);
@@ -811,12 +840,23 @@ void FullRangeGetIterator::async_inner_get(std::string_view begin) {
         int consumed = num_consumed_ + (inner_iter_ ? inner_iter_->remaining() : 0);
         limit = std::min(limit, std::max(0, opts_.exact_limit - consumed));
     }
-    fut_ = fdb_transaction_get_range(
-            txn->txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)begin.data(), begin.size()),
-            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end_.data(), end_.size()), limit,
-            0 /*target_bytes, unlimited*/, FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
-            //       FDBStreamingMode::FDB_STREAMING_MODE_ITERATOR,
-            0 /*iteration*/, opts_.snapshot, false /*reverse*/);
+    fdb_bool_t snapshot = opts_.snapshot ? 1 : 0;
+    fdb_bool_t reverse = opts_.reverse ? 1 : 0;
+    auto [begin_or_equal, begin_offset] = apply_key_selector(opts_.begin_key_selector);
+    auto [end_or_equal, end_offset] = apply_key_selector(opts_.end_key_selector);
+    fut_ = fdb_transaction_get_range(txn->txn_, (uint8_t*)begin.data(), begin.size(),
+                                     begin_or_equal, begin_offset, (uint8_t*)end.data(), end.size(),
+                                     end_or_equal, end_offset, limit, 0 /*target_bytes, unlimited*/,
+                                     FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL, 0 /*iteration*/,
+                                     snapshot, reverse);
+}
+
+void FullRangeGetIterator::async_get_next_batch() {
+    if (opts_.reverse) {
+        async_inner_get(begin_, inner_iter_->prev_end_key());
+    } else {
+        async_inner_get(inner_iter_->next_begin_key(), end_);
+    }
 }
 
 } // namespace doris::cloud::fdb

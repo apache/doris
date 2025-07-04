@@ -42,6 +42,29 @@ class Transaction;
 class RangeGetIterator;
 class TxnKv;
 
+// A key selector is used to specify the position of a key in a range query.
+enum class RangeKeySelector {
+    FIRST_GREATER_OR_EQUAL,
+    FIRST_GREATER_THAN,
+    LAST_LESS_OR_EQUAL,
+    LAST_LESS_THAN
+};
+
+struct RangeGetOptions {
+    // if true, key range will not be included in txn conflict detection this time.
+    bool snapshot = false;
+    // if non-zero, indicates the maximum number of key-value pairs to return.
+    int batch_limit = 10000;
+    // if true, the iterator will return keys in reverse order.
+    bool reverse = false;
+    // The key selector for the beginning of the range.
+    RangeKeySelector begin_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+    // The key selector for the end of the range.
+    //
+    // REMEMBER: The end key is exclusive by default.
+    RangeKeySelector end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+};
+
 /**
  * Unlike `RangeGetIterator`, which can only iterate within a page of range, this iterator is
  * capable of iterating over the entire specified range.
@@ -54,15 +77,12 @@ class TxnKv;
  *     return err;
  * }
  */
-struct FullRangeGetOptions {
+struct FullRangeGetOptions : public RangeGetOptions {
     std::shared_ptr<TxnKv> txn_kv;
     // Trigger prefetch getting next batch kvs before access them
     bool prefetch = false;
-    bool snapshot = false;
     // If non-zero, indicates the exact number of key-value pairs to return.
     int exact_limit = 0;
-    // If non-zero, indicates the maximum number of key-value pairs to in each batch (not effective in memkv)
-    int batch_limit = 0;
     // Reference. If not null, each inner range get is performed through this transaction; otherwise
     // perform each inner range get through a new transaction.
     Transaction* txn = nullptr;
@@ -71,6 +91,7 @@ struct FullRangeGetOptions {
     std::vector<std::unique_ptr<RangeGetIterator>>* obj_pool = nullptr;
 
     FullRangeGetOptions(std::shared_ptr<TxnKv> _txn_kv) : txn_kv(std::move(_txn_kv)) {}
+    FullRangeGetOptions() = default;
 };
 
 class FullRangeGetIterator {
@@ -125,13 +146,43 @@ public:
 
     /**
      * Closed-open range
-     * @param snapshot if true, key range will not be included in txn conflict detection this time
-     * @param limit if non-zero, indicates the maximum number of key-value pairs to return
+     * @param begin the begin key, inclusive
+     * @param end the end key, exclusive
+     * @param iter output param for the iterator to iterate over the key-value pairs in the specified range.
+     *             If the range is empty, the iterator will be valid but `has_next()` will return false.
+     *             If an error occurs, the iterator will be invalid and `error_code()` will return the error code.
+     * @param opts options for range get
+     *             - `snapshot`: if true, the range will not be included in txn conflict detection this time.
+     *             - `limit`: the maximum number of key-value pairs to return.
+     *             - `reverse`: if true, the iterator will return keys in reverse order.
      * @return TXN_OK for success, otherwise for error
      */
     virtual TxnErrorCode get(std::string_view begin, std::string_view end,
-                             std::unique_ptr<RangeGetIterator>* iter, bool snapshot = false,
-                             int limit = 10000) = 0;
+                             std::unique_ptr<RangeGetIterator>* iter,
+                             const RangeGetOptions& opts) = 0;
+
+    // A convenience method for `get` with default options, to keep backward compatibility.
+    TxnErrorCode get(std::string_view begin, std::string_view end,
+                     std::unique_ptr<RangeGetIterator>* iter, bool snapshot = false,
+                     int limit = 10000) {
+        RangeGetOptions opts;
+        opts.snapshot = snapshot;
+        opts.batch_limit = limit;
+        return get(begin, end, iter, opts);
+    }
+
+    /**
+     * Get a full range of key-value pairs.
+     * @param begin the begin key, inclusive
+     * @param end the end key, exclusive
+     * @param opts options for full range get
+     * @return a FullRangeGetIterator for iterating over the key-value pairs in the specified range.
+     *         If the range is empty, the iterator will be valid but `has_next()` will return false.
+     *         If an error occurs, the iterator will be invalid and `error_code()` will return the error code.
+     */
+    virtual std::unique_ptr<FullRangeGetIterator> full_range_get(
+            std::string_view begin, std::string_view end,
+            FullRangeGetOptions opts = FullRangeGetOptions()) = 0;
 
     /**
      * Put a key-value pair in which key will in the form of
@@ -342,6 +393,12 @@ public:
      */
     virtual std::string next_begin_key() const = 0;
 
+    /**
+     * Get the end key of the next iterator if `more()` is true, otherwise returns empty string.
+     * This is used for reverse range get.
+     */
+    virtual std::string prev_end_key() const = 0;
+
     RangeGetIterator(const RangeGetIterator&) = delete;
     RangeGetIterator& operator=(const RangeGetIterator&) = delete;
 };
@@ -522,6 +579,22 @@ public:
         return k;
     }
 
+    std::string prev_end_key() const override {
+        if (!more()) return {};
+        const auto& kv = kvs_[kvs_size_ - 1];
+        std::string k((char*)kv.key, (size_t)kv.key_length);
+        if (k.empty()) {
+            // The minimum key, return an empty string
+        } else if (k.back() == '\x00') {
+            // If the last byte is a null byte, we should remove it
+            k.pop_back();
+        } else {
+            // Otherwise, we should decrement the last byte
+            k.back() -= 1;
+        }
+        return k;
+    }
+
     RangeGetIterator(const RangeGetIterator&) = delete;
     RangeGetIterator& operator=(const RangeGetIterator&) = delete;
 
@@ -562,13 +635,24 @@ public:
     TxnErrorCode get(std::string_view key, std::string* val, bool snapshot = false) override;
     /**
      * Closed-open range
-     * @param snapshot if true, key range will not be included in txn conflict detection this time
-     * @param limit if non-zero, indicates the maximum number of key-value pairs to return
+     * @param begin the begin key, inclusive
+     * @param end the end key, exclusive
+     * @param iter output param for the iterator to iterate over the key-value pairs in the specified range.
+     *             If the range is empty, the iterator will be valid but `has_next()` will return false.
+     *             If an error occurs, the iterator will be invalid and `error_code()` will return the error code.
+     * @param opts options for range get
+     *             - `snapshot`: if true, the range will not be included in txn conflict detection this time.
+     *             - `limit`: the maximum number of key-value pairs to return.
+     *             - `reverse`: if true, the iterator will return keys in reverse order.
      * @return TXN_OK for success, otherwise for error
      */
     TxnErrorCode get(std::string_view begin, std::string_view end,
-                     std::unique_ptr<cloud::RangeGetIterator>* iter, bool snapshot = false,
-                     int limit = 10000) override;
+                     std::unique_ptr<cloud::RangeGetIterator>* iter,
+                     const RangeGetOptions& opts) override;
+
+    std::unique_ptr<cloud::FullRangeGetIterator> full_range_get(
+            std::string_view begin, std::string_view end,
+            FullRangeGetOptions opts = FullRangeGetOptions()) override;
 
     /**
      * Put a key-value pair in which key will in the form of
@@ -676,7 +760,8 @@ private:
 
     // Perform a paginate range get asynchronously and set `fut_`.
     // Set `is_valid_` to false if meet any error
-    void async_inner_get(std::string_view begin);
+    void async_inner_get(std::string_view begin, std::string_view end);
+    void async_get_next_batch();
 
     bool prefetch();
 

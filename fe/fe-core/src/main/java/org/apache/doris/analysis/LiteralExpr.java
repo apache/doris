@@ -37,7 +37,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -401,11 +400,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         } else {
             return len;
         }
-    }
-
-    @Override
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple) {
-        return true;
     }
 
     /** whether is ZERO value **/

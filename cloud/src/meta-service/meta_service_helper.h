@@ -209,6 +209,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     case TxnErrorCode::TXN_MAYBE_COMMITTED:
     case TxnErrorCode::TXN_TIMEOUT:
     case TxnErrorCode::TXN_INVALID_ARGUMENT:
+    case TxnErrorCode::TXN_INVALID_DATA:
     case TxnErrorCode::TXN_UNIDENTIFIED_ERROR:
         if constexpr (category == ErrCategory::READ) {
             return MetaServiceCode::KV_TXN_GET_ERR;

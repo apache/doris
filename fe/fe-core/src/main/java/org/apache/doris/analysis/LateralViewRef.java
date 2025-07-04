@@ -113,18 +113,6 @@ public class LateralViewRef extends TableRef {
         return result;
     }
 
-    public void materializeRequiredSlots(ExprSubstitutionMap baseTblSmap, Analyzer analyzer) throws AnalysisException {
-        Expr substituteFnExpr = fnExpr;
-        if (relatedTableRef instanceof InlineViewRef) {
-            substituteFnExpr = fnExpr.trySubstitute(baseTblSmap, analyzer, false);
-        }
-        substituteFnExpr.collect(SlotRef.class, originSlotRefList);
-        for (SlotRef originSlotRef : originSlotRefList) {
-            originSlotRef.getDesc().setIsMaterialized(true);
-        }
-        explodeSlotRef.getDesc().setIsMaterialized(true);
-    }
-
     // The default table name must be origin table name
     // If there is table name in slot ref which is different from origin, it will thrown exception.
     private void checkAndSupplyDefaultTableName(FunctionCallExpr expr) throws AnalysisException {

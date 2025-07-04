@@ -37,6 +37,8 @@ enum class [[nodiscard]] TxnErrorCode : int {
     TXN_BYTES_TOO_LARGE = -9,
     // other unidentified errors.
     TXN_UNIDENTIFIED_ERROR = -10,
+    // the data is invalid.
+    TXN_INVALID_DATA = -11,
 };
 
 inline const char* format_as(TxnErrorCode code) {
@@ -54,6 +56,7 @@ inline const char* format_as(TxnErrorCode code) {
     case TxnErrorCode::TXN_VALUE_TOO_LARGE: return "Value length exceeds limit";
     case TxnErrorCode::TXN_BYTES_TOO_LARGE: return "Transaction exceeds byte limit";
     case TxnErrorCode::TXN_UNIDENTIFIED_ERROR: return "Unknown";
+    case TxnErrorCode::TXN_INVALID_DATA: return "The data is invalid";
     }
     return "NotImplemented";
     // clang-format on

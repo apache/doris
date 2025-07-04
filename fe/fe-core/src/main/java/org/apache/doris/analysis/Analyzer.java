@@ -23,25 +23,17 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.OlapTable.OlapTableState;
-import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
@@ -87,7 +79,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -442,7 +433,6 @@ public class Analyzer {
 
         private final Set<TupleId> markTupleIdsNotProcessed = Sets.newHashSet();
 
-        private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
 
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
@@ -785,112 +775,6 @@ public class Analyzer {
 
     public List<TupleId> getAllTupleIds() {
         return new ArrayList<>(tableRefMap.keySet());
-    }
-
-    /**
-     * Resolves the given TableRef into a concrete BaseTableRef, ViewRef or
-     * CollectionTableRef. Returns the new resolved table ref or the given table
-     * ref if it is already resolved.
-     * Registers privilege requests and throws an AnalysisException if the tableRef's
-     * path could not be resolved. The privilege requests are added to ensure that
-     * an AuthorizationException is preferred over an AnalysisException so as not to
-     * accidentally reveal the non-existence of tables/databases.
-     *
-     * TODO(zc): support collection table ref
-     */
-    public TableRef resolveTableRef(TableRef tableRef) throws AnalysisException {
-        // Return the table if it is already resolved.
-        if (tableRef.isResolved()) {
-            return tableRef;
-        }
-        // Try to find a matching local view.
-        TableName tableName = tableRef.getName();
-        if (StringUtils.isNotEmpty(this.globalState.externalCtl)
-                && StringUtils.isEmpty(tableName.getCtl())) {
-            tableName.setCtl(this.globalState.externalCtl);
-        }
-        if (!tableName.isFullyQualified()) {
-            // Searches the hierarchy of analyzers bottom-up for a registered local view with
-            // a matching alias.
-            String viewAlias = tableName.getTbl();
-            Analyzer analyzer = this;
-            do {
-                View localView = analyzer.localViews.get(viewAlias);
-                if (localView != null) {
-                    return new InlineViewRef(localView, tableRef);
-                }
-                analyzer = (analyzer.ancestors.isEmpty() ? null : analyzer.ancestors.get(0));
-            } while (analyzer != null);
-        }
-
-        // Resolve the table ref's path and determine what resolved table ref
-        // to replace it with.
-        tableName.analyze(this);
-
-        DatabaseIf database = globalState.env.getCatalogMgr().getCatalogOrAnalysisException(tableName.getCtl())
-                .getDbOrAnalysisException(tableName.getDb());
-        TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
-
-        if (table.isManagedTable() && (((OlapTable) table).getState() == OlapTableState.RESTORE
-                || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
-            Boolean isAnyPartitionRestoring = ((OlapTable) table).getPartitions().stream()
-                    .anyMatch(partition -> partition.getState() == PartitionState.RESTORE);
-            if (isAnyPartitionRestoring) {
-                // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
-                // support query that partitions is not restoring.
-            } else {
-                // if doing restore with table, throw exception here
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
-            }
-        }
-
-        // Now hms table only support a bit of table kinds in the whole hive system.
-        // So Add this strong checker here to avoid some undefine behaviour in doris.
-        if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
-            try {
-                ((HMSExternalTable) table).isSupportedHmsTable();
-            } catch (NotSupportedException e) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
-                        table.getName(),
-                        ((HMSExternalTable) table).getDbName(),
-                        tableName.getCtl(),
-                        e.getMessage());
-            }
-            if (Config.enable_query_hive_views) {
-                if (((HMSExternalTable) table).isView()
-                        && StringUtils.isNotEmpty(((HMSExternalTable) table).getViewText())) {
-                    View hmsView = new View(table.getId(), table.getName(), table.getFullSchema());
-                    hmsView.setInlineViewDefWithSqlMode(((HMSExternalTable) table).getViewText(),
-                            ConnectContext.get().getSessionVariable().getSqlMode());
-                    // for user experience consideration, parse hive view ddl first to avoid NPE
-                    // if legacy parser can not parse hive view ddl properly
-                    try {
-                        hmsView.init();
-                    } catch (UserException e) {
-                        throw new AnalysisException(e.getMessage(), e);
-                    }
-                    InlineViewRef inlineViewRef = new InlineViewRef(hmsView, tableRef);
-                    if (StringUtils.isNotEmpty(tableName.getCtl())) {
-                        inlineViewRef.setExternalCtl(tableName.getCtl());
-                    }
-                    return inlineViewRef;
-                }
-            }
-        }
-
-        // tableName.getTbl() stores the table name specified by the user in the from statement.
-        // In the case of case-sensitive table names, the value of tableName.getTbl() is the same as table.getName().
-        // However, since the system view is not case-sensitive, table.getName() gets the lowercase view name,
-        // which may not be the same as the user's reference to the table name, causing the table name not to be found
-        // in registerColumnRef(). So here the tblName is constructed using tableName.getTbl()
-        // instead of table.getName().
-        TableName tblName = new TableName(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
-        if (table instanceof View) {
-            return new InlineViewRef((View) table, tableRef);
-        } else {
-            // The table must be a base table.
-            return new BaseTableRef(tableRef, table, tblName);
-        }
     }
 
     public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
@@ -1379,16 +1263,6 @@ public class Analyzer {
             }
             set.add(e);
         }
-    }
-
-    public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) throws AnalysisException {
-        markConstantConjunct(e, false, false);
-        Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
-        exprSet.add(e);
-    }
-
-    public Set<Expr> findMigrateFailedConjuncts(InlineViewRef inlineViewRef) {
-        return globalState.migrateFailedConjuncts.get(inlineViewRef);
     }
 
     /**
