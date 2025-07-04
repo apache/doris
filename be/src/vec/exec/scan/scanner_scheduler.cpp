@@ -323,11 +323,12 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 }
 
 int ScannerScheduler::get_remote_scan_thread_num() {
-    int remote_max_thread_num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                                        ? config::doris_max_remote_scanner_thread_pool_thread_num
-                                        : std::max(512, CpuInfo::num_cores() * 10);
-    remote_max_thread_num =
-            std::max(remote_max_thread_num, config::doris_scanner_thread_pool_thread_num);
+    static int remote_max_thread_num = []() {
+        int num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
+                          ? config::doris_max_remote_scanner_thread_pool_thread_num
+                          : std::max(512, CpuInfo::num_cores() * 10);
+        return std::max(num, config::doris_scanner_thread_pool_thread_num);
+    }();
     return remote_max_thread_num;
 }
 
