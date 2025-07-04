@@ -10,13 +10,13 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[orders]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
+----------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[lineitem]
 ------------------------------PhysicalProject

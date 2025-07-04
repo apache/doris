@@ -40,6 +40,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -84,8 +85,10 @@ public class PartitionCompensator {
         }
         MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
         BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
-        if (relatedPartitionTable == null || queryUsedBaseTablePartitionNameSet.isEmpty()) {
+        if (relatedPartitionTable == null || queryUsedBaseTablePartitionNameSet.isEmpty()
+                || !relatedPartitionTable.isInternalTable()) {
             // if mv is not partitioned or query not query any partition, doesn't compensate
+            // in 3.0, external table should not compensate union all
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         Collection<Partition> mvValidPartitions = cascadesContext.getStatementContext()
@@ -164,8 +167,12 @@ public class PartitionCompensator {
     /**
      * Get query used partitions
      * this is calculated from tableUsedPartitionNameMap and tables in statementContext
-     * */
-    public static Map<List<String>, Set<String>> getQueryUsedPartitions(StatementContext statementContext) {
+     *
+     * @param customRelationIdSet if union compensate occurs, the new query used partitions is changed,
+     *         so need to get used partitions by relation id set
+     */
+    public static Map<List<String>, Set<String>> getQueryUsedPartitions(StatementContext statementContext,
+            BitSet customRelationIdSet) {
         // get table used partitions
         // if table is not in statementContext().getTables() which means the table is partition prune as empty relation
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
@@ -174,7 +181,7 @@ public class PartitionCompensator {
         // if value is null, means query all partitions
         // if value is not empty, means query some partitions
         Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap = new HashMap<>();
-        outer:
+        tableLoop:
         for (Map.Entry<List<String>, TableIf> queryUsedTableEntry : statementContext.getTables().entrySet()) {
             Set<String> usedPartitionSet = new HashSet<>();
             Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
@@ -185,11 +192,20 @@ public class PartitionCompensator {
                     continue;
                 }
                 for (Pair<RelationId, Set<String>> partitionPair : tableUsedPartitions) {
-                    if (ALL_PARTITIONS.equals(partitionPair)) {
-                        queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                        continue outer;
+                    if (!customRelationIdSet.isEmpty()) {
+                        if (ALL_PARTITIONS.equals(partitionPair)) {
+                            continue;
+                        }
+                        if (customRelationIdSet.get(partitionPair.key().asInt())) {
+                            usedPartitionSet.addAll(partitionPair.value());
+                        }
+                    } else {
+                        if (ALL_PARTITIONS.equals(partitionPair)) {
+                            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
+                            continue tableLoop;
+                        }
+                        usedPartitionSet.addAll(partitionPair.value());
                     }
-                    usedPartitionSet.addAll(partitionPair.value());
                 }
             }
             queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), usedPartitionSet);

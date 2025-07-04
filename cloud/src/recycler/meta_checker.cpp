@@ -347,7 +347,7 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
         meta_schema_key({instance_id_, tablet_info.index_id, tablet_info.schema_version},
                         &schema_key);
         ValueBuf val_buf;
-        err = cloud::get(txn.get(), schema_key, &val_buf);
+        err = cloud::blob_get(txn.get(), schema_key, &val_buf);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
             LOG(WARNING) << "tablet schema not found: " << tablet_info.debug_string();
             return false;

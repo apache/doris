@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("shuffle") {
-    createTestTable "test_shuffle"
+#pragma once
 
-    multi_sql """
-        set enable_nereids_distribute_planner=true;
-        set enable_pipeline_x_engine=true;
-        set enable_local_shuffle=false;
-        set force_to_local_shuffle=false;
-        """
+#include <vector>
 
-    order_qt_4_phase_agg """
-        select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT,TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT,FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/
-        id, count(distinct value)
-        from test_shuffle
-        group by id
-        """
-}
+namespace doris {
+
+struct InvertedIndexQueryStatistics {
+    std::string column_name;
+    int64_t hit_rows = 0;
+    int64_t exec_time = 0;
+};
+
+struct InvertedIndexStatistics {
+    std::vector<InvertedIndexQueryStatistics> stats;
+};
+
+} // namespace doris

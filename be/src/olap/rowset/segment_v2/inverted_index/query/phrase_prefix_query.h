@@ -24,6 +24,8 @@
 #include "CLucene/search/MultiPhraseQuery.h"
 // clang-format on
 
+#include "olap/rowset/segment_v2/inverted_index/query/prefix_query.h"
+
 CL_NS_USE(search)
 
 namespace doris::segment_v2 {
@@ -42,6 +44,7 @@ private:
 
     std::unique_ptr<CL_NS(search)::MultiPhraseQuery> _query;
     int32_t _max_expansions = 50;
+    PrefixQuery _prefix_query;
 };
 
 } // namespace doris::segment_v2

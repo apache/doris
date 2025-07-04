@@ -26,10 +26,12 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <sstream>
 #include <string_view>
 #include <unordered_set>
@@ -422,7 +424,8 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
             LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
             return -1;
         }
-
+        TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
+                                 &accessor_map_, &vault);
         if (vault.has_hdfs_info()) {
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
             int ret = accessor->init();
@@ -473,7 +476,7 @@ int InstanceChecker::do_check() {
     long instance_volume = 0;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "check instance objects finished, cost=" << cost
                   << "s. instance_id=" << instance_id_ << " num_scanned=" << num_scanned
@@ -486,7 +489,7 @@ int InstanceChecker::do_check() {
         g_bvar_checker_check_cost_s.put(instance_id_, static_cast<long>(cost));
         // FIXME(plat1ko): What if some list operation failed?
         g_bvar_checker_instance_volume.put(instance_id_, instance_volume);
-    });
+    };
 
     struct TabletFiles {
         int64_t tablet_id {0};
@@ -536,6 +539,7 @@ int InstanceChecker::do_check() {
         bool data_loss = false;
         for (int i = 0; i < rs_meta.num_segments(); ++i) {
             auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
+
             if (tablet_files_cache.files.contains(path)) {
                 continue;
             }
@@ -546,7 +550,59 @@ int InstanceChecker::do_check() {
             }
             data_loss = true;
             TEST_SYNC_POINT_CALLBACK("InstanceChecker.do_check1", &path);
-            LOG(WARNING) << "object not exist, path=" << path << " key=" << hex(key);
+            LOG(WARNING) << "object not exist, path=" << path
+                         << ", rs_meta=" << rs_meta.ShortDebugString() << " key=" << hex(key);
+        }
+
+        std::vector<std::pair<int64_t, std::string>> index_ids;
+        for (const auto& i : rs_meta.tablet_schema().index()) {
+            if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+                index_ids.emplace_back(i.index_id(), i.index_suffix_name());
+            }
+        }
+        std::string tablet_idx_key = meta_tablet_idx_key({instance_id_, rs_meta.tablet_id()});
+        if (!key_exist(txn_kv_.get(), tablet_idx_key)) {
+            for (int i = 0; i < rs_meta.num_segments(); ++i) {
+                std::vector<std::string> index_path_v;
+                std::vector<std::string> loss_file_path;
+                if (rs_meta.tablet_schema().inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    for (const auto& index_id : index_ids) {
+                        LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
+                                  << " rowset_id=" << rs_meta.rowset_id_v2()
+                                  << " segment_index=" << i << " index_id=" << index_id.first
+                                  << " index_suffix_name=" << index_id.second;
+                        index_path_v.emplace_back(
+                                inverted_index_path_v1(rs_meta.tablet_id(), rs_meta.rowset_id_v2(),
+                                                       i, index_id.first, index_id.second));
+                    }
+                } else {
+                    index_path_v.emplace_back(
+                            inverted_index_path_v2(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i));
+                }
+
+                if (!index_path_v.empty()) {
+                    if (std::all_of(index_path_v.begin(), index_path_v.end(),
+                                    [&](const auto& idx_file_path) {
+                                        if (!tablet_files_cache.files.contains(idx_file_path)) {
+                                            loss_file_path.emplace_back(idx_file_path);
+                                            return false;
+                                        }
+                                        return true;
+                                    })) {
+                        continue;
+                    }
+                }
+
+                data_loss = true;
+                LOG(WARNING) << "object not exist, path="
+                             << std::accumulate(loss_file_path.begin(), loss_file_path.end(),
+                                                std::string(),
+                                                [](const auto& a, const auto& b) {
+                                                    return a.empty() ? b : a + ", " + b;
+                                                })
+                             << " key=" << hex(tablet_idx_key);
+            }
         }
 
         if (data_loss) {
@@ -632,20 +688,26 @@ int InstanceChecker::do_inverted_check() {
     long num_file_leak = 0;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         g_bvar_inverted_checker_num_scanned.put(instance_id_, num_scanned);
         g_bvar_inverted_checker_num_check_failed.put(instance_id_, num_file_leak);
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "inverted check instance objects finished, cost=" << cost
                   << "s. instance_id=" << instance_id_ << " num_scanned=" << num_scanned
                   << " num_file_leak=" << num_file_leak;
-    });
+    };
 
     struct TabletRowsets {
         int64_t tablet_id {0};
         std::unordered_set<std::string> rowset_ids;
     };
     TabletRowsets tablet_rowsets_cache;
+
+    struct TabletIndexes {
+        int64_t tablet_id {0};
+        std::unordered_set<int64_t> index_ids;
+    };
+    TabletIndexes tablet_indexes_cache;
 
     // Return 0 if check success, return 1 if file is garbage data, negative if error occurred
     auto check_segment_file = [&](const std::string& obj_key) {
@@ -724,8 +786,77 @@ int InstanceChecker::do_inverted_check() {
 
         return 0;
     };
+    auto check_inverted_index_file = [&](const std::string& obj_key) {
+        std::vector<std::string> str;
+        butil::SplitString(obj_key, '/', &str);
+        // data/{tablet_id}/{rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
+        if (str.size() < 3) {
+            return -1;
+        }
 
-    // TODO(Xiaocc): Currently we haven't implemented one generator-like s3 accessor list function
+        int64_t tablet_id = atol(str[1].c_str());
+        if (tablet_id <= 0) {
+            LOG(WARNING) << "failed to parse tablet_id, key=" << obj_key;
+            return -1;
+        }
+
+        if (!str.back().ends_with(".idx")) {
+            return 0; // Not an index file
+        }
+
+        int64_t index_id;
+
+        size_t pos = str.back().find_last_of('_');
+        if (pos == std::string::npos || pos + 1 >= str.back().size() - 4) {
+            LOG(WARNING) << "Invalid index_id format, key=" << obj_key;
+            return -1;
+        }
+        index_id = atol(str.back().substr(pos + 1, str.back().size() - 4).c_str());
+
+        if (tablet_indexes_cache.tablet_id == tablet_id) {
+            if (tablet_indexes_cache.index_ids.contains(index_id)) {
+                return 0;
+            } else {
+                LOG(WARNING) << "index not exists, key=" << obj_key;
+                return -1;
+            }
+        }
+        // Get all index id of this tablet
+        tablet_indexes_cache.tablet_id = tablet_id;
+        tablet_indexes_cache.index_ids.clear();
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        auto tablet_idx_key = meta_tablet_idx_key({instance_id_, tablet_id});
+        std::string tablet_idx_val;
+        err = txn->get(tablet_idx_key, &tablet_idx_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get tablet idx,"
+                         << " key=" << hex(tablet_idx_key) << " err=" << err;
+            return -1;
+        }
+
+        TabletIndexPB tablet_idx_pb;
+        if (!tablet_idx_pb.ParseFromArray(tablet_idx_val.data(), tablet_idx_val.size())) {
+            LOG(WARNING) << "malformed index meta value, key=" << hex(tablet_idx_key);
+            return -1;
+        }
+        if (!tablet_idx_pb.has_index_id()) {
+            LOG(WARNING) << "tablet index meta does not have index_id, key=" << hex(tablet_idx_key);
+            return -1;
+        }
+        tablet_indexes_cache.index_ids.insert(tablet_idx_pb.index_id());
+
+        if (!tablet_indexes_cache.index_ids.contains(index_id)) {
+            LOG(WARNING) << "index should be recycled, key=" << obj_key;
+            return 1;
+        }
+
+        return 0;
+    };
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
@@ -741,6 +872,16 @@ int InstanceChecker::do_inverted_check() {
             int ret = check_segment_file(file->path);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check segment file, uri=" << accessor->uri()
+                             << " path=" << file->path;
+                if (ret == 1) {
+                    ++num_file_leak;
+                } else {
+                    check_ret = -1;
+                }
+            }
+            ret = check_inverted_index_file(file->path);
+            if (ret != 0) {
+                LOG(WARNING) << "failed to check index file, uri=" << accessor->uri()
                              << " path=" << file->path;
                 if (ret == 1) {
                     ++num_file_leak;
@@ -926,7 +1067,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
     int64_t leaked_delete_bitmaps {0};
 
     auto start_time = std::chrono::steady_clock::now();
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         g_bvar_inverted_checker_leaked_delete_bitmaps.put(instance_id_, leaked_delete_bitmaps);
         g_bvar_inverted_checker_abnormal_delete_bitmaps.put(instance_id_, abnormal_delete_bitmaps);
         g_bvar_inverted_checker_delete_bitmaps_scanned.put(instance_id_, total_delete_bitmap_keys);
@@ -947,7 +1088,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                     "passed. cost={} ms, total_delete_bitmap_keys={}",
                     instance_id_, cost, total_delete_bitmap_keys);
         }
-    });
+    };
 
     struct TabletsRowsetsCache {
         int64_t tablet_id {-1};

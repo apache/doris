@@ -15,25 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("query_constant") {
-    multi_sql """
-        set enable_nereids_distribute_planner=true;
-        set enable_pipeline_x_engine=true;
-        set enable_local_shuffle=false;
-        set force_to_local_shuffle=false;
-        """
-
-    order_qt_query_one_row "select 100 id, 'abc' name"
-
-    order_qt_union_all """
-        select 100 id, 'hello' name
-        union all
-        select 200 id, 'world' name
-        """
-
-    order_qt_union """
-        select 100 id, 'hello' name
-        union
-        select 200 id, 'world' name
-        """
+suite("test_rename_single_col_tbl") {
+    def tblName = "test_rename_single_col_tbl"
+    sql """ DROP TABLE IF EXISTS ${tblName} """
+    sql """
+        CREATE TABLE ${tblName}
+        (
+            col0 DATE NOT NULL,
+        )
+        DUPLICATE KEY(col0)
+        DISTRIBUTED BY HASH(col0) BUCKETS 4
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        ALTER TABLE ${tblName} RENAME COLUMN col0 rename_partition_col
+    """
+    sql """ SYNC """
+    qt_desc """ DESC ${tblName} ALL """
 }
