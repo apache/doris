@@ -53,8 +53,8 @@ public class HttpDialectUtils {
     // Cache URL manager instances to avoid duplicate parsing
     private static final ConcurrentHashMap<String, UrlManager> urlManagerCache = new ConcurrentHashMap<>();
 
-    // Blacklist recovery time (ms): 5 minutes
-    private static final long BLACKLIST_RECOVERY_TIME_MS = 5 * 60 * 1000;
+    // Blacklist recovery time (ms): 1 minute
+    private static final long BLACKLIST_RECOVERY_TIME_MS = 60 * 1000;
     // Connection timeout period (ms): 3 seconds
     private static final int CONNECTION_TIMEOUT_MS = 3000;
     // Read timeout period (ms): 10 seconds
@@ -62,11 +62,6 @@ public class HttpDialectUtils {
 
     public static String convertSql(String targetURLs, String originStmt, String dialect,
             String[] features, String config) {
-        if (targetURLs == null || targetURLs.trim().isEmpty()) {
-            LOG.warn("Target URLs is empty, return original SQL");
-            return originStmt;
-        }
-
         UrlManager urlManager = getOrCreateUrlManager(targetURLs);
         ConvertRequest convertRequest = new ConvertRequest(originStmt, dialect, features, config);
         String requestStr = convertRequest.toJson();
@@ -224,77 +219,22 @@ public class HttpDialectUtils {
          * Add URL to blacklist
          */
         public void markUrlAsBlacklisted(String url) {
+            // If URL is already in blacklist, just return
+            if (blacklist.containsKey(url)) {
+                return;
+            }
+
             long currentTime = System.currentTimeMillis();
             long recoverTime = currentTime + BLACKLIST_RECOVERY_TIME_MS;
-            BlacklistEntry existingEntry = blacklist.get(url);
-            if (existingEntry != null) {
-                // If URL is already in blacklist, limit maximum recovery time to avoid infinite extension
-                // Maximum recovery time is 2 times the original recovery time
-                long maxRecoverTime = currentTime + (BLACKLIST_RECOVERY_TIME_MS * 2);
-                recoverTime = Math.min(maxRecoverTime, existingEntry.recoverTime + BLACKLIST_RECOVERY_TIME_MS);
-            }
             blacklist.put(url, new BlacklistEntry(currentTime, recoverTime));
             LOG.warn("Added URL to blacklist: {}, will recover at: {}", url, new Date(recoverTime));
         }
 
         /**
-         * Get list of healthy URLs (not in blacklist)
+         * Check if URL is localhost (127.0.0.1 or localhost)
          */
-        public List<String> getHealthyUrls() {
-            List<String> healthy = Lists.newArrayList();
-            long currentTime = System.currentTimeMillis();
-            for (String url : parsedUrls) {
-                BlacklistEntry entry = blacklist.get(url);
-                if (entry == null) {
-                    // URL is not in blacklist, consider it healthy
-                    healthy.add(url);
-                } else if (currentTime >= entry.recoverTime) {
-                    // URL has reached recovery time, remove from blacklist and add to healthy list
-                    blacklist.remove(url);
-                    healthy.add(url);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("URL recovered from blacklist: {}", url);
-                    }
-                }
-            }
-
-            // Randomly shuffle the order to avoid always trying from the first URL
-            Collections.shuffle(healthy, ThreadLocalRandom.current());
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Healthy URLs: {}", healthy);
-            }
-
-            return healthy;
-        }
-
-        /**
-         * Get list of blacklisted URLs (for immediate retry)
-         */
-        public List<String> getBlacklistedUrls() {
-            List<String> blacklisted = Lists.newArrayList();
-            long currentTime = System.currentTimeMillis();
-
-            for (String url : parsedUrls) {
-                BlacklistEntry entry = blacklist.get(url);
-                if (entry != null && currentTime < entry.recoverTime) {
-                    // URL is in blacklist and has not reached recovery time yet
-                    blacklisted.add(url);
-                }
-            }
-
-            // Sort by recovery time, prioritize URLs that should recover earlier
-            blacklisted.sort((url1, url2) -> {
-                BlacklistEntry entry1 = blacklist.get(url1);
-                BlacklistEntry entry2 = blacklist.get(url2);
-                return Long.compare(entry1.recoverTime, entry2.recoverTime);
-            });
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Blacklisted URLs for immediate retry: {}", blacklisted);
-            }
-
-            return blacklisted;
+        private boolean isLocalhost(String url) {
+            return url.contains("127.0.0.1") || url.contains("localhost");
         }
 
         /**
@@ -302,30 +242,81 @@ public class HttpDialectUtils {
          * CRITICAL: This method ensures we try every URL when any service might be available
          * <p>
          * Priority order:
-         * 1. Healthy URLs (not in blacklist or recovered) - randomly shuffled for load balancing
-         * 2. Blacklisted URLs (sorted by recovery time) - still try them for guaranteed coverage
+         * 1. Localhost URLs (127.0.0.1 or localhost) that are healthy
+         * 2. Other healthy URLs (randomly selected)
+         * 3. Localhost URLs in blacklist
+         * 4. Other blacklisted URLs (sorted by recovery time)
          */
         public List<String> getAllUrlsInPriorityOrder() {
             List<String> prioritizedUrls = Lists.newArrayList();
+            List<String> healthyLocalhost = Lists.newArrayList();
+            List<String> healthyOthers = Lists.newArrayList();
+            List<String> blacklistedLocalhost = Lists.newArrayList();
+            List<String> blacklistedOthers = Lists.newArrayList();
 
-            // First: Add all healthy URLs
-            List<String> healthyUrls = getHealthyUrls();
-            prioritizedUrls.addAll(healthyUrls);
+            long currentTime = System.currentTimeMillis();
 
-            // Second: Add all blacklisted URLs that haven't been tried yet
-            List<String> blacklistedUrls = getBlacklistedUrls();
-            for (String blacklistedUrl : blacklistedUrls) {
-                if (!prioritizedUrls.contains(blacklistedUrl)) {
-                    prioritizedUrls.add(blacklistedUrl);
-                }
-            }
-
-            // Ensure we have all URLs - add any missing ones (safety net)
+            // Single traversal to categorize all URLs
             for (String url : parsedUrls) {
-                if (!prioritizedUrls.contains(url)) {
-                    prioritizedUrls.add(url);
+                BlacklistEntry entry = blacklist.get(url);
+                boolean isHealthy = false;
+
+                if (entry == null) {
+                    // URL is not in blacklist, consider it healthy
+                    isHealthy = true;
+                } else if (currentTime >= entry.recoverTime) {
+                    // URL has reached recovery time, remove from blacklist and consider healthy
+                    blacklist.remove(url);
+                    isHealthy = true;
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("URL recovered from blacklist: {}", url);
+                    }
+                }
+
+                boolean isLocal = isLocalhost(url);
+
+                if (isHealthy) {
+                    if (isLocal) {
+                        healthyLocalhost.add(url);
+                    } else {
+                        healthyOthers.add(url);
+                    }
+                } else {
+                    if (isLocal) {
+                        blacklistedLocalhost.add(url);
+                    } else {
+                        blacklistedOthers.add(url);
+                    }
                 }
             }
+
+            // Add URLs in priority order
+            // 1. Healthy localhost URLs first
+            prioritizedUrls.addAll(healthyLocalhost);
+
+            // 2. Other healthy URLs (randomly shuffled for load balancing)
+            Collections.shuffle(healthyOthers, ThreadLocalRandom.current());
+            prioritizedUrls.addAll(healthyOthers);
+
+            // 3. Blacklisted localhost URLs
+            prioritizedUrls.addAll(blacklistedLocalhost);
+
+            // 4. Other blacklisted URLs (sorted by recovery time)
+            blacklistedOthers.sort((url1, url2) -> {
+                BlacklistEntry entry1 = blacklist.get(url1);
+                BlacklistEntry entry2 = blacklist.get(url2);
+                if (entry1 == null && entry2 == null) {
+                    return 0;
+                }
+                if (entry1 == null) {
+                    return -1;
+                }
+                if (entry2 == null) {
+                    return 1;
+                }
+                return Long.compare(entry1.recoverTime, entry2.recoverTime);
+            });
+            prioritizedUrls.addAll(blacklistedOthers);
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("All URLs in priority order: {}", prioritizedUrls);

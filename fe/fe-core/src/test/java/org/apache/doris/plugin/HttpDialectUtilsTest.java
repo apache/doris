@@ -175,24 +175,6 @@ public class HttpDialectUtilsTest {
     }
 
     @Test
-    public void testEmptyUrls() {
-        String originSql = "select * from t1 where \"k1\" = 1";
-        String[] features = new String[] {"ctas"};
-
-        // Test empty URLs
-        String res = HttpDialectUtils.convertSql("", originSql, "presto", features, "{}");
-        Assert.assertEquals(originSql, res);
-
-        // Test null URLs
-        res = HttpDialectUtils.convertSql(null, originSql, "presto", features, "{}");
-        Assert.assertEquals(originSql, res);
-
-        // Test URLs with only commas
-        res = HttpDialectUtils.convertSql(",,", originSql, "presto", features, "{}");
-        Assert.assertEquals(originSql, res);
-    }
-
-    @Test
     public void testUrlParsing() {
         String originSql = "select * from t1 where \"k1\" = 1";
         String expectedSql = "select * from t1 where `k1` = 1";
