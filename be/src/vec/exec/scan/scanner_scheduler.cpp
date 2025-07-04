@@ -20,7 +20,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
-#include <list>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -36,8 +35,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "runtime/workload_group/workload_group_manager.h"
-#include "util/async_io.h" // IWYU pragma: keep
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
 #include "util/thread.h"
