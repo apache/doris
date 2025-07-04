@@ -105,7 +105,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     // refresh table after altered
     private void refreshTable() throws DdlException {
-        
         Env.getCurrentEnv().getRefreshManager().refreshTable(getCatalog().getName(),
                 getDbName(), getName(), false);
     }
