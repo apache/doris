@@ -382,10 +382,12 @@ public:
     virtual std::string next_begin_key() const = 0;
 
     /**
-     * Get the end key of the next iterator if `more()` is true, otherwise returns empty string.
-     * This is used for reverse range get.
+     * Get the last key of the iterator, it can be used as the end key of the next iterator when
+     * the key selector is FIRST_GREATER_OR_EQUAL.
+     *
+     * ATTN: This is ONLY used for reverse range get.
      */
-    virtual std::string prev_end_key() const = 0;
+    virtual std::string_view last_key() const = 0;
 
     RangeGetIterator(const RangeGetIterator&) = delete;
     RangeGetIterator& operator=(const RangeGetIterator&) = delete;
@@ -559,20 +561,10 @@ public:
         return k;
     }
 
-    std::string prev_end_key() const override {
-        if (!more()) return {};
+    std::string_view last_key() const override {
+        if (kvs_size_ <= 0) return {};
         const auto& kv = kvs_[kvs_size_ - 1];
-        std::string k((char*)kv.key, (size_t)kv.key_length);
-        if (k.empty()) {
-            // The minimum key, return an empty string
-        } else if (k.back() == '\x00') {
-            // If the last byte is a null byte, we should remove it
-            k.pop_back();
-        } else {
-            // Otherwise, we should decrement the last byte
-            k.back() -= 1;
-        }
-        return k;
+        return {(char*)kv.key, (size_t)kv.key_length};
     }
 
     RangeGetIterator(const RangeGetIterator&) = delete;
