@@ -281,32 +281,29 @@ struct ArrayAggregateImpl {
     template <typename Element>
     static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
                              const ColumnArray::Offsets64& offsets) {
-        using ColVecType = ColumnVectorOrDecimal<Element>;
-        using ResultType = ArrayAggregateResult<Element, operation, enable_decimal256>;
-        using ColVecResultType = ColumnVectorOrDecimal<ResultType>;
+        if constexpr (std::is_same_v<Element, String>) {
+            if (operation == AggregateOperation::SUM || operation == AggregateOperation::PRODUCT ||
+                operation == AggregateOperation::AVERAGE) {
+                return false;
+            }
+            using ColumnType = ColumnString;
+            return execute_type_impl<ColumnType>(
+                    res_ptr, type, data, offsets,
+                    [](const ColumnType*) -> ColumnPtr { return ColumnString::create(); });
+        } else {
+            using ColVecType = ColumnVectorOrDecimal<Element>;
+            using ResultType = ArrayAggregateResult<Element, operation, enable_decimal256>;
+            using ColVecResultType = ColumnVectorOrDecimal<ResultType>;
 
-        return execute_type_impl<ColVecType>(
-                res_ptr, type, data, offsets, [](const ColVecType* column) -> ColumnPtr {
-                    if constexpr (IsDecimalNumber<Element>) {
-                        return ColVecResultType::create(0, column->get_scale());
-                    } else {
-                        return ColVecResultType::create();
-                    }
-                });
-    }
-
-    template <>
-    static bool execute_type<String>(ColumnPtr& res_ptr, const DataTypePtr& type,
-                                     const IColumn* data, const ColumnArray::Offsets64& offsets) {
-        if (operation == AggregateOperation::SUM || operation == AggregateOperation::PRODUCT ||
-            operation == AggregateOperation::AVERAGE) {
-            return false;
+            return execute_type_impl<ColVecType>(
+                    res_ptr, type, data, offsets, [](const ColVecType* column) -> ColumnPtr {
+                        if constexpr (IsDecimalNumber<Element>) {
+                            return ColVecResultType::create(0, column->get_scale());
+                        } else {
+                            return ColVecResultType::create();
+                        }
+                    });
         }
-        using ColumnType = ColumnString;
-
-        return execute_type_impl<ColumnType>(
-                res_ptr, type, data, offsets,
-                [](const ColumnType*) -> ColumnPtr { return ColumnString::create(); });
     }
 };
 
