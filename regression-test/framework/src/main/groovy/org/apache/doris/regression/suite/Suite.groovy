@@ -2630,7 +2630,8 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success(query_sql, mv_name, true, expected_pre_rewrite_strategys)
+        mv_rewrite_success(query_sql, mv_name, enable_sync_mv_cost_based_rewrite(),
+                true, expected_pre_rewrite_strategys)
     }
 
     def async_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name,
@@ -2649,7 +2650,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success_without_check_chosen(query_sql, mv_name, true,
+        mv_rewrite_success_without_check_chosen(query_sql, mv_name, enable_sync_mv_cost_based_rewrite(),
                 expected_pre_rewrite_strategys)
     }
 
@@ -2669,7 +2670,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_fail(query_sql, mv_name, true, expected_pre_rewrite_strategys)
+        mv_rewrite_fail(query_sql, mv_name, enable_sync_mv_cost_based_rewrite(), expected_pre_rewrite_strategys)
     }
 
     def async_create_mv = { db, mv_sql, mv_name ->
