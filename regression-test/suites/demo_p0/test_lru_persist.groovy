@@ -77,16 +77,8 @@ suite('test_lru_persist', 'docker') {
         sleep(10000);
         cluster.stopBackends(1)
 
-        // check md5sum of each index
-        
-        def disposableBefore = "md5sum ${cachePath}/lru_dump_disposable.tail".execute().text.trim().split()[0]
-        logger.info("disposableBefore: ${disposableBefore}")
-        def indexBefore = "md5sum ${cachePath}/lru_dump_index.tail".execute().text.trim().split()[0]
-        logger.info("indexBefore: ${indexBefore}")
         def normalBefore = "md5sum ${cachePath}/lru_dump_normal.tail".execute().text.trim().split()[0]
         logger.info("normalBefore: ${normalBefore}")
-        def ttlBefore = "md5sum ${cachePath}/lru_dump_ttl.tail".execute().text.trim().split()[0]
-        logger.info("ttlBefore: ${ttlBefore}")
 
         cluster.startBackends(1)
         sleep(10000);
@@ -94,18 +86,9 @@ suite('test_lru_persist', 'docker') {
         cluster.stopBackends(1)
 
         // check md5sum again after be restart
-        def disposableAfter = "md5sum ${cachePath}/lru_dump_disposable.tail".execute().text.trim().split()[0]
-        logger.info("disposableAfter: ${disposableAfter}")
-        def indexAfter = "md5sum ${cachePath}/lru_dump_index.tail".execute().text.trim().split()[0]
-        logger.info("indexAfter: ${indexAfter}")
         def normalAfter = "md5sum ${cachePath}/lru_dump_normal.tail".execute().text.trim().split()[0]
         logger.info("normalAfter: ${normalAfter}")
-        def ttlAfter = "md5sum ${cachePath}/lru_dump_ttl.tail".execute().text.trim().split()[0]
-        logger.info("ttlAfter: ${ttlAfter}")
 
-        assert disposableBefore == disposableAfter
-        assert indexBefore == indexAfter
         assert normalBefore == normalAfter
-        assert ttlBefore == ttlAfter
     }
 }

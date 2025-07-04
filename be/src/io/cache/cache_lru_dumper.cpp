@@ -248,7 +248,6 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
 
 void CacheLRUDumper::dump_queue(const std::string& queue_name) {
     FileCacheType type = string_to_cache_type(queue_name);
-    LOG(INFO) << "OOXXOO1" << _recorder->get_lru_queue_update_cnt_from_last_dump(type);
     if (_recorder->get_lru_queue_update_cnt_from_last_dump(type) >
         config::file_cache_background_lru_dump_update_cnt_threshold) {
         LRUQueue& queue = _recorder->get_shadow_queue(type);

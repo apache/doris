@@ -77,6 +77,7 @@ std::string cache_type_to_string(FileCacheType type) {
         return "ttl";
     }
     DCHECK(false) << "unknown type: " << type;
+    return "normal";
 }
 
 std::string FileCacheSettings::to_string() const {
