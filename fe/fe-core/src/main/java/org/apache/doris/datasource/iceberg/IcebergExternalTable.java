@@ -53,7 +53,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.view.SQLViewRepresentation;
@@ -101,20 +100,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         boolean isView = isView();
         return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
-    }
-
-    @Override
-    public void setTableProperty(String key, String value) throws DdlException {
-        UpdateProperties updateProperties = table.updateProperties().set(key, value);
-        try {
-            catalog.getPreExecutionAuthenticator().execute(() -> {
-                updateProperties.commit();
-                return null;
-            });
-        } catch (Exception e) {
-            throw new DdlException("Failed to set property: " + key + " to table: " + getName()
-                    + ", error message is: " + e.getMessage(), e);
-        }
     }
 
     private void addOneColumn(UpdateSchema updateSchema, Column column) {

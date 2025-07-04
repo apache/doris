@@ -48,9 +48,11 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
         
     // Test table name
     String table_name = "iceberg_ddl_test"
+    String partition_table_name = "iceberg_ddl_partition_test"
         
     // Clean up existing table if exists
     sql """ drop table if exists ${table_name} """
+    sql """ drop table if exists ${partition_table_name} """
         
     // Test 1: Create initial Iceberg table with basic schema
     sql """
@@ -144,4 +146,40 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     // Verify column order changed
     order_qt_reorder_1 """ DESC ${table_name} """
     qt_reorder_2 """ SELECT * FROM ${table_name} ORDER BY id """
+
+    // Test partitioned table schema change
+    sql """ drop table if exists ${partition_table_name} """
+    sql """ CREATE TABLE ${partition_table_name} (
+        id INT,
+        name STRING,
+        age INT,
+        score DOUBLE
+    ) PARTITION BY LIST (name) ();"""
+    // Insert initial data
+    sql """ INSERT INTO ${partition_table_name} VALUES 
+    (1, 'Alice', 25, 95.5),
+    (2, 'Bob', 30, 87.2),
+    (3, 'Charlie', 22, 92.8) """;
+    // Verify initial state
+    order_qt_partition_init_1 """ DESC ${partition_table_name} """
+    qt_partition_init_2 """ SELECT * FROM ${partition_table_name} ORDER BY id """
+
+    // can't drop partitioned column
+    test {
+        sql """ ALTER TABLE ${partition_table_name} DROP COLUMN name """
+        exception "Failed to drop column"
+    }
+
+    // add new columns to partitioned table
+    sql """ ALTER TABLE ${partition_table_name} ADD COLUMN email STRING """
+    sql """ ALTER TABLE ${partition_table_name} ADD COLUMN phone STRING COMMENT 'User phone number' """
+
+    // Verify schema after adding columns
+    order_qt_partition_add_1 """ DESC ${partition_table_name} """
+
+    // reorder columns in partitioned table
+    sql """ ALTER TABLE ${partition_table_name} ORDER BY (id, age, email, phone, score, name) """
+    // Verify column order changed
+    order_qt_partition_reorder_1 """ DESC ${partition_table_name} """
+    qt_partition_reorder_2 """ SELECT * FROM ${partition_table_name} ORDER BY id """
 }
