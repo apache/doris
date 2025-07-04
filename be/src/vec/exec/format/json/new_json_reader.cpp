@@ -863,7 +863,8 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
                 column_ptr->insert_default();
             } else {
                 // not found, filling with default value
-                RETURN_IF_ERROR(_fill_missing_column(slot_desc, _serdes[slot_idx], column_ptr, valid));
+                RETURN_IF_ERROR(
+                        _fill_missing_column(slot_desc, _serdes[slot_idx], column_ptr, valid));
                 if (!(*valid)) {
                     return Status::OK();
                 }
