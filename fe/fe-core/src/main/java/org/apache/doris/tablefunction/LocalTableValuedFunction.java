@@ -26,6 +26,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGlobResponse;
 import org.apache.doris.proto.InternalService.PGlobResponse.PFileInfo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -113,9 +114,10 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         TNetworkAddress address = be.getBrpcAddress();
         InternalService.PGlobRequest.Builder requestBuilder = InternalService.PGlobRequest.newBuilder();
         requestBuilder.setPattern(filePath);
+        long timeoutS = ConnectContext.get() == null ? 60 : Math.min(ConnectContext.get().getQueryTimeoutS(), 60);
         try {
             Future<PGlobResponse> response = proxy.glob(address, requestBuilder.build());
-            PGlobResponse globResponse = response.get(5, TimeUnit.SECONDS);
+            PGlobResponse globResponse = response.get(timeoutS, TimeUnit.SECONDS);
             if (globResponse.getStatus().getStatusCode() != 0) {
                 throw new AnalysisException(
                         "error code: " + globResponse.getStatus().getStatusCode()
