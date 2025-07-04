@@ -148,3 +148,35 @@ phone	text	Yes	true	\N
 4	28	\N	\N	89.1	123-456-7890	david@example.com	\N
 5	26	\N	\N	91.3	223-345-132	eve@example.com	{"city":"New York", "country":"USA"}
 
+-- !partition_init_1 --
+age	int	Yes	true	\N	
+id	int	Yes	true	\N	
+name	text	Yes	true	\N	
+score	double	Yes	true	\N	
+
+-- !partition_init_2 --
+1	Alice	25	95.5
+2	Bob	30	87.2
+3	Charlie	22	92.8
+
+-- !partition_add_1 --
+age	int	Yes	true	\N	
+email	text	Yes	true	\N	
+id	int	Yes	true	\N	
+name	text	Yes	true	\N	
+phone	text	Yes	true	\N	
+score	double	Yes	true	\N	
+
+-- !partition_reorder_1 --
+age	int	Yes	true	\N	
+email	text	Yes	true	\N	
+id	int	Yes	true	\N	
+name	text	Yes	true	\N	
+phone	text	Yes	true	\N	
+score	double	Yes	true	\N	
+
+-- !partition_reorder_2 --
+1	25	\N	\N	95.5	Alice
+2	30	\N	\N	87.2	Bob
+3	22	\N	\N	92.8	Charlie
+
