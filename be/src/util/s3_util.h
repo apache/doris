@@ -59,6 +59,9 @@ extern bvar::LatencyRecorder s3_list_latency;
 extern bvar::LatencyRecorder s3_list_object_versions_latency;
 extern bvar::LatencyRecorder s3_get_bucket_version_latency;
 extern bvar::LatencyRecorder s3_copy_object_latency;
+
+extern bvar::LatencyRecorder s3_calculate_md5_latency;
+extern bvar::LatencyRecorder s3_put_object_latency;
 }; // namespace s3_bvar
 
 class S3URI;

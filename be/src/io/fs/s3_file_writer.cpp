@@ -39,6 +39,7 @@
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
+#include "util/bvar_helper.h"
 #include "util/s3_util.h"
 #include "util/stopwatch.hpp"
 
@@ -447,6 +448,7 @@ Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     MonotonicStopWatch timer;
     timer.start();
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_put_object_latency);
 
     if (state() == State::CLOSED) {
         DCHECK(state() != State::CLOSED)
@@ -456,7 +458,10 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         buf.set_status(Status::InternalError<false>("try to put closed file"));
         return;
     }
+    MonotonicStopWatch timer2;
+    timer2.start();
     const auto& client = _obj_client->get();
+    timer2.stop();
     if (nullptr == client) {
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));
         return;
@@ -482,7 +487,7 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
 
     LOG(INFO) << "put_object " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " time=" << timer.elapsed_time_milliseconds()
-              << "ms";
+              << "ms" << " time2=" << timer2.elapsed_time_milliseconds();
     s3_file_created_total << 1;
 }
 

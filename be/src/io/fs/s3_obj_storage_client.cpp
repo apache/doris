@@ -145,8 +145,13 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
-    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+
+    {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_calculate_md5_latency);
+        Aws::Utils::ByteBuffer part_md5(
+                Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
+        request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    }
     request.SetBody(string_view_stream);
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");

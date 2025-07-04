@@ -69,6 +69,9 @@ bvar::LatencyRecorder s3_list_latency("s3_list");
 bvar::LatencyRecorder s3_list_object_versions_latency("s3_list_object_versions");
 bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
 bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
+
+bvar::LatencyRecorder s3_calculate_md5_latency("s3_calculate_md5");
+bvar::LatencyRecorder s3_put_object_latency("s3_put_object");
 }; // namespace s3_bvar
 
 namespace {
