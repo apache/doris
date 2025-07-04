@@ -116,8 +116,13 @@ public class InitMaterializationContextHook implements PlannerHook {
             }
         }
         // Create async materialization context
-        for (MaterializationContext context : createAsyncMaterializationContext(cascadesContext,
-                collectedTables)) {
+        List<MaterializationContext> asyncMaterializationContext = createAsyncMaterializationContext(cascadesContext,
+                collectedTables);
+        if (asyncMaterializationContext.isEmpty()) {
+            LOG.info("doInitMaterializationContext asyncMaterializationContext is empty, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
+        }
+        for (MaterializationContext context : asyncMaterializationContext) {
             cascadesContext.addMaterializationContext(context);
         }
     }
@@ -190,8 +195,8 @@ public class InitMaterializationContextHook implements PlannerHook {
         try {
             availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
         } catch (Exception e) {
-            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current sqlHash is %s",
-                    cascadesContext.getConnectContext().getSqlHash()), e);
+            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current queryId is %s",
+                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
             return ImmutableList.of();
         }
         if (CollectionUtils.isEmpty(availableMTMVs)) {

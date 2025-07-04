@@ -422,6 +422,10 @@ public class NereidsPlanner extends Planner {
     }
 
     protected void preMaterializedViewRewrite() {
+        if (cascadesContext.getMaterializationContexts().isEmpty()) {
+            LOG.info("pre rewrite getMaterializationContexts is empty, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
+        }
         if (!cascadesContext.getStatementContext().isNeedPreRewrite()) {
             return;
         }
@@ -429,6 +433,10 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start pre rewrite plan by mv");
         }
         List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        if (tmpPlansForMvRewrite.isEmpty()) {
+            LOG.info("pre rewrite tmpPlansForMvRewrite is empty, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
+        }
         List<Plan> plansWhichContainMv = new ArrayList<>();
         for (Plan planForRewrite : tmpPlansForMvRewrite) {
             if (!planForRewrite.getLogicalProperties().equals(
@@ -441,12 +449,18 @@ public class NereidsPlanner extends Planner {
                 // pre rewrite
                 Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                         PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
+                if (rewrittenPlan == null) {
+                    LOG.info("pre rewrite rewrittenPlan is null, query id is {}",
+                            cascadesContext.getConnectContext().getQueryIdentifier());
+                }
                 Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                         childOptContext -> {
                             Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
                             return childOptContext.getRewritePlan();
                         }, rewrittenPlan, planForRewrite, false);
                 if (ruleOptimizedPlan == null) {
+                    LOG.info("pre rewrite ruleOptimizedPlan is null, query id is {}",
+                            cascadesContext.getConnectContext().getQueryIdentifier());
                     continue;
                 }
                 plansWhichContainMv.add(ruleOptimizedPlan);

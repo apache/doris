@@ -73,6 +73,8 @@ public class PreMaterializedViewRewriter {
     public static Plan rewrite(CascadesContext cascadesContext) {
         if (cascadesContext.getMaterializationContexts().isEmpty()
                 || !cascadesContext.getStatementContext().isNeedPreRewrite()) {
+            LOG.info("preMaterializedViewRewriter getMaterializationContexts is empty, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
             return null;
         }
         // Do optimize
@@ -90,12 +92,15 @@ public class PreMaterializedViewRewriter {
         StructInfo structInfo = root.getStructInfoMap().getStructInfo(cascadesContext,
                 chosenMaterializationAndUsedTable.value(), root, null, true);
         if (structInfo == null) {
-            LOG.error("preMaterializedViewRewriter rewrite structInfo is null, query id is {}",
+            LOG.info("preMaterializedViewRewriter rewrite structInfo is null, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());
         }
         if (structInfo != null && !chosenMaterializationAndUsedTable.key().isEmpty()) {
             return structInfo.getOriginalPlan();
         }
+        LOG.info("preMaterializedViewRewriter rewrite chosenMaterializationAndUsedTable is empty, "
+                        + "query id is {}",
+                cascadesContext.getConnectContext().getQueryIdentifier());
         return null;
     }
 
