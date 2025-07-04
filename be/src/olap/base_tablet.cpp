@@ -485,7 +485,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                                   RowLocation* row_location, uint32_t version,
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
-                                  OlapReaderStatistics* stats, std::string* encoded_seq_value) {
+                                  std::string* encoded_seq_value, OlapReaderStatistics* stats) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     // use the latest tablet schema to decide if the tablet has sequence column currently
@@ -1114,7 +1114,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     // 1. read the current rowset first, if a row in the current rowset has delete sign mark
     // we don't need to read values from old block for that row
     RETURN_IF_ERROR(read_plan_update.read_columns_by_plan(*rowset_schema, all_cids, rsid_to_rowset,
-                                                          update_block, &read_index_update));
+                                                          update_block, &read_index_update, true));
     size_t update_rows = read_index_update.size();
 
     // TODO(bobhan1): add the delete sign optimazation here
@@ -1128,8 +1128,8 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     // 2. read previous rowsets
     // rowid in the final block(start from 0, increase, may not continuous becasue we skip to read some rows) -> rowid to read in old_block
     std::map<uint32_t, uint32_t> read_index_old;
-    RETURN_IF_ERROR(read_plan_ori.read_columns_by_plan(*rowset_schema, non_sort_key_cids,
-                                                       rsid_to_rowset, old_block, &read_index_old));
+    RETURN_IF_ERROR(read_plan_ori.read_columns_by_plan(
+            *rowset_schema, non_sort_key_cids, rsid_to_rowset, old_block, &read_index_old, true));
     size_t old_rows = read_index_old.size();
     DCHECK(update_rows == old_rows);
     const auto* __restrict old_block_delete_signs =

@@ -294,7 +294,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
                 _delete_bitmap->get_delete_bitmap_count(), _delete_bitmap->cardinality(),
                 rowset_writer()->num_rows_updated(), rowset_writer()->num_rows_new_added(),
                 rowset_writer()->num_rows_deleted(), rowset_writer()->num_rows());
-        \ return Status::OK();
+        return Status::OK();
     }
 
     LOG(INFO) << "submit calc delete bitmap task to executor, tablet_id: " << tablet()->tablet_id()
