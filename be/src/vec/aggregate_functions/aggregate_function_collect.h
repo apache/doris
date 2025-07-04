@@ -46,7 +46,7 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-template <PrimitiveType T, typename HasLimit>
+template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
     static constexpr PrimitiveType PType = T;
     using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
@@ -66,7 +66,7 @@ struct AggregateFunctionCollectSetData {
     }
 
     void merge(const SelfType& rhs) {
-        if constexpr (HasLimit::value) {
+        if constexpr (HasLimit) {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
@@ -112,7 +112,7 @@ struct AggregateFunctionCollectSetData {
     void reset() { data_set.clear(); }
 };
 
-template <PrimitiveType T, typename HasLimit>
+template <PrimitiveType T, bool HasLimit>
     requires(is_string_type(T))
 struct AggregateFunctionCollectSetData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
@@ -140,7 +140,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
         max_size = rhs.max_size;
 
         for (const auto& rhs_elem : rhs.data_set) {
-            if constexpr (HasLimit::value) {
+            if constexpr (HasLimit) {
                 if (size() >= max_size) {
                     return;
                 }
@@ -182,7 +182,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     void reset() { data_set.clear(); }
 };
 
-template <PrimitiveType T, typename HasLimit>
+template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectListData {
     static constexpr PrimitiveType PType = T;
     using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
@@ -202,7 +202,7 @@ struct AggregateFunctionCollectListData {
     }
 
     void merge(const SelfType& rhs) {
-        if constexpr (HasLimit::value) {
+        if constexpr (HasLimit) {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
@@ -242,7 +242,7 @@ struct AggregateFunctionCollectListData {
     }
 };
 
-template <PrimitiveType T, typename HasLimit>
+template <PrimitiveType T, bool HasLimit>
     requires(is_string_type(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
@@ -260,7 +260,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
     void add(const IColumn& column, size_t row_num) { data->insert_from(column, row_num); }
 
     void merge(const AggregateFunctionCollectListData& rhs) {
-        if constexpr (HasLimit::value) {
+        if constexpr (HasLimit) {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
@@ -309,7 +309,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
     }
 };
 
-template <PrimitiveType T, typename HasLimit>
+template <PrimitiveType T, bool HasLimit>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
              !is_date_type(T) && !is_ip(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
@@ -331,7 +331,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
     void add(const IColumn& column, size_t row_num) { column_data->insert_from(column, row_num); }
 
     void merge(const AggregateFunctionCollectListData& rhs) {
-        if constexpr (HasLimit::value) {
+        if constexpr (HasLimit) {
             if (max_size == -1) {
                 max_size = rhs.max_size;
             }
@@ -394,7 +394,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
     void insert_result_into(IColumn& to) const { to.insert_range_from(*column_data, 0, size()); }
 };
 
-template <typename Data, typename HasLimit>
+template <typename Data, bool HasLimit>
 class AggregateFunctionCollect
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>,
                                               true> {
@@ -423,7 +423,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         auto& data = this->data(place);
-        if constexpr (HasLimit::value) {
+        if constexpr (HasLimit) {
             if (data.max_size == -1) {
                 data.max_size =
                         (UInt64)assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(

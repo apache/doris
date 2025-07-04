@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class ColumnStatistic {
@@ -94,10 +95,13 @@ public class ColumnStatistic {
     @SerializedName("updatedTime")
     public final String updatedTime;
 
+    @SerializedName("hotValues")
+    public final Map<LiteralExpr, Float> hotValues;
+
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
-            String updatedTime) {
+            String updatedTime, Map<LiteralExpr, Float> hotValues) {
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -110,6 +114,7 @@ public class ColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.updatedTime = updatedTime;
+        this.hotValues = hotValues;
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
@@ -187,6 +192,7 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
         }
         columnStatisticBuilder.setUpdatedTime(row.get(13));
+        columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType()));
         return columnStatisticBuilder.build();
     }
 
@@ -298,7 +304,7 @@ public class ColumnStatistic {
     // Histogram is got by other place
     public static ColumnStatistic fromJson(String statJson) throws AnalysisException {
         JSONObject stat = new JSONObject(statJson);
-        Double minValue;
+        double minValue;
         switch (stat.getString("MinValueType")) {
             case "Infinite":
                 minValue = Double.NEGATIVE_INFINITY;
@@ -312,7 +318,7 @@ public class ColumnStatistic {
             default:
                 throw new RuntimeException(String.format("Min value does not get anytype"));
         }
-        Double maxValue;
+        double maxValue;
         switch (stat.getString("MaxValueType")) {
             case "Infinite":
                 maxValue = Double.POSITIVE_INFINITY;
@@ -330,7 +336,6 @@ public class ColumnStatistic {
         try {
             lastUpdatedTime = stat.getString("LastUpdatedTime");
         } catch (Exception e) {
-            LOG.warn("lastUpdateTimeIsEmpty", e.getMessage());
             if (LOG.isDebugEnabled()) {
                 LOG.debug(e);
             }
@@ -349,7 +354,8 @@ public class ColumnStatistic {
             LiteralExpr.create(stat.getString("MaxExprValue"),
                     GsonUtils.GSON.fromJson(stat.getString("MaxExprType"), Type.class)),
             stat.getBoolean("IsUnKnown"),
-            lastUpdatedTime
+            lastUpdatedTime,
+            null
         );
     }
 
@@ -394,5 +400,22 @@ public class ColumnStatistic {
                     .setUpdatedTime("")
                     .build();
         }
+    }
+
+    public String getStringHotValues() {
+        if (hotValues == null || hotValues.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        hotValues.forEach((k, v) -> {
+            sb.append(k.toString());
+            sb.append(":");
+            sb.append(v);
+            sb.append(";");
+        });
+        if (sb.length() > 0) {
+            sb.setLength(sb.length() - 1);
+        }
+        return sb.toString();
     }
 }

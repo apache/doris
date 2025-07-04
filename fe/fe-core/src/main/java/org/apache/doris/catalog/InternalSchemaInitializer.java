@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnDef;
@@ -24,7 +25,6 @@ import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ModifyColumnClause;
@@ -62,12 +62,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 
 public class InternalSchemaInitializer extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
+    private static boolean StatsTableSchemaValid = false;
 
     public InternalSchemaInitializer() {
         super("InternalSchemaInitializer");
@@ -135,6 +137,7 @@ public class InternalSchemaInitializer extends Thread {
                 // IGNORE
             }
         }
+        StatsTableSchemaValid = true;
     }
 
     public Table findStatsTable() {
@@ -160,9 +163,25 @@ public class InternalSchemaInitializer extends Thread {
         }
     }
 
-    public List<AlterClause> getModifyColumnClauses(Table table) {
+    public List<AlterClause> getModifyColumnClauses(Table table) throws AnalysisException {
         List<AlterClause> clauses = Lists.newArrayList();
-        for (Column col : table.fullSchema) {
+        Set<String> currentColumnNames = table.getBaseSchema().stream()
+                .map(Column::getName)
+                .map(String::toLowerCase)
+                .collect(Collectors.toSet());
+        if (!currentColumnNames.containsAll(InternalSchema.TABLE_STATS_SCHEMA.stream()
+                .map(ColumnDef::getName)
+                .map(String::toLowerCase)
+                .collect(Collectors.toList()))) {
+            for (ColumnDef expected : InternalSchema.TABLE_STATS_SCHEMA) {
+                if (!currentColumnNames.contains(expected.getName().toLowerCase())) {
+                    AddColumnClause addColumnClause = new AddColumnClause(expected, null, null, null);
+                    addColumnClause.setColumn(expected.toColumn());
+                    clauses.add(addColumnClause);
+                }
+            }
+        }
+        for (Column col : table.getFullSchema()) {
             if (col.isKey() && col.getType().isVarchar()
                     && col.getType().getLength() < StatisticConstants.MAX_NAME_LEN) {
                 TypeDef typeDef = new TypeDef(
@@ -350,8 +369,8 @@ public class InternalSchemaInitializer extends Thread {
         if (!optionalColumn.isPresent() || !optionalColumn.get().isAllowNull()) {
             try {
                 Env.getCurrentEnv().getInternalCatalog()
-                        .dropTable(new DropTableStmt(true, new TableName(null,
-                                StatisticConstants.DB_NAME, StatisticConstants.TABLE_STATISTIC_TBL_NAME), true));
+                        .dropTable(StatisticConstants.DB_NAME, StatisticConstants.TABLE_STATISTIC_TBL_NAME,
+                                false, false, true, true);
             } catch (Exception e) {
                 LOG.warn("Failed to drop outdated table", e);
             }
@@ -421,5 +440,9 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
         return true;
+    }
+
+    public static boolean isStatsTableSchemaValid() {
+        return StatsTableSchemaValid;
     }
 }

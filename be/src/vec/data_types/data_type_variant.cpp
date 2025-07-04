@@ -54,12 +54,12 @@ bool DataTypeVariant::equals(const IDataType& rhs) const {
 
 int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column,
                                                            int be_exec_version) const {
-    const auto& column_object = assert_cast<const ColumnVariant&>(column);
-    if (!column_object.is_finalized()) {
-        const_cast<ColumnVariant&>(column_object).finalize();
+    const auto& column_variant = assert_cast<const ColumnVariant&>(column);
+    if (!column_variant.is_finalized()) {
+        const_cast<ColumnVariant&>(column_variant).finalize();
     }
 
-    const auto& subcolumns = column_object.get_subcolumns();
+    const auto& subcolumns = column_variant.get_subcolumns();
     size_t size = 0;
 
     size += sizeof(uint32_t);
@@ -89,16 +89,16 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
 }
 
 char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    const auto& column_object = assert_cast<const ColumnVariant&>(column);
-    if (!column_object.is_finalized()) {
-        const_cast<ColumnVariant&>(column_object).finalize();
+    const auto& column_variant = assert_cast<const ColumnVariant&>(column);
+    if (!column_variant.is_finalized()) {
+        const_cast<ColumnVariant&>(column_variant).finalize();
     }
 #ifndef NDEBUG
     // DCHECK size
-    column_object.check_consistency();
+    column_variant.check_consistency();
 #endif
 
-    const auto& subcolumns = column_object.get_subcolumns();
+    const auto& subcolumns = column_variant.get_subcolumns();
 
     char* size_pos = buf;
     buf += sizeof(uint32_t);
@@ -132,7 +132,7 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
     *reinterpret_cast<uint32_t*>(size_pos) = static_cast<UInt32>(num_of_columns);
     // serialize num of rows, only take effect when subcolumns empty
     if (be_exec_version >= VARIANT_SERDE) {
-        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(column_object.rows());
+        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(column_variant.rows());
         buf += sizeof(uint32_t);
     }
 
@@ -154,7 +154,7 @@ Field DataTypeVariant::get_field(const TExprNode& node) const {
 
 const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
-    auto column_object = assert_cast<ColumnVariant*>(column->get());
+    auto column_variant = assert_cast<ColumnVariant*>(column->get());
 
     // 1. deserialize num of subcolumns
     uint32_t num_subcolumns = *reinterpret_cast<const uint32_t*>(buf);
@@ -183,21 +183,21 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
             // init from name for compatible
             key = PathInData {column_meta_pb.name()};
         }
-        // add subcolumn to column_object
-        column_object->add_sub_column(key, std::move(sub_column), type);
+        // add subcolumn to column_variant
+        column_variant->add_sub_column(key, std::move(sub_column), type);
     }
     size_t num_rows = 0;
     // serialize num of rows, only take effect when subcolumns empty
     if (be_exec_version >= VARIANT_SERDE) {
         num_rows = *reinterpret_cast<const uint32_t*>(buf);
-        column_object->set_num_rows(num_rows);
+        column_variant->set_num_rows(num_rows);
         buf += sizeof(uint32_t);
     }
 
-    column_object->finalize();
+    column_variant->finalize();
 #ifndef NDEBUG
     // DCHECK size
-    column_object->check_consistency();
+    column_variant->check_consistency();
 #endif
     return buf;
 }

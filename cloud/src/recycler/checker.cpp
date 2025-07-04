@@ -43,9 +43,9 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
 #include "recycler/storage_vault_accessor.h"
@@ -425,7 +425,7 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
         return 0;
     }
 
-    FullRangeGetIteratorOptions opts(txn_kv_);
+    FullRangeGetOptions opts(txn_kv_);
     opts.prefetch = true;
     auto it = txn_kv_->full_range_get(storage_vault_key({instance_id_, ""}),
                                       storage_vault_key({instance_id_, "\xff"}), std::move(opts));

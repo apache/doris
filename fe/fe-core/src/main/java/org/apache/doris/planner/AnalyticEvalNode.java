@@ -21,14 +21,11 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AnalyticWindow;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -39,8 +36,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -48,7 +43,6 @@ import java.util.List;
  * Computation of analytic exprs.
  */
 public class AnalyticEvalNode extends PlanNode {
-    private static final Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
 
     private List<Expr> analyticFnCalls;
 
@@ -76,30 +70,6 @@ public class AnalyticEvalNode extends PlanNode {
     private final TupleDescriptor bufferedTupleDesc;
 
     private boolean isColocate = false;
-
-    public AnalyticEvalNode(
-            PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
-            List<Expr> partitionExprs, List<OrderByElement> orderByElements,
-            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
-            TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
-            Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
-        super(id, Lists.newArrayList(input.getOutputTupleIds()), "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
-        Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
-        // we're materializing the input row augmented with the analytic output tuple
-        tupleIds.add(outputTupleDesc.getId());
-        this.analyticFnCalls = analyticFnCalls;
-        this.partitionExprs = partitionExprs;
-        this.orderByElements = orderByElements;
-        this.analyticWindow = analyticWindow;
-        this.intermediateTupleDesc = intermediateTupleDesc;
-        this.outputTupleDesc = outputTupleDesc;
-        this.logicalToPhysicalSmap = logicalToPhysicalSmap;
-        this.partitionByEq = partitionByEq;
-        this.orderByEq = orderByEq;
-        this.bufferedTupleDesc = bufferedTupleDesc;
-        children.add(input);
-        nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
-    }
 
     // constructor used in Nereids
     public AnalyticEvalNode(
@@ -129,58 +99,6 @@ public class AnalyticEvalNode extends PlanNode {
         this.bufferedTupleDesc = bufferedTupleDesc;
         children.add(input);
         nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
-    }
-
-    public List<Expr> getPartitionExprs() {
-        return partitionExprs;
-    }
-
-    public List<OrderByElement> getOrderByElements() {
-        return orderByElements;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        analyzer.getDescTbl().computeStatAndMemLayout();
-        intermediateTupleDesc.computeStatAndMemLayout();
-        // we add the analyticInfo's smap to the combined smap of our child
-        outputSmap = logicalToPhysicalSmap;
-        createDefaultSmap(analyzer);
-
-        // Do not assign any conjuncts here: the conjuncts out of our SelectStmt's
-        // Where clause have already been assigned, and conjuncts coming out of an
-        // enclosing scope need to be evaluated *after* all analytic computations.
-
-        // do this at the end so it can take all conjuncts into account
-        computeStats(analyzer);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("desctbl: " + analyzer.getDescTbl().debugString());
-        }
-
-        // point fn calls, partition and ordering exprs at our input
-        ExprSubstitutionMap childSmap = getCombinedChildSmap();
-        analyticFnCalls = Expr.substituteList(analyticFnCalls, childSmap, analyzer, false);
-        substitutedPartitionExprs = Expr.substituteList(partitionExprs, childSmap,
-                                    analyzer, false);
-        orderByElements = OrderByElement.substitute(orderByElements, childSmap, analyzer);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("evalnode: " + debugString());
-        }
-    }
-
-    @Override
-    protected void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            return;
-        }
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-    }
-
-    @Override
-    protected void computeOldCardinality() {
-        cardinality = getChild(0).cardinality;
     }
 
     public void setColocate(boolean colocate) {

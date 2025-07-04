@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
@@ -115,18 +114,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         this.sessionVariable = sv;
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
-        }
-        super.init(analyzer);
-        doInitialize();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
-        }
-    }
-
     /**
      * Init ExternalFileScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
@@ -201,11 +188,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     public void setTableSample(TableSample tSample) {
         this.tableSample = tSample;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        doFinalize();
     }
 
     @Override

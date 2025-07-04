@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "common/compiler_util.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"

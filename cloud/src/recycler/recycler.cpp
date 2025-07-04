@@ -42,8 +42,9 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_schema.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "recycler/checker.h"
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
@@ -58,7 +59,7 @@
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
+#include "meta-store/keys.h"
 #include "recycler/recycler_service.h"
 #include "recycler/sync_executor.h"
 #include "recycler/util.h"
@@ -555,7 +556,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
         return 0;
     }
 
-    FullRangeGetIteratorOptions opts(txn_kv_);
+    FullRangeGetOptions opts(txn_kv_);
     opts.prefetch = true;
     auto it = txn_kv_->full_range_get(storage_vault_key({instance_id_, ""}),
                                       storage_vault_key({instance_id_, "\xff"}), std::move(opts));

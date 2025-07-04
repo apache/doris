@@ -20,6 +20,7 @@ package org.apache.doris.fs.remote;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemCache;
 
@@ -31,20 +32,18 @@ public class SwitchingFileSystem implements FileSystem {
 
     private final ExternalMetaCacheMgr extMetaCacheMgr;
 
-    private final String bindBrokerName;
+    private final Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
-    private final Map<String, String> properties;
-
-    public SwitchingFileSystem(ExternalMetaCacheMgr extMetaCacheMgr, String bindBrokerName,
-                               Map<String, String> properties) {
+    public SwitchingFileSystem(ExternalMetaCacheMgr extMetaCacheMgr,
+                               Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
         this.extMetaCacheMgr = extMetaCacheMgr;
-        this.bindBrokerName = bindBrokerName;
-        this.properties = properties;
+        this.storagePropertiesMap = storagePropertiesMap;
     }
 
     @Override
     public Map<String, String> getProperties() {
-        return properties;
+        //fixme need this ?
+        return null;
     }
 
     @Override
@@ -123,10 +122,11 @@ public class SwitchingFileSystem implements FileSystem {
     }
 
     public FileSystem fileSystem(String location) {
-        return extMetaCacheMgr.getFsCache().getRemoteFileSystem(
-                new FileSystemCache.FileSystemCacheKey(
-                        LocationPath.getFSIdentity(location, properties,
-                                bindBrokerName), properties, bindBrokerName));
+        LocationPath path = LocationPath.of(location, storagePropertiesMap);
+        FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
+                path.getFsIdentifier(), path.getStorageProperties()
+        );
+        return extMetaCacheMgr.getFsCache().getRemoteFileSystem(fileSystemCacheKey);
     }
 }
 
