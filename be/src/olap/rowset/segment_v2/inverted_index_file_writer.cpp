@@ -21,6 +21,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -137,15 +138,14 @@ Status InvertedIndexFileWriter::close() {
         if (_storage_format == InvertedIndexStorageFormatPB::V1) {
             for (const auto& entry : _indices_dirs) {
                 const auto& dir = entry.second;
-                auto* cfsWriter = _CLNEW DorisCompoundFileWriter(dir.get());
+                DorisCompoundFileWriter cfsWriter(dir.get());
                 // write compound file
-                _file_size += cfsWriter->writeCompoundFile();
+                _file_size += cfsWriter.writeCompoundFile();
                 // delete index path, which contains separated inverted index files
                 if (std::strcmp(dir->getObjectName(), "DorisFSDirectory") == 0) {
                     auto* compound_dir = static_cast<DorisFSDirectory*>(dir.get());
                     compound_dir->deleteDirectory();
                 }
-                _CLDELETE(cfsWriter)
             }
         } else {
             _file_size = write();
@@ -337,50 +337,63 @@ size_t DorisCompoundFileWriter::writeCompoundFile() {
     ram_dir.close();
 
     auto compound_fs = ((DorisFSDirectory*)directory)->getCompoundFileSystem();
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(compound_fs, idx_path.c_str());
+    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir;
+    std::unique_ptr<lucene::store::IndexOutput> output;
 
-    auto* out = out_dir->createOutput(idx_name.c_str());
-    if (out == nullptr) {
-        LOG(WARNING) << "Write compound file error: CompoundDirectory output is nullptr.";
-        _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
-    }
-    std::unique_ptr<lucene::store::IndexOutput> output(out);
-    size_t start = output->getFilePointer();
-    output->writeVInt(file_count);
-    // write file entries
-    int64_t data_offset = header_len;
-    uint8_t header_buffer[buffer_length];
-    for (int i = 0; i < sorted_files.size(); ++i) {
-        auto file = sorted_files[i];
-        output->writeString(file.filename); // FileName
-        // DataOffset
-        if (i < header_file_count) {
-            // file data write in header, so we set its offset to -1.
-            output->writeLong(-1);
-        } else {
-            output->writeLong(data_offset);
+    ErrorContext error_context;
+    size_t compound_file_size = 0;
+    try {
+        out_dir = std::unique_ptr<lucene::store::Directory, DirectoryDeleter>(
+                DorisFSDirectoryFactory::getDirectory(compound_fs, idx_path.c_str()));
+        output = std::unique_ptr<lucene::store::IndexOutput>(
+                out_dir->createOutput(idx_name.c_str()));
+        if (output == nullptr) {
+            LOG(WARNING) << "Write compound file error: CompoundDirectory output is nullptr.";
+            _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
         }
-        output->writeLong(file.filesize); // FileLength
-        if (i < header_file_count) {
-            // append data
-            copyFile(file.filename.c_str(), directory, output.get(), header_buffer, buffer_length);
-        } else {
-            data_offset += file.filesize;
+
+        size_t start = output->getFilePointer();
+        output->writeVInt(file_count);
+        // write file entries
+        int64_t data_offset = header_len;
+        uint8_t header_buffer[buffer_length];
+        for (int i = 0; i < sorted_files.size(); ++i) {
+            auto file = sorted_files[i];
+            output->writeString(file.filename); // FileName
+            // DataOffset
+            if (i < header_file_count) {
+                // file data write in header, so we set its offset to -1.
+                output->writeLong(-1);
+            } else {
+                output->writeLong(data_offset);
+            }
+            output->writeLong(file.filesize); // FileLength
+            if (i < header_file_count) {
+                // append data
+                copyFile(file.filename.c_str(), directory, output.get(), header_buffer,
+                         buffer_length);
+            } else {
+                data_offset += file.filesize;
+            }
         }
+        // write rest files' data
+        uint8_t data_buffer[buffer_length];
+        for (int i = header_file_count; i < sorted_files.size(); ++i) {
+            auto file = sorted_files[i];
+            copyFile(file.filename.c_str(), directory, output.get(), data_buffer, buffer_length);
+        }
+
+        compound_file_size = output->getFilePointer() - start;
+    } catch (CLuceneError& err) {
+        error_context.eptr = std::current_exception();
+        error_context.err_msg.append("writeCompoundFile exception, error msg: ");
+        error_context.err_msg.append(err.what());
+        LOG(ERROR) << error_context.err_msg;
     }
-    // write rest files' data
-    uint8_t data_buffer[buffer_length];
-    for (int i = header_file_count; i < sorted_files.size(); ++i) {
-        auto file = sorted_files[i];
-        copyFile(file.filename.c_str(), directory, output.get(), data_buffer, buffer_length);
-    }
-    out_dir->close();
-    // NOTE: need to decrease ref count, but not to delete here,
-    // because index cache may get the same directory from DIRECTORIES
-    _CLDECDELETE(out_dir)
-    auto compound_file_size = output->getFilePointer() - start;
-    output->close();
-    //LOG(INFO) << (idx_path / idx_name).c_str() << " size:" << compound_file_size;
+    FINALLY_EXCEPTION({
+        FINALLY_CLOSE(out_dir);
+        FINALLY_CLOSE(output);
+    })
     return compound_file_size;
 }
 

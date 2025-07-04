@@ -68,12 +68,12 @@ private:
     int32_t readBufferSize;
     // base info
     lucene::store::Directory* dir = nullptr;
-    lucene::store::RAMDirectory* ram_dir = nullptr;
+    std::unique_ptr<lucene::store::RAMDirectory> ram_dir;
     std::string directory;
     std::string file_name;
     CL_NS(store)::IndexInput* stream = nullptr;
     // The life cycle of entries should be consistent with that of the DorisCompoundReader.
-    EntriesType* entries = nullptr;
+    std::unique_ptr<EntriesType> entries;
     std::mutex _this_lock;
     bool _closed = false;
 
