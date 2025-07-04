@@ -22,14 +22,18 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
@@ -187,6 +191,19 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                      << ", first missed version prev rowset verison=" << missing_versions[0]
                      << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
+        if (config::enable_compaction_clone_missing_rowset) {
+            TAgentTaskRequest task;
+            TMissingRowsetReq req;
+            req.__set_tablet_id(0);
+            req.__set_missing_rowset_start_version(missing_versions[0].second + 1);
+            req.__set_missing_rowset_end_version(missing_versions[1].first - 1);
+            task.__set_task_type(TTaskType::CLONE);
+            task.__set_missing_rowset_req(req);
+            task.__set_priority(TPriority::HIGH);
+            PriorTaskWorkerPool* thread_pool =
+                    ExecEnv::GetInstance()->storage_engine().to_local().missing_rowset_thread_pool;
+            RETURN_IF_ERROR(thread_pool->submit_high_prior_task(task));
+        }
     }
 
     int64_t max_score = config::cumulative_compaction_max_deltas;
