@@ -143,4 +143,21 @@ suite('nereids_insert_into_values') {
     sql "insert into agg_have_dup_base_value values (-4, -4, -4, 'd')"
     sql "sync"
     qt_mv "select * from agg_have_dup_base_value"
+
+    multi_sql """
+            DROP TABLE IF EXISTS test_insert_cast_interval;
+            CREATE TABLE test_insert_cast_interval (
+              `id` int NULL,
+              `dt` date NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`, `dt`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+            
+            INSERT INTO test_insert_cast_interval values(1, date_floor('2020-02-02', interval 1 second));
+        """
+
+    qt_select_test_insert_cast_interval "select * from test_insert_cast_interval"
 }
