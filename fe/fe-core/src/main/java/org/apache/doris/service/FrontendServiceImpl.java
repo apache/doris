@@ -48,6 +48,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -2756,15 +2757,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
-                if (backend != null) {
-                    TReplicaInfo replicaInfo = new TReplicaInfo();
-                    replicaInfo.setHost(backend.getHost());
-                    replicaInfo.setBePort(backend.getBePort());
-                    replicaInfo.setHttpPort(backend.getHttpPort());
-                    replicaInfo.setBrpcPort(backend.getBrpcPort());
-                    replicaInfo.setReplicaId(replica.getId());
-                    replicaInfos.add(replicaInfo);
+                List<Backend> backends;
+                if (Config.isCloudMode()) {
+                    CloudReplica cloudReplica = (CloudReplica) replica;
+                    backends = cloudReplica.getAllPrimaryBes();
+                } else {
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                    backends = Lists.newArrayList(backend);
+                }
+                for (Backend backend : backends) {
+                    if (backend != null) {
+                        TReplicaInfo replicaInfo = new TReplicaInfo();
+                        replicaInfo.setHost(backend.getHost());
+                        replicaInfo.setBePort(backend.getBePort());
+                        replicaInfo.setHttpPort(backend.getHttpPort());
+                        replicaInfo.setBrpcPort(backend.getBrpcPort());
+                        replicaInfo.setReplicaId(replica.getId());
+                        replicaInfos.add(replicaInfo);
+                    }
                 }
             }
             tabletReplicaInfos.put(tabletId, replicaInfos);
