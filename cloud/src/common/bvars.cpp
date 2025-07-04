@@ -395,23 +395,6 @@ mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_counter("rpc_kv_clean_txn_labe
 mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter("rpc_kv_get_txn_id_get_counter",{"instance_id"});
 
 // meta ranges
-bvar::Status<int64_t> g_bvar_meta_ranges_job_count("meta_ranges_job_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_meta_ranges_txn_count("meta_ranges_txn_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_meta_ranges_copy_count("meta_ranges_copy_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_meta_ranges_meta_count("meta_ranges_meta_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_meta_ranges_vault_count("meta_ranges_vault_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_meta_ranges_stats_count("meta_ranges_stats_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_meta_ranges_version_count("meta_ranges_version_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_meta_ranges_recycle_count("meta_ranges_recycle_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_meta_ranges_instance_count("meta_ranges_instance_count", BVAR_FDB_INVALID_VALUE);
-
-mBvarStatus<int64_t> g_bvar_meta_ranges_job_partition_count("meta_ranges_job_partition_count", {"instance", "key"});
-mBvarStatus<int64_t> g_bvar_meta_ranges_txn_partition_count("meta_ranges_txn_partition_count", {"instance", "key"});
-mBvarStatus<int64_t> g_bvar_meta_ranges_copy_partition_count("meta_ranges_copy_partition_count", {"instance", "key"});
-mBvarStatus<int64_t> g_bvar_meta_ranges_meta_partition_count("meta_ranges_meta_partition_count", {"instance", "key"});
-mBvarStatus<int64_t> g_bvar_meta_ranges_vault_partition_count("meta_ranges_vault_partition_count", {"instance", "key"});
-mBvarStatus<int64_t> g_bvar_meta_ranges_stats_partition_count("meta_ranges_stats_partition_count", {"instance", "key"});
-mBvarStatus<int64_t> g_bvar_meta_ranges_version_partition_count("meta_ranges_version_partition_count", {"instance", "key"});
-mBvarStatus<int64_t> g_bvar_meta_ranges_recycle_partition_count("meta_ranges_recycle_partition_count", {"instance", "key"});
-mBvarStatus<int64_t> g_bvar_meta_ranges_instance_partition_count("meta_ranges_instance_partition_count", {"instance", "key"});
+mBvarStatus<int64_t> g_bvar_meta_ranges_category_total("meta_ranges_job_count", {"category"});
+mBvarStatus<int64_t> g_bvar_meta_ranges_partition_count("meta_ranges_job_partition_count", {"category","instance", "key"});
 // clang-format on

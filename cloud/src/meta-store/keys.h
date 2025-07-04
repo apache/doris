@@ -90,18 +90,6 @@ static constexpr std::string_view STATS_KEY_SUFFIX_INDEX_SIZE = "index_size";
 static constexpr std::string_view STATS_KEY_SUFFIX_SEGMENT_SIZE = "segment_size";
 
 // clang-format off
-// Prefix
-static const char* INSTANCE_KEY_PREFIX = "instance";
-
-static const char* TXN_KEY_PREFIX      = "txn";
-static const char* VERSION_KEY_PREFIX  = "version";
-static const char* META_KEY_PREFIX     = "meta";
-static const char* RECYCLE_KEY_PREFIX  = "recycle";
-static const char* STATS_KEY_PREFIX    = "stats";
-static const char* JOB_KEY_PREFIX      = "job";
-static const char* COPY_KEY_PREFIX     = "copy";
-static const char* VAULT_KEY_PREFIX    = "storage_vault";
-
 /**
  * Wraps std::tuple for differnet types even if the underlying type is the same.
  * 

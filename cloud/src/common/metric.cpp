@@ -24,16 +24,19 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 
 #include "common/bvars.h"
+#include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
+extern std::set<std::string> get_key_prefix_contants();
 
 // The format of the output is shown in "test/fdb_metric_example.json"
 static const std::string FDB_STATUS_KEY = "\xff\xff/status/json";
@@ -235,7 +238,7 @@ static void export_fdb_status_details(const std::string& status_str) {
 // the func count same key to hashmap partition_count
 // exmaple:
 // partition_boundaries: meta|instance1|rowset|..., meta|instance1|rowset|..., meta|instance2|rowset|..., txn|instance1|txn_label|...
-// partition_count will output: <meta|instance1|rowset, 2>, <meta|instance2|rowset, 1>, <txn|instance1|txn_label, 1>
+// partition_count output: <meta|instance1|rowset, 2>, <meta|instance2|rowset, 1>, <txn|instance1|txn_label, 1>
 void get_partition_boundaries_count(std::vector<std::string>& partition_boundaries,
                                     std::unordered_map<std::string, size_t>& partition_count) {
     size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
@@ -286,6 +289,7 @@ static void export_meta_ranges_details(TxnKv* kv) {
     std::unordered_map<std::string, size_t> partition_count;
     get_partition_boundaries_count(partition_boundaries, partition_count);
 
+    auto key_prefix_set = get_key_prefix_contants();
     std::unordered_map<std::string, int64_t> category_count;
     for (auto&& [key, count] : partition_count) {
         std::vector<std::string> keys;
@@ -297,47 +301,17 @@ static void export_meta_ranges_details(TxnKv* kv) {
             pos = p + 1;
         } while (pos < key.size());
         keys.resize(3);
-        if (keys[0] == TXN_KEY_PREFIX) {
-            category_count[TXN_KEY_PREFIX] += count;
-            g_bvar_meta_ranges_txn_partition_count.put({keys[1], keys[2]}, count);
-        } else if (keys[0] == META_KEY_PREFIX) {
-            category_count[META_KEY_PREFIX] += count;
-            g_bvar_meta_ranges_meta_partition_count.put({keys[1], keys[2]}, count);
-        } else if (keys[0] == RECYCLE_KEY_PREFIX) {
-            category_count[RECYCLE_KEY_PREFIX] += count;
-            g_bvar_meta_ranges_recycle_partition_count.put({keys[1], keys[2]}, count);
-        } else if (keys[0] == VERSION_KEY_PREFIX) {
-            category_count[VERSION_KEY_PREFIX] += count;
-            g_bvar_meta_ranges_version_partition_count.put({keys[1], keys[2]}, count);
-        } else if (keys[0] == STATS_KEY_PREFIX) {
-            category_count[STATS_KEY_PREFIX] += count;
-            g_bvar_meta_ranges_stats_partition_count.put({keys[1], keys[2]}, count);
-        } else if (keys[0] == JOB_KEY_PREFIX) {
-            category_count[JOB_KEY_PREFIX] += count;
-            g_bvar_meta_ranges_job_partition_count.put({keys[1], keys[2]}, count);
-        } else if (keys[0] == COPY_KEY_PREFIX) {
-            category_count[COPY_KEY_PREFIX] += count;
-            g_bvar_meta_ranges_copy_partition_count.put({keys[1], keys[2]}, count);
-        } else if (keys[0] == VAULT_KEY_PREFIX) {
-            category_count[VAULT_KEY_PREFIX] += count;
-            g_bvar_meta_ranges_vault_partition_count.put({keys[1], keys[2]}, count);
-        } else if (keys[0] == INSTANCE_KEY_PREFIX) {
-            category_count[INSTANCE_KEY_PREFIX] += count;
-            g_bvar_meta_ranges_instance_partition_count.put({keys[1], keys[2]}, count);
+        if (key_prefix_set.contains(keys[0])) {
+            category_count[keys[0]] += count;
+            g_bvar_meta_ranges_partition_count.put({keys[0], keys[1], keys[2]}, count);
         } else {
             LOG(WARNING) << fmt::format("Unknow meta range type: {}", keys[0]);
             continue;
         }
     }
-    g_bvar_meta_ranges_job_count.set_value(category_count[JOB_KEY_PREFIX]);
-    g_bvar_meta_ranges_txn_count.set_value(category_count[TXN_KEY_PREFIX]);
-    g_bvar_meta_ranges_copy_count.set_value(category_count[COPY_KEY_PREFIX]);
-    g_bvar_meta_ranges_meta_count.set_value(category_count[META_KEY_PREFIX]);
-    g_bvar_meta_ranges_vault_count.set_value(category_count[VAULT_KEY_PREFIX]);
-    g_bvar_meta_ranges_stats_count.set_value(category_count[STATS_KEY_PREFIX]);
-    g_bvar_meta_ranges_recycle_count.set_value(category_count[RECYCLE_KEY_PREFIX]);
-    g_bvar_meta_ranges_version_count.set_value(category_count[VERSION_KEY_PREFIX]);
-    g_bvar_meta_ranges_instance_count.set_value(category_count[INSTANCE_KEY_PREFIX]);
+    for (auto& [key, count] : category_count) {
+        g_bvar_meta_ranges_category_total.put({key}, count);
+    }
 }
 
 void FdbMetricExporter::export_fdb_metrics(TxnKv* txn_kv) {
