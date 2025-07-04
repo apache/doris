@@ -20,6 +20,7 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
+#include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -1494,6 +1495,28 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
     if (_peer_replica_infos.contains(tablet_id) &&
         _peer_replica_infos[tablet_id].replica_id != tablet->replica_id()) {
         *replica = _peer_replica_infos[tablet_id];
+        *token = _token;
+        return true;
+    }
+    return false;
+}
+
+bool StorageEngine::get_peers_replicas_info(int64_t tablet_id, std::vector<TReplicaInfo>* replicas,
+                                            std::string* token) {
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
+        return false;
+    }
+    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+    if (_tablet_replica_infos.contains(tablet_id)) {
+        std::vector<TReplicaInfo> reps = _tablet_replica_infos[tablet_id];
+        DCHECK_NE(reps.size(), 0);
+        for (const auto& rep : reps) {
+            if (rep.replica_id != tablet->replica_id()) {
+                replicas->emplace_back(rep);
+            }
+        }
         *token = _token;
         return true;
     }

@@ -17,6 +17,7 @@
 
 #include "agent/task_worker_pool.h"
 
+#include <brpc/controller.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/DataSinks_types.h>
@@ -85,6 +86,7 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/jni-util.h"
@@ -607,6 +609,51 @@ Status PriorTaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
         }
         return Status::OK();
     });
+}
+
+Status PriorTaskWorkerPool::submit_high_prior_task(const TAgentTaskRequest& task) {
+    const TTaskType::type task_type = task.task_type;
+    int64_t signature = task.signature;
+    std::string type_str;
+    EnumToString(TTaskType, task_type, type_str);
+    auto req = std::make_unique<TAgentTaskRequest>(task);
+
+    DCHECK(req->__isset.priority && req->priority == TPriority::HIGH);
+    do {
+        std::lock_guard lock(s_task_signatures_mtx);
+        auto& set = s_task_signatures[task_type];
+        if (!set.contains(signature)) {
+            // 如果不存在，直接放到优先队列
+            set.insert(signature);
+            std::lock_guard lock(_mtx);
+            _high_prior_queue.push_back(std::move(req));
+            _high_prior_condv.notify_one();
+            _normal_condv.notify_one();
+            break;
+        } else {
+            std::lock_guard lock(_mtx);
+            for (auto it = _normal_queue.begin(); it != _normal_queue.end();) {
+                // 如果存在普通队列，将普通队列中的task move到优先队列
+                if ((*it)->signature == signature) {
+                    _high_prior_queue.push_back(std::move(*it)); // 复制到目标
+                    it = _normal_queue.erase(it); // 从源中删除，erase返回下一个有效迭代器
+                    _high_prior_condv.notify_one();
+                    _normal_condv.notify_one();
+                    break;
+                } else {
+                    ++it; // 不满足条件，继续下一个
+                }
+            }
+            // 如果存在高优队列，不需要任何操作
+            LOG(INFO) << "exit already.";
+        }
+    } while (true);
+
+    // Set the receiving time of task so that we can determine whether it is timed out later
+    (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
+
+    LOG_INFO("successfully submit task").tag("type", type_str).tag("signature", signature);
+    return Status::OK();
 }
 
 void PriorTaskWorkerPool::normal_loop() {
@@ -2052,8 +2099,96 @@ void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& re
             visible_version_req.partition_version);
 }
 
+Status get_rowset_verisons_from_peer(const TReplicaInfo& addr, std::vector<Version>& peer_versions,
+                                     int64_t tablet_id) {
+    PGetTabletVersionsRequest request;
+    request.set_tablet_id(tablet_id);
+    PGetTabletVersionsResponse response;
+    std::shared_ptr<PBackendService_Stub> stub =
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr.host,
+                                                                             addr.brpc_port);
+    if (stub == nullptr) {
+        return Status::Aborted("get rpc stub failed, host={}, port={}", addr.host, addr.brpc_port);
+    }
+
+    brpc::Controller cntl;
+    stub->get_tablet_rowset_versions(&cntl, &request, &response, nullptr);
+    if (cntl.Failed()) {
+        return Status::Aborted("open brpc connection failed");
+    }
+    if (response.status().status_code() != 0) {
+        return Status::Aborted("peer don't have tablet");
+    }
+    if (response.versions_size() == 0) {
+        return Status::Aborted("no peer version");
+    }
+    for (int i = 0; i < response.versions_size(); ++i) {
+        peer_versions.emplace_back(response.versions(i).first(), response.versions(i).second());
+    }
+    return Status::OK();
+}
+
+bool find_be_to_fetch(const std::unordered_map<int64_t, std::vector<Version>>& peers_versions,
+                      TReplicaInfo* addr) {
+    return true;
+}
+
+void clone_missing_rowset(StorageEngine& engine, const ClusterInfo* cluster_info,
+                          const TAgentTaskRequest& req) {
+    std::vector<Version> missing_versions;
+    int64_t tablet_id = req.missing_rowset_req.tablet_id;
+    Version missing_version(req.missing_rowset_req.missing_rowset_start_version,
+                            req.missing_rowset_req.missing_rowset_end_version);
+    missing_versions.emplace_back(missing_version);
+    std::vector<TReplicaInfo> addrs;
+    std::string token;
+    //  1. 先拿到所有的replica信息，例如一共3副本，这里的addrs会拿到其他2个副本的信息
+    if (!engine.get_peers_replicas_info(tablet_id, &addrs, &token)) {
+        LOG(WARNING) << tablet_id << " tablet don't have peer replica";
+        return;
+    }
+
+    // 2. 拿到上述所有副本的rowset版本分布信息
+    std::unordered_map<int64_t, std::vector<Version>> peers_versions;
+    for (const auto& addr : addrs) {
+        std::vector<Version> peer_versions;
+        auto st = get_rowset_verisons_from_peer(addr, peer_versions, tablet_id);
+        if (!st.ok()) {
+            LOG_WARNING("failed to get rowset version from peer");
+            return;
+        }
+        peers_versions.insert({addr.replica_id, peer_versions});
+    }
+    TReplicaInfo addr;
+    // 3. 遍历每个副本，寻找能匹配的be或者没有缺版本的be
+    if (!find_be_to_fetch(peers_versions, &addr)) {
+        LOG_WARNING("failed to find be to fetch");
+    }
+
+    // 4. fetch compaction result
+    auto tablet = engine.tablet_manager()->get_tablet(tablet_id);
+    std::vector<TTabletInfo> tablet_infos;
+    TCloneReq clone_req;
+    clone_req.__set_tablet_id(tablet_id);
+    EngineCloneTask task(engine, clone_req, cluster_info, req.signature, &tablet_infos);
+    auto st = task.clone_missing_rowset_from_peer(addr, token, missing_versions, tablet.get());
+    if (!st.ok()) {
+        LOG_WARNING("failed to get rowset version from peer");
+        return;
+    }
+}
+
 void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
                     const TAgentTaskRequest& req) {
+    DCHECK(req.__isset.clone_req || req.__isset.missing_rowset_req);
+
+    if (req.__isset.missing_rowset_req) {
+        DorisMetrics::instance()->clone_requests_total->increment(1);
+        LOG(INFO) << "get missing rowset clone task. signature=" << req.signature;
+        clone_missing_rowset(engine, cluster_info, req);
+        return;
+    }
+
     const auto& clone_req = req.clone_req;
 
     DorisMetrics::instance()->clone_requests_total->increment(1);

@@ -32,6 +32,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -216,6 +217,24 @@ Status EnginePublishVersionTask::execute() {
                         continue;
                     }
                     auto handle_version_not_continuous = [&]() {
+                        if (config::enable_compaction_clone_missing_rowset) {
+                            TAgentTaskRequest task;
+                            TMissingRowsetReq req;
+                            req.__set_tablet_id(0);
+                            req.__set_missing_rowset_start_version(max_version + 1);
+                            req.__set_missing_rowset_end_version(version.first - 1);
+                            task.__set_task_type(TTaskType::CLONE);
+                            task.__set_missing_rowset_req(req);
+                            task.__set_priority(TPriority::HIGH);
+                            PriorTaskWorkerPool* thread_pool = ExecEnv::GetInstance()
+                                                                       ->storage_engine()
+                                                                       .to_local()
+                                                                       .missing_rowset_thread_pool;
+                            auto st = thread_pool->submit_high_prior_task(task);
+                            if (!st.ok()) {
+                                LOG_WARNING("mow clone missing rowset fail");
+                            }
+                        }
                         add_error_tablet_id(tablet_info.tablet_id);
                         // When there are too many missing versions, do not directly retry the
                         // publish and handle it through async publish.
