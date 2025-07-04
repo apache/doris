@@ -736,15 +736,16 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
                 // convert "\%" and "\_" to literal "%" and "_"
                 re_pattern->append(1, next_c);
                 i++;
+                continue;
             } else if (next_c == '\\') {
                 // keep valid escape "\\"
                 re_pattern->append("\\\\");
                 i++;
-            } else {
-                // keep invalid escape "\" as literal "\"
-                re_pattern->append("\\\\");
+                continue;
             }
-        } else if (c == '%') {
+        }
+
+        if (c == '%') {
             re_pattern->append(".*");
         } else if (c == '_') {
             re_pattern->append(".");
