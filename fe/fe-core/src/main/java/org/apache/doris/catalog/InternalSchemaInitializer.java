@@ -22,15 +22,9 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DbName;
-import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.HashDistributionDesc;
-import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyPartitionClause;
-import org.apache.doris.analysis.PartitionDesc;
-import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
@@ -41,13 +35,18 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.plugin.audit.AuditLoader;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -57,7 +56,6 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -132,7 +130,7 @@ public class InternalSchemaInitializer extends Thread {
                 LOG.warn("Failed to do schema change for stats table. Try again later.", t);
             }
             try {
-                Thread.sleep(Config.resource_not_ready_sleep_seconds *  1000);
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
             } catch (InterruptedException t) {
                 // IGNORE
             }
@@ -257,7 +255,7 @@ public class InternalSchemaInitializer extends Thread {
                 }
             }
             try {
-                Thread.sleep(Config.resource_not_ready_sleep_seconds *  1000);
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
             } catch (InterruptedException t) {
                 // IGNORE
             }
@@ -266,16 +264,127 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createTbl() throws UserException {
-        // statistics
-        Env.getCurrentEnv().getInternalCatalog().createTable(
-                buildStatisticsTblStmt(StatisticConstants.TABLE_STATISTIC_TBL_NAME,
-                        Lists.newArrayList("id", "catalog_id", "db_id", "tbl_id", "idx_id", "col_id", "part_id")));
-        Env.getCurrentEnv().getInternalCatalog().createTable(
-                buildStatisticsTblStmt(StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
-                        Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_name", "part_id",
-                                "col_id")));
+        String statisticsTblSql = "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`column_statistics` (\n"
+                + "  `id` varchar(4096) NOT NULL COMMENT \"\",\n"
+                + "  `catalog_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `db_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `tbl_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `idx_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `col_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `part_id` varchar(1024) NULL COMMENT \"\",\n"
+                + "  `count` bigint NULL COMMENT \"\",\n"
+                + "  `ndv` bigint NULL COMMENT \"\",\n"
+                + "  `null_count` bigint NULL COMMENT \"\",\n"
+                + "  `min` varchar(65533) NULL COMMENT \"\",\n"
+                + "  `max` varchar(65533) NULL COMMENT \"\",\n"
+                + "  `data_size_in_bytes` bigint NULL COMMENT \"\",\n"
+                + "  `update_time` datetime NOT NULL COMMENT \"\",\n"
+                + "  `hot_value` text NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "UNIQUE KEY(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)\n"
+                + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
+                + "DISTRIBUTED BY HASH(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)\n"
+                + "BUCKETS 7\n"
+                + "PROPERTIES (\"replication_num\"  =  \"1\")";
+
+        String columnTblSql = "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`partition_statistics` (\n"
+                + "  `catalog_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `db_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `tbl_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `idx_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `part_name` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `part_id` bigint NOT NULL COMMENT \"\",\n"
+                + "  `col_id` varchar(1024) NOT NULL COMMENT \"\",\n"
+                + "  `count` bigint NULL COMMENT \"\",\n"
+                + "  `ndv` hll NOT NULL COMMENT \"\",\n"
+                + "  `null_count` bigint NULL COMMENT \"\",\n"
+                + "  `min` varchar(65533) NULL COMMENT \"\",\n"
+                + "  `max` varchar(65533) NULL COMMENT \"\",\n"
+                + "  `data_size_in_bytes` bigint NULL COMMENT \"\",\n"
+                + "  `update_time` datetime NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "UNIQUE KEY(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)\n"
+                + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
+                + "DISTRIBUTED BY HASH(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)\n"
+                + "BUCKETS 7\n"
+                + "PROPERTIES (\"replication_num\"  =  \"1\")";
+
         // audit table
-        Env.getCurrentEnv().getInternalCatalog().createTable(buildAuditTblStmt());
+        String auditTblSql = "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`audit_log` (\n"
+                + "  `query_id` varchar(48) NULL COMMENT \"\",\n"
+                + "  `time` datetimev2(3) NULL COMMENT \"\",\n"
+                + "  `client_ip` varchar(128) NULL COMMENT \"\",\n"
+                + "  `user` varchar(128) NULL COMMENT \"\",\n"
+                + "  `frontend_ip` varchar(128) NULL COMMENT \"\",\n"
+                + "  `catalog` varchar(128) NULL COMMENT \"\",\n"
+                + "  `db` varchar(128) NULL COMMENT \"\",\n"
+                + "  `state` varchar(128) NULL COMMENT \"\",\n"
+                + "  `error_code` int NULL COMMENT \"\",\n"
+                + "  `error_message` text NULL COMMENT \"\",\n"
+                + "  `query_time` bigint NULL COMMENT \"\",\n"
+                + "  `cpu_time_ms` bigint NULL COMMENT \"\",\n"
+                + "  `peak_memory_bytes` bigint NULL COMMENT \"\",\n"
+                + "  `scan_bytes` bigint NULL COMMENT \"\",\n"
+                + "  `scan_rows` bigint NULL COMMENT \"\",\n"
+                + "  `return_rows` bigint NULL COMMENT \"\",\n"
+                + "  `shuffle_send_rows` bigint NULL COMMENT \"\",\n"
+                + "  `shuffle_send_bytes` bigint NULL COMMENT \"\",\n"
+                + "  `spill_write_bytes_from_local_storage` bigint NULL COMMENT \"\",\n"
+                + "  `spill_read_bytes_from_local_storage` bigint NULL COMMENT \"\",\n"
+                + "  `scan_bytes_from_local_storage` bigint NULL COMMENT \"\",\n"
+                + "  `scan_bytes_from_remote_storage` bigint NULL COMMENT \"\",\n"
+                + "  `parse_time_ms` int NULL COMMENT \"\",\n"
+                + "  `plan_times_ms` map<text,int> NULL COMMENT \"\",\n"
+                + "  `get_meta_times_ms` map<text,int> NULL COMMENT \"\",\n"
+                + "  `schedule_times_ms` map<text,int> NULL COMMENT \"\",\n"
+                + "  `hit_sql_cache` tinyint NULL COMMENT \"\",\n"
+                + "  `handled_in_fe` tinyint NULL COMMENT \"\",\n"
+                + "  `queried_tables_and_views` array<text> NULL COMMENT \"\",\n"
+                + "  `chosen_m_views` array<text> NULL COMMENT \"\",\n"
+                + "  `changed_variables` map<text,text> NULL COMMENT \"\",\n"
+                + "  `sql_mode` text NULL COMMENT \"\",\n"
+                + "  `stmt_type` varchar(48) NULL COMMENT \"\",\n"
+                + "  `stmt_id` bigint NULL COMMENT \"\",\n"
+                + "  `sql_hash` varchar(128) NULL COMMENT \"\",\n"
+                + "  `sql_digest` varchar(128) NULL COMMENT \"\",\n"
+                + "  `is_query` tinyint NULL COMMENT \"\",\n"
+                + "  `is_nereids` tinyint NULL COMMENT \"\",\n"
+                + "  `is_internal` tinyint NULL COMMENT \"\",\n"
+                + "  `workload_group` text NULL COMMENT \"\",\n"
+                + "  `compute_group` text NULL COMMENT \"\",\n"
+                + "  `stmt` text NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "DUPLICATE KEY(`query_id`, `time`, `client_ip`)\n"
+                + "COMMENT \"Doris internal audit table, DO NOT MODIFY IT\"\n"
+                + "PARTITION BY RANGE(`time`)\n"
+                + "(\n"
+                + "\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`query_id`)\n"
+                + "BUCKETS 2\n"
+                + "PROPERTIES (\"dynamic_partition.time_unit\"  =  \"DAY\",\n"
+                + "\"dynamic_partition.buckets\"  =  \"2\",\n"
+                + "\"dynamic_partition.end\"  =  \"3\",\n"
+                + "\"dynamic_partition.enable\"  =  \"true\",\n"
+                + "\"replication_num\"  =  \"1\",\n"
+                + "\"dynamic_partition.start\"  =  \"-30\",\n"
+                + "\"dynamic_partition.prefix\"  =  \"p\")";
+        createTable(statisticsTblSql);
+        createTable(columnTblSql);
+        createTable(auditTblSql);
+    }
+
+    private static void createTable(String sql) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            NereidsParser nereidsParser = new NereidsParser();
+            LogicalPlan parsed = nereidsParser.parseSingle(sql);
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            if (parsed instanceof CreateTableCommand) {
+                ((CreateTableCommand) parsed).run(r.connectContext, stmtExecutor);
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to create table {}. Reason {}", sql, e.getMessage());
+        }
     }
 
     @VisibleForTesting
@@ -288,63 +397,6 @@ public class InternalSchemaInitializer extends Thread {
             LOG.warn("Failed to create database: {}, will try again later",
                     FeConstants.INTERNAL_DB_NAME, e);
         }
-    }
-
-    private static CreateTableStmt buildStatisticsTblStmt(String statsTableName, List<String> uniqueKeys)
-            throws UserException {
-        TableName tableName = new TableName("", FeConstants.INTERNAL_DB_NAME, statsTableName);
-        String engineName = "olap";
-        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
-        DistributionDesc distributionDesc = new HashDistributionDesc(
-                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
-        Map<String, String> properties = new HashMap<String, String>() {
-            {
-                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
-                        Math.max(1, Config.min_replication_num_per_tablet)));
-            }
-        };
-
-        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
-        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, InternalSchema.getCopiedSchema(statsTableName),
-                engineName, keysDesc, null, distributionDesc,
-                properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
-        StatisticsUtil.analyze(createTableStmt);
-        return createTableStmt;
-    }
-
-    private static CreateTableStmt buildAuditTblStmt() throws UserException {
-        TableName tableName = new TableName("",
-                FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
-
-        String engineName = "olap";
-        ArrayList<String> dupKeys = Lists.newArrayList("query_id", "time", "client_ip");
-        KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, dupKeys);
-        // partition
-        PartitionDesc partitionDesc = new RangePartitionDesc(Lists.newArrayList("time"), Lists.newArrayList());
-        // distribution
-        int bucketNum = 2;
-        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, Lists.newArrayList("query_id"));
-        Map<String, String> properties = new HashMap<String, String>() {
-            {
-                put("dynamic_partition.time_unit", "DAY");
-                put("dynamic_partition.start", "-30");
-                put("dynamic_partition.end", "3");
-                put("dynamic_partition.prefix", "p");
-                put("dynamic_partition.buckets", String.valueOf(bucketNum));
-                put("dynamic_partition.enable", "true");
-                put("replication_num", String.valueOf(Math.max(1,
-                        Config.min_replication_num_per_tablet)));
-            }
-        };
-
-        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
-        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, InternalSchema.getCopiedSchema(AuditLoader.AUDIT_LOG_TABLE),
-                engineName, keysDesc, partitionDesc, distributionDesc,
-                properties, null, "Doris internal audit table, DO NOT MODIFY IT", null);
-        StatisticsUtil.analyze(createTableStmt);
-        return createTableStmt;
     }
 
 

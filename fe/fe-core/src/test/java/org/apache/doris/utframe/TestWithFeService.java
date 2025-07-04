@@ -658,7 +658,7 @@ public abstract class TestWithFeService {
     }
 
     public void createTable(String sql) throws Exception {
-        createTable(sql, false);
+        createTable(sql, true);
     }
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
@@ -697,7 +697,7 @@ public abstract class TestWithFeService {
     }
 
     public void createTables(String... sqls) throws Exception {
-        createTables(false, sqls);
+        createTables(true, sqls);
     }
 
     public void createTables(boolean enableNereids, String... sqls) throws Exception {
