@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
@@ -142,8 +144,16 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
         TableIf table = logicalPlan instanceof CatalogRelation ? ((CatalogRelation) logicalPlan).getTable()
                 : ((LogicalView<?>) logicalPlan).getView();
-        String ctlName = table.getDatabase().getCatalog().getName();
-        String dbName = table.getDatabase().getFullName();
+        DatabaseIf database = table.getDatabase();
+        if (database == null) {
+            return RelatedPolicy.NO_POLICY;
+        }
+        CatalogIf catalog = database.getCatalog();
+        if (catalog == null) {
+            return RelatedPolicy.NO_POLICY;
+        }
+        String ctlName = catalog.getName();
+        String dbName = database.getFullName();
         String tableName = table.getName();
 
         NereidsParser nereidsParser = new NereidsParser();
