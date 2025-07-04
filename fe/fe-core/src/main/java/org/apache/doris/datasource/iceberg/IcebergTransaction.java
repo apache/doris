@@ -25,6 +25,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
@@ -48,6 +49,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public class IcebergTransaction implements Transaction {
 
@@ -73,7 +75,8 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    public void beginInsert(ExternalTable dorisTable, SimpleTableInfo tableInfo) throws UserException {
+    public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
+        ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
         try {
             ops.getPreExecutionAuthenticator().execute(() -> {
                 // create and start the iceberg transaction
@@ -83,7 +86,7 @@ public class IcebergTransaction implements Transaction {
                     this.branchName = insertCtx.getBranchName().get();
                     SnapshotRef branchRef = table.refs().get(branchName);
                     if (branchRef == null) {
-                        throw new RuntimeException(branchName + " is not founded in " + tableInfo);
+                        throw new RuntimeException(branchName + " is not founded in " + dorisTable.getName());
                     } else if (!branchRef.isBranch()) {
                         throw new RuntimeException(
                             branchName
