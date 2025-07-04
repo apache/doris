@@ -409,10 +409,14 @@ public class InsertUtils {
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             NamedExpression defaultExpression = generateDefaultExpression(sameNameColumn);
-                            addColumnValue(analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext);
+                            addColumnValue(
+                                    analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext
+                            );
                         } else {
                             DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
-                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType, rewriteContext);
+                            addColumnValue(
+                                    analyzer, optimizedRowConstructor, values.get(i), targetType, rewriteContext
+                            );
                         }
                     }
                 } else {
@@ -428,10 +432,14 @@ public class InsertUtils {
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             NamedExpression defaultExpression = generateDefaultExpression(columns.get(i));
-                            addColumnValue(analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext);
+                            addColumnValue(
+                                    analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext
+                            );
                         } else {
                             DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
-                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType, rewriteContext);
+                            addColumnValue(
+                                    analyzer, optimizedRowConstructor, values.get(i), targetType, rewriteContext
+                            );
                         }
                     }
                 }
