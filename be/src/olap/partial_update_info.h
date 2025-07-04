@@ -39,7 +39,6 @@ class Block;
 }
 struct RowsetWriterContext;
 struct RowsetId;
-class BitmapValue;
 
 struct PartialUpdateInfo {
     Status init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,

@@ -60,7 +60,7 @@ suite('test_flexible_partial_update_filter_ratio') {
                 assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
                 assertEquals(5, json.NumberTotalRows)
                 assertEquals(3, json.NumberFilteredRows)
-                assertEquals(2, json.NumberLoadedRows)
+                assertEquals(0, json.NumberLoadedRows)
             }
         }
         streamLoad {
@@ -81,7 +81,7 @@ suite('test_flexible_partial_update_filter_ratio') {
                 assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
                 assertEquals(5, json.NumberTotalRows)
                 assertEquals(3, json.NumberFilteredRows)
-                assertEquals(2, json.NumberLoadedRows)
+                assertEquals(0, json.NumberLoadedRows)
             }
         }
         streamLoad {
@@ -102,7 +102,7 @@ suite('test_flexible_partial_update_filter_ratio') {
                 assertEquals(5, json.NumberTotalRows)
                 // newly inserted rows will be counted into filtered rows
                 assertEquals(4, json.NumberFilteredRows)
-                assertEquals(1, json.NumberLoadedRows)
+                assertEquals(0, json.NumberLoadedRows)
             }
         }
         streamLoad {
@@ -189,7 +189,7 @@ suite('test_flexible_partial_update_filter_ratio') {
                 assertEquals("fail", json.Status.toLowerCase())
                 assertEquals(3, json.NumberTotalRows)
                 assertEquals(1, json.NumberFilteredRows)
-                assertEquals(2, json.NumberLoadedRows)
+                assertEquals(0, json.NumberLoadedRows)
             }
         }
         qt_quality2 "select k1,k2,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k1,k2;"
