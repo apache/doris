@@ -225,8 +225,9 @@ std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id) {
     return key;
 }
 
-void TabletMetaManager::decode_delete_bitmap_key(std::string_view enc_key, TTabletId* tablet_id,
-                                                 int64_t* version) {
+void NO_SANITIZE_UNDEFINED TabletMetaManager::decode_delete_bitmap_key(std::string_view enc_key,
+                                                                       TTabletId* tablet_id,
+                                                                       int64_t* version) {
     DCHECK_EQ(enc_key.size(), 20);
     *tablet_id = to_endian<std::endian::big>(UNALIGNED_LOAD64(enc_key.data() + 4));
     *version = to_endian<std::endian::big>(UNALIGNED_LOAD64(enc_key.data() + 12));

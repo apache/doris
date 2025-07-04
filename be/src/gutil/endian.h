@@ -35,66 +35,6 @@
 #include "olap/uint24.h"
 #include "vec/core/wide_integer.h"
 
-// Portable handling of unaligned loads, stores, and copies.
-// On some platforms, like ARM, the copy functions can be more efficient
-// then a load and a store.
-
-#if defined(__i386) || defined(ARCH_ATHLON) || defined(__x86_64__) || defined(_ARCH_PPC)
-
-// x86 and x86-64 can perform unaligned loads/stores directly;
-// modern PowerPC hardware can also do unaligned integer loads and stores;
-// but note: the FPU still sends unaligned loads and stores to a trap handler!
-
-#define UNALIGNED_LOAD16(_p) (*reinterpret_cast<const uint16_t*>(_p))
-#define UNALIGNED_LOAD32(_p) (*reinterpret_cast<const uint32_t*>(_p))
-#define UNALIGNED_LOAD64(_p) (*reinterpret_cast<const uint64_t*>(_p))
-
-#define UNALIGNED_STORE16(_p, _val) (*reinterpret_cast<uint16_t*>(_p) = (_val))
-#define UNALIGNED_STORE32(_p, _val) (*reinterpret_cast<uint32_t*>(_p) = (_val))
-#define UNALIGNED_STORE64(_p, _val) (*reinterpret_cast<uint64_t*>(_p) = (_val))
-
-#elif defined(__arm__) && !defined(__ARM_ARCH_5__) && !defined(__ARM_ARCH_5T__) &&               \
-        !defined(__ARM_ARCH_5TE__) && !defined(__ARM_ARCH_5TEJ__) && !defined(__ARM_ARCH_6__) && \
-        !defined(__ARM_ARCH_6J__) && !defined(__ARM_ARCH_6K__) && !defined(__ARM_ARCH_6Z__) &&   \
-        !defined(__ARM_ARCH_6ZK__) && !defined(__ARM_ARCH_6T2__)
-
-// ARMv7 and newer support native unaligned accesses, but only of 16-bit
-// and 32-bit values (not 64-bit); older versions either raise a fatal signal,
-// do an unaligned read and rotate the words around a bit, or do the reads very
-// slowly (trip through kernel mode). There's no simple #define that says just
-// “ARMv7 or higher”, so we have to filter away all ARMv5 and ARMv6
-// sub-architectures. Newer gcc (>= 4.6) set an __ARM_FEATURE_ALIGNED #define,
-// so in time, maybe we can move on to that.
-//
-// This is a mess, but there's not much we can do about it.
-
-#define UNALIGNED_LOAD16(_p) (*reinterpret_cast<const uint16_t*>(_p))
-#define UNALIGNED_LOAD32(_p) (*reinterpret_cast<const uint32_t*>(_p))
-
-#define UNALIGNED_STORE16(_p, _val) (*reinterpret_cast<uint16_t*>(_p) = (_val))
-#define UNALIGNED_STORE32(_p, _val) (*reinterpret_cast<uint32_t*>(_p) = (_val))
-
-// TODO(user): NEON supports unaligned 64-bit loads and stores.
-// See if that would be more efficient on platforms supporting it,
-// at least for copies.
-
-inline uint64_t UNALIGNED_LOAD64(const void* p) {
-    uint64_t t;
-    memcpy(&t, p, sizeof t);
-    return t;
-}
-
-inline void UNALIGNED_STORE64(void* p, uint64_t v) {
-    memcpy(p, &v, sizeof v);
-}
-
-#else
-
-#define NEED_ALIGNED_LOADS
-
-// These functions are provided for architectures that don't support
-// unaligned loads and stores.
-
 inline uint16_t UNALIGNED_LOAD16(const void* p) {
     uint16_t t;
     memcpy(&t, p, sizeof t);
@@ -124,8 +64,6 @@ inline void UNALIGNED_STORE32(void* p, uint32_t v) {
 inline void UNALIGNED_STORE64(void* p, uint64_t v) {
     memcpy(p, &v, sizeof v);
 }
-
-#endif
 
 inline uint64_t gbswap_64(uint64_t host_int) {
 #if defined(__GNUC__) && defined(__x86_64__) && !defined(__APPLE__)

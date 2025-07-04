@@ -9,6 +9,8 @@
 
 #include "murmur_hash3.h"
 
+#include "vec/common/unaligned.h"
+
 //-----------------------------------------------------------------------------
 // Platform-specific functions and macros
 
@@ -51,11 +53,11 @@ FORCE_INLINE uint64_t rotl64(uint64_t x, int8_t r) {
 // handle aligned reads, do the conversion here
 
 FORCE_INLINE uint32_t getblock32(const uint32_t* p, int i) {
-    return p[i];
+    return unaligned_load<uint32_t>(&p[i]);
 }
 
 FORCE_INLINE uint64_t getblock64(const uint64_t* p, int i) {
-    return p[i];
+    return unaligned_load<uint64_t>(&p[i]);
 }
 
 //-----------------------------------------------------------------------------
