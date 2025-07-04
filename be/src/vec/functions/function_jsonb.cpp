@@ -1346,19 +1346,30 @@ struct JsonbLengthUtil {
         bool is_const = false;
         std::tie(path_column, is_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        JsonbPath path;
-        if (is_const) {
-            auto path_value = path_column->get_data_at(0);
-            if (!path.seek(path_value.data, path_value.size)) {
-                return Status::InvalidArgument(
-                        "Json path error: Invalid Json Path for value: {}",
-                        std::string_view(reinterpret_cast<const char*>(path_value.data),
-                                         path_value.size));
-            }
-        }
+
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
+
+        JsonbPath path;
+        if (is_const) {
+            if (path_column->is_null_at(0)) {
+                for (size_t i = 0; i < input_rows_count; ++i) {
+                    null_map->get_data()[i] = 1;
+                    res->insert_data(nullptr, 0);
+                }
+
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res), std::move(null_map)));
+                return Status::OK();
+            }
+
+            auto path_value = path_column->get_data_at(0);
+            if (!path.seek(path_value.data, path_value.size)) {
+                return Status::InvalidArgument("Json path error: Invalid Json Path for value: {}",
+                                               std::string_view(path_value.data, path_value.size));
+            }
+        }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i) ||
@@ -1471,19 +1482,29 @@ struct JsonbContainsUtil {
         std::tie(path_column, is_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
 
-        JsonbPath path;
-        if (is_const) {
-            auto path_value = path_column->get_data_at(0);
-            if (!path.seek(path_value.data, path_value.size)) {
-                return Status::InvalidArgument(
-                        "Json path error: Invalid Json Path for value: {}",
-                        std::string_view(reinterpret_cast<const char*>(path_value.data),
-                                         path_value.size));
-            }
-        }
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
+
+        JsonbPath path;
+        if (is_const) {
+            if (path_column->is_null_at(0)) {
+                for (size_t i = 0; i < input_rows_count; ++i) {
+                    null_map->get_data()[i] = 1;
+                    res->insert_data(nullptr, 0);
+                }
+
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res), std::move(null_map)));
+                return Status::OK();
+            }
+
+            auto path_value = path_column->get_data_at(0);
+            if (!path.seek(path_value.data, path_value.size)) {
+                return Status::InvalidArgument("Json path error: Invalid Json Path for value: {}",
+                                               std::string_view(path_value.data, path_value.size));
+            }
+        }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data1_column->is_null_at(i) || jsonb_data2_column->is_null_at(i) ||
@@ -1499,8 +1520,7 @@ struct JsonbContainsUtil {
                 if (!path.seek(path_value.data, path_value.size)) {
                     return Status::InvalidArgument(
                             "Json path error: Invalid Json Path for value: {}",
-                            std::string_view(reinterpret_cast<const char*>(path_value.data),
-                                             path_value.size));
+                            std::string_view(path_value.data, path_value.size));
                 }
             }
 
