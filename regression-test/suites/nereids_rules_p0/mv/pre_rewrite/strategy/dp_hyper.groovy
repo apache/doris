@@ -177,4 +177,7 @@ suite("rewrite_when_dp_hyper") {
     }
     order_qt_query0_after "${query_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_100"""
+
+    def strategy = pre_materialized_view_rewrite_strategy();
+    sql "set pre_materialized_view_rewrite_strategy = ${strategy};"
 }

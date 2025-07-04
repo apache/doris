@@ -481,6 +481,7 @@ suite("pre_write_strategy") {
     order_qt_query2_0_after "${query_2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_2_0"""
 
-
+    def strategy = pre_materialized_view_rewrite_strategy();
+    sql "set pre_materialized_view_rewrite_strategy = ${strategy};"
 
 }

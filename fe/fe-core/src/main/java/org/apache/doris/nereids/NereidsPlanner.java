@@ -433,6 +433,8 @@ public class NereidsPlanner extends Planner {
         for (Plan planForRewrite : tmpPlansForMvRewrite) {
             if (!planForRewrite.getLogicalProperties().equals(
                     cascadesContext.getRewritePlan().getLogicalProperties())) {
+                LOG.info("preMaterializedViewRewrite logical properties not equals, query id is {}",
+                        cascadesContext.getConnectContext().getQueryIdentifier());
                 continue;
             }
             try {
@@ -453,13 +455,15 @@ public class NereidsPlanner extends Planner {
                         cascadesContext.getConnectContext().getQueryIdentifier(), e);
             }
         }
+        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+        statementContext.getRewrittenPlansByMv().clear();
         // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
         this.cascadesContext.getStatementContext().setPreRewritten(true);
         if (plansWhichContainMv.isEmpty()) {
+            LOG.info("preMaterializedVie plansWhichContainMv is empty, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
             return;
         }
-        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
-        statementContext.getRewrittenPlansByMv().clear();
         plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
         NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
         if (LOG.isDebugEnabled()) {

@@ -195,8 +195,8 @@ public class InitMaterializationContextHook implements PlannerHook {
             return ImmutableList.of();
         }
         if (CollectionUtils.isEmpty(availableMTMVs)) {
-            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current sqlHash "
-                    + "is {}", cascadesContext.getConnectContext().getSqlHash());
+            LOG.info("Enable materialized view rewrite but availableMTMVs is empty, query id "
+                    + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
             return ImmutableList.of();
         }
         List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
@@ -211,10 +211,14 @@ public class InitMaterializationContextHook implements PlannerHook {
                 // different from the current cascadesContext
                 // so regenerate the struct info table bitset
                 if (!cascadesContext.getStatementContext().isNeedPreRewrite()) {
+                    LOG.info("createAsyncMaterializationContext isNeedPreRewrite, query id "
+                            + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
                     asyncMaterializationContext.add(doCreateAsyncMaterializationContext(
                             materializedView, mtmvCache, mtmvCache.getFinalPlanAndStructInfo(), cascadesContext
                     ));
                 } else {
+                    LOG.info("createAsyncMaterializationContext is not needPreRewrite, query id "
+                            + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
                     for (Pair<Plan, StructInfo> planAndStructInfo : mtmvCache.getTmpPlanAndStructInfos()) {
                         asyncMaterializationContext.add(doCreateAsyncMaterializationContext(materializedView,
                                 mtmvCache, planAndStructInfo, cascadesContext
