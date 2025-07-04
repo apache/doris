@@ -78,6 +78,8 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
 
     // Test 2: ADD COLUMN - basic type
     sql """ ALTER TABLE ${table_name} ADD COLUMN email STRING """
+    // not support initial default value for new column
+    // This will throw an exception in Iceberg v2, but is allowed in v3
     test {
         sql """ ALTER TABLE ${table_name} ADD COLUMN phone STRING DEFAULT 'N/A' COMMENT 'User phone number' """
         exception "Invalid initial default for phone: non-null default (N/A) is not supported until v3"
@@ -130,7 +132,8 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
 
     // Test 7: modify column type
     sql """ ALTER TABLE ${table_name} MODIFY COLUMN age BIGINT """
-    sql """ ALTER TABLE ${table_name} MODIFY COLUMN col1 DOUBLE """
+    // modify column type and add comment
+    sql """ ALTER TABLE ${table_name} MODIFY COLUMN col1 DOUBLE COMMENT 'Updated column1 type' """
     // can't update column type by losing precision
     test {
         sql """ ALTER TABLE ${table_name} MODIFY COLUMN age int """
