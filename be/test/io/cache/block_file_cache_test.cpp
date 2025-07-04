@@ -5254,7 +5254,7 @@ TEST_F(BlockFileCacheTest, test_load) {
 
     {
         auto type = cache.dump_single_cache_type(key, 10086);
-        ASSERT_TRUE(type == "_ttl");
+        ASSERT_TRUE(type == "ttl");
         auto holder = cache.get_or_set(key, 10086, 3, context);
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -5275,7 +5275,7 @@ TEST_F(BlockFileCacheTest, test_load) {
     }
     {
         auto type = cache.dump_single_cache_type(key, 20086);
-        ASSERT_TRUE(type == "_ttl");
+        ASSERT_TRUE(type == "ttl");
         auto holder = cache.get_or_set(key, 20086, 3, context);
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);

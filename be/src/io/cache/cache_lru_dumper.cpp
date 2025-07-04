@@ -28,17 +28,15 @@ std::string CacheLRUDumper::Footer::serialize_as_string() const {
     std::string result;
     result.reserve(sizeof(Footer));
 
-    // Serialize meta_offset
-    const char* meta_offset_ptr = reinterpret_cast<const char*>(&meta_offset);
-    result.append(meta_offset_ptr, sizeof(meta_offset));
+    // Serialize meta_offset (convert to little-endian)
+    uint64_t meta_offset_le = htole64(meta_offset);
+    result.append(reinterpret_cast<const char*>(&meta_offset_le), sizeof(meta_offset_le));
 
-    // Serialize checksum
-    const char* checksum_ptr = reinterpret_cast<const char*>(&checksum);
-    result.append(checksum_ptr, sizeof(checksum));
+    // Serialize checksum (convert to little-endian)
+    uint32_t checksum_le = htole32(checksum);
+    result.append(reinterpret_cast<const char*>(&checksum_le), sizeof(checksum_le));
 
-    // Serialize version
-    const char* version_ptr = reinterpret_cast<const char*>(&version);
-    result.append(version_ptr, sizeof(version));
+    result.append(reinterpret_cast<const char*>(&version), sizeof(version));
 
     // Serialize magic
     result.append(magic, sizeof(magic));
@@ -47,23 +45,23 @@ std::string CacheLRUDumper::Footer::serialize_as_string() const {
 }
 
 bool CacheLRUDumper::Footer::deserialize_from_string(const std::string& data) {
-    if (data.size() != sizeof(Footer)) {
-        return false;
-    }
+    DCHECK(data.size() == sizeof(Footer));
 
     const char* ptr = data.data();
 
-    // Deserialize meta_offset
-    std::memcpy(&meta_offset, ptr, sizeof(meta_offset));
-    meta_offset = le64toh(meta_offset); // Convert from little-endian
-    ptr += sizeof(meta_offset);
+    // Deserialize meta_offset (convert from little-endian)
+    uint64_t meta_offset_le;
+    std::memcpy(&meta_offset_le, ptr, sizeof(meta_offset_le));
+    meta_offset = le64toh(meta_offset_le);
+    ptr += sizeof(meta_offset_le);
 
-    // Deserialize checksum
-    std::memcpy(&checksum, ptr, sizeof(checksum));
-    ptr += sizeof(checksum);
+    // Deserialize checksum (convert from little-endian)
+    uint32_t checksum_le;
+    std::memcpy(&checksum_le, ptr, sizeof(checksum_le));
+    checksum = le32toh(checksum_le);
+    ptr += sizeof(checksum_le);
 
-    // Deserialize version
-    std::memcpy(&version, ptr, sizeof(version));
+    version = *((uint8_t*)ptr);
     ptr += sizeof(version);
 
     // Deserialize magic

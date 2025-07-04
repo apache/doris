@@ -74,7 +74,7 @@ suite('test_lru_persist', 'docker') {
         def beBasePath = be.getBasePath()
         def cachePath = beBasePath + "/storage/file_cache/"
 
-        sleep(10000);
+        sleep(15000);
         cluster.stopBackends(1)
 
         def normalBefore = "md5sum ${cachePath}/lru_dump_normal.tail".execute().text.trim().split()[0]
