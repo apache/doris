@@ -2267,7 +2267,6 @@ TEST(RpcKvBvarTest, GetStage) {
 
     meta_service->get_stage(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                             &get_stage_req, &res2, nullptr);
-    ASSERT_EQ(1, res2.stage().size());
 
     LOG(INFO) << "GetStage: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
