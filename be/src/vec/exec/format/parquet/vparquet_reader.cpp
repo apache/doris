@@ -491,7 +491,7 @@ Status ParquetReader::init_schema_reader() {
 }
 
 Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                        std::vector<DataTypePtr>* col_types) {
+                                        std::vector<TypeDescriptor>* col_types) {
     _total_groups = _t_metadata->row_groups.size();
     auto schema_desc = _file_metadata->schema();
     for (int i = 0; i < schema_desc.size(); ++i) {

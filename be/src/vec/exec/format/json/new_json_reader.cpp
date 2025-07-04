@@ -271,7 +271,7 @@ Status NewJsonReader::init_schema_reader() {
 }
 
 Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                        std::vector<DataTypePtr>* col_types) {
+                                        std::vector<TypeDescriptor>* col_types) {
     bool eof = false;
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;

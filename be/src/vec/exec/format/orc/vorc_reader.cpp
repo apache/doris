@@ -365,7 +365,7 @@ Status OrcReader::init_schema_reader() {
 }
 
 Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                    std::vector<DataTypePtr>* col_types) {
+                                    std::vector<TypeDescriptor>* col_types) {
     const auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(get_field_name_lower_case(&root_type, i));

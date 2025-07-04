@@ -432,7 +432,7 @@ Status CsvReader::init_schema_reader() {
 }
 
 Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                    std::vector<DataTypePtr>* col_types) {
+                                    std::vector<TypeDescriptor>* col_types) {
     if (_read_line == 1) {
         if (!_is_parse_name) { //parse csv file without names and types
             size_t col_nums = 0;
