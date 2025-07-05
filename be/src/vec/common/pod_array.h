@@ -89,7 +89,9 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   * pad_left ----- c_start -------------c_end ---------------------------- c_end_of_storage ------------- pad_right
   *    ^                                        ^                                                              ^
   *    |                                        |                                                              |
-  *    |                                    c_res_mem (usually > c_end && < c_end + PRE_GROWTH_SIZE)           |
+  *    |                                    c_res_mem (usually > c_end && < c_end + max((capacity_size         |
+  *    |                                                                              / TrackingGrowthRatio),  |
+  *    |                                                                               TrackingGrowthMinSize)) |
   *    |                                                                                                       |
   *    +-------------------------------------- allocated_bytes (4096 bytes) -----------------------------------+
   *
@@ -109,7 +111,8 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   * TODO Allow greater alignment than alignof(T). Example: array of char aligned to page size.
   */
 static constexpr size_t EmptyPODArraySize = 1024;
-static constexpr size_t PRE_GROWTH_SIZE = (1ULL << 20); // 1M
+static constexpr size_t TrackingGrowthRatio = 10;             // 10%
+static constexpr size_t TrackingGrowthMinSize = (1ULL << 20); // 1M
 extern const char empty_pod_array[EmptyPODArraySize];
 
 /** Base class that depend only on size of element, not on element itself.
@@ -156,37 +159,46 @@ protected:
         return byte_size(num_elements) + pad_right + pad_left;
     }
 
-    inline void check_memory(int64_t size) {
-        std::string err_msg;
-        if (TAllocator::sys_memory_exceed(size, &err_msg) ||
-            TAllocator::memory_tracker_exceed(size, &err_msg)) {
-            err_msg = fmt::format("PODArray reserve memory failed, {}.", err_msg);
-            if (doris::enable_thread_catch_bad_alloc) {
-                LOG(WARNING) << err_msg;
-                throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
-            } else {
-                LOG_EVERY_N(WARNING, 1024) << err_msg;
-            }
-        }
-    }
-
     inline void reset_resident_memory(const char* c_end_new) {
-        static_assert(!TAllocator::need_check_and_tracking_memory(),
+        static_assert(!TAllocator::need_tracking_memory(),
                       "TAllocator should specify `NoTrackingDefaultMemoryAllocator`");
         if (UNLIKELY(c_end_new - c_res_mem > 0)) {
-            // - allocated_bytes = c_end_of_storage - c_start = 4 MB;
+            // 1. if (capacity / TrackingGrowthRatio) <= TrackingGrowthMinSize:
+            // - capacity = allocated_bytes() = 4 MB;
             // - used_bytes = c_end_new - c_start = 2.1 MB;
-            // - last tracking_res_memory = c_res_mem - c_start = 1 MB;
-            // - res_mem_growth = min(allocated_bytes, integerRoundUp(used_bytes)) - last_tracking_res_memory = 3 - 1 = 2 MB;
+            // - last_tracking_res_memory = c_res_mem - c_start = 1 MB;
+            // - growth_step_len = std::max(integerRoundUp(capacity / TrackingGrowthRatio, TrackingGrowthMinSize), TrackingGrowthMinSize) = 1 MB;
+            // - res_mem_growth = min(capacity, integerRoundUp(used_bytes, growth_step_len)) - last_tracking_res_memory = 3 - 1 = 2 MB;
             // - update tracking_res_memory = 1 + 2 = 3 MB;
             // so after each reset_resident_memory, tracking_res_memory >= used_bytes;
-            int64_t res_mem_growth =
-                    std::min(static_cast<size_t>(c_end_of_storage - c_start),
-                             integerRoundUp(c_end_new - c_start, PRE_GROWTH_SIZE)) -
-                    (c_res_mem - c_start);
-            check_memory(res_mem_growth);
-            CONSUME_THREAD_MEM_TRACKER(res_mem_growth);
-            c_res_mem = c_res_mem + res_mem_growth;
+            //
+            // 2. if (capacity / TrackingGrowthRatio) > TrackingGrowthMinSize:
+            // - capacity = allocated_bytes() = 1024 MB;
+            // - used_bytes = c_end_new - c_start = 210 MB;
+            // - last_tracking_res_memory = c_res_mem - c_start = 103 MB;
+            // - growth_step_len = std::max(integerRoundUp(capacity / TrackingGrowthRatio, TrackingGrowthMinSize), TrackingGrowthMinSize) = 103 MB;
+            // - res_mem_growth = min(capacity, integerRoundUp(used_bytes, growth_step_len)) - last_tracking_res_memory = 309 - 103 = 206 MB;
+            // - update tracking_res_memory = 103 + 206 = 309 MB;
+
+            // auto capacity = allocated_bytes();
+            // auto growth_step_len =
+            //         std::max(integerRoundUp(static_cast<size_t>(capacity / TrackingGrowthRatio),
+            //                                 TrackingGrowthMinSize),
+            //                  TrackingGrowthMinSize);
+            // int64_t res_mem_growth =
+            //         std::min(capacity, integerRoundUp(c_end_new - c_start, growth_step_len)) -
+            //         (c_res_mem - c_start);
+            // CONSUME_THREAD_MEM_TRACKER(res_mem_growth);
+            // c_res_mem = c_res_mem + res_mem_growth;
+
+            // int64_t new_res_mem =
+            //         std::min(allocated_bytes(),
+            //                  std::bit_ceil(static_cast<size_t>(c_end_new - c_start))); // power of 2
+            // CONSUME_THREAD_MEM_TRACKER(new_res_mem - (c_res_mem - c_start));
+
+            int64_t new_res_mem =
+                    std::min(allocated_bytes(), (c_end_new - c_start) * 2); // power of 2
+            c_res_mem = new_res_mem + c_start;
         }
     }
 
@@ -228,12 +240,6 @@ protected:
         ptrdiff_t end_diff = c_end - c_start;
         ptrdiff_t res_mem_diff = c_res_mem - c_start;
 
-        // Realloc can do 2 possible things:
-        // - expand existing memory region
-        // - allocate new memory block and free the old one
-        // Because we don't know which option will be picked we need to make sure there is enough
-        // memory for all options.
-        check_memory(res_mem_diff);
         char* allocated = reinterpret_cast<char*>(
                 TAllocator::realloc(c_start - pad_left, allocated_bytes(), bytes,
                                     std::forward<TAllocatorParams>(allocator_params)...));
