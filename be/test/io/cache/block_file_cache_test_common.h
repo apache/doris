@@ -77,6 +77,7 @@ extern std::string tmp_file;
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-literal-operator"
+#pragma clang diagnostic ignored "-Wunknown-warning-option"
 #endif
 constexpr unsigned long long operator"" _mb(unsigned long long m) {
     return m * 1024 * 1024;
