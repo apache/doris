@@ -1323,7 +1323,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_vpartition->init());
 
     _state = state;
-    _profile = profile;
+    _operator_profile = profile;
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
@@ -1541,7 +1541,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
 
     // must before set _try_close
     if (status.ok()) {
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
         _row_distribution._deal_batched = true;
         status = _send_new_partition_batch();
     }
@@ -1553,7 +1553,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
 
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
         for (const auto& index_channel : _channels) {
             // two-step mark close. first we send close_origin to recievers to close all originly exist TabletsChannel.
             // when they all closed, we are sure all Writer of instances called _do_try_close. that means no new channel
@@ -1638,7 +1638,7 @@ Status VTabletWriter::close(Status exec_status) {
     }
 
     SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
 
     // will make the last batch of request-> close_wait will wait this finished.
     _do_try_close(_state, exec_status);
@@ -1821,7 +1821,7 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
     if (UNLIKELY(rows == 0)) {
         return status;
     }
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
     SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;

@@ -174,7 +174,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_vpartition->init());
 
     _state = state;
-    _profile = profile;
+    _operator_profile = profile;
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
@@ -193,7 +193,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     DBUG_EXECUTE_IF("VTabletWriterV2._init.is_high_priority", { _is_high_priority = true; });
     _mem_tracker =
             std::make_shared<MemTracker>("VTabletWriterV2:" + std::to_string(state->load_job_id()));
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // get table's tuple descriptor
@@ -227,21 +227,21 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
     // add all counter
-    _input_rows_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
-    _output_rows_counter = ADD_COUNTER(_profile, "RowsProduced", TUnit::UNIT);
-    _filtered_rows_counter = ADD_COUNTER(_profile, "RowsFiltered", TUnit::UNIT);
-    _send_data_timer = ADD_TIMER_WITH_LEVEL(_profile, "SendDataTime", 1);
+    _input_rows_counter = ADD_COUNTER(_operator_profile, "RowsRead", TUnit::UNIT);
+    _output_rows_counter = ADD_COUNTER(_operator_profile, "RowsProduced", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_operator_profile, "RowsFiltered", TUnit::UNIT);
+    _send_data_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "SendDataTime", 1);
     _wait_mem_limit_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WaitMemLimitTime", "SendDataTime", 1);
+            ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "WaitMemLimitTime", "SendDataTime", 1);
     _row_distribution_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowDistributionTime", "SendDataTime", 1);
+            ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "RowDistributionTime", "SendDataTime", 1);
     _write_memtable_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WriteMemTableTime", "SendDataTime", 1);
-    _validate_data_timer = ADD_TIMER_WITH_LEVEL(_profile, "ValidateDataTime", 1);
-    _open_timer = ADD_TIMER(_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
-    _close_writer_timer = ADD_CHILD_TIMER(_profile, "CloseWriterTime", "CloseWaitTime");
-    _close_load_timer = ADD_CHILD_TIMER(_profile, "CloseLoadTime", "CloseWaitTime");
+            ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "WriteMemTableTime", "SendDataTime", 1);
+    _validate_data_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "ValidateDataTime", 1);
+    _open_timer = ADD_TIMER(_operator_profile, "OpenTime");
+    _close_timer = ADD_TIMER(_operator_profile, "CloseWaitTime");
+    _close_writer_timer = ADD_CHILD_TIMER(_operator_profile, "CloseWriterTime", "CloseWaitTime");
+    _close_load_timer = ADD_CHILD_TIMER(_operator_profile, "CloseLoadTime", "CloseWaitTime");
 
     if (config::share_delta_writers) {
         _delta_writer_for_tablet = ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(
@@ -259,7 +259,7 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     LOG(INFO) << "opening olap table sink, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
               << ", sink_id=" << _sender_id;
     _timeout_watch.start();
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -473,7 +473,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     if (UNLIKELY(input_rows == 0)) {
         return status;
     }
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
     _number_input_rows += input_rows;
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
@@ -616,7 +616,7 @@ Status VTabletWriterV2::close(Status exec_status) {
     Status status = exec_status;
 
     if (status.ok()) {
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
         _row_distribution._deal_batched = true;
         status = _send_new_partition_batch();
     }
@@ -626,7 +626,7 @@ Status VTabletWriterV2::close(Status exec_status) {
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
 
         COUNTER_SET(_input_rows_counter, _number_input_rows);
         COUNTER_SET(_output_rows_counter, _number_output_rows);
@@ -641,7 +641,7 @@ Status VTabletWriterV2::close(Status exec_status) {
             std::unordered_map<int64_t, int32_t> segments_for_tablet;
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            auto st = _delta_writer_for_tablet->close(segments_for_tablet, _profile);
+            auto st = _delta_writer_for_tablet->close(segments_for_tablet, _operator_profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
                 _cancel(st);

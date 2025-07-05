@@ -35,7 +35,36 @@ void SpillableOperatorTestHelper::SetUp() {
     runtime_state = std::make_unique<MockRuntimeState>();
     obj_pool = std::make_unique<ObjectPool>();
 
-    runtime_profile = std::make_shared<RuntimeProfile>("test");
+    operator_profile = std::make_unique<RuntimeProfile>("test");
+    custom_profile = std::make_unique<RuntimeProfile>("CustomCounters");
+    common_profile = std::make_unique<RuntimeProfile>("CommonCounters");
+
+    ADD_COUNTER_WITH_LEVEL(common_profile.get(), "MemoryUsage", TUnit::BYTES, 1);
+    ADD_TIMER_WITH_LEVEL(common_profile.get(), "ExecTime", 1);
+    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillTotalTime", 1);
+    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteTime", 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteTaskWaitInQueueCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteTaskCount", TUnit::UNIT, 1);
+    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteTaskWaitInQueueTime", 1);
+    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileTime", 1);
+    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteSerializeBlockTime", 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteBlockCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileTime", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadDerializeBlockTime", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockBytes", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadRows", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileCurrentBytes", TUnit::UNIT, 1);
+
+    operator_profile->add_child(custom_profile.get(), true);
+    operator_profile->add_child(common_profile.get(), true);
 
     query_ctx = generate_one_query();
 
@@ -43,9 +72,6 @@ void SpillableOperatorTestHelper::SetUp() {
     runtime_state->_query_id = query_ctx->query_id();
     runtime_state->resize_op_id_to_local_state(-100);
     runtime_state->set_max_operator_id(-100);
-
-    ADD_TIMER(runtime_profile.get(), "ExecTime");
-    runtime_profile->AddHighWaterMarkCounter("MemoryUsed", TUnit::BYTES, "", 0);
 
     auto desc_table = create_test_table_descriptor(false);
     auto st = DescriptorTbl::create(obj_pool.get(), desc_table, &desc_tbl);
