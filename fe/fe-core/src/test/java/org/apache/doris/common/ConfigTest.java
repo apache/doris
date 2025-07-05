@@ -15,32 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common;
 
-#include <functional>
-#include <memory>
-#include <string>
-#include <unordered_map>
+import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
-#include "common/status.h"
-
-namespace doris {
-class ObjectPool;
-
-namespace vectorized {
-class TableFunction;
-
-class TableFunctionFactory {
-public:
-    TableFunctionFactory() = delete;
-    static Status get_fn(const std::string& fn_name_raw, ObjectPool* pool, TableFunction** fn,
-                         int be_version);
-
-    const static std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
-            _function_map;
-
-    // alias name ---> function name
-    static std::unordered_map<std::string, std::string> _function_alias;
-};
-} // namespace vectorized
-} // namespace doris
+public class ConfigTest {
+    @Test
+    public void test() {
+        System.out.println(Config.max_be_exec_version);
+        System.out.println(Config.min_be_exec_version);
+        System.out.println(Config.be_exec_version);
+        // YOU MUST NOT CHANGE THIS TEST !
+        // if you want to change be_exec_version, you should know what you are doing
+        Assertions.assertEquals(6, Config.max_be_exec_version);
+        Assertions.assertEquals(0, Config.min_be_exec_version);
+        Assertions.assertEquals(6, Config.be_exec_version);
+    }
+}

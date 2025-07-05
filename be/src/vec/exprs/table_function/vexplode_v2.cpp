@@ -40,7 +40,7 @@ namespace doris::vectorized {
 #include "vec/columns/column_struct.h"
 
 VExplodeV2TableFunction::VExplodeV2TableFunction() {
-    _fn_name = "vexplode";
+    _fn_name = "vexplode_v2";
 }
 
 Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) {

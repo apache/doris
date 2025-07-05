@@ -35,8 +35,10 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbers;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbersOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuterV2;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplitOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeV2;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 
@@ -55,8 +57,10 @@ import java.util.Set;
  */
 public class BuiltinTableGeneratingFunctions implements FunctionHelper {
     public final List<TableGeneratingFunc> tableGeneratingFunctions = ImmutableList.of(
-            tableGenerating(Explode.class, "explode"),
-            tableGenerating(ExplodeOuter.class, "explode_outer"),
+            tableGenerating(Explode.class, "explode_v1"),
+            tableGenerating(ExplodeV2.class, "explode_v2", "explode"),
+            tableGenerating(ExplodeOuter.class, "explode_v1_outer"),
+            tableGenerating(ExplodeOuterV2.class, "explode_v2_outer", "explode_outer"),
             tableGenerating(ExplodeMap.class, "explode_map"),
             tableGenerating(ExplodeMapOuter.class, "explode_map_outer"),
             tableGenerating(ExplodeJsonObject.class, "explode_json_object"),
@@ -80,7 +84,8 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
     );
 
     public static final ImmutableSet<String> RETURN_MULTI_COLUMNS_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
-            String.CASE_INSENSITIVE_ORDER).add("explode").add("explode_outer").build();
+            String.CASE_INSENSITIVE_ORDER).add("explode_v2").add("explode_v2_outer").add("explode").add("explode_outer")
+            .build();
 
     public Set<String> getReturnManyColumnFunctions() {
         return RETURN_MULTI_COLUMNS_FUNCTIONS;
