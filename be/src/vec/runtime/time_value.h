@@ -42,7 +42,7 @@ public:
     constexpr static int64_t ONE_MINUTE_SECONDS = 60;
     constexpr static int64_t ONE_HOUR_SECONDS = 60 * ONE_MINUTE_SECONDS;
     constexpr static uint32_t MICROS_SCALE = 6;
-    constexpr static int64_t MAX_TIME = 3020399LL * ONE_SECOND_MICROSECONDS;
+    constexpr static int64_t MAX_TIME = 3024000LL * ONE_SECOND_MICROSECONDS - 1; // 840:00:00 - 1ms -> 838:59:59.999999
 
     /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType; // double
@@ -62,7 +62,8 @@ public:
     static TimeType make_time(int64_t hour, int64_t minute, int64_t second, int64_t microsecond = 0,
                               bool negative = false) {
         if constexpr (CHECK) {
-            if (std::abs(hour) >= 838 || std::abs(minute) >= 60 || std::abs(second) >= 60 ||
+            // the max time value is 838:59:59.999999
+            if (std::abs(hour) > 838 || std::abs(minute) >= 60 || std::abs(second) >= 60 ||
                 std::abs(microsecond) >= 1000000) [[unlikely]] {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Invalid time value: hour={}, minute={}, second={}, microsecond={}",

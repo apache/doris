@@ -250,17 +250,17 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
                                   "invalid numeric time format '{}'", std::string {start, ptr});
 
         // Convert the number to HHMMSS format
-        if (numeric_value < 10000) {
+        if (numeric_value < 100) { // 1 or 2 digits
             // SS or S format
             second = numeric_value;
             RETURN_INVALID_ARG_IF_NOT(second < 60, "invalid second {}", second);
-        } else if (numeric_value < 10000 * 100) {
+        } else if (numeric_value < 10000) { // 3 or 4 digits
             // MMSS format
             minute = numeric_value / 100;
             second = numeric_value % 100;
             RETURN_INVALID_ARG_IF_NOT(minute < 60, "invalid minute {}", minute);
             RETURN_INVALID_ARG_IF_NOT(second < 60, "invalid second {}", second);
-        } else {
+        } else { // 5 or more digits
             // HHMMSS format
             hour = numeric_value / 10000;
             minute = (numeric_value / 100) % 100;
@@ -460,17 +460,17 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
                                   "invalid numeric time format '{}'", std::string {start, ptr});
 
         // Convert the number to HHMMSS format
-        if (numeric_value < 10000) {
+        if (numeric_value < 100) { // 1 or 2 digits
             // SS or S format
             second = numeric_value;
             RETURN_INVALID_ARG_IF_NOT(second < 60, "invalid second {}", second);
-        } else if (numeric_value < 10000 * 100) {
+        } else if (numeric_value < 10000) { // 3 or 4 digits
             // MMSS format
             minute = numeric_value / 100;
             second = numeric_value % 100;
             RETURN_INVALID_ARG_IF_NOT(minute < 60, "invalid minute {}", minute);
             RETURN_INVALID_ARG_IF_NOT(second < 60, "invalid second {}", second);
-        } else {
+        } else { // 5 or more digits
             // HHMMSS format
             hour = numeric_value / 10000;
             minute = (numeric_value / 100) % 100;

@@ -77,6 +77,10 @@ inline bool is_alpha_numeric_ascii(char c) {
     return is_alpha_ascii(c) || is_numeric_ascii(c);
 }
 
+inline bool is_non_alnum(char c) {
+    return !is_alpha_numeric_ascii(c);
+}
+
 inline bool is_word_char_ascii(char c) {
     return is_alpha_numeric_ascii(c) || c == '_';
 }
@@ -126,7 +130,7 @@ inline auto is_digit_range = range_suite<is_numeric_ascii>;
 
 inline Status assert_within_bound(const char* s, const char* end, size_t offset) {
     DCHECK(offset >= 0);
-    if (s + offset >= end) {
+    if (s + offset >= end) [[unlikely]] {
         return Status::InvalidArgument(
                 "StringParser: failed because we need at least {} but only got '{}'", offset,
                 std::string {s, end});
@@ -136,7 +140,7 @@ inline Status assert_within_bound(const char* s, const char* end, size_t offset)
 
 // LEN = 0 means any length(include zero). LEN = 1 means only one character. so on. LEN = -x means x or more.
 // if need result, use StringRef{origin_s, s} outside
-template <int LEN = 0, bool (*Pred)(char)>
+template <int LEN, bool (*Pred)(char)>
 Status skip_qualified_char(const char*& s, const char* end) {
     if constexpr (LEN == 0) {
         // Consume any length of characters that match the predicate.
@@ -146,7 +150,7 @@ Status skip_qualified_char(const char*& s, const char* end) {
     } else if constexpr (LEN > 0) {
         // Consume exactly LEN characters that match the predicate.
         for (int i = 0; i < LEN; ++i, ++s) {
-            if (s == end || !Pred(*s)) {
+            if (s == end || !Pred(*s)) [[unlikely]] {
                 return Status::InvalidArgument(
                         "StringParser: failed to consume {} characters, got '{}'", LEN - i,
                         std::string {s, end});
@@ -159,7 +163,7 @@ Status skip_qualified_char(const char*& s, const char* end) {
             ++s;
             ++count;
         }
-        if (count < -LEN) {
+        if (count < -LEN) [[unlikely]] {
             return Status::InvalidArgument(
                     "StringParser: failed to consume at least {} characters, got '{}'",
                     -LEN - count, std::string {s, end});
@@ -172,6 +176,7 @@ inline auto skip_any_whitespace = skip_qualified_char<0, is_whitespace_ascii>;
 inline auto skip_any_digit = skip_qualified_char<0, is_numeric_ascii>;
 inline auto skip_tz_name_part = skip_qualified_char<-1, is_tz_name_part_ascii>;
 inline auto skip_one_slash = skip_qualified_char<1, is_slash_ascii>;
+inline auto skip_one_non_alnum = skip_qualified_char<1, is_non_alnum>;
 
 // only consume a string of digit, not include sign.
 // when has MAX_LEN > 0, do greedy match but at most MAX_LEN.
@@ -182,7 +187,7 @@ Status consume_digit(const char*& s, const char* end, T& out) {
     if constexpr (MAX_LEN > 0) {
         out = 0;
         for (int i = 0; i < MAX_LEN; ++i, ++s) {
-            if ((s == end || !is_numeric_ascii(*s))) {
+            if ((s == end || !is_numeric_ascii(*s))) [[unlikely]] {
                 if (i < LEN) {
                     return Status::InvalidArgument(
                             "StringParser: got \"{}\" before get at least {} digit",
@@ -203,7 +208,7 @@ Status consume_digit(const char*& s, const char* end, T& out) {
         // Consume exactly LEN digits.
         out = 0;
         for (int i = 0; i < LEN; ++i, ++s) {
-            if (s == end || !is_numeric_ascii(*s)) {
+            if (s == end || !is_numeric_ascii(*s)) [[unlikely]] {
                 return Status::InvalidArgument(
                         "StringParser: failed to consume {} digits, got '{}'", LEN - i,
                         std::string {s, end});

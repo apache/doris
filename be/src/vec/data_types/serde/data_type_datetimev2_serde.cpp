@@ -165,21 +165,13 @@ Status DataTypeDateTimeV2SerDe::_from_string(const std::string& str,
     }
 
     // check for separator
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
-    if (is_numeric_ascii(*ptr) || is_alpha_ascii(*ptr)) {
-        return Status::InvalidArgument("invalid date separator");
-    }
-    ++ptr;
+    RETURN_IF_ERROR(skip_one_non_alnum(ptr, end));
 
     // read month
     RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, month)));
 
     // check for separator
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
-    if (is_numeric_ascii(*ptr) || is_alpha_ascii(*ptr)) {
-        return Status::InvalidArgument("invalid date separator");
-    }
-    ++ptr;
+    RETURN_IF_ERROR(skip_one_non_alnum(ptr, end));
 
     // read day
     RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, day)));
@@ -197,11 +189,10 @@ Status DataTypeDateTimeV2SerDe::_from_string(const std::string& str,
         return Status::OK();
     }
 
-    // Check if the delimiter is space or 'T'
-    if (*ptr != ' ' && *ptr != 'T') {
-        return Status::InvalidArgument("invalid time delimiter: expected space or 'T'");
+    // skip the delimiter if meet.
+    if (*ptr == ' ' || *ptr == 'T') {
+        ++ptr;
     }
-    ++ptr;
 
     // time part
     uint32_t hour, minute, second;
@@ -211,11 +202,7 @@ Status DataTypeDateTimeV2SerDe::_from_string(const std::string& str,
     RETURN_INVALID_ARG_IF_NOT(res.set_time_unit<TimeUnit::HOUR>(hour), "invalid hour {}", hour);
 
     // check for separator
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
-    if (is_numeric_ascii(*ptr) || is_alpha_ascii(*ptr)) {
-        return Status::InvalidArgument("invalid time separator");
-    }
-    ++ptr;
+    RETURN_IF_ERROR(skip_one_non_alnum(ptr, end));
 
     // minute
     RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, minute)));
@@ -223,11 +210,7 @@ Status DataTypeDateTimeV2SerDe::_from_string(const std::string& str,
                               minute);
 
     // check for separator
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
-    if (is_numeric_ascii(*ptr) || is_alpha_ascii(*ptr)) {
-        return Status::InvalidArgument("invalid time separator");
-    }
-    ++ptr;
+    RETURN_IF_ERROR(skip_one_non_alnum(ptr, end));
 
     // second
     RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, second)));
@@ -300,6 +283,10 @@ Status DataTypeDateTimeV2SerDe::_from_string(const std::string& str,
                 RETURN_INVALID_ARG_IF_NOT(
                         (minute_offset == 0 || minute_offset == 30 || minute_offset == 45),
                         "invalid minute offset {}", minute_offset);
+            }
+            if (hour_offset == 14 && minute_offset > 0) [[unlikely]] {
+                return Status::InvalidArgument("invalid timezone offset '{}'",
+                                               combine_tz_offset(sign, hour_offset, minute_offset));
             }
 
             RETURN_INVALID_ARG_IF_NOT(
@@ -578,6 +565,10 @@ Status DataTypeDateTimeV2SerDe::_from_string_strict_mode(
                 RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
                 RETURN_INVALID_ARG_IF_NOT((part[1] == 0 || part[1] == 30 || part[1] == 45),
                                           "invalid minute offset {}", part[1]);
+            }
+            if (part[0] == 14 && part[1] > 0) [[unlikely]] {
+                return Status::InvalidArgument("invalid timezone offset '{}'",
+                                               combine_tz_offset(sign, part[0], part[1]));
             }
 
             RETURN_INVALID_ARG_IF_NOT(TimezoneUtils::find_cctz_time_zone(
