@@ -79,6 +79,16 @@ suite("test_group_concat", "query,p0,arrow_flight_sql") {
                 b2;
               """
 
+    // test SPLIT_MULTI_DISTINCT could work right with can not be banned aggregation
+    qt_select_13 """
+                select
+                group_concat( distinct b1, cast(b2 as varchar)), group_concat( distinct b3, '?')
+                from
+                table_group_concat
+                group by 
+                b2;
+              """
+
     sql """ drop table table_group_concat """
     sql """create table table_group_concat ( b1 varchar(10) not null, b2 int not null, b3 varchar(10) not null )
             ENGINE=OLAP
