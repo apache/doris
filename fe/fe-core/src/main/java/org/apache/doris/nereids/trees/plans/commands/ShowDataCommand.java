@@ -310,7 +310,7 @@ public class ShowDataCommand extends ShowCommand {
             long remoteSegmentSize = 0;
             for (Partition partition : table.getAllPartitions()) {
                 MaterializedIndex mIndex = partition.getIndex(indexId);
-                indexSize += mIndex.getDataSize(false);
+                indexSize += mIndex.getDataSize(false, false);
                 indexReplicaCount += mIndex.getReplicaCount();
                 indexRowCount += mIndex.getRowCount() == -1 ? 0 : mIndex.getRowCount();
                 indexRemoteSize += mIndex.getRemoteDataSize();
