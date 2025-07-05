@@ -85,7 +85,7 @@ private:
 
     std::filesystem::path _log_dir = fmt::format("{}/pipe_tracing", getenv("LOG_DIR"));
 
-    std::shared_ptr<QueryTracesMap> _data;
+    std::atomic<std::shared_ptr<QueryTracesMap>> _data;
     std::mutex _tg_lock; //TODO: use an lockfree DS
     phmap::flat_hash_map<TUniqueId, uint64_t>
             _id_to_workload_group; // save query's workload group number
