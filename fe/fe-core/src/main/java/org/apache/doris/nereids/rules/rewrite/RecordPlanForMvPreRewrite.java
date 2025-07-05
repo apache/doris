@@ -44,6 +44,8 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
         CascadesContext cascadesContext = jobContext.getCascadesContext();
         StatementContext statementContext = cascadesContext.getStatementContext();
         if (!PreMaterializedViewRewriter.needRecordTmpPlanForRewrite(cascadesContext)) {
+            LOG.info("does not needRecordTmpPlanForRewrite, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
             return plan;
         }
         // plan pre normalize

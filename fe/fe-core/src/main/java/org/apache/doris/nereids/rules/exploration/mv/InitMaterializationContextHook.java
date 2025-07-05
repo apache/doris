@@ -216,15 +216,27 @@ public class InitMaterializationContextHook implements PlannerHook {
                 // different from the current cascadesContext
                 // so regenerate the struct info table bitset
                 if (!cascadesContext.getStatementContext().isNeedPreRewrite()) {
-                    LOG.info("createAsyncMaterializationContext isNeedPreRewrite, query id "
+                    LOG.info("createAsyncMaterializationContext not need PreRewrite, query id "
                             + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
                     asyncMaterializationContext.add(doCreateAsyncMaterializationContext(
                             materializedView, mtmvCache, mtmvCache.getFinalPlanAndStructInfo(), cascadesContext
                     ));
                 } else {
-                    LOG.info("createAsyncMaterializationContext is not needPreRewrite, query id "
+                    LOG.info("createAsyncMaterializationContext needPreRewrite, query id "
                             + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
-                    for (Pair<Plan, StructInfo> planAndStructInfo : mtmvCache.getTmpPlanAndStructInfos()) {
+                    List<Plan> statementContextTmpPlans = cascadesContext.getStatementContext()
+                            .getTmpPlanForMvRewrite();
+                    if (statementContextTmpPlans.isEmpty()) {
+                        LOG.info("createAsyncMaterializationContext statementContextTmpPlans is empty,"
+                                + "query id is {}", cascadesContext.getConnectContext().getQueryIdentifier());
+                    }
+
+                    List<Pair<Plan, StructInfo>> tmpPlanAndStructInfos = mtmvCache.getTmpPlanAndStructInfos();
+                    if (tmpPlanAndStructInfos.isEmpty()) {
+                        LOG.info("createAsyncMaterializationContext tmpPlanAndStructInfos is empty, query id "
+                                + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
+                    }
+                    for (Pair<Plan, StructInfo> planAndStructInfo : tmpPlanAndStructInfos) {
                         asyncMaterializationContext.add(doCreateAsyncMaterializationContext(materializedView,
                                 mtmvCache, planAndStructInfo, cascadesContext
                         ));

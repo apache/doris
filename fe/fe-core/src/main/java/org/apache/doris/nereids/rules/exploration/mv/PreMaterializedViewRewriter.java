@@ -117,14 +117,24 @@ public class PreMaterializedViewRewriter {
         PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
                 cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
         if (PreRewriteStrategy.NOT_IN_RBO.equals(preRewriteStrategy)) {
+            LOG.info("no needRecordTmpPlanForRewrite1, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
             return false;
         }
         if (statementContext.isForceRecordTmpPlan()) {
+            LOG.info("no needRecordTmpPlanForRewrite2, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
             return true;
         }
         if (!MaterializedViewUtils.containMaterializedViewHook(statementContext)) {
+            LOG.info("no needRecordTmpPlanForRewrite3, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
             // current statement context doesn't have hook, doesn't use pre RBO materialized view rewrite
             return false;
+        }
+        if (statementContext.getCandidateMVs().isEmpty() || statementContext.getCandidateMTMVs().isEmpty()) {
+            LOG.info("no needRecordTmpPlanForRewrite4, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
         }
         return !statementContext.getCandidateMVs().isEmpty() || !statementContext.getCandidateMTMVs().isEmpty();
     }
@@ -135,12 +145,12 @@ public class PreMaterializedViewRewriter {
     public static boolean needPreRewrite(CascadesContext cascadesContext) {
         StatementContext statementContext = cascadesContext.getStatementContext();
         if (statementContext.getTmpPlanForMvRewrite().isEmpty()) {
-            LOG.debug("does not need pre rewrite, because TmpPlanForMvRewrite is empty, query id is {}",
+            LOG.info("does not need pre rewrite, because TmpPlanForMvRewrite is empty, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());
             return false;
         }
         if (!MaterializedViewUtils.containMaterializedViewHook(statementContext)) {
-            LOG.debug("does not need pre rewrite, because no hook exists, query id is {}",
+            LOG.info("does not need pre rewrite, because no hook exists, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());
             return false;
         }
@@ -154,13 +164,13 @@ public class PreMaterializedViewRewriter {
         }
         if (!outputAnyEquals) {
             // if tmp plan has no same logical properties to the finalRewritePlan, should not be written in rbo
-            LOG.debug("does not need pre rewrite, because outputAnyEquals is false, query id is {}",
+            LOG.info("does not need pre rewrite, because outputAnyEquals is false, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());
             return false;
         }
         if (Optimizer.isDpHyp(cascadesContext)) {
             // dp hyper only support one group expression in each group when init
-            LOG.debug("does not need pre rewrite, because is dp hyper optimize, query id is {}",
+            LOG.info("does not need pre rewrite, because is dp hyper optimize, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());
             return false;
         }
@@ -173,7 +183,7 @@ public class PreMaterializedViewRewriter {
         boolean shouldPreRewrite = !needPreRewriteRuleSet.isEmpty()
                 || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy);
         if (!shouldPreRewrite) {
-            LOG.debug("does not need pre rewrite, because needPreRewriteRuleSet is empty or "
+            LOG.info("does not need pre rewrite, because needPreRewriteRuleSet is empty or "
                             + "preRewriteStrategy is not FORCE_IN_RBO, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());
         }
