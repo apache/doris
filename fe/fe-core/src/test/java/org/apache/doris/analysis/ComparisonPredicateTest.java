@@ -20,11 +20,9 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.BoundType;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -41,48 +39,6 @@ public class ComparisonPredicateTest {
 
     @Mocked
     Analyzer analyzer;
-
-    @Test
-    public void testMultiColumnSubquery(@Injectable Expr child0,
-                                        @Injectable Subquery child1) {
-        BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, child0, child1);
-        new Expectations() {
-            {
-                child1.returnsScalarColumn();
-                result = false;
-            }
-        };
-
-        try {
-            binaryPredicate.analyzeImpl(analyzer);
-            Assert.fail();
-        } catch (AnalysisException e) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
-    }
-
-    @Test
-    public void testSingleColumnSubquery(@Injectable Expr child0,
-                                         @Injectable QueryStmt subquery,
-            @Injectable SlotRef slotRef) {
-        Subquery child1 = new Subquery(subquery);
-        BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, child0, child1);
-        new Expectations() {
-            {
-                subquery.getResultExprs();
-                result = Lists.newArrayList(slotRef);
-                slotRef.getType();
-                result = Type.INT;
-            }
-        };
-
-        try {
-            binaryPredicate.analyzeImpl(analyzer);
-            Assert.assertSame(null, Deencapsulation.getField(binaryPredicate, "fn"));
-        } catch (AnalysisException e) {
-            Assert.fail(e.getMessage());
-        }
-    }
 
     @Test
     public void testWrongOperand(@Injectable Expr child0, @Injectable Expr child1) {
