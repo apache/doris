@@ -91,15 +91,15 @@ public class AuditStreamLoader {
     }
 
     private String getContent(HttpURLConnection conn) {
-        BufferedReader br = null;
         StringBuilder response = new StringBuilder();
         String line;
-        try {
-            if (100 <= conn.getResponseCode() && conn.getResponseCode() <= 399) {
-                br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-            } else {
-                br = new BufferedReader(new InputStreamReader(conn.getErrorStream()));
-            }
+        try (BufferedReader  br = new BufferedReader(
+            new InputStreamReader(
+                (100 <= conn.getResponseCode() && conn.getResponseCode() <= 399)
+                    ? conn.getInputStream()
+                    : conn.getErrorStream()
+            )
+        )) {
             while ((line = br.readLine()) != null) {
                 response.append(line);
             }
