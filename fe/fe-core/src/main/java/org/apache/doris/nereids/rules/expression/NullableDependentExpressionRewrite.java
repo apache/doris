@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.annotation.DependsRules;
-import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyConditionalFunction;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 
@@ -28,8 +27,7 @@ import java.util.List;
 
 /**NullableDependentExpressionRewrite*/
 @DependsRules({
-        AdjustNullable.class,
-        AdjustAggregateNullableForEmptySet.class
+        AdjustNullable.class
 })
 public class NullableDependentExpressionRewrite extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> OPTIMIZE_REWRITE_RULES
