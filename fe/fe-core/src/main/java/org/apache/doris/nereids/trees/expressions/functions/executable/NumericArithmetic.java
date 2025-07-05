@@ -1050,7 +1050,7 @@ public class NumericArithmetic {
     /**
      * tanh
      */
-    @ExecFunction(name = "cosh")
+    @ExecFunction(name = "tanh")
     public static Expression tanh(DoubleLiteral first) {
         return checkOutputBoundary(new DoubleLiteral(Math.tanh(first.getValue())));
     }
