@@ -72,6 +72,168 @@ void ForEncoder<T>::put_batch(const T* in_data, size_t count) {
 
 // todo(kks): improve this method by SIMD instructions
 
+template <typename T>
+void ForEncoder<T>::bit_pack_8(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
+    int64_t s = 0;
+    uint8_t output_mask = 255;
+    int tail_count = in_num & 7;
+    int full_batch_size = (in_num >> 3) << 3;
+
+    for (int i = 0; i < full_batch_size; i += 8) {
+        s |= static_cast<int64_t>(input[i + 7]);
+        s |= (static_cast<int64_t>(input[i + 6])) << bit_width;
+        s |= (static_cast<int64_t>(input[i + 5])) << (2 * bit_width);
+        s |= (static_cast<int64_t>(input[i + 4])) << (3 * bit_width);
+        s |= (static_cast<int64_t>(input[i + 3])) << (4 * bit_width);
+        s |= (static_cast<int64_t>(input[i + 2])) << (5 * bit_width);
+        s |= (static_cast<int64_t>(input[i + 1])) << (6 * bit_width);
+        s |= (static_cast<int64_t>(input[i])) << (7 * bit_width);
+
+        for (int j = 0; j < bit_width; j++) {
+            output[j] = (s >> ((bit_width - j - 1) << 3)) & output_mask;
+        }
+        output += bit_width;
+        s = 0;
+    }
+
+    // remainder
+    int byte = tail_count * bit_width;
+    int bytes = (byte + 7) >> 3;
+
+    for (int i = 0; i < tail_count; i++) {
+        s |= (static_cast<int64_t>(input[i + full_batch_size]))
+             << ((tail_count - i - 1) * bit_width);
+    }
+
+    s <<= (bytes << 3) - byte;
+
+    for (int i = 0; i < bytes; i++) {
+        output[i] = (s >> ((bytes - i - 1) << 3)) & output_mask;
+    }
+}
+
+template <typename T>
+void ForEncoder<T>::bit_pack_16(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
+    int64_t s = 0;
+    uint8_t output_mask = 255;
+    int tail_count = in_num & 3;
+    int full_batch_size = (in_num >> 2) << 2;
+    int output_size = 0; // How many outputs can be processed at a time
+    int bit_width_remainder =
+            (bit_width << 2) & 7; // How many bits will be left after processing 4 numbers at a time
+    int extra_bit = 0;            // Extra bits after each process
+
+    for (int i = 0; i < full_batch_size; i += 4) {
+        s <<= bit_width;
+        s |= (static_cast<int64_t>(input[i]));
+        s <<= bit_width;
+        s |= (static_cast<int64_t>(input[i + 1]));
+        s <<= bit_width;
+        s |= (static_cast<int64_t>(input[i + 2]));
+        s <<= bit_width;
+        s |= (static_cast<int64_t>(input[i + 3]));
+
+        output_size = (bit_width * 4 + extra_bit) >> 3;
+        extra_bit = (extra_bit + bit_width_remainder) & 7;
+        for (int j = 0; j < output_size; j++) {
+            output[j] = (s >> (((output_size - j - 1) << 3) + extra_bit)) & output_mask;
+        }
+        output += output_size;
+        s &= (1 << extra_bit) - 1;
+    }
+
+    // remainder
+    int byte = tail_count * bit_width;
+    if (extra_bit != 0) byte += extra_bit;
+    int bytes = (byte + 7) >> 3;
+
+    for (int i = 0; i < tail_count; i++) {
+        s <<= bit_width;
+        s |= (input[i + full_batch_size]);
+    }
+
+    s <<= (bytes << 3) - byte;
+
+    for (int i = 0; i < bytes; i++) {
+        output[i] = (s >> (((bytes - i - 1) << 3))) & output_mask;
+    }
+}
+
+template <typename T>
+void ForEncoder<T>::bit_pack_32(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
+    __int128 s = 0;
+    uint8_t output_mask = 255;
+    int tail_count = in_num & 3;
+    int full_batch_size = (in_num >> 2) << 2;
+    int output_size = 0; // How many outputs can be processed at a time
+    int bit_width_remainder =
+            (bit_width << 2) & 7; // How many bits will be left after processing 4 numbers at a time
+    int extra_bit = 0;            // Extra bits after each process
+
+    for (int i = 0; i < full_batch_size; i += 4) {
+        s <<= bit_width;
+        s |= (static_cast<__int128_t>(input[i]));
+        s <<= bit_width;
+        s |= (static_cast<__int128_t>(input[i + 1]));
+        s <<= bit_width;
+        s |= (static_cast<__int128_t>(input[i + 2]));
+        s <<= bit_width;
+        s |= (static_cast<__int128_t>(input[i + 3]));
+
+        output_size = (bit_width * 4 + extra_bit) / 8;
+        extra_bit = (extra_bit + bit_width_remainder) & 7;
+        for (int j = 0; j < output_size; j++) {
+            output[j] = (s >> (((output_size - j - 1) << 3) + extra_bit)) & output_mask;
+        }
+        output += output_size;
+        s &= (1 << extra_bit) - 1;
+    }
+
+    // remainder
+    int byte = tail_count * bit_width;
+    if (extra_bit != 0) byte += extra_bit;
+    int bytes = (byte + 7) >> 3;
+
+    for (int i = 0; i < tail_count; i++) {
+        s <<= bit_width;
+        s |= (input[i + full_batch_size]);
+    }
+
+    s <<= (bytes << 3) - byte;
+
+    for (int i = 0; i < bytes; i++) {
+        output[i] = (s >> (((bytes - i - 1) << 3))) & output_mask;
+    }
+}
+
+template <typename T>
+void ForEncoder<T>::bit_pack_128(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
+    int output_mask = 255;
+    int extra_bit = 0; // still need
+
+    for (int i = 0; i < in_num; i++) {
+        T x = input[i];
+        int width = bit_width;
+        if (extra_bit) {
+            *output |= x >> (width - extra_bit);
+            output++;
+            width -= extra_bit;
+        }
+        int num = width / 8;
+        int re = width & 7;
+        for (int j = 0; j < num; j++) {
+            *output = (x >> (((num - j - 1) * 8) + re)) & output_mask;
+            output++;
+        }
+        if (re) {
+            *output = (x & ((1 << re) - 1)) << (8 - re);
+            extra_bit = 8 - re;
+        } else {
+            extra_bit = 0;
+        }
+    }
+}
+
 // Use as few bit as possible to store a piece of integer data.
 // param[in] input: the integer list need to pack
 // param[in] in_num: the number integer need to pack
@@ -87,22 +249,20 @@ void ForEncoder<T>::bit_pack(const T* input, uint8_t in_num, int bit_width, uint
         return;
     }
 
-    T in_mask = 0;
-    int bit_index = 0;
-    *output = 0;
-    for (int i = 0; i < in_num; i++) {
-        in_mask = ((T)1) << (bit_width - 1);
-        for (int k = 0; k < bit_width; k++) {
-            if (bit_index > 7) {
-                bit_index = 0;
-                output++;
-                *output = 0;
-            }
-            *output |= (((input[i] & in_mask) >> (bit_width - k - 1)) << (7 - bit_index));
-            in_mask >>= 1;
-            bit_index++;
-        }
+    if (bit_width <= 8) {
+        bit_pack_8(input, in_num, bit_width, output);
+    } else if (bit_width <= 16) {
+        bit_pack_16(input, in_num, bit_width, output);
+    } else if (bit_width <= 32) {
+        bit_pack_32(input, in_num, bit_width, output);
+    } else {
+        bit_pack_128(input, in_num, bit_width, output);
     }
+}
+
+template <typename T>
+void ForEncoder<T>::test_bit_pack(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
+    bit_pack(input, in_num, bit_width, output);
 }
 
 template <typename T>
