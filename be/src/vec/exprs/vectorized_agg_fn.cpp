@@ -205,6 +205,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                          _fn.name.function_name);
         }
     } else {
+        // Here, only foreachv1 needs special treatment, and v2 can follow the normal code logic.
         if (AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types,
@@ -229,7 +230,10 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                                    _sort_description, state);
     }
 
-    if (!AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
+    // Foreachv2, like foreachv1, does not check the return type,
+    // because its return type is related to the internal agg.
+    if (!AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name) &&
+        !AggregateFunctionSimpleFactory::is_foreachv2(_fn.name.function_name)) {
         if (state->be_exec_version() >= BE_VERSION_THAT_SUPPORT_NULLABLE_CHECK) {
             RETURN_IF_ERROR(
                     _function->verify_result_type(_without_key, argument_types, _data_type));
