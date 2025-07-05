@@ -185,6 +185,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return catalog;
     }
 
+    public CatalogIf getCatalogOrDdlException(String name) throws DdlException {
+        return getCatalogOrException(name,
+                catalog -> new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
+                        ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
     public CatalogIf getCatalogOrAnalysisException(String name) throws AnalysisException {
         return getCatalogOrException(name,
                 catalog -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),

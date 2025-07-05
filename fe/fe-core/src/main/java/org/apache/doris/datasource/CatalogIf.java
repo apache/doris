@@ -198,6 +198,10 @@ public interface CatalogIf<T extends DatabaseIf> {
     void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
                    boolean force) throws DdlException;
 
+    default void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
+        throw new UnsupportedOperationException("Not support rename table operation");
+    }
+
     void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
             String rawTruncateSql)
             throws DdlException;

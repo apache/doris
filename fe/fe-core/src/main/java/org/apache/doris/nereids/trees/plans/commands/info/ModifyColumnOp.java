@@ -26,7 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -87,7 +87,9 @@ public class ModifyColumnOp extends AlterTableOp {
         KeysType keysType = KeysType.DUP_KEYS;
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         Column originalColumn = null;
-        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+        TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrDdlException(tableName.getCtl())
+                .getDbOrDdlException(tableName.getDb())
                 .getTableOrDdlException(tableName.getTbl());
         OlapTable olapTable = null;
         List<Column> schemaColumns = null;
