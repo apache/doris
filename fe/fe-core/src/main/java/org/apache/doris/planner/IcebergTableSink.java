@@ -59,6 +59,9 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
 
     public IcebergTableSink(IcebergExternalTable targetTable) {
         super();
+        if (targetTable.isView()) {
+            throw new UnsupportedOperationException("Write data to iceberg view is not supported");
+        }
         this.targetTable = targetTable;
     }
 

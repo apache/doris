@@ -35,6 +35,7 @@ import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.SerializableTable;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.view.View;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -49,6 +50,7 @@ public class IcebergMetadataCache {
     private final LoadingCache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
     private final LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
     private final LoadingCache<IcebergMetadataCacheKey, IcebergSnapshotCacheValue> snapshotCache;
+    private final LoadingCache<IcebergMetadataCacheKey, View> viewCache;
 
     public IcebergMetadataCache(ExecutorService executor) {
         CacheFactory snapshotListCacheFactory = new CacheFactory(
@@ -74,6 +76,7 @@ public class IcebergMetadataCache {
                 true,
                 null);
         this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), null, executor);
+        this.viewCache = tableCacheFactory.buildCache(key -> loadView(key), null, executor);
     }
 
     public Table getIcebergTable(CatalogIf catalog, String dbName, String tbName) {
@@ -153,6 +156,10 @@ public class IcebergMetadataCache {
         snapshotCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId)
                 .forEach(snapshotCache::invalidate);
+
+        viewCache.asMap().entrySet().stream()
+                .filter(entry -> entry.getKey().catalog.getId() == catalogId)
+                .forEach(entry -> viewCache.invalidate(entry.getKey()));
     }
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
@@ -176,6 +183,13 @@ public class IcebergMetadataCache {
                 .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
                     tblName))
                 .forEach(snapshotCache::invalidate);
+        viewCache.asMap().entrySet().stream()
+                .filter(entry -> {
+                    IcebergMetadataCacheKey key = entry.getKey();
+                    return key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
+                            tblName);
+                })
+                .forEach(entry -> viewCache.invalidate(entry.getKey()));
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
@@ -196,6 +210,12 @@ public class IcebergMetadataCache {
         snapshotCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName))
                 .forEach(snapshotCache::invalidate);
+        viewCache.asMap().entrySet().stream()
+                .filter(entry -> {
+                    IcebergMetadataCacheKey key = entry.getKey();
+                    return key.catalog.getId() == catalogId && key.dbName.equals(dbName);
+                })
+                .forEach(entry -> viewCache.invalidate(entry.getKey()));
     }
 
     private static void initIcebergTableFileIO(Table table, Map<String, String> props) {
@@ -256,5 +276,26 @@ public class IcebergMetadataCache {
         res.put("iceberg_snapshot_cache", ExternalMetaCacheMgr.getCacheStats(snapshotCache.stats(),
                 snapshotCache.estimatedSize()));
         return res;
+    }
+
+    private View loadView(IcebergMetadataCacheKey key) {
+        IcebergMetadataOps ops;
+        if (key.catalog instanceof IcebergExternalCatalog) {
+            ops = (IcebergMetadataOps) (((IcebergExternalCatalog) key.catalog).getMetadataOps());
+        } else {
+            return null;
+        }
+        try {
+            return ((ExternalCatalog) key.catalog).getPreExecutionAuthenticator().execute(() ->
+                    ops.loadView(key.dbName, key.tableName));
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+
+    }
+
+    public View getIcebergView(CatalogIf catalog, String dbName, String tbName) {
+        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
+        return viewCache.get(key);
     }
 }
