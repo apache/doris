@@ -24,6 +24,8 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
+#include <signal.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
@@ -732,6 +734,12 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
         if (LIKELY(column_ptr->is_nullable())) {
+            LOG(INFO) << "column_ptr is nullable, slot_desc: " << slot_desc->col_name()
+                      << ", i: " << i
+                      << ", mutable_output_columns.size(): " << mutable_output_columns.size()
+                      << ", result_column_id: " << result_column_id
+                      << ", _src_block_ptr->dump_one_line(i, _num_of_columns_from_file): "
+                      << _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
             const auto* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
@@ -757,6 +765,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                                     return fmt::to_string(error_msg);
                                 }));
                         } else if (!slot_desc->is_nullable()) {
+                            raise(SIGABRT);
                             filter_map[i] = false;
                             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
