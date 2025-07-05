@@ -339,6 +339,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (db.isPresent()) {
             db.get().setUnInitialized(true);
         }
+        LOG.info("after drop table {}.{}.{}. is db present: {}",
+                dorisCatalog.getName(), dbName, tblName, db.isPresent());
     }
 
     private void performDropTable(String remoteDbName, String remoteTblName, boolean ifExists) throws DdlException {

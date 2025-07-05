@@ -278,7 +278,7 @@ suite("test_iceberg_hadoop_case_sensibility", "p0,external,doris,external_docker
                 exception "Table [case_tbl22] does not exist in database [iceberg_hadoop_case_db2]"
             }
             sql """create table iceberg_hadoop_case_db2.case_tbl22 (k1 int);""" // recreate
-            sql """show tables from iceberg_hadoop_case_db2 like "%case_tbl22%""""
+            qt_sql_show """show tables from iceberg_hadoop_case_db2 like "%case_tbl22%""""
             
             sql """insert into iceberg_hadoop_case_db2.case_tbl22 values(5);"""
             order_qt_sql21 """select * from iceberg_hadoop_case_db2.case_tbl22;"""
