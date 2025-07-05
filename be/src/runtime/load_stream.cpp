@@ -296,6 +296,8 @@ Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
 
 void TabletStream::pre_close() {
     if (!_status.ok()) {
+        // cancel all pending tasks, wait all running tasks to finish
+        _flush_token->shutdown();
         return;
     }
 
