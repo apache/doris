@@ -161,6 +161,7 @@ public:
         StringRef bufferRef;
         bufferRef.data = ptr;
         bufferRef.size = total_size;
+        buffer_list.emplace_back(bufferRef);
         // Second pass: copy data to allocated memory
         size_t offset = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
