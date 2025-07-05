@@ -95,6 +95,7 @@ import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.DropWorkloadSchedPolicyOperatorLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
+import org.apache.doris.persist.KeyOperationInfo;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
@@ -970,6 +971,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_INDEX_POLICY: {
                 data = DropIndexPolicyLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_OPERATE_KEY: {
+                data = KeyOperationInfo.read(in);
                 isRead = true;
                 break;
             }

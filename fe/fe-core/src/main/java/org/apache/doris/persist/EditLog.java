@@ -1272,6 +1272,10 @@ public class EditLog {
                     env.getIndexPolicyMgr().replayDropIndexPolicy(log);
                     break;
                 }
+                case OperationType.OP_OPERATE_KEY: {
+                    //KeyOperationInfo info = (KeyOperationInfo) journal.getData();
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
