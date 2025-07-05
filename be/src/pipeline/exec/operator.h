@@ -235,8 +235,22 @@ protected:
     int64_t _num_rows_returned {0};
     int64_t _estimate_memory_usage {0};
 
+    /*
+    Each operator has its profile like this:
+    XXXX_OPERATOR:
+        CommonCounters:
+            ...
+        CustomCounters:
+            ...
+    */
+    // Profile of this operator.
+    // Should not modify this profile usually.
     std::unique_ptr<RuntimeProfile> _operator_profile;
+    // CommonCounters of this operator.
+    // CommonCounters are counters that will be used by all operators.
     std::unique_ptr<RuntimeProfile> _common_profile;
+    // CustomCounters of this operator.
+    // CustomCounters are counters that will be used by this operator only.
     std::unique_ptr<RuntimeProfile> _custom_profile;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
