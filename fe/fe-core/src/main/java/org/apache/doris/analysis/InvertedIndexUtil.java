@@ -148,8 +148,10 @@ public class InvertedIndexUtil {
             Map<String, String> properties,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         String parser = null;
+        String analyzer = null;
         if (properties != null) {
             parser = properties.get(INVERTED_INDEX_PARSER_KEY);
+            analyzer = properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
             checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
         }
 
@@ -158,9 +160,10 @@ public class InvertedIndexUtil {
             parser = INVERTED_INDEX_PARSER_NONE;
         }
 
-        // array type is not supported parser except "none"
-        if (colType.isArrayType() && !parser.equals(INVERTED_INDEX_PARSER_NONE)) {
-            throw new AnalysisException("INVERTED index with parser: " + parser
+        // array type does not support parser (except "none") or analyzer
+        if (colType.isArrayType()
+                && (!parser.equals(INVERTED_INDEX_PARSER_NONE) || analyzer != null)) {
+            throw new AnalysisException("INVERTED index with parser or analyzer"
                 + " is not supported for array column: " + indexColName);
         }
 
