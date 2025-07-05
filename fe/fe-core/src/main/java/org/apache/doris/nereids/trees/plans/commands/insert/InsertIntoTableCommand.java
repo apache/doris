@@ -99,6 +99,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private LogicalPlan originLogicalQuery;
     private Optional<LogicalPlan> logicalQuery;
     private Optional<String> labelName;
+    private Optional<String> branchName;
     /**
      * When source it's from job scheduler,it will be set.
      */
@@ -112,13 +113,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
+                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
+                                  Optional<String> branchName) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.originLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.logicalQuery = Optional.empty();
         this.insertCtx = insertCtx;
         this.cte = cte;
+        this.branchName = branchName;
     }
 
     /**
@@ -132,6 +135,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         this.insertCtx = command.insertCtx;
         this.cte = command.cte;
         this.jobId = command.jobId;
+        this.branchName = command.branchName;
     }
 
     public LogicalPlan getLogicalQuery() {
@@ -314,6 +318,12 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             String label = this.labelName.orElse(
                     ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
+            // check branch
+            if (branchName.isPresent() && !(physicalSink instanceof PhysicalIcebergTableSink)) {
+                throw new AnalysisException(
+                    "Only data insertion operations into the branch of an `IcebergCatalog` table are supported");
+            }
+
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 OlapTable olapTable = (OlapTable) targetTableIf;
@@ -374,12 +384,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             } else if (physicalSink instanceof PhysicalIcebergTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
+                IcebergInsertCommandContext icebergInsertCtx = insertCtx
+                        .map(insertCommandContext -> (IcebergInsertCommandContext) insertCommandContext)
+                        .orElseGet(IcebergInsertCommandContext::new);
+                branchName.ifPresent(notUsed -> icebergInsertCtx.setBranchName(branchName));
                 return ExecutorFactory.from(
                         planner,
                         dataSink,
                         physicalSink,
                         () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))),
+                                Optional.of(icebergInsertCtx),
                                 emptyInsert
                         )
                 );
