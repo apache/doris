@@ -21,6 +21,9 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+#include <cstddef>
+#include <vector>
+
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exec/line_reader.h"
@@ -39,6 +42,15 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 void HiveTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
+    if (_value_sep_len == 1) {
+        _split_field_single_char(line, splitted_values);
+    } else {
+        _split_field_multi_char(line, splitted_values);
+    }
+}
+
+void HiveTextFieldSplitter::_split_field_single_char(const Slice& line,
+                                                     std::vector<Slice>* splitted_values) {
     const char* data = line.data;
     const size_t size = line.size;
     size_t value_start = 0;
@@ -53,6 +65,50 @@ void HiveTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* spli
         }
     }
     process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
+}
+
+void HiveTextFieldSplitter::_split_field_multi_char(const Slice& line,
+                                                    std::vector<Slice>* splitted_values) {
+    const char* data = line.data;
+    const size_t size = line.size;
+    size_t start = 0;
+
+    std::vector<int> next(_value_sep_len);
+    next[0] = -1;
+    for (int i = 1, j = -1; i < (int)_value_sep_len; i++) {
+        while (j >= 0 && _value_sep[i] != _value_sep[j + 1]) {
+            j = next[j];
+        }
+        if (_value_sep[i] == _value_sep[j + 1]) {
+            j++;
+        }
+        next[i] = j;
+    }
+
+    // KMP search
+    for (int i = 0, j = -1; i < (int)size; i++) {
+        while (j >= 0 && data[i] != _value_sep[j + 1]) {
+            j = next[j];
+        }
+        if (data[i] == _value_sep[j + 1]) {
+            j++;
+        }
+        if (j == (int)_value_sep_len - 1) {
+            size_t curpos = i - _value_sep_len + 1;
+            if (_escape_char != 0 && curpos > 0 && data[curpos - 1] == _escape_char) {
+                j = next[j];
+                continue;
+            }
+
+            if (curpos >= start) {
+                process_value_func(data, start, curpos - start, _trimming_char, splitted_values);
+                start = curpos + _value_sep_len;
+            }
+
+            j = next[j];
+        }
+    }
+    process_value_func(data, start, size - start, _trimming_char, splitted_values);
 }
 
 TextReader::TextReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
