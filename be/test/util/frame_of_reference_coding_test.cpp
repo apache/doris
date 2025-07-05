@@ -20,9 +20,39 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstring>
+#include <random>
+#include <vector>
+
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
+
+// original bit_pack function
+template <typename T>
+void bit_pack(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
+    if (in_num == 0 || bit_width == 0) {
+        return;
+    }
+
+    T in_mask = 0;
+    int bit_index = 0;
+    *output = 0;
+    for (int i = 0; i < in_num; i++) {
+        in_mask = ((T)1) << (bit_width - 1);
+        for (int k = 0; k < bit_width; k++) {
+            if (bit_index > 7) {
+                bit_index = 0;
+                output++;
+                *output = 0;
+            }
+            *output |= (((input[i] & in_mask) >> (bit_width - k - 1)) << (7 - bit_index));
+            in_mask >>= 1;
+            bit_index++;
+        }
+    }
+}
+
 class TestForCoding : public testing::Test {
 public:
     static void test_frame_of_reference_encode_decode(int32_t element_size) {
@@ -244,6 +274,71 @@ TEST_F(TestForCoding, TestValueSeek) {
     target = 320;
     found = decoder.seek_at_or_after_value(&target, &exact_match);
     EXPECT_EQ(found, false);
+}
+
+TEST_F(TestForCoding, accuracy_test) {
+    std::default_random_engine e;
+    std::uniform_int_distribution<int64_t> u;
+    ForEncoder<__int128_t> forEncoder(nullptr);
+    for (int T = 1; T <= 10; T++) {
+        for (int n = 1; n <= 255; n++) {
+            std::vector<__int128_t> test_data(n);
+            for (int w = 1; w <= 127; w++) {
+                __int128_t in_mask = (((__int128_t)1) << w) - 1;
+                for (int i = 0; i < n; i++) {
+                    test_data[i] = u(e) & in_mask;
+                }
+                int size = (n * w + 7) / 8;
+                std::vector<uint8_t> output_1(size), output_2(size);
+                bit_pack<__int128_t>(test_data.data(), n, w, output_1.data());
+                forEncoder.test_bit_pack(test_data.data(), n, w, output_2.data());
+                for (int i = 0; i < size; i++) {
+                    EXPECT_EQ(output_1[i], output_2[i]);
+                }
+            }
+        }
+    }
+}
+
+TEST_F(TestForCoding, performances_test) {
+    std::default_random_engine e;
+    std::uniform_int_distribution<int64_t> u;
+    ForEncoder<__int128_t> forEncoder(nullptr);
+    int64_t t[2][128];
+    memset(t, 0, sizeof(t));
+    int n = 255;
+    std::vector<__int128_t> test_data(n);
+    for (int T = 0; T < 100; T++) {
+        for (int w = 1; w <= 127; w++) {
+            __int128_t in_mask = (((__int128_t)1) << w) - 1;
+            for (int i = 0; i < n; i++) {
+                test_data[i] = u(e) & in_mask;
+            }
+            int size = (n * w + 7) / 8;
+            std::vector<uint8_t> output(size);
+
+            auto start = std::chrono::high_resolution_clock::now();
+            bit_pack(test_data.data(), n, w, output.data());
+            auto stop = std::chrono::high_resolution_clock::now();
+            auto duration =
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count();
+            t[0][w] += duration;
+
+            auto start1 = std::chrono::high_resolution_clock::now();
+            forEncoder.test_bit_pack(test_data.data(), n, w, output.data());
+            auto stop1 = std::chrono::high_resolution_clock::now();
+            auto duration1 =
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(stop1 - start1).count();
+            t[1][w] += duration1;
+        }
+    }
+
+    for (int w = 1; w <= 127; w++) {
+        double t1 = (1.0 * t[0][w]) / 100;
+        double t2 = (1.0 * t[1][w]) / 100;
+        printf("when bit_width is %d, before is %f ns, after is %f ns, speed is %f\n", w, t1, t2,
+               t1 / t2);
+    }
 }
 
 } // namespace doris
