@@ -67,6 +67,7 @@ suite("test_list_cache_file") {
             endpoint ""
             uri socket + "/api/compaction/show?tablet_id=" + tablet_id
             op "get"
+            basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
             check {respCode, body ->
                 assertEquals(respCode, 200)
                 var map = parseJson(body)
@@ -87,6 +88,7 @@ suite("test_list_cache_file") {
         endpoint ""
         uri socket + "/api/file_cache?op=list_cache&value=" + segment_file
         op "get"
+        basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
         check {respCode, body ->
             assertEquals(respCode, 200)
             var arr = parseJson(body)
@@ -99,6 +101,7 @@ suite("test_list_cache_file") {
         endpoint ""
         uri socket + "/api/file_cache?op=clear&value=" + segment_file
         op "get"
+        basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
         check {respCode, body ->
             assertEquals(respCode, 200, "clear local cache fail, maybe you can find something in respond: " + parseJson(body))
         }
@@ -108,6 +111,7 @@ suite("test_list_cache_file") {
         endpoint ""
         uri socket + "/api/file_cache?op=list_cache&value=" + segment_file
         op "get"
+        basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
         check {respCode, body ->
             assertEquals(respCode, 200)
             var arr = parseJson(body)
