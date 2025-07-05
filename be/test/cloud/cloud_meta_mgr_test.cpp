@@ -52,7 +52,7 @@ TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
     {
         std::future<Status> fut;
         auto start = steady_clock::now();
-        bthread_fork_join(tasks, 3, &fut); // return immediately
+        EXPECT_TRUE(bthread_fork_join(tasks, 3, &fut).ok()); // return immediately
         auto end = steady_clock::now();
         auto elapsed = duration_cast<milliseconds>(end - start).count();
         EXPECT_LE(elapsed, 40); // async
@@ -74,7 +74,7 @@ TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
     {
         std::future<Status> fut;
         auto start = steady_clock::now();
-        bthread_fork_join(tasks, 3, &fut); // return immediately
+        EXPECT_TRUE(bthread_fork_join(tasks, 3, &fut).ok()); // return immediately
         auto end = steady_clock::now();
         auto elapsed = duration_cast<milliseconds>(end - start).count();
         EXPECT_LE(elapsed, 40); // async

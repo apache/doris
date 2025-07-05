@@ -131,8 +131,8 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
     return status;
 }
 
-void bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency,
-                       std::future<Status>* fut) {
+Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency,
+                         std::future<Status>* fut) {
     // std::function will cause `copy`, we need to use heap memory to avoid copy ctor called
     auto prom = std::make_shared<std::promise<Status>>();
     *fut = prom->get_future();
@@ -143,8 +143,10 @@ void bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int co
 
     bthread_t bthread_id;
     if (bthread_start_background(&bthread_id, nullptr, run_bthread_work, fn) != 0) {
-        run_bthread_work(fn);
+        delete fn;
+        return Status::InternalError<false>("failed to create bthread");
     }
+    return Status::OK();
 }
 
 namespace {
