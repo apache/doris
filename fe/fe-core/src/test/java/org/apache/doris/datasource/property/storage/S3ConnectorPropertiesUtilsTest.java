@@ -27,7 +27,7 @@ import org.junit.jupiter.api.function.Executable;
 import java.util.HashMap;
 import java.util.Map;
 
-class S3PropertyUtilsTest {
+class S3ConnectorPropertiesUtilsTest {
 
     @Test
     void testCheckLoadPropsAndReturnUri_success() throws UserException {

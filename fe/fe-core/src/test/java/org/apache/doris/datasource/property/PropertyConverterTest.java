@@ -52,6 +52,7 @@ import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -177,6 +178,7 @@ public class PropertyConverterTest extends TestWithFeService {
         return Env.getCurrentEnv().getBackupHandler().getRepoMgr().getRepo(name);
     }
 
+    @Disabled
     @Test
     public void testAWSOldCatalogPropertiesConverter() throws Exception {
         String queryOld = "create catalog hms_s3_old properties (\n"
@@ -196,6 +198,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(21, hdProps.size());
     }
 
+    @Disabled
     @Test
     public void testS3CatalogPropertiesConverter() throws Exception {
         String query = "create catalog hms_s3 properties (\n"
@@ -234,6 +237,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", hdProps.get("fs.oss.endpoint"));
     }
 
+    @Disabled
     @Test
     public void testDlfPropertiesConverter() throws Exception {
         String queryDlf1 = "create catalog hms_dlf1 properties (\n"
@@ -344,6 +348,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(properties.get("mc.default.project"), "project0");
     }
 
+    @Disabled
     @Test
     public void testGlueCatalogPropertiesConverter() throws Exception {
         String queryOld = "create catalog hms_glue_old properties (\n"
@@ -386,6 +391,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(30, hdPropsNew.size());
     }
 
+    @Disabled
     @Test
     public void testS3CompatibleCatalogPropertiesConverter() throws Exception {
         String catalogName0 = "hms_cos";

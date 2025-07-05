@@ -107,14 +107,11 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (HdfsPropertiesUtils.validateUriIsHdfsUri(props, supportSchema)) {
             return true;
         }
-        if (HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)) {
-            return true;
-        }
-        return false;
+        return HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey);
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
