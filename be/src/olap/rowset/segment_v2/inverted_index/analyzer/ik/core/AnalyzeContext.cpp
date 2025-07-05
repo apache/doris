@@ -19,7 +19,7 @@
 
 namespace doris::segment_v2 {
 
-AnalyzeContext::AnalyzeContext(IKMemoryPool<Cell>& pool, std::shared_ptr<Configuration> config)
+AnalyzeContext::AnalyzeContext(vectorized::Arena& arena, std::shared_ptr<Configuration> config)
         : segment_buff_(),
           typed_runes_(),
           buffer_offset_(0),
@@ -27,7 +27,7 @@ AnalyzeContext::AnalyzeContext(IKMemoryPool<Cell>& pool, std::shared_ptr<Configu
           available_(0),
           last_useless_char_num_(0),
           buffer_locker_(0),
-          org_lexemes_(pool),
+          org_lexemes_(arena),
           path_map_(),
           results_(),
           config_(config) {

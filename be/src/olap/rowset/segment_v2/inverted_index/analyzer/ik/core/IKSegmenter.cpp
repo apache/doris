@@ -19,14 +19,12 @@
 
 namespace doris::segment_v2 {
 
-constexpr size_t DEFAULT_MEMORY_POOL_SIZE = 512;
-
 IKSegmenter::IKSegmenter(std::shared_ptr<Configuration> config)
-        : pool_(DEFAULT_MEMORY_POOL_SIZE),
+        : arena_(),
           config_(config),
-          context_(std::make_unique<AnalyzeContext>(pool_, config_)),
+          context_(std::make_unique<AnalyzeContext>(arena_, config_)),
           segmenters_(loadSegmenters()),
-          arbitrator_(IKArbitrator(pool_)) {}
+          arbitrator_(IKArbitrator(arena_)) {}
 
 std::vector<std::unique_ptr<ISegmenter>> IKSegmenter::loadSegmenters() {
     std::vector<std::unique_ptr<ISegmenter>> segmenters;
@@ -62,6 +60,7 @@ bool IKSegmenter::next(Lexeme& lexeme) {
         arbitrator_.process(*context_, config_->isUseSmart());
         context_->outputToResult();
         context_->markBufferOffset();
+        arena_.clear();
     }
     return true;
 }
