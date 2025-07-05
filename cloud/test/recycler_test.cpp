@@ -4659,6 +4659,10 @@ void make_single_txn_related_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t i
                 .tag("txn_id", txn_id);
         return;
     }
+
+    uint32_t offset = label_val.size();
+    label_val.append(10, '\x00'); // 10 bytes for versionstamp
+    label_val.append((const char*)&offset, 4);
     MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
     txn->put(label_key, label_val);
 

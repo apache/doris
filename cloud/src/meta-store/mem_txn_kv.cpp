@@ -200,10 +200,22 @@ int MemTxnKv::gen_version_timestamp(int64_t ver, int16_t seq, std::string* str) 
     ver = to_big_int64(ver);
     seq = to_big_int16(seq);
 
-    int size = str->size();
-    str->resize(size + 10, '\0');
-    std::memcpy(str->data() + size, &ver, sizeof(ver));
-    std::memcpy(str->data() + size + 8, &seq, sizeof(seq));
+    size_t size = str->size();
+    if (size < 14) {
+        LOG(WARNING) << "gen_version_timestamp: str size is too small, size: " << size
+                     << ", required: 14";
+        return -1;
+    }
+    uint32_t offset = 0;
+    std::memcpy(&offset, str->data() + size - 4, sizeof(offset));
+    str->resize(size - 4, '\0');
+    if (offset + 10 > str->size()) {
+        LOG(WARNING) << "gen_version_timestamp: offset + 10 > str size, offset: " << offset
+                     << ", str size: " << size;
+        return -1;
+    }
+    std::memcpy(str->data() + offset, &ver, sizeof(ver));
+    std::memcpy(str->data() + offset + 8, &seq, sizeof(seq));
     return 0;
 }
 
@@ -368,12 +380,38 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
     kv_->put_count_++;
     std::string k(key_prefix.data(), key_prefix.size());
     std::string v(val.data(), val.size());
+    uint32_t prefix_size = k.size();
+    // ATTN:
+    // 10 bytes for versiontimestamp must be 0, trailing 4 bytes is for
+    // prefix len
+    k.resize(k.size() + 14, '\0');
+    std::memcpy(k.data() + (k.size() - 4), &prefix_size, 4);
     unreadable_keys_.insert(k);
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_KEY, k, v);
 
     ++num_put_keys_;
-    put_bytes_ += key_prefix.size() + val.size();
-    approximate_bytes_ += key_prefix.size() + val.size();
+    put_bytes_ += k.size() + val.size();
+    approximate_bytes_ += k.size() + val.size();
+}
+
+bool Transaction::atomic_set_ver_key(std::string_view key, uint32_t offset, std::string_view val) {
+    if (key.size() < 10 || offset + 10 > key.size()) {
+        LOG(WARNING) << "atomic_set_ver_key: invalid key or offset, key=" << key
+                     << " offset=" << offset << ", key_size=" << key.size();
+        return false;
+    }
+    std::lock_guard<std::mutex> l(lock_);
+    kv_->put_count_++;
+    std::string k(key.data(), key.size());
+    std::string v(val.data(), val.size());
+    k.append((char*)&offset, sizeof(offset)); // ATTN: assume little-endian
+    unreadable_keys_.insert(k);
+    op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_KEY, k, v);
+
+    ++num_put_keys_;
+    put_bytes_ += k.size() + v.size();
+    approximate_bytes_ += k.size() + v.size();
+    return true;
 }
 
 void Transaction::atomic_set_ver_value(std::string_view key, std::string_view value) {
@@ -381,6 +419,12 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
     kv_->put_count_++;
     std::string k(key.data(), key.size());
     std::string v(value.data(), value.size());
+    size_t prefix_size = v.size();
+    // ATTN:
+    // 10 bytes for versiontimestamp must be 0, trailing 4 bytes is for
+    // prefix len
+    v.resize(v.size() + 14, '\0');
+    std::memcpy(v.data() + (v.size() - 4), &prefix_size, 4);
     unreadable_keys_.insert(k);
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_VAL, k, v);
 

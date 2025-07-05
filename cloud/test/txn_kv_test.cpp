@@ -142,7 +142,7 @@ TEST(TxnKvTest, ConflictTest) {
 }
 
 TEST(TxnKvTest, AtomicSetVerKeyTest) {
-    std::string key_prefix = "key_1";
+    std::string key_prefix = "atomic_set_ver_key_1";
 
     std::string versionstamp_1;
     {
@@ -159,7 +159,8 @@ TEST(TxnKvTest, AtomicSetVerKeyTest) {
         ASSERT_EQ(txn->get(key_prefix, end_key, &it), TxnErrorCode::TXN_OK);
         ASSERT_TRUE(it->has_next());
         auto&& [key_1, _1] = it->next();
-        ASSERT_EQ(key_1.length(), key_prefix.size() + 10); // versionstamp = 10bytes
+        ASSERT_EQ(key_1.length(), key_prefix.size() + 10)
+                << key_1 << key_prefix; // versionstamp = 10bytes
         key_1.remove_prefix(key_prefix.size());
         versionstamp_1 = key_1;
     }
@@ -169,7 +170,7 @@ TEST(TxnKvTest, AtomicSetVerKeyTest) {
         // write key_2
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        key_prefix = "key_2";
+        key_prefix = "atomic_set_ver_key_2";
         txn->atomic_set_ver_key(key_prefix, "2");
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -186,6 +187,48 @@ TEST(TxnKvTest, AtomicSetVerKeyTest) {
     }
 
     ASSERT_LT(versionstamp_1, versionstamp_2);
+
+    std::string versionstamp_3;
+    {
+        // write key_3, with offset
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string suffix = "_suffix";
+        std::string prefix = "atomic_set_ver_key_3_";
+        std::string k(prefix);
+        uint32_t offset = k.size();
+        k.append(10, '\0'); // reserve 10 bytes for versionstamp
+        k += suffix;
+        ASSERT_TRUE(txn->atomic_set_ver_key(k, offset, "3"));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        // read key_3
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string end_key = prefix + "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(prefix, end_key, &it), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(it->has_next());
+        auto&& [key_3, _3] = it->next();
+        ASSERT_EQ(key_3.length(), k.size());
+        key_3.remove_suffix(suffix.size());
+        key_3.remove_prefix(prefix.size());
+        versionstamp_3 = key_3;
+    }
+
+    ASSERT_LT(versionstamp_2, versionstamp_3);
+
+    {
+        // write key, but offset is invalid
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string prefix = "atomic_set_ver_key_4_";
+        std::string k(prefix);
+        k.append(10, '\0');             // reserve 10 bytes for versionstamp
+        uint32_t offset = k.size() + 1; // invalid offset
+        ASSERT_FALSE(txn->atomic_set_ver_key(k, offset, "4"));
+
+        k = "fake";
+        ASSERT_FALSE(txn->atomic_set_ver_key(k, 0, "4"));
+    }
 }
 
 TEST(TxnKvTest, AtomicAddTest) {
