@@ -27,6 +27,7 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <shared_mutex>
 #include <unordered_map>
@@ -442,16 +443,19 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
     {
         std::unique_lock wlock(_meta_lock);
-
+        auto t1 = std::chrono::steady_clock::now();
         std::vector<int64_t> path_ids;
         // capture the path version to delete
         _timestamped_version_tracker.capture_expired_paths(expired_stale_sweep_endtime, &path_ids);
-
+        LOG_INFO("[verbose] begin delete stale rowsets")
+                .tag("tablet_id", tablet_id())
+                .tag("path_ids size", path_ids.size());
         if (path_ids.empty()) {
             return 0;
         }
 
         for (int64_t path_id : path_ids) {
+            auto start = std::chrono::steady_clock::now();
             int64_t start_version = -1;
             int64_t end_version = -1;
             std::vector<RowsetSharedPtr> stale_rowsets;
@@ -462,9 +466,11 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
                     stale_rowsets.push_back(rs_it->second);
-                    LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
-                              << " rowset_id=" << rs_it->second->rowset_id().to_string()
-                              << " version=" << rs_it->first.to_string();
+                    if (config::enable_delete_stale_rowset_log) {
+                        LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
+                                  << " rowset_id=" << rs_it->second->rowset_id().to_string()
+                                  << " version=" << rs_it->first.to_string();
+                    }
                     _stale_rs_version_map.erase(rs_it);
                 } else {
                     LOG(WARNING) << "cannot find stale rowset " << v_ts->version() << " in tablet "
@@ -483,8 +489,25 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
             if (!stale_rowsets.empty()) {
                 deleted_stale_rowsets.emplace_back(version, std::move(stale_rowsets));
             }
+            auto end = std::chrono::steady_clock::now();
+            auto cost = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+            if (config::enable_delete_stale_rowset_log) {
+                LOG(INFO) << "[verbose] delete stale rowsets, tablet_id=" << tablet_id()
+                          << ", path_id=" << path_id << ", version=" << version.to_string()
+                          << ", cost(us)=" << cost;
+            }
         }
+        auto t2 = std::chrono::steady_clock::now();
         _reconstruct_version_tracker_if_necessary();
+        auto t3 = std::chrono::steady_clock::now();
+        auto reconstruct_cost =
+                std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+        auto total_cost = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t1).count();
+        LOG_INFO("[verbose] delete_expired_stale_rowsets hold meta_lock")
+                .tag("tablet_id", tablet_id())
+                .tag("path_ids", path_ids.size())
+                .tag("reconstruct_cost_us", reconstruct_cost)
+                .tag("cost_us", total_cost);
     }
 
     // if the rowset is not used by any query, we can recycle its cached data early.
