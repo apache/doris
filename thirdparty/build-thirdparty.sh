@@ -919,7 +919,7 @@ build_odbc() {
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
-    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
+    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration -Wno-incompatible-pointer-types" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -1823,21 +1823,6 @@ build_azure() {
     fi
 }
 
-# dragonbox
-build_dragonbox() {
-    check_if_source_exist "${DRAGONBOX_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-}
-
 # icu
 build_icu() {
     check_if_source_exist "${ICU_SOURCE}"
@@ -1936,6 +1921,8 @@ build_faiss() {
         "-DCMAKE_BUILD_TYPE=Release"
         "-DFAISS_ENABLE_GPU=OFF"
         "-DFAISS_ENABLE_PYTHON=OFF"
+        "-DFAISS_ENABLE_EXTRAS=OFF"
+        "-DBUILD_TESTING=OFF"
     )
 
     echo "Building faiss at $(pwd) with cmake parameters: ${FAISS_CMAKE_OPTIONS[*]}"
@@ -2013,10 +2000,11 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         ali_sdk
         base64
         azure
-        dragonbox
         brotli
         icu
         pugixml
+        openblas
+        faiss
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
