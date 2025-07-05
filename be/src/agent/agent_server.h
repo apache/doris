@@ -24,6 +24,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "util/work_thread_pool.hpp"
+
 namespace doris {
 
 class TaskWorkerPoolIf;

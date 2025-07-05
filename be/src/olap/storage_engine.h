@@ -37,6 +37,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -312,6 +313,9 @@ public:
 
     bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
 
+    bool get_peers_replicas_info(int64_t tablet_id, std::vector<TReplicaInfo>* replicas,
+                                 std::string* token);
+
     bool should_fetch_from_peer(int64_t tablet_id);
 
     const std::shared_ptr<StreamLoadRecorder>& get_stream_load_recorder() {
@@ -340,6 +344,8 @@ public:
     bool remove_broken_path(std::string path);
 
     std::set<std::string> get_broken_paths() { return _broken_paths; }
+
+    PriorTaskWorkerPool* missing_rowset_thread_pool;
 
 private:
     // Instance should be inited from `static open()`
@@ -519,6 +525,7 @@ private:
     // key: tabletId
     std::unordered_map<int64_t, TReplicaInfo> _peer_replica_infos;
     std::string _token;
+    std::map<int64_t, std::vector<::doris::TReplicaInfo>> _tablet_replica_infos;
 
     std::atomic<int32_t> _wakeup_producer_flag {0};
 
