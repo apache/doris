@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
@@ -43,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * Routine load task scheduler is a function which allocate task to be.
@@ -63,6 +65,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     private LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue = new LinkedBlockingDeque<>();
 
     private long lastBackendSlotUpdateTime = -1;
+
+    private final ThreadPoolExecutor threadPool = ThreadPoolManager.newDaemonCacheThreadPool(
+                    Config.max_active_routine_load_task_scheduler_thread, "routine-load-task-scheduler-pool", true);
 
     @VisibleForTesting
     public RoutineLoadTaskScheduler() {
@@ -111,10 +116,20 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                     return;
                 }
             }
-            scheduleOneTask(routineLoadTaskInfo);
+            scheduleTask(routineLoadTaskInfo);
         } catch (Exception e) {
             LOG.warn("Taking routine load task from queue has been interrupted", e);
         }
+    }
+
+    private void scheduleTask(RoutineLoadTaskInfo routineLoadTaskInfo) {
+        threadPool.submit(() -> {
+            try {
+                scheduleOneTask(routineLoadTaskInfo);
+            } catch (Exception e) {
+                LOG.warn("Failed to schedule routine load task", e);
+            }
+        });
     }
 
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
