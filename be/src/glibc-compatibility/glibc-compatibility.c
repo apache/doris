@@ -175,6 +175,9 @@ void __explicit_bzero_chk(void * buf, size_t len, size_t unused)
     explicit_bzero(buf, len);
 }
 
+int strfromf128(char* restrict string, size_t size, const char* restrict format, __float128 value) {
+    abort();
+}
 
 #if defined (__cplusplus)
 }
