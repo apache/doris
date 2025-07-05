@@ -371,6 +371,10 @@ public class ColumnStatistic {
         return ndv;
     }
 
+    public ColumnStatistic getOriginal() {
+        return original;
+    }
+
     public boolean isUnKnown() {
         return isUnKnown;
     }

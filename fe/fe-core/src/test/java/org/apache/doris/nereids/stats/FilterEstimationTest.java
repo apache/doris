@@ -1253,13 +1253,15 @@ class FilterEstimationTest {
                 .setNumNulls(8)
                 .setMaxValue(2)
                 .setMinValue(1);
+        ColumnStatistic origin = builder.build();
+        builder.setOriginal(origin);
         IntegerLiteral int1 = new IntegerLiteral(1);
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(a, int1);
         IsNull isNull = new IsNull(a);
         Or or = new Or(greaterThanEqual, isNull);
         Statistics stats = new Statistics(10, new HashMap<>());
         stats.addColumnStats(a, builder.build());
-        FilterEstimation filterEstimation = new FilterEstimation(true);
+        FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(or, stats);
         Assertions.assertEquals(result.getRowCount(), 10.0, 0.01);
     }
