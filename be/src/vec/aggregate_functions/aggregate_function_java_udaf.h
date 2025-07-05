@@ -259,7 +259,9 @@ private:
 };
 
 class AggregateJavaUdaf final
-        : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf> {
+        : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     ENABLE_FACTORY_CREATOR(AggregateJavaUdaf);
     AggregateJavaUdaf(const TFunction& fn, const DataTypes& argument_types_,
