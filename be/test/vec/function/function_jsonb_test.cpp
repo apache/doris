@@ -2145,4 +2145,42 @@ TEST(FunctionJsonbTEST, JsonbToJson) {
                                                 {{{STRING("hello")}, STRING(R"("hello")")}}));
 }
 
+TEST(FunctionJsonbTEST, JsonArray) {
+    std::string func_name = "json_array";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB};
+
+    DataSet data_set = {
+            {{Null()}, STRING("[null]")},
+            {{STRING("null")}, STRING("[null]")},
+            {{STRING("true")}, STRING("[true]")},
+            {{STRING("false")}, STRING("[false]")},
+            {{STRING("100")}, STRING("[100]")},                                 //int8
+            {{STRING("10000")}, STRING("[10000]")},                             // int16
+            {{STRING("1000000000")}, STRING("[1000000000]")},                   // int32
+            {{STRING("1152921504606846976")}, STRING("[1152921504606846976]")}, // int64
+            {{STRING("6.18")}, STRING("[6.18]")},                               // double
+            {{STRING(R"("abcd")")}, STRING(R"(["abcd"])")},                     // string
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb>(func_name, input_types, data_set));
+
+    func_name = "json_array_ignore_null";
+
+    data_set = {
+            {{Null()}, STRING("[]")},
+            {{STRING("null")}, STRING("[null]")},
+            {{STRING("true")}, STRING("[true]")},
+            {{STRING("false")}, STRING("[false]")},
+            {{STRING("100")}, STRING("[100]")},                                 //int8
+            {{STRING("10000")}, STRING("[10000]")},                             // int16
+            {{STRING("1000000000")}, STRING("[1000000000]")},                   // int32
+            {{STRING("1152921504606846976")}, STRING("[1152921504606846976]")}, // int64
+            {{STRING("6.18")}, STRING("[6.18]")},                               // double
+            {{STRING(R"("abcd")")}, STRING(R"(["abcd"])")},                     // string
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb>(func_name, input_types, data_set));
+}
+
 } // namespace doris::vectorized

@@ -54,7 +54,9 @@ public enum ExpressionRuleType {
     SIMPLIFY_RANGE,
     SIMPLIFY_SELF_COMPARISON,
     SUPPORT_JAVA_DATE_FORMATTER,
-    TOPN_TO_MAX;
+    TOPN_TO_MAX,
+    JSON_FUNCTION_REWRITE_JSON_ARRAY,
+    JSON_FUNCTION_REWRITE_JSON_ARRAY_IGNORE_NULL;
 
     public int type() {
         return ordinal();
