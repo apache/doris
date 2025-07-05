@@ -79,7 +79,7 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """SELECT JSON_CONTAINS("",'1','\$.a')"""
 
     qt_sql """select k6, json_extract_string(cast(k7 as json), "\$.a") as x10 from test_query_db.baseall group by k6, x10 order by 1,2; """
-    
+
     qt_sql "SELECT json_extract_no_quotes('[1, 2, 3]', '\$.[1]');"
     qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.name');"
     qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.id', null);"
@@ -91,4 +91,10 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\k')"""
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\k')"""
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\\\k')"""
+
+    qt_sql """ SELECT JSON_MERGE_PATCH('[]','[]') """
+    qt_sql """ SELECT JSON_MERGE_PATCH('{}','{}') """
+    qt_sql """ SELECT JSON_MERGE_PATCH('{"a": 1, "b": 2}', '{"a": null}') """
+    qt_sql """ SELECT JSON_MERGE_PATCH('{ "a": 1, "b":2 }', '{ "a": 3, "c":4 }') """
+    qt_sql """ SELECT JSON_MERGE_PATCH('{"name": "x"}', '{"id": 1}') """
 }
