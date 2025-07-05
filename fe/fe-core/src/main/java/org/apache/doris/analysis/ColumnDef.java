@@ -309,6 +309,12 @@ public class ColumnDef {
                 "doris version hidden column", false, Optional.empty());
     }
 
+    public static ColumnDef newSkipBitmapColumnDef(AggregateType aggregateType) {
+        return new ColumnDef(Column.SKIP_BITMAP_COL, TypeDef.create(PrimitiveType.BITMAP), false, aggregateType,
+                ColumnNullableType.NOT_NULLABLE, -1, DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE,
+                "doris skip bitmap hidden column", false, Optional.empty());
+    }
+
     public boolean isAllowNull() {
         return isAllowNull;
     }
