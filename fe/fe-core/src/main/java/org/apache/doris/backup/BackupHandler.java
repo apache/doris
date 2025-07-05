@@ -19,7 +19,6 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.AbstractBackupStmt;
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
-import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupType;
 import org.apache.doris.analysis.CancelBackupStmt;
@@ -45,15 +44,17 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.AzureFileSystem;
-import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fsv2.remote.AzureFileSystem;
+import org.apache.doris.fsv2.remote.RemoteFileSystem;
+import org.apache.doris.fsv2.remote.S3FileSystem;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -214,10 +215,18 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     "broker does not exist: " + stmt.getBrokerName());
         }
 
-        RemoteFileSystem fileSystem = FileSystemFactory.get(stmt.getBrokerName(), stmt.getStorageType(),
-                    stmt.getProperties());
+        RemoteFileSystem fileSystem;
+        try {
+            fileSystem = FileSystemFactory.get(stmt.getStorageType(), stmt.getProperties());
+        } catch (UserException e) {
+            throw new DdlException("Failed to initialize remote file system: " + e.getMessage());
+        }
+        org.apache.doris.fs.remote.RemoteFileSystem oldfs = org.apache.doris.fs.FileSystemFactory
+                .get(stmt.getBrokerName(), stmt.getStorageType(),
+                        stmt.getProperties());
         long repoId = env.getNextId();
-        Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(), fileSystem);
+        Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
+                fileSystem, oldfs);
 
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
         if (!st.ok()) {
@@ -230,62 +239,115 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
-    public void alterRepository(AlterRepositoryStmt stmt) throws DdlException {
+    /**
+     * Alters an existing repository by applying the given new properties.
+     *
+     * @param repoName    The name of the repository to alter.
+     * @param newProps    The new properties to apply to the repository.
+     * @param strictCheck If true, only allows altering S3 or Azure repositories and validates properties accordingly.
+     *                    TODO: Investigate why only S3 and Azure repositories are supported for alter operation
+     * @throws DdlException if the repository does not exist, fails to apply properties, or cannot connect
+     * to the updated repository.
+     */
+    public void alterRepository(String repoName, Map<String, String> newProps, boolean strictCheck)
+            throws DdlException {
         tryLock();
         try {
-            Repository repo = repoMgr.getRepo(stmt.getName());
-            if (repo == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
+            Repository oldRepo = repoMgr.getRepo(repoName);
+            if (oldRepo == null) {
+                throw new DdlException("Repository does not exist");
             }
-
-            if (repo.getRemoteFileSystem() instanceof S3FileSystem
-                    || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
-                Map<String, String> oldProperties = new HashMap<>(stmt.getProperties());
-                Status status = repo.alterRepositoryS3Properties(oldProperties);
-                if (!status.ok()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, status.getErrMsg());
-                }
-                RemoteFileSystem fileSystem = null;
-                if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
-                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
-                            StorageBackend.StorageType.S3, oldProperties);
-                } else if (repo.getRemoteFileSystem() instanceof AzureFileSystem) {
-                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
-                            StorageBackend.StorageType.AZURE, oldProperties);
-                }
-
-                Repository newRepo = new Repository(repo.getId(), repo.getName(), repo.isReadOnly(),
-                        repo.getLocation(), fileSystem);
-                if (!newRepo.ping()) {
-                    LOG.warn("Failed to connect repository {}. msg: {}", repo.getName(), repo.getErrorMsg());
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Repo can not ping with new s3 properties");
-                }
-
-                Status st = repoMgr.alterRepo(newRepo, false /* not replay */);
-                if (!st.ok()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Failed to alter repository: " + st.getErrMsg());
-                }
-                for (AbstractJob job : getAllCurrentJobs()) {
-                    if (!job.isDone() && job.getRepoId() == repo.getId()) {
-                        job.updateRepo(newRepo);
-                    }
-                }
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Only support alter s3 or azure repository");
+            // Merge new properties with the existing repository's properties
+            Map<String, String> mergedProps = mergeProperties(oldRepo, newProps, strictCheck);
+            // Create new remote file system with merged properties
+            RemoteFileSystem fileSystem = FileSystemFactory.get(StorageProperties.createPrimary(mergedProps));
+            org.apache.doris.fs.remote.RemoteFileSystem oldfs = null;
+            if (oldRepo.getRemoteFileSystem() instanceof S3FileSystem) {
+                oldfs = org.apache.doris.fs.FileSystemFactory.get(oldRepo.getRemoteFileSystem().getName(),
+                        StorageBackend.StorageType.S3, mergedProps);
+            } else if (oldRepo.getRemoteFileSystem() instanceof AzureFileSystem) {
+                oldfs = org.apache.doris.fs.FileSystemFactory.get(oldRepo.getRemoteFileSystem().getName(),
+                        StorageBackend.StorageType.AZURE, mergedProps);
             }
+            // Create new Repository instance with updated file system
+            Repository newRepo = new Repository(
+                    oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
+                    oldRepo.getLocation(), fileSystem, oldfs
+            );
+            // Verify the repository can be connected with new settings
+            if (!newRepo.ping()) {
+                LOG.warn("Failed to connect repository {}. msg: {}", repoName, newRepo.getErrorMsg());
+                throw new DdlException("Repository ping failed with new properties");
+            }
+            // Apply the new repository metadata
+            Status st = repoMgr.alterRepo(newRepo, false /* not replay */);
+            if (!st.ok()) {
+                throw new DdlException("Failed to alter repository: " + st.getErrMsg());
+            }
+            // Update all running jobs that are using this repository
+            updateOngoingJobs(oldRepo.getId(), newRepo);
         } finally {
             seqlock.unlock();
         }
     }
 
+    /**
+     * Merges new user-provided properties into the existing repository's configuration.
+     * In strict mode, only supports S3 or Azure repositories and applies internal S3 merge logic.
+     *
+     * @param repo        The existing repository.
+     * @param newProps    New user-specified properties.
+     * @param strictCheck Whether to enforce S3/Azure-only and validate the new properties.
+     * @return A complete set of merged properties.
+     * @throws DdlException if the merge fails or the repository type is unsupported.
+     */
+    private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps, boolean strictCheck)
+            throws DdlException {
+        if (strictCheck) {
+            if (!(repo.getRemoteFileSystem() instanceof S3FileSystem
+                    || repo.getRemoteFileSystem() instanceof AzureFileSystem)) {
+                throw new DdlException("Only support altering S3 or Azure repository");
+            }
+            // Let the repository validate and enrich the new S3/Azure properties
+            Map<String, String> propsCopy = new HashMap<>(newProps);
+            Status status = repo.alterRepositoryS3Properties(propsCopy);
+            if (!status.ok()) {
+                throw new DdlException("Failed to merge S3 properties: " + status.getErrMsg());
+            }
+            return propsCopy;
+        } else {
+            // General case: just override old props with new ones
+            Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
+            combined.putAll(newProps);
+            return combined;
+        }
+    }
+
+    /**
+     * Updates all currently running jobs associated with the given repository ID.
+     * Used to ensure that all jobs operate on the new repository instance after alteration.
+     *
+     * @param repoId  The ID of the altered repository.
+     * @param newRepo The new repository instance.
+     */
+    private void updateOngoingJobs(long repoId, Repository newRepo) {
+        for (AbstractJob job : getAllCurrentJobs()) {
+            if (!job.isDone() && job.getRepoId() == repoId) {
+                job.updateRepo(newRepo);
+            }
+        }
+    }
+
     // handle drop repository stmt
     public void dropRepository(DropRepositoryStmt stmt) throws DdlException {
+        dropRepository(stmt.getRepoName());
+    }
+
+    // handle drop repository stmt
+    public void dropRepository(String repoName) throws DdlException {
         tryLock();
         try {
-            Repository repo = repoMgr.getRepo(stmt.getRepoName());
+            Repository repo = repoMgr.getRepo(repoName);
             if (repo == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
             }

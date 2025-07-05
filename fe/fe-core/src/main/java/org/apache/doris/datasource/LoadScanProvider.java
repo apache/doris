@@ -93,7 +93,8 @@ public class LoadScanProvider {
         params.setStrictMode(fileGroupInfo.isStrictMode());
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc()
+                    .getBackendConfigProperties());
             params.setHdfsParams(tHdfsParams);
         }
         TFileAttributes fileAttributes = new TFileAttributes();
