@@ -155,7 +155,7 @@ struct AggregateFunctionDistinctGenericData {
         if constexpr (!stable) {
             write_var_uint(data.size(), buf);
             for (const auto& elem : data) {
-                write_string_binary(elem, buf);
+                write_binary(elem, buf);
             }
         }
     }
@@ -168,7 +168,7 @@ struct AggregateFunctionDistinctGenericData {
 
             StringRef ref;
             for (size_t i = 0; i < size; ++i) {
-                read_string_binary(ref, buf);
+                read_binary(ref, buf);
                 data.insert(ref);
             }
         }

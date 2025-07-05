@@ -163,12 +163,12 @@ void DataTypeQuantileState::serialize_as_stream(const QuantileState& cvalue, Buf
     std::string memory_buffer;
     memory_buffer.resize(value.get_serialized_size());
     value.serialize(const_cast<uint8_t*>(reinterpret_cast<uint8_t*>(memory_buffer.data())));
-    write_string_binary(memory_buffer, buf);
+    write_binary(memory_buffer, buf);
 }
 
 void DataTypeQuantileState::deserialize_as_stream(QuantileState& value, BufferReadable& buf) {
     StringRef ref;
-    read_string_binary(ref, buf);
+    read_binary(ref, buf);
     value.deserialize(ref.to_slice());
 }
 

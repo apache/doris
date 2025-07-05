@@ -204,7 +204,7 @@ public:
         auto& set = this->data(place).set;
         write_var_uint(set.size(), buf);
         for (const auto& elem : set) {
-            write_pod_binary(elem, buf);
+            write_binary(elem, buf);
         }
     }
 
@@ -218,7 +218,7 @@ public:
 
         for (size_t i = 0; i < size; ++i) {
             KeyType ref;
-            read_pod_binary(ref, buf);
+            read_binary(ref, buf);
             set.insert(ref);
         }
     }
@@ -233,7 +233,7 @@ public:
 
         for (size_t i = 0; i < size; ++i) {
             KeyType ref;
-            read_pod_binary(ref, buf);
+            read_binary(ref, buf);
             set.insert(ref);
         }
     }

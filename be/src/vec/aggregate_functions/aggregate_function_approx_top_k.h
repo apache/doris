@@ -75,7 +75,7 @@ public:
 
         write_var_uint(_column_names.size(), buf);
         for (const auto& column_name : _column_names) {
-            write_string_binary(column_name, buf);
+            write_binary(column_name, buf);
         }
         write_var_uint(_threshold, buf);
         write_var_uint(_reserved, buf);
@@ -127,7 +127,7 @@ public:
         _column_names.clear();
         for (uint64_t i = 0; i < column_size; i++) {
             std::string column_name;
-            read_string_binary(column_name, buf);
+            read_binary(column_name, buf);
             _column_names.emplace_back(std::move(column_name));
         }
         read_var_uint(_threshold, buf);

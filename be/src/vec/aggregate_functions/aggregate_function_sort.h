@@ -82,7 +82,7 @@ struct AggregateFunctionSortData {
             throw doris::Exception(st);
         }
 
-        write_string_binary(pblock.SerializeAsString(), buf);
+        write_binary(pblock.SerializeAsString(), buf);
     }
 
     void deserialize(BufferReadable& buf) {

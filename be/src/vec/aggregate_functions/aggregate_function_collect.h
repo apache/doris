@@ -155,7 +155,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     void write(BufferWritable& buf) const {
         write_var_uint(size(), buf);
         for (const auto& elem : data_set) {
-            write_string_binary(elem, buf);
+            write_binary(elem, buf);
         }
         write_var_int(max_size, buf);
     }
@@ -165,7 +165,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
         read_var_uint(size, buf);
         StringRef ref;
         for (size_t i = 0; i < size; ++i) {
-            read_string_binary(ref, buf);
+            read_binary(ref, buf);
             data_set.insert(ref);
         }
         read_var_int(max_size, buf);
@@ -363,7 +363,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
                                                " error: " + st.to_string());
             }
             tmp_buf.commit();
-            write_string_binary(tmp_str->get_data_at(0), buf);
+            write_binary(tmp_str->get_data_at(0), buf);
         }
 
         write_var_int(max_size, buf);
@@ -378,7 +378,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         StringRef s;
         DataTypeSerDe::FormatOptions opt;
         for (size_t i = 0; i < size; i++) {
-            read_string_binary(s, buf);
+            read_binary(s, buf);
             Slice slice(s.data, s.size);
             if (Status st = serde->deserialize_one_cell_from_json(*column_data, slice, opt); !st) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
