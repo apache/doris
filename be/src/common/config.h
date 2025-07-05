@@ -1171,8 +1171,13 @@ DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
 DECLARE_Int32(file_cache_downloader_thread_num_min);
 DECLARE_Int32(file_cache_downloader_thread_num_max);
-
-DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
+// used to persist lru information before be reboot and load the info back
+DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
+// dump queue only if the queue update specific times through several dump intervals
+DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
+DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
+DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

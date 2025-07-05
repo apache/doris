@@ -26,6 +26,60 @@
 
 namespace doris::io {
 
+std::string cache_type_to_surfix(FileCacheType type) {
+    switch (type) {
+    case FileCacheType::INDEX:
+        return "_idx";
+    case FileCacheType::DISPOSABLE:
+        return "_disposable";
+    case FileCacheType::NORMAL:
+        return "";
+    case FileCacheType::TTL:
+        return "_ttl";
+    }
+    return "";
+}
+
+FileCacheType surfix_to_cache_type(const std::string& str) {
+    if (str == "idx") {
+        return FileCacheType::INDEX;
+    } else if (str == "disposable") {
+        return FileCacheType::DISPOSABLE;
+    } else if (str == "ttl") {
+        return FileCacheType::TTL;
+    }
+    DCHECK(false) << "The string is " << str;
+    return FileCacheType::DISPOSABLE;
+}
+
+FileCacheType string_to_cache_type(const std::string& str) {
+    if (str == "normal") {
+        return FileCacheType::NORMAL;
+    } else if (str == "index") {
+        return FileCacheType::INDEX;
+    } else if (str == "disposable") {
+        return FileCacheType::DISPOSABLE;
+    } else if (str == "ttl") {
+        return FileCacheType::TTL;
+    }
+    DCHECK(false) << "The string is " << str;
+    return FileCacheType::NORMAL;
+}
+std::string cache_type_to_string(FileCacheType type) {
+    switch (type) {
+    case FileCacheType::INDEX:
+        return "index";
+    case FileCacheType::DISPOSABLE:
+        return "disposable";
+    case FileCacheType::NORMAL:
+        return "normal";
+    case FileCacheType::TTL:
+        return "ttl";
+    }
+    DCHECK(false) << "unknown type: " << type;
+    return "normal";
+}
+
 std::string FileCacheSettings::to_string() const {
     std::stringstream ss;
     ss << "capacity: " << capacity << ", max_file_block_size: " << max_file_block_size
@@ -88,5 +142,8 @@ FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offs
     auto holder = _cache->get_or_set(_cache_hash, offset, size, ctx);
     return std::make_unique<FileBlocksHolder>(std::move(holder));
 }
+
+template size_t LRUQueue::get_capacity(std::lock_guard<std::mutex>& cache_lock) const;
+template void LRUQueue::remove(Iterator queue_it, std::lock_guard<std::mutex>& cache_lock);
 
 } // namespace doris::io

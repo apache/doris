@@ -18,68 +18,12 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/tests/gtest_lru_file_cache.cpp
 // and modified by Doris
 
-#include <gen_cpp/Types_types.h>
-#include <gtest/gtest-message.h>
-#include <gtest/gtest-test-part.h>
-#include <stddef.h>
-#if defined(__APPLE__)
-#include <sys/mount.h>
-#else
-#include <sys/statfs.h>
-#endif
-
-// IWYU pragma: no_include <bits/chrono.h>
-#include <gtest/gtest.h>
-
-#include <chrono> // IWYU pragma: keep
-#include <condition_variable>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <list>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <random>
-#include <ranges>
-#include <stdexcept>
-#include <string>
-#include <thread>
-#include <vector>
-
-#include "common/config.h"
-#include "cpp/sync_point.h"
-#include "gtest/gtest_pred_impl.h"
-#include "io/cache/block_file_cache.h"
-#include "io/cache/block_file_cache_factory.h"
-#include "io/cache/block_file_cache_profile.h"
-#include "io/cache/cached_remote_file_reader.h"
-#include "io/cache/file_block.h"
-#include "io/cache/file_cache_common.h"
-#include "io/cache/fs_file_cache_storage.h"
-#include "io/fs/path.h"
-#include "olap/options.h"
-#include "runtime/exec_env.h"
-#include "util/slice.h"
-#include "util/time.h"
-
+#include "block_file_cache_test_common.h"
 namespace doris::io {
-
-extern int disk_used_percentage(const std::string& path, std::pair<int, int>* percent);
-
-namespace fs = std::filesystem;
 
 fs::path caches_dir = fs::current_path() / "lru_cache_test";
 std::string cache_base_path = caches_dir / "cache1" / "";
 std::string tmp_file = caches_dir / "tmp_file";
-
-constexpr unsigned long long operator"" _mb(unsigned long long m) {
-    return m * 1024 * 1024;
-}
-
-constexpr unsigned long long operator"" _kb(unsigned long long m) {
-    return m * 1024;
-}
 
 void assert_range([[maybe_unused]] size_t assert_n, io::FileBlockSPtr file_block,
                   const io::FileBlock::Range& expected_range, io::FileBlock::State expected_state) {
@@ -94,7 +38,7 @@ std::vector<io::FileBlockSPtr> fromHolder(const io::FileBlocksHolder& holder) {
     return std::vector<io::FileBlockSPtr>(holder.file_blocks.begin(), holder.file_blocks.end());
 }
 
-void download(io::FileBlockSPtr file_block, size_t size = 0) {
+void download(io::FileBlockSPtr file_block, size_t size) {
     const auto& hash = file_block->get_hash_value();
     if (size == 0) {
         size = file_block->range().size();
@@ -113,7 +57,7 @@ void download(io::FileBlockSPtr file_block, size_t size = 0) {
     ASSERT_TRUE(fs::exists(subdir));
 }
 
-void download_into_memory(io::FileBlockSPtr file_block, size_t size = 0) {
+void download_into_memory(io::FileBlockSPtr file_block, size_t size) {
     if (size == 0) {
         size = file_block->range().size();
     }
@@ -136,101 +80,6 @@ void complete_into_memory(const io::FileBlocksHolder& holder) {
         ASSERT_TRUE(file_block->get_or_set_downloader() == io::FileBlock::get_caller_id());
         download_into_memory(file_block);
     }
-}
-
-class BlockFileCacheTest : public testing::Test {
-public:
-    static void SetUpTestSuite() {
-        config::file_cache_enter_disk_resource_limit_mode_percent = 99;
-        config::enable_evict_file_cache_in_advance = false; // disable evict in
-                                                            // advance for most
-                                                            // cases for simple
-                                                            // verification
-        bool exists {false};
-        ASSERT_TRUE(global_local_filesystem()->exists(caches_dir, &exists).ok());
-        if (!exists) {
-            ASSERT_TRUE(global_local_filesystem()->create_directory(caches_dir).ok());
-        }
-        ASSERT_TRUE(global_local_filesystem()->exists(tmp_file, &exists).ok());
-        if (!exists) {
-            FileWriterPtr writer;
-            ASSERT_TRUE(global_local_filesystem()->create_file(tmp_file, &writer).ok());
-            for (int i = 0; i < 10; i++) {
-                std::string data(1_mb, '0' + i);
-                ASSERT_TRUE(writer->append(Slice(data.data(), data.size())).ok());
-            }
-            std::string data(1, '0');
-            ASSERT_TRUE(writer->append(Slice(data.data(), data.size())).ok());
-            ASSERT_TRUE(writer->close().ok());
-        }
-        ExecEnv::GetInstance()->_file_cache_factory = factory.get();
-        ExecEnv::GetInstance()->_file_cache_open_fd_cache = std::make_unique<io::FDCache>();
-    }
-    static void TearDownTestSuite() {
-        config::file_cache_enter_disk_resource_limit_mode_percent = 99;
-        ExecEnv::GetInstance()->_file_cache_open_fd_cache.reset(nullptr);
-    }
-
-private:
-    inline static std::unique_ptr<FileCacheFactory> factory = std::make_unique<FileCacheFactory>();
-};
-
-TEST_F(BlockFileCacheTest, init) {
-    std::string string = std::string(R"(
-        [
-        {
-            "path" : "/mnt/ssd01/clickbench/hot/be/file_cache",
-            "total_size" : 193273528320,
-            "query_limit" : 38654705664
-        },
-        {
-            "path" : "/mnt/ssd01/clickbench/hot/be/file_cache",
-            "total_size" : 193273528320,
-            "query_limit" : 38654705664
-        }
-        ]
-        )");
-    config::enable_file_cache_query_limit = true;
-    std::vector<CachePath> cache_paths;
-    EXPECT_TRUE(parse_conf_cache_paths(string, cache_paths));
-    EXPECT_EQ(cache_paths.size(), 2);
-    for (const auto& cache_path : cache_paths) {
-        io::FileCacheSettings settings = cache_path.init_settings();
-        EXPECT_EQ(settings.capacity, 193273528320);
-        EXPECT_EQ(settings.max_query_cache_size, 38654705664);
-    }
-
-    // err normal
-    std::string err_string = std::string(R"(
-        [
-        {
-            "path" : "/mnt/ssd01/clickbench/hot/be/file_cache",
-            "total_size" : "193273528320",
-            "query_limit" : -1
-        }
-        ]
-        )");
-    cache_paths.clear();
-    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
-
-    // err query_limit
-    err_string = std::string(R"(
-        [
-        {
-            "path" : "/mnt/ssd01/clickbench/hot/be/file_cache",
-            "total_size" : -1
-        }
-        ]
-        )");
-    cache_paths.clear();
-    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
-
-    err_string = std::string(R"(
-        [
-        ]
-        )");
-    cache_paths.clear();
-    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
 }
 
 void test_file_cache(io::FileCacheType cache_type) {
@@ -1058,6 +907,64 @@ void test_file_cache_memory_storage(io::FileCacheType cache_type) {
         auto blocks1 = fromHolder(holder1);
         ASSERT_EQ(blocks1.size(), 1);
     }
+}
+
+TEST_F(BlockFileCacheTest, init) {
+    std::string string = std::string(R"(
+        [
+        {
+            "path" : "/mnt/ssd01/clickbench/hot/be/file_cache",
+            "total_size" : 193273528320,
+            "query_limit" : 38654705664
+        },
+        {
+            "path" : "/mnt/ssd01/clickbench/hot/be/file_cache",
+            "total_size" : 193273528320,
+            "query_limit" : 38654705664
+        }
+        ]
+        )");
+    config::enable_file_cache_query_limit = true;
+    std::vector<CachePath> cache_paths;
+    EXPECT_TRUE(parse_conf_cache_paths(string, cache_paths));
+    EXPECT_EQ(cache_paths.size(), 2);
+    for (const auto& cache_path : cache_paths) {
+        io::FileCacheSettings settings = cache_path.init_settings();
+        EXPECT_EQ(settings.capacity, 193273528320);
+        EXPECT_EQ(settings.max_query_cache_size, 38654705664);
+    }
+
+    // err normal
+    std::string err_string = std::string(R"(
+        [
+        {
+            "path" : "/mnt/ssd01/clickbench/hot/be/file_cache",
+            "total_size" : "193273528320",
+            "query_limit" : -1
+        }
+        ]
+        )");
+    cache_paths.clear();
+    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
+
+    // err query_limit
+    err_string = std::string(R"(
+        [
+        {
+            "path" : "/mnt/ssd01/clickbench/hot/be/file_cache",
+            "total_size" : -1
+        }
+        ]
+        )");
+    cache_paths.clear();
+    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
+
+    err_string = std::string(R"(
+        [
+        ]
+        )");
+    cache_paths.clear();
+    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
 }
 
 TEST_F(BlockFileCacheTest, normal) {
@@ -3489,10 +3396,10 @@ TEST_F(BlockFileCacheTest, state_to_string) {
     EXPECT_EQ(FileBlock::state_to_string(FileBlock::State::DOWNLOADED), "DOWNLOADED");
 }
 
-TEST_F(BlockFileCacheTest, string_to_cache_type) {
-    EXPECT_EQ(BlockFileCache::string_to_cache_type("idx"), FileCacheType::INDEX);
-    EXPECT_EQ(BlockFileCache::string_to_cache_type("disposable"), FileCacheType::DISPOSABLE);
-    EXPECT_EQ(BlockFileCache::string_to_cache_type("ttl"), FileCacheType::TTL);
+TEST_F(BlockFileCacheTest, surfix_to_cache_type) {
+    EXPECT_EQ(surfix_to_cache_type("idx"), FileCacheType::INDEX);
+    EXPECT_EQ(surfix_to_cache_type("disposable"), FileCacheType::DISPOSABLE);
+    EXPECT_EQ(surfix_to_cache_type("ttl"), FileCacheType::TTL);
 }
 
 TEST_F(BlockFileCacheTest, append_many_time) {
@@ -5341,7 +5248,7 @@ TEST_F(BlockFileCacheTest, test_load) {
 
     {
         auto type = cache.dump_single_cache_type(key, 10086);
-        ASSERT_TRUE(type == "_ttl");
+        ASSERT_TRUE(type == "ttl");
         auto holder = cache.get_or_set(key, 10086, 3, context);
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -5362,7 +5269,7 @@ TEST_F(BlockFileCacheTest, test_load) {
     }
     {
         auto type = cache.dump_single_cache_type(key, 20086);
-        ASSERT_TRUE(type == "_ttl");
+        ASSERT_TRUE(type == "ttl");
         auto holder = cache.get_or_set(key, 20086, 3, context);
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -5987,9 +5894,8 @@ TEST_F(BlockFileCacheTest, seize_after_full) {
     };
 
     for (auto& args : args_vec) {
-        std::cout << "filled with " << io::BlockFileCache::cache_type_to_string(args.first_type)
-                  << " and seize with "
-                  << io::BlockFileCache::cache_type_to_string(args.second_type) << std::endl;
+        std::cout << "filled with " << io::cache_type_to_string(args.first_type)
+                  << " and seize with " << io::cache_type_to_string(args.second_type) << std::endl;
         if (fs::exists(cache_base_path)) {
             fs::remove_all(cache_base_path);
         }

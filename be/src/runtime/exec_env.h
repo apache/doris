@@ -165,6 +165,8 @@ public:
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
+    static bool get_is_upgrading() { return _s_upgrading.load(std::memory_order_acquire); }
+    static void set_is_upgrading() { _s_upgrading = true; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
@@ -394,6 +396,7 @@ private:
     inline static std::atomic_bool _s_tracking_memory {false};
     std::vector<StorePath> _store_paths;
     std::vector<StorePath> _spill_store_paths;
+    inline static std::atomic_bool _s_upgrading {false};
 
     io::FileCacheFactory* _file_cache_factory = nullptr;
     UserFunctionCache* _user_function_cache = nullptr;
