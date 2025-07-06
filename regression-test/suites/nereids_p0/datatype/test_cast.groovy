@@ -77,6 +77,8 @@ suite("test_cast") {
         result([[101]])
     }
 
+    /*
+    behaviour changed: not supported anymore from bool to datetime/date
     test {
         sql "select cast(false as datetime);"
         result([[null]])
@@ -96,6 +98,7 @@ suite("test_cast") {
         sql "select cast(true as date);"
         result([[null]])
     }
+    */
 
     testFoldConst("select cast('12:00:00' as time);")
     testFoldConst("select cast('111111' as time);")
