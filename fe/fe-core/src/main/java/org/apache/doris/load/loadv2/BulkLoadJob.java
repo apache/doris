@@ -43,6 +43,8 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.nereids.load.NereidsDataDescription;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.audit.LoadAuditEvent;
@@ -50,6 +52,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
@@ -120,6 +123,38 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         }
     }
 
+    public static BulkLoadJob fromLoadCommand(LoadCommand command, StmtExecutor executor, ConnectContext ctx)
+            throws Exception {
+        // get db id
+        String dbName = command.getLabel().getDbName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        // create job
+        BulkLoadJob bulkLoadJob;
+        try {
+            switch (command.getEtlJobType()) {
+                case BROKER:
+                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
+                            command.getLabel().getLabelName(), command.getBrokerDesc(), executor.getOriginStmt(),
+                            command.getUserIdentity());
+                    break;
+                case DELETE:
+                case INSERT:
+                    throw new DdlException("LoadManager only support create broker load job from stmt.");
+                default:
+                    throw new DdlException("Unknown load job type.");
+            }
+            bulkLoadJob.setComment(command.getComment());
+            bulkLoadJob.setJobProperties(command.getProperties());
+            bulkLoadJob.checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
+            // In the construction method, there may not be table information yet
+            bulkLoadJob.rebuildAuthorizationInfo();
+            return bulkLoadJob;
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
     public static BulkLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
@@ -148,6 +183,30 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             return bulkLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
+        }
+    }
+
+    public void checkAndSetDataSourceInfoByNereids(Database db, List<NereidsDataDescription> dataDescriptions,
+                                                       ConnectContext ctx) throws Exception {
+        // check data source info
+        db.readLock();
+        try {
+            LoadTask.MergeType mergeType = null;
+            for (NereidsDataDescription dataDescription : dataDescriptions) {
+                if (mergeType == null) {
+                    mergeType = dataDescription.getMergeType();
+                }
+                if (mergeType != dataDescription.getMergeType()) {
+                    throw new DdlException("merge type in all statement must be the same.");
+                }
+
+                DataDescription legacyDataDesc = dataDescription.toDataDescription(ctx);
+                BrokerFileGroup brokerFileGroup = new BrokerFileGroup(legacyDataDesc);
+                brokerFileGroup.parse(db, legacyDataDesc);
+                fileGroupAggInfo.addFileGroup(brokerFileGroup);
+            }
+        } finally {
+            db.readUnlock();
         }
     }
 

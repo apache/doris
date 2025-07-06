@@ -114,7 +114,7 @@ public class DataDescription implements InsertStmt.DataDesc {
     private final List<Expr> columnMappingList;
     private final Expr precedingFilterExpr;
     private final Expr whereExpr;
-    private final String srcTableName;
+    private String srcTableName;
     // this only used in multi load, all filePaths is file not dir
     private List<Long> fileSize;
     // column names of source files
@@ -134,7 +134,7 @@ public class DataDescription implements InsertStmt.DataDesc {
      * For hadoop load, this param is also used to persistence.
      * The function in this param is copied from 'parsedColumnExprList'
      */
-    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction
+    private Map<String, Pair<String, List<String>>> columnToHadoopFunction
             = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
@@ -186,6 +186,89 @@ public class DataDescription implements InsertStmt.DataDesc {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, null,
                 fileFormat, null, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
                 mergeType, deleteCondition, sequenceColName, properties);
+    }
+
+    /**
+     * this constructor is for full parameters
+     */
+    public DataDescription(String tableName,
+                           PartitionNames partitionNames,
+                           List<String> filePaths,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           Separator lineDelimiter,
+                           String fileFormat,
+                           String compressType,
+                           List<String> columnsFromPath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition,
+                           String sequenceColName,
+                           Map<String, String> properties,
+                           boolean isHadoopLoad,
+                           String dbName,
+                           String srcTableName,
+                           List<ImportColumnDesc> parsedColumnExprList,
+                           Map<String, Pair<String, List<String>>> columnToHadoopFunction,
+                           TUniqueKeyUpdateMode uniquekeyUpdateMode,
+                           boolean clientLocal,
+                           List<Long> fileSize,
+                           String columnDef,
+                           long backendId,
+                           boolean isMysqlLoad,
+                           boolean ignoreCsvRedundantCol,
+                           FileFormatProperties fileFormatProperties,
+                           Map<String, String> analysisMap) {
+        this.tableName = tableName;
+        this.partitionNames = partitionNames;
+        this.filePaths = filePaths;
+        this.fileFieldNames = columns;
+        this.columnsFromPath = columnsFromPath;
+        this.isNegative = isNegative;
+        this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = fileFilterExpr;
+        this.whereExpr = whereExpr;
+        this.srcTableName = null;
+        this.mergeType = mergeType;
+        this.deleteCondition = deleteCondition;
+        this.sequenceCol = sequenceColName;
+        this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
+
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
+
+        this.isHadoopLoad = isHadoopLoad;
+        this.dbName = dbName;
+        this.srcTableName = srcTableName;
+        this.parsedColumnExprList = parsedColumnExprList;
+        this.columnToHadoopFunction = columnToHadoopFunction;
+        this.uniquekeyUpdateMode = uniquekeyUpdateMode;
+        this.clientLocal = clientLocal;
+        this.fileSize = fileSize;
+        this.columnDef = columnDef;
+        this.backendId = backendId;
+        this.isMysqlLoad = isMysqlLoad;
+        this.ignoreCsvRedundantCol = ignoreCsvRedundantCol;
+        this.fileFormatProperties = fileFormatProperties;
+        this.analysisMap = analysisMap;
     }
 
     public DataDescription(String tableName,
@@ -734,7 +817,7 @@ public class DataDescription implements InsertStmt.DataDesc {
      *                       "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
-    private void analyzeColumns() throws AnalysisException {
+    public void analyzeColumns() throws AnalysisException {
         if ((fileFieldNames == null || fileFieldNames.isEmpty())
                 && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
             throw new AnalysisException("Can not specify columns_from_path without column_list");
@@ -818,7 +901,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         }
     }
 
-    private void analyzeMultiLoadColumns() throws AnalysisException {
+    public void analyzeMultiLoadColumns() throws AnalysisException {
         if (columnDef == null || columnDef.isEmpty()) {
             return;
         }

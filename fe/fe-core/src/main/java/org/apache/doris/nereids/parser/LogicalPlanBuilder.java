@@ -26,11 +26,15 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LockTable;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.analysis.StorageBackend;
@@ -465,6 +469,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.load.NereidsDataDescription;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -847,8 +852,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
-import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
-import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColocateGroupName;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -1829,6 +1832,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return brokerDesc;
     }
 
+    @Override
+    public ResourceDesc visitResourceDesc(DorisParser.ResourceDescContext ctx) {
+        if (ctx == null) {
+            return null;
+        }
+
+        Map<String, String> resourcePropertiesMap = visitPropertyItemList(ctx.propertyItemList());
+        String resourceName = visitIdentifierOrText(ctx.resourceName);
+        return new ResourceDesc(resourceName, resourcePropertiesMap);
+    }
+
     /**
      * Visit multi-statements.
      */
@@ -1856,24 +1870,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     @Override
     public LogicalPlan visitLoad(DorisParser.LoadContext ctx) {
-
-        BulkStorageDesc bulkDesc = null;
+        BrokerDesc brokerDesc = null;
         if (ctx.withRemoteStorageSystem() != null) {
-            Map<String, String> bulkProperties =
-                    new HashMap<>(visitPropertyItemList(ctx.withRemoteStorageSystem().brokerProperties));
-            if (ctx.withRemoteStorageSystem().S3() != null) {
-                bulkDesc = new BulkStorageDesc("S3", BulkStorageDesc.StorageType.S3, bulkProperties);
-            } else if (ctx.withRemoteStorageSystem().HDFS() != null) {
-                bulkDesc = new BulkStorageDesc("HDFS", BulkStorageDesc.StorageType.HDFS, bulkProperties);
-            } else if (ctx.withRemoteStorageSystem().LOCAL() != null) {
-                bulkDesc = new BulkStorageDesc("LOCAL_HDFS", BulkStorageDesc.StorageType.LOCAL, bulkProperties);
-            } else if (ctx.withRemoteStorageSystem().BROKER() != null
-                    && ctx.withRemoteStorageSystem().identifierOrText().getText() != null) {
-                bulkDesc = new BulkStorageDesc(ctx.withRemoteStorageSystem().identifierOrText().getText(),
-                        bulkProperties);
-            }
+            brokerDesc = visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem());
         }
-        ImmutableList.Builder<BulkLoadDataDesc> dataDescriptions = new ImmutableList.Builder<>();
+
+        ResourceDesc resourceDesc = null;
+        if (ctx.withRemoteStorageSystem() != null && ctx.withRemoteStorageSystem().resourceDesc() != null) {
+            resourceDesc = visitResourceDesc(ctx.withRemoteStorageSystem().resourceDesc());
+        }
+
+        List<NereidsDataDescription> dataDescriptions = new ArrayList<>();
         List<String> labelParts = visitMultipartIdentifier(ctx.lableName);
         String labelName = null;
         String labelDbName = null;
@@ -1897,53 +1904,68 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 nameParts.add(labelDbName);
             }
             nameParts.add(ddc.targetTableName.getText());
-            List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts);
-            List<String> colNames = (ddc.columns == null ? ImmutableList.of() : visitIdentifierList(ddc.columns));
-            List<String> columnsFromPath = (ddc.columnsFromPath == null ? ImmutableList.of()
+            List<String> fullTableName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts);
+            // fullTableName is always [catalog],[db],[table]
+            String tableName = fullTableName.get(2);
+            List<String> colNames = (ddc.columns == null ? null : visitIdentifierList(ddc.columns));
+            List<String> columnsFromPath = (ddc.columnsFromPath == null ? null
                     : visitIdentifierList(ddc.columnsFromPath.identifierList()));
-            List<String> partitions = ddc.partition == null ? ImmutableList.of() : visitIdentifierList(ddc.partition);
+            // we need a mutable list in NereidsDataDescription's co constructor
+            List<String> mutableColNames = colNames == null ? null : new ArrayList<>(colNames);
+            List<String> mutableColumnsFromPath = columnsFromPath == null ? null : new ArrayList<>(columnsFromPath);
+
+            List<String> partitions = ddc.partition == null ? null : visitIdentifierList(ddc.partition);
+            PartitionNames partitionNames = partitions == null ? null : new PartitionNames(false, partitions);
             // TODO: multi location
             List<String> multiFilePaths = new ArrayList<>();
             for (Token filePath : ddc.filePaths) {
                 multiFilePaths.add(filePath.getText().substring(1, filePath.getText().length() - 1));
             }
-            List<String> filePaths = ddc.filePath == null ? ImmutableList.of() : multiFilePaths;
+            List<String> filePaths = ddc.filePath == null ? null : multiFilePaths;
             Map<String, Expression> colMappings;
             if (ddc.columnMapping == null) {
-                colMappings = ImmutableMap.of();
+                colMappings = null;
             } else {
                 colMappings = new HashMap<>();
                 for (DorisParser.MappingExprContext mappingExpr : ddc.columnMapping.mappingSet) {
                     colMappings.put(mappingExpr.mappingCol.getText(), getExpression(mappingExpr.expression()));
                 }
             }
+            List<Expression> colMappingList = colMappings == null ? null : new ArrayList<>(colMappings.values());
 
             LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
                     : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
 
-            Optional<String> fileFormat = ddc.format == null ? Optional.empty()
-                    : Optional.of(visitIdentifierOrText(ddc.format));
-            Optional<String> separator = ddc.separator == null ? Optional.empty() : Optional.of(ddc.separator.getText()
-                    .substring(1, ddc.separator.getText().length() - 1));
-            Optional<String> comma = ddc.comma == null ? Optional.empty() : Optional.of(ddc.comma.getText()
-                    .substring(1, ddc.comma.getText().length() - 1));
+            String fileFormat = ddc.format == null ? null : visitIdentifierOrText(ddc.format);
+            String compressType = ddc.compressType == null ? null : visitIdentifierOrText(ddc.compressType);
+
+            // separator
+            String lineDelimiter = ddc.separator == null ? null : ddc.separator.getText()
+                    .substring(1, ddc.separator.getText().length() - 1);
+            String columnSeparator = ddc.comma == null ? null : ddc.comma.getText()
+                    .substring(1, ddc.comma.getText().length() - 1);
+            String srcTable = ddc.sourceTableName == null ? null : ddc.sourceTableName.getText();
             Map<String, String> dataProperties = ddc.propertyClause() == null ? new HashMap<>()
                     : visitPropertyClause(ddc.propertyClause());
-            dataDescriptions.add(new BulkLoadDataDesc(
+            dataDescriptions.add(new NereidsDataDescription(
                     tableName,
-                    partitions,
+                    partitionNames,
                     filePaths,
-                    colNames,
-                    columnsFromPath,
-                    colMappings,
-                    new BulkLoadDataDesc.FileFormatDesc(separator, comma, fileFormat),
+                    mutableColNames,
+                    new Separator(columnSeparator),
+                    new Separator(lineDelimiter),
+                    fileFormat,
+                    compressType,
+                    srcTable,
+                    mutableColumnsFromPath,
                     false,
-                    ddc.preFilter == null ? Optional.empty() : Optional.of(getExpression(ddc.preFilter.expression())),
-                    ddc.where == null ? Optional.empty() : Optional.of(getExpression(ddc.where.booleanExpression())),
+                    colMappingList,
+                    ddc.preFilter == null ? null : getExpression(ddc.preFilter.expression()),
+                    ddc.where == null ? null : getExpression(ddc.where.booleanExpression()),
                     mergeType,
-                    ddc.deleteOn == null ? Optional.empty() : Optional.of(getExpression(ddc.deleteOn.expression())),
-                    ddc.sequenceColumn == null ? Optional.empty()
-                            : Optional.of(ddc.sequenceColumn.identifier().getText()), dataProperties));
+                    ddc.deleteOn == null ? null : getExpression(ddc.deleteOn.expression()),
+                    ddc.sequenceColumn == null ? null : ddc.sequenceColumn.identifier().getText(),
+                    dataProperties));
         }
         Map<String, String> properties = Collections.emptyMap();
         if (ctx.propertyClause() != null) {
@@ -1952,7 +1974,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String commentSpec = ctx.commentSpec() == null ? "''" : ctx.commentSpec().STRING_LITERAL().getText();
         String comment =
                 LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
-        return new LoadCommand(labelName, dataDescriptions.build(), bulkDesc, properties, comment);
+        return new LoadCommand(new LabelName(labelDbName, labelName), dataDescriptions, brokerDesc,
+                resourceDesc, properties, comment);
     }
 
     /* ********************************************************************************************
