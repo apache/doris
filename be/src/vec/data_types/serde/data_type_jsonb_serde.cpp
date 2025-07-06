@@ -149,11 +149,11 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             std::string_view string_ref = string_column.get_data_at(row_id).to_string_view();
-            auto serialized_value = std::make_unique<std::string>(
-                    JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size()));
-            size_t len = serialized_value->length();
+            auto serialized_value =
+                    JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
+            serialized_values.push_back(std::move(serialized_value));
+            size_t len = serialized_values.back().length();
             total_size += len;
-            serialized_values.push_back(std::move(*serialized_value));
             valid_row_indices.push_back(row_id);
         }
     }
@@ -161,7 +161,7 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
     char* ptr = (char*)malloc(total_size);
     if (!ptr) {
         return Status::InternalError(
-                "malloc memory error when write variant column data to orc file.");
+                "malloc memory {} error when write variant column data to orc file.", total_size);
     }
     StringRef bufferRef;
     bufferRef.data = ptr;
@@ -173,6 +173,12 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
         const auto& serialized_value = serialized_values[i];
         size_t row_id = valid_row_indices[i];
         size_t len = serialized_value.length();
+        if (offset + len > total_size) {
+            return Status::InternalError(
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
+                    offset, len, total_size);
+        }
         memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
         cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
         cur_batch->length[row_id] = len;
