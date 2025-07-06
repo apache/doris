@@ -453,13 +453,13 @@ public class NereidsPlanner extends Planner {
                         cascadesContext.getConnectContext().getQueryIdentifier(), e);
             }
         }
+        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+        statementContext.getRewrittenPlansByMv().clear();
         // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
         this.cascadesContext.getStatementContext().setPreRewritten(true);
         if (plansWhichContainMv.isEmpty()) {
             return;
         }
-        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
-        statementContext.getRewrittenPlansByMv().clear();
         plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
         NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
         if (LOG.isDebugEnabled()) {
