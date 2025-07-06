@@ -111,11 +111,11 @@ public class PreMaterializedViewRewriter {
         StatementContext statementContext = cascadesContext.getStatementContext();
         PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
                 cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
-        if (PreRewriteStrategy.NOT_IN_RBO.equals(preRewriteStrategy)) {
-            return false;
-        }
         if (statementContext.isForceRecordTmpPlan()) {
             return true;
+        }
+        if (PreRewriteStrategy.NOT_IN_RBO.equals(preRewriteStrategy)) {
+            return false;
         }
         if (!MaterializedViewUtils.containMaterializedViewHook(statementContext)) {
             // current statement context doesn't have hook, doesn't use pre RBO materialized view rewrite
