@@ -330,10 +330,11 @@ Status DataTypeDate64SerDe::write_column_to_orc(const std::string& timezone, con
     size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            char* buf[64];
-            size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id]).to_buffer(*buf);
+            char buf[64];
+            size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id]).to_buffer(buf);
             total_size += len;
-            serialized_values.emplace_back(*buf);
+            // avoid copy
+            serialized_values.emplace_back(buf, len);
             valid_row_indices.push_back(row_id);
         }
     }
@@ -341,7 +342,7 @@ Status DataTypeDate64SerDe::write_column_to_orc(const std::string& timezone, con
     char* ptr = (char*)malloc(total_size);
     if (!ptr) {
         return Status::InternalError(
-                "malloc memory error when write variant column data to orc file.");
+                "malloc memory {} error when write variant column data to orc file.", total_size);
     }
     StringRef bufferRef;
     bufferRef.data = ptr;
@@ -353,6 +354,12 @@ Status DataTypeDate64SerDe::write_column_to_orc(const std::string& timezone, con
         const auto& serialized_value = serialized_values[i];
         size_t row_id = valid_row_indices[i];
         size_t len = serialized_value.length();
+        if (offset + len > total_size) {
+            return Status::InternalError(
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
+                    offset, len, total_size);
+        }
         memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
         cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
         cur_batch->length[row_id] = len;

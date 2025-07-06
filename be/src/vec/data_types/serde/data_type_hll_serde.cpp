@@ -197,7 +197,7 @@ Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const 
     char* ptr = (char*)malloc(total_size);
     if (!ptr) {
         return Status::InternalError(
-                "malloc memory error when write variant column data to orc file.");
+                "malloc memory {} error when write variant column data to orc file.", total_size);
     }
     StringRef bufferRef;
     bufferRef.data = ptr;
@@ -209,6 +209,12 @@ Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const 
         if (cur_batch->notNull[row_id] == 1) {
             auto hll_value = const_cast<HyperLogLog&>(col_data.get_element(row_id));
             size_t len = hll_value.max_serialized_size();
+            if (offset + len > total_size) {
+                return Status::InternalError(
+                        "Buffer overflow when writing column data to ORC file. offset {} with len "
+                        "{} exceed total_size {} ",
+                        offset, len, total_size);
+            }
             hll_value.serialize((uint8_t*)(bufferRef.data) + offset);
             cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
             cur_batch->length[row_id] = len;
