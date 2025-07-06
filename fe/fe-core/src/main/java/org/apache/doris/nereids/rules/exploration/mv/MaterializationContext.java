@@ -468,6 +468,11 @@ public abstract class MaterializationContext {
             if (!ctx.isSuccess()) {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
+                if (ctx.isEnableRecordFailureDetail()) {
+                    failReasonSet = ctx.getFailReason().values().stream()
+                            .map(Pair::toString)
+                            .collect(ImmutableSet.toImmutableSet());
+                }
                 builder.append("\n")
                         .append(statementContext.isPreRewritten() ? " RBO." : " CBO.")
                         .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail\n")
