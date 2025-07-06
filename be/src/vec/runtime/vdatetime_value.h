@@ -432,6 +432,7 @@ public:
         return true;
     }
 
+    // for date type, when we cast_to_date, the time part will be reset to 0. so dont worry.
     template <TimeUnit unit>
     [[nodiscard]] bool set_time_unit(uint32_t val) {
         // is uint so need check upper bound only

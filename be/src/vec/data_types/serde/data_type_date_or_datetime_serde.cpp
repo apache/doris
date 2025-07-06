@@ -20,6 +20,7 @@
 #include <arrow/builder.h>
 #include <cctz/time_zone.h>
 
+#include "datelike_serde_common.hpp"
 #include "vec/columns/column_const.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -406,12 +407,14 @@ Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
     // read day
     RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, day)));
 
-    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(year), "invalid year {}",
-                              year);
-    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(month),
-                              "invalid month {}", month);
-    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(day), "invalid day {}",
-                              day);
+    if (!try_convert_set_zero_date(res, year, month, day)) {
+        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(year),
+                                  "invalid year {}", year);
+        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(month),
+                                  "invalid month {}", month);
+        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(day), "invalid day {}",
+                                  day);
+    }
 
     if (ptr == end) {
         // no time part, just return.
@@ -564,35 +567,73 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
     const char* ptr = str.data();
     const char* end = ptr + str.size();
 
-    // date part
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 5));
-    if (is_digit_range(ptr, ptr + 5)) {
-        // no delimiter here.
-        uint32_t part[4];
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+    uint32_t part[4];
+    bool has_second = false;
+
+    // special `date` and `time` part format: 14-length digits string. parse it as YYYYMMDDHHMMSS
+    if (assert_within_bound(ptr, end, 13) && is_digit_range(ptr, ptr + 14)) {
+        // if the string is all digits, treat it as a date in YYYYMMDD format.
+        RETURN_IF_ERROR((consume_digit<UInt32, 4>(ptr, end, part[0])));
         RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
         RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
-        if (is_numeric_ascii(*ptr)) {
-            // 4 digits year
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[3])));
-            RETURN_INVALID_ARG_IF_NOT(
-                    res.template set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
-                    "invalid year {}", part[0] * 100 + part[1]);
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[2]),
-                                      "invalid month {}", part[2]);
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[3]),
-                                      "invalid day {}", part[3]);
-        } else {
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(1900 + part[0]),
+        if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
+            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(part[0]),
                                       "invalid year {}", part[0]);
             RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
                                       "invalid month {}", part[1]);
             RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),
                                       "invalid day {}", part[2]);
         }
+
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::HOUR>(part[0]),
+                                  "invalid hour {}", part[0]);
+        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MINUTE>(part[1]),
+                                  "invalid minute {}", part[1]);
+        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::SECOND>(part[2]),
+                                  "invalid second {}", part[2]);
+        has_second = true;
+        if (ptr == end) {
+            // no fraction or timezone part, just return.
+            return Status::OK();
+        }
+        goto FRAC;
+    }
+
+    // date part
+    RETURN_IF_ERROR(assert_within_bound(ptr, end, 5));
+    if (is_digit_range(ptr, ptr + 5)) {
+        // no delimiter here.
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
+        if (is_numeric_ascii(*ptr)) {
+            // 4 digits year
+            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[3])));
+            if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
+                RETURN_INVALID_ARG_IF_NOT(
+                        res.template set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
+                        "invalid year {}", part[0] * 100 + part[1]);
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[2]),
+                                          "invalid month {}", part[2]);
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[3]),
+                                          "invalid day {}", part[3]);
+            }
+        } else {
+            if (!try_convert_set_zero_date(res, 1900 + part[0], part[1], part[2])) {
+                RETURN_INVALID_ARG_IF_NOT(
+                        res.template set_time_unit<TimeUnit::YEAR>(1900 + part[0]),
+                        "invalid year {}", part[0]);
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
+                                          "invalid month {}", part[1]);
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),
+                                          "invalid day {}", part[2]);
+            }
+        }
     } else {
         // has delimiter here.
-        uint32_t part[4];
         RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
         RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
         if (*ptr == '-') {
@@ -602,12 +643,14 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
             RETURN_IF_ERROR((consume_one_bar(ptr, end)));
             RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
 
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(part[0]),
-                                      "invalid year {}", part[0]);
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
-                                      "invalid month {}", part[1]);
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),
-                                      "invalid day {}", part[2]);
+            if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(part[0]),
+                                          "invalid year {}", part[0]);
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
+                                          "invalid month {}", part[1]);
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),
+                                          "invalid day {}", part[2]);
+            }
         } else {
             // 4 digits year
             RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
@@ -616,13 +659,15 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
             RETURN_IF_ERROR((consume_one_bar(ptr, end)));
             RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[3])));
 
-            RETURN_INVALID_ARG_IF_NOT(
-                    res.template set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
-                    "invalid year {}", part[0] * 100 + part[1]);
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[2]),
-                                      "invalid month {}", part[2]);
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[3]),
-                                      "invalid day {}", part[3]);
+            if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
+                RETURN_INVALID_ARG_IF_NOT(
+                        res.template set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
+                        "invalid year {}", part[0] * 100 + part[1]);
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[2]),
+                                          "invalid month {}", part[2]);
+                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[3]),
+                                          "invalid day {}", part[3]);
+            }
         }
     }
 
@@ -635,8 +680,6 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
     RETURN_IF_ERROR(consume_one_delimiter(ptr, end));
 
     // time part.
-    uint32_t part[3];
-    bool has_second = false;
     // hour
     RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
     RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::HOUR>(part[0]),
@@ -675,6 +718,7 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
         }
     }
 
+FRAC:
     // fractional part
     if (has_second && assert_within_bound(ptr, end, 0).ok() && *ptr == '.') {
         ++ptr;
@@ -719,6 +763,7 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
             // offset
             const char sign = *ptr;
             ++ptr;
+            part[1] = 0;
             // hour
             RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
             RETURN_INVALID_ARG_IF_NOT(part[0] <= 14, "invalid hour offset {}", part[0]);
