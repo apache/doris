@@ -23,6 +23,7 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
+#include "benchmark_bit_pack.cpp"
 
 namespace doris::vectorized { // change if need
 
@@ -46,7 +47,8 @@ static void Example1(benchmark::State& state) {
 }
 // could BENCHMARK many functions to compare them together.
 BENCHMARK(Example1);
-
+BENCHMARK(BM_BitPack)->DenseRange(1, 127)->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_BitPackOptimized)->DenseRange(1, 127)->Unit(benchmark::kNanosecond);
 } // namespace doris::vectorized
 
 BENCHMARK_MAIN();
