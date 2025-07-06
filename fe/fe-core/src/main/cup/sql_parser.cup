@@ -1815,7 +1815,7 @@ alter_table_clause ::=
 branch_options ::=
     opt_as_of_version:asOfVersion opt_retain_time:retainTime opt_retention_snapshots:retentionSnapshots
     {:
-        RESULT = new BranchOptions(asOfVersion, retainTime, retentionSnapshots.numSnapshots(), retentionSnapshots.retention());
+        RESULT = new BranchOptions(asOfVersion, retainTime, retentionSnapshots.getNumSnapshots(), retentionSnapshots.getRetention());
     :}
     ;
 
@@ -1823,7 +1823,7 @@ opt_as_of_version ::=
     {:
         RESULT = Optional.empty();
     :}
-    | AS OF VERSION INTEGER_LITERAL:v
+    | KW_AS KW_OF KW_VERSION INTEGER_LITERAL:v
     {:
         RESULT = Optional.of(v);
     :}
@@ -1833,22 +1833,22 @@ opt_retain_time ::=
     {:
         RESULT = Optional.empty();
     :}
-    | RETAIN time_value_with_unit:timeValueWithUnit
+    | KW_RETAIN time_value_with_unit:timeValueWithUnit
     {:
         RESULT = timeValueWithUnit;
     :}
     ;
 
 time_value_with_unit ::=
-    INTEGER_LITERAL:t DAYS
+    INTEGER_LITERAL:t KW_DAYS
     {:
         RESULT = Optional.of(t * 86400 * 1000L);
     :}
-    | INTEGER_LITERAL:t HOURS
+    | INTEGER_LITERAL:t KW_HOURS
     {:
         RESULT = Optional.of(t * 3600 * 1000L);
     :}
-    | INTEGER_LITERAL:t MINUTES
+    | INTEGER_LITERAL:t KW_MINUTES
     {:
         RESULT = Optional.of(t * 60 * 1000L);
     :}
@@ -1858,15 +1858,15 @@ opt_retention_snapshots ::=
     {:
         RESULT = new RetentionSnapshots(Optional.empty(), Optional.empty());
     :}
-    WITH SNAPSHOT RETENTION INTEGER_LITERAL:s KW_SNAPSHOTS
+    | KW_WITH KW_SNAPSHOT KW_RETENTION INTEGER_LITERAL:s KW_SNAPSHOTS
     {:
         RESULT = new RetentionSnapshots(Optional.of(s), Optional.empty());
     :}
-    | WITH SNAPSHOT RETENTION time_value_with_unit:timeValueWithUnit
+    | KW_WITH KW_SNAPSHOT KW_RETENTION time_value_with_unit:timeValueWithUnit
     {:
         RESULT = new RetentionSnapshots(Optional.empty, timeValueWithUnit);
     :}
-    | WITH SNAPSHOT RETENTION INTEGER_LITERAL:s KW_SNAPSHOTS time_value_with_unit:timeValueWithUnit
+    | KW_WITH KW_SNAPSHOT KW_RETENTION INTEGER_LITERAL:s KW_SNAPSHOTS time_value_with_unit:timeValueWithUnit
     {:
         RESULT = new RetentionSnapshots(Optional.of(s), timeValueWithUnit);
     :}
