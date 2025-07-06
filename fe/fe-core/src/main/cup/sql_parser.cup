@@ -59,6 +59,9 @@ import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.mysql.MysqlPassword;
+import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
+import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
+import org.apache.doris.nereids.trees.plans.commands.info.RetentionSnapshots;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
@@ -293,6 +296,7 @@ terminal String
     KW_BITMAP_UNION,
     KW_BLOB,
     KW_BOOLEAN,
+    KW_BRANCH,
     KW_BRIEF,
     KW_BROKER,
     KW_BUCKETS,
@@ -350,6 +354,7 @@ terminal String
     KW_DATETIMEV1,
     KW_DATEV1,
     KW_DAY,
+    KW_DAYS,
     KW_DECIMAL,
     KW_DECIMALV2,
     KW_DECIMALV3,
@@ -436,6 +441,7 @@ terminal String
     KW_HOTSPOT,
     KW_HOSTNAME,
     KW_HOUR,
+    KW_HOURS,
     KW_HUB,
     KW_IDENTIFIED,
     KW_IF,
@@ -496,6 +502,7 @@ terminal String
     KW_MIN,
     KW_MINUS,
     KW_MINUTE,
+    KW_MINUTES,
     KW_MODIFY,
     KW_MONTH,
     KW_MATCH,
@@ -582,6 +589,8 @@ terminal String
     KW_RESOURCES,
     KW_RESTORE,
     KW_RESUME,
+    KW_RETAIN,
+    KW_RETENTION,
     KW_RETURNS,
     KW_REVOKE,
     KW_RIGHT,
@@ -609,6 +618,7 @@ terminal String
     KW_SKEW,
     KW_SMALLINT,
     KW_SNAPSHOT,
+    KW_SNAPSHOTS,
     KW_SONAME,
     KW_SPLIT,
     KW_SQL,
@@ -635,6 +645,7 @@ terminal String
     KW_TABLESAMPLE,
     KW_TABLET,
     KW_TABLETS,
+    KW_TAG,
     KW_TASK,
     KW_TASKS,
     KW_TEMPORARY,
@@ -1015,6 +1026,12 @@ nonterminal List<Expr> copy_select_expr_list;
 nonterminal Boolean opt_generated_always;
 
 nonterminal Boolean opt_detailed;
+
+// branch & tag
+nonterminal BranchOptions branch_options;
+nonterminal TagOptions tag_options;
+nonterminal Optional<Long> opt_as_of_version, opt_retain_time, time_value_with_unit;
+nonterminal RetentionSnapshots opt_retention_snapshots;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1762,6 +1779,103 @@ alter_table_clause ::=
     | KW_ADD opt_tmp:isTempPartition KW_PARTITIONS KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:num_interval opt_properties:properties
     {:
         RESULT = new AlterMultiPartitionClause(PartitionKeyDesc.createMultiFixed(lower, upper, num_interval), properties, isTempPartition);
+    :}
+    | KW_CREATE KW_BRANCH opt_if_not_exists:ifNotExists ident:branchName branch_options:branchOptions
+    {:
+        CreateOrReplaceBranchInfo branchInfo = new CreateOrReplaceBranchInfo(branchName, true, false, ifNotExists, branchOptions);
+        RESULT = new CreateOrReplaceBranchClause(branchInfo);
+    :}
+    | KW_REPLACE KW_BRANCH ident:branchName branch_options:branchOptions
+    {:
+        CreateOrReplaceBranchInfo branchInfo = new CreateOrReplaceBranchInfo(branchName, false, true, false, branchOptions);
+        RESULT = new CreateOrReplaceBranchClause(branchInfo);
+    :}
+    | KW_CREATE KW_OR KW_REPLACE KW_BRANCH ident:branchName branch_options:branchOptions
+    {:
+        CreateOrReplaceBranchInfo branchInfo = new CreateOrReplaceBranchInfo(branchName, true, true, false, branchOptions);
+        RESULT = new CreateOrReplaceBranchClause(branchInfo);
+    :}
+    | KW_CREATE KW_TAG opt_if_not_exists:ifNotExists ident:tagName tag_options:tagOptions
+    {:
+        CreateOrReplaceTagInfo tagInfo = new CreateOrReplaceTagInfo(tagName, true, false, ifNotExists, tagOptions);
+        RESULT = new CreateOrReplaceTagClause(tagInfo);
+    :}
+    | KW_REPLACE KW_TAG ident:tagName tag_options:tagOptions
+    {:
+        CreateOrReplaceTagInfo tagInfo = new CreateOrReplaceTagInfo(tagName, false, true, false, tagOptions);
+        RESULT = new CreateOrReplaceTagClause(tagInfo);
+    :}
+    | KW_CREATE KW_OR KW_REPLACE KW_TAG ident:tagName tag_options:tagOptions
+    {:
+        CreateOrReplaceTagInfo tagInfo = new CreateOrReplaceTagInfo(tagName, true, true, false, tagOptions);
+        RESULT = new CreateOrReplaceTagClause(tagInfo);
+    :}
+    ;
+
+branch_options ::=
+    opt_as_of_version:asOfVersion opt_retain_time:retainTime opt_retention_snapshots:retentionSnapshots
+    {:
+        RESULT = new BranchOptions(asOfVersion, retainTime, retentionSnapshots.numSnapshots(), retentionSnapshots.retention());
+    :}
+    ;
+
+opt_as_of_version ::=
+    {:
+        RESULT = Optional.empty();
+    :}
+    | AS OF VERSION INTEGER_LITERAL:v
+    {:
+        RESULT = Optional.of(v);
+    :}
+    ;
+
+opt_retain_time ::=
+    {:
+        RESULT = Optional.empty();
+    :}
+    | RETAIN time_value_with_unit:timeValueWithUnit
+    {:
+        RESULT = timeValueWithUnit;
+    :}
+    ;
+
+time_value_with_unit ::=
+    INTEGER_LITERAL:t DAYS
+    {:
+        RESULT = Optional.of(t * 86400 * 1000L);
+    :}
+    | INTEGER_LITERAL:t HOURS
+    {:
+        RESULT = Optional.of(t * 3600 * 1000L);
+    :}
+    | INTEGER_LITERAL:t MINUTES
+    {:
+        RESULT = Optional.of(t * 60 * 1000L);
+    :}
+    ;
+
+opt_retention_snapshots ::=
+    {:
+        RESULT = new RetentionSnapshots(Optional.empty(), Optional.empty());
+    :}
+    WITH SNAPSHOT RETENTION INTEGER_LITERAL:s KW_SNAPSHOTS
+    {:
+        RESULT = new RetentionSnapshots(Optional.of(s), Optional.empty());
+    :}
+    | WITH SNAPSHOT RETENTION time_value_with_unit:timeValueWithUnit
+    {:
+        RESULT = new RetentionSnapshots(Optional.empty, timeValueWithUnit);
+    :}
+    | WITH SNAPSHOT RETENTION INTEGER_LITERAL:s KW_SNAPSHOTS time_value_with_unit:timeValueWithUnit
+    {:
+        RESULT = new RetentionSnapshots(Optional.of(s), timeValueWithUnit);
+    :}
+    ;
+
+tag_options ::=
+    opt_as_of_version:asOfVersion opt_retain_time:retainTime
+    {:
+        RESULT = new TagOptions(asOfVersion, retainTime);
     :}
     ;
 
@@ -8139,6 +8253,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BOOLEAN:id
     {: RESULT = id; :}
+    | KW_BRANCH:id
+    {: RESULT = id; :}
     | KW_BRIEF:id
     {: RESULT = id; :}
     | KW_BROKER:id
@@ -8204,6 +8320,8 @@ keyword ::=
     | KW_DATEV1:id
     {: RESULT = id; :}
     | KW_DATETIMEV1:id
+    {: RESULT = id; :}
+    | KW_DAYAS:id
     {: RESULT = id; :}
     | KW_DECIMAL:id
     {: RESULT = id; :}
@@ -8279,6 +8397,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_HOSTNAME:id
     {: RESULT = id; :}
+    | KW_HOURS:id
+    {: RESULT = id; :}
     | KW_HUB:id
     {: RESULT = id; :}
     | KW_IDENTIFIED:id
@@ -8322,6 +8442,8 @@ keyword ::=
     | KW_MATERIALIZED:id
     {: RESULT = id; :}
     | KW_MERGE:id
+    {: RESULT = id; :}
+    | KW_MINUTES:id
     {: RESULT = id; :}
     | KW_MODIFY:id
     {: RESULT = id; :}
@@ -8409,6 +8531,10 @@ keyword ::=
     {: RESULT = id; :}
     | KW_RESTORE:id
     {: RESULT = id; :}
+    | KW_RETAIN:id
+    {: RESULT = id; :}
+    | KW_RETENTION:id
+    {: RESULT = id; :}
     | KW_RETURNS:id
     {: RESULT = id; :}
     | KW_ROLLBACK:id
@@ -8424,6 +8550,8 @@ keyword ::=
     | KW_SKEW:id
     {: RESULT = id; :}
     | KW_SNAPSHOT:id
+    {: RESULT = id; :}
+    | KW_SNAPSHOTS:id
     {: RESULT = id; :}
     | KW_SONAME:id
     {: RESULT = id; :}
@@ -8512,6 +8640,8 @@ keyword ::=
     | KW_MAX:id
     {: RESULT = id; :}
     | KW_FREE:id
+    {: RESULT = id; :}
+    | KW_TAG:id
     {: RESULT = id; :}
     | KW_TASK:id
     {: RESULT = id; :}
