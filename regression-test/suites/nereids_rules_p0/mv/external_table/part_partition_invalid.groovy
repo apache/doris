@@ -38,8 +38,7 @@ suite("part_partition_invalid", "p0,external,external_docker") {
     );"""
 
     sql """switch ${hive_catalog_name};"""
-    sql """drop table if exists ${hive_catalog_name}.${hive_database}.${hive_table}"""
-    sql """ drop database if exists ${hive_database}"""
+    sql """ drop database if exists ${hive_database} force"""
     sql """ create database ${hive_database}"""
     sql """use ${hive_database}"""
     sql """
@@ -155,9 +154,7 @@ suite("part_partition_invalid", "p0,external,external_docker") {
     order_qt_after_modify_data_and_refresh_catalog """ ${query_sql}"""
 
 
-    sql """drop table if exists ${hive_catalog_name}.${hive_database}.${hive_table}"""
-    sql """drop table if exists ${internal_catalog}.${olap_db}.${olap_table}"""
-    sql """drop database if exists ${hive_catalog_name}.${hive_database}"""
+    sql """drop database if exists ${hive_catalog_name}.${hive_database} force"""
     sql """drop materialized view if exists ${internal_catalog}.${olap_db}.${mv_name};"""
     sql """drop catalog if exists ${hive_catalog_name}"""
 }

@@ -64,6 +64,9 @@ test_iceberg_case_sensibility_rest  ICEBERG_REST_CASE_DB2   case_tbl21  k1  1   
 -- !sql18 --
 4
 
+-- !sql_show --
+case_tbl22
+
 -- !sql21 --
 5
 
@@ -159,6 +162,9 @@ test_iceberg_case_sensibility_rest  ICEBERG_REST_CASE_DB2   case_tbl21  k1  1   
 -- !sql18 --
 5
 
+-- !sql_show --
+case_tbl22
+
 -- !sql21 --
 5
 
@@ -253,6 +259,9 @@ test_iceberg_case_sensibility_rest  ICEBERG_REST_CASE_DB2   case_tbl21  k1  1   
 
 -- !sql18 --
 5
+
+-- !sql_show --
+case_tbl22
 
 -- !sql21 --
 5
