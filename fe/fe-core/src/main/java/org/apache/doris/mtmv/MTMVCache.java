@@ -42,6 +42,8 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -52,6 +54,8 @@ import java.util.Optional;
  * The cache for materialized view cache
  */
 public class MTMVCache {
+
+    public static final Logger LOG = LogManager.getLogger(MTMVCache.class);
 
     // The materialized view plan which should be optimized by the same rules to query
     // and will remove top sink and unused sort
@@ -105,11 +109,12 @@ public class MTMVCache {
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
-        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
-        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
+        createCacheContext.getStatementContext().setForceRecordTmpPlan(true);
+        mvSqlStatementContext.setForceRecordTmpPlan(true);
         boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
         createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
-        createCacheContext.getStatementContext().setForceRecordTmpPlan(true);
+        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
+        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         try {
             // Can not convert to table sink, because use the same column from different table when self join
             // the out slot is wrong
@@ -131,6 +136,7 @@ public class MTMVCache {
                     ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite);
         } finally {
             createCacheContext.getStatementContext().setForceRecordTmpPlan(false);
+            mvSqlStatementContext.setForceRecordTmpPlan(false);
             createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
             if (currentContext != null) {
                 currentContext.setThreadLocalInfo();

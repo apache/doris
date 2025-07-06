@@ -296,13 +296,13 @@ public class MaterializedViewUtils {
                 .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
         rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         List<PlannerHook> removedMaterializedViewHooks = new ArrayList<>();
-        if (!mvRewrite) {
-            removedMaterializedViewHooks = removeMaterializedViewHooks(rewrittenPlanContext.getStatementContext());
-        } else {
-            // Add MaterializationContext for new cascades context
-            cascadesContext.getMaterializationContexts().forEach(rewrittenPlanContext::addMaterializationContext);
-        }
         try {
+            if (!mvRewrite) {
+                removedMaterializedViewHooks = removeMaterializedViewHooks(rewrittenPlanContext.getStatementContext());
+            } else {
+                // Add MaterializationContext for new cascades context
+                cascadesContext.getMaterializationContexts().forEach(rewrittenPlanContext::addMaterializationContext);
+            }
             rewrittenPlanContext.getConnectContext().setSkipAuth(true);
             AtomicReference<Plan> rewriteResult = new AtomicReference<>();
             rewrittenPlanContext.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
