@@ -114,7 +114,7 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     int64_t limit2 = _sys_avail_mem_less_than_warning_water_mark();
     int64_t limit3 = _process_used_mem_more_than_soft_mem_limit();
     int64_t need_flush = std::max(limit1, std::max(limit2, limit3));
-    return need_flush - _queue_mem_usage;
+    return need_flush - _queue_mem_usage - _flush_mem_usage;
 }
 
 void MemTableMemoryLimiter::handle_workload_group_memtable_flush(WorkloadGroupPtr wg) {
