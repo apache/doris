@@ -186,7 +186,7 @@ TEST(MathFunctionTest, cot_test) {
 
     InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
-    DataSet data_set = {{{1.0}, 0.64209}, {{M_PI / 4}, 1.0}};
+    DataSet data_set = {{{1.0}, 0.6420926159343306}, {{M_PI / 4}, 1.0000000000000002}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
@@ -196,7 +196,7 @@ TEST(MathFunctionTest, sec_test) {
 
     InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
-    DataSet data_set = {{{1.0}, 1.85082}, {{1000.0}, 1.77816}};
+    DataSet data_set = {{{1.0}, 1.8508157176809255}, {{1000.0}, 1.7781600385912715}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
@@ -206,7 +206,8 @@ TEST(MathFunctionTest, cosec_test) {
 
     InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
-    DataSet data_set = {{{1.0}, 1.1884}, {{2.0}, 1.09975}, {{1000.0}, 1.20937}};
+    DataSet data_set = {
+            {{1.0}, 1.1883951057781212}, {{2.0}, 1.0997501702946164}, {{1000.0}, 1.20936599707935}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
