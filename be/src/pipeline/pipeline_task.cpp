@@ -73,7 +73,7 @@ PipelineTask::PipelineTask(
           _le_state_map(std::move(le_state_map)),
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()),
-          _pipeline_name(_pipeline->name()){
+          _pipeline_name(_pipeline->name()) {
     _pipeline_task_watcher.start();
 
     auto shared_state = _sink->create_shared_state();
