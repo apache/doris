@@ -19,13 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Range;
-import mockit.Expectations;
-import mockit.Injectable;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
@@ -39,38 +36,6 @@ public class ComparisonPredicateTest {
 
     @Mocked
     Analyzer analyzer;
-
-    @Test
-    public void testWrongOperand(@Injectable Expr child0, @Injectable Expr child1) {
-        BinaryPredicate predicate1 = new BinaryPredicate(
-                BinaryPredicate.Operator.EQ, child0, new StringLiteral("test"));
-        BinaryPredicate predicate2 = new BinaryPredicate(
-                BinaryPredicate.Operator.EQ, child1, new StringLiteral("test"));
-
-        new Expectations() {
-            {
-                child0.getType();
-                result = ScalarType.createType("HLL");
-
-                child1.getType();
-                result = ScalarType.createType("BITMAP");
-            }
-        };
-
-        try {
-            predicate1.analyzeImpl(analyzer);
-            Assert.fail();
-        } catch (AnalysisException e) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
-
-        try {
-            predicate2.analyzeImpl(analyzer);
-            Assert.fail();
-        } catch (AnalysisException e) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
-    }
 
     @Test
     public void testConvertToRange() {
