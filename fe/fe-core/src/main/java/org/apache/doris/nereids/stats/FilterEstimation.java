@@ -74,19 +74,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
     public static final double DEFAULT_ISNULL_SELECTIVITY = 0.005;
-    private Set<Slot> aggSlots;
-
-    private boolean isOnBaseTable = false;
 
     public FilterEstimation() {
-    }
-
-    public FilterEstimation(Set<Slot> aggSlots) {
-        this.aggSlots = aggSlots;
-    }
-
-    public FilterEstimation(boolean isOnBaseTable) {
-        this.isOnBaseTable = isOnBaseTable;
     }
 
     /**
@@ -574,6 +563,20 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return statisticsBuilder.build();
     }
 
+    private boolean doubleNearlyEqual(double a, double b) {
+        return Math.abs(a - b) < 0.01;
+    }
+
+    private boolean isOnBase(Expression child, EstimationContext context) {
+        ColumnStatistic colStats = context.statistics.findColumnStatistics(child);
+        if (colStats != null && !colStats.isUnKnown() && colStats.getOriginal() != null) {
+            ColumnStatistic original = colStats.getOriginal();
+            return doubleNearlyEqual(original.count, colStats.count)
+                    && doubleNearlyEqual(colStats.ndv, original.ndv);
+        }
+        return false;
+    }
+
     @Override
     public Statistics visitIsNull(IsNull isNull, EstimationContext context) {
         ColumnStatistic childColStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
@@ -582,7 +585,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return new StatisticsBuilder(context.statistics).setRowCount(row).build();
         }
         double outputRowCount = Math.min(childColStats.numNulls, context.statistics.getRowCount());
-        if (!isOnBaseTable) {
+        if (!isOnBase(isNull.child(), context)) {
             // for is null on base table, use the numNulls, otherwise
             // nulls will be generated such as outer join and then we do a protection
             Expression child = isNull.child();
