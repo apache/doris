@@ -195,7 +195,7 @@ public class LocalShuffleTest extends TestWithFeService  {
                 continue;
             }
             SetMultimap<TNetworkAddress, Integer> receiverIds = LinkedHashMultimap.create();
-            ArrayListMultimap<TNetworkAddress,FInstanceExecParam> hostToInstances = ArrayListMultimap.create();
+            ArrayListMultimap<TNetworkAddress, FInstanceExecParam> hostToInstances = ArrayListMultimap.create();
             boolean setRecvrId = false;
             for (FInstanceExecParam instanceExecParam : fragmentExecParams.instanceExecParams) {
                 if (instanceExecParam.recvrId != -1) {
