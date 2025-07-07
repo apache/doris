@@ -160,9 +160,8 @@ static void export_fdb_status_details(const std::string& status_str) {
             const char* process_id = process_node->name.GetString();
             decltype(process_node) component_node;
             // get component iter
-            if (!process_node->value.HasMember(component.data())) {
-                component_node = process_node->value.FindMember(component.data());
-            }
+            if (!process_node->value.HasMember(component.data())) return;
+            component_node = process_node->value.FindMember(component.data());
             // There are three cases here: int64, double, and object.
             // If it is double or int64, put it directly into the bvar.
             // If it is an object, recursively obtain the full name and corresponding value.
