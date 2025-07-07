@@ -102,6 +102,7 @@ public class TrinoConnectorCache {
     }
 
     private static TrinoConnectorCacheValue loadCache(TrinoConnectorCacheKey key) {
+        ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
         try {
             LOG.info("load connector:{}", key);
             HandleResolver handleResolver = key.trinoConnectorPluginManager.getHandleResolver();
@@ -110,7 +111,6 @@ public class TrinoConnectorCache {
             // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
             // so use another process to kill this stuck process.
             AtomicBoolean isKilled = new AtomicBoolean(false);
-            ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
             executorService.scheduleAtFixedRate(() -> {
                 if (!isKilled.get()) {
                     List<Long> pids = ProcessUtils.getChildProcessIds(
@@ -144,6 +144,11 @@ public class TrinoConnectorCache {
         } catch (Exception e) {
             LOG.warn("failed to create trino connector", e);
             throw new RuntimeException(e);
+        } finally {
+            // 确保线程池关闭
+            if (!executorService.isShutdown()) {
+                executorService.shutdownNow();
+            }
         }
     }
 
