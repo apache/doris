@@ -3942,14 +3942,16 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
     std::string key = system_meta_service_registry_key();
     std::string val;
     err = txn->get(key, &val);
-    if (config::use_detailed_metrics && stats) {
-        stats->get_bytes += val.size();
+    if (stats) {
         stats->get_counter++;
     }
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to get server registry"
                      << " err=" << err;
         return;
+    }
+    if (stats) {
+        stats->get_bytes += val.size() + key.size();
     }
     std::string self_endpoint =
             config::hostname.empty() ? get_local_ip(config::priority_networks) : config::hostname;

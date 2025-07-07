@@ -615,7 +615,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         instance_key(key_info, &key);
 
         err = txn0->get(key, &val);
-        stats.get_bytes += val.size();
+        stats.get_bytes += val.size() + key.size();
         stats.get_counter++;
         LOG(INFO) << "get instance_key=" << hex(key);
 
