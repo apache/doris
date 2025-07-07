@@ -191,23 +191,43 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
                                                 std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnBitmap&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
-
-    INIT_MEMORY_FOR_ORC_WRITER()
-
+    // First pass: calculate total memory needed and collect serialized values
+    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             auto bitmap_value = const_cast<BitmapValue&>(col_data.get_element(row_id));
             size_t len = bitmap_value.getSizeInBytes();
-
-            REALLOC_MEMORY_FOR_ORC_WRITER()
-
+            total_size += len;
+        }
+    }
+    // Allocate continues memory based on calculated size
+    char* ptr = (char*)malloc(total_size);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory {} error when write variant column data to orc file.", total_size);
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = total_size;
+    buffer_list.emplace_back(bufferRef);
+    // Second pass: copy data to allocated memory
+    size_t offset = 0;
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            auto bitmap_value = const_cast<BitmapValue&>(col_data.get_element(row_id));
+            size_t len = bitmap_value.getSizeInBytes();
+            if (offset + len > total_size) {
+                return Status::InternalError(
+                        "Buffer overflow when writing column data to ORC file. offset {} with len "
+                        "{} exceed total_size {} . ",
+                        offset, len, total_size);
+            }
             bitmap_value.write_to(const_cast<char*>(bufferRef.data) + offset);
             cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
             cur_batch->length[row_id] = len;
             offset += len;
         }
     }
-
     cur_batch->numElements = end - start;
     return Status::OK();
 }

@@ -154,16 +154,38 @@ public:
                                std::vector<StringRef>& buffer_list) const override {
         auto& col_data = assert_cast<const ColumnQuantileState&>(column);
         orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
-
-        INIT_MEMORY_FOR_ORC_WRITER()
-
+        // First pass: calculate total memory needed and collect serialized values
+        size_t total_size = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
                 auto quantilestate_value = const_cast<QuantileState&>(col_data.get_element(row_id));
                 size_t len = quantilestate_value.get_serialized_size();
-
-                REALLOC_MEMORY_FOR_ORC_WRITER()
-
+                total_size += len;
+            }
+        }
+        // Allocate continues memory based on calculated size
+        char* ptr = (char*)malloc(total_size);
+        if (!ptr) {
+            return Status::InternalError(
+                    "malloc memory {} error when write variant column data to orc file.",
+                    total_size);
+        }
+        StringRef bufferRef;
+        bufferRef.data = ptr;
+        bufferRef.size = total_size;
+        buffer_list.push_back(bufferRef);
+        // Second pass: copy data to allocated memory
+        size_t offset = 0;
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                auto quantilestate_value = const_cast<QuantileState&>(col_data.get_element(row_id));
+                size_t len = quantilestate_value.get_serialized_size();
+                if (offset + len > total_size) {
+                    return Status::InternalError(
+                            "Buffer overflow when writing column data to ORC file. offset {} with "
+                            "len {} exceed total_size {} . ",
+                            offset, len, total_size);
+                }
                 quantilestate_value.serialize((uint8_t*)(bufferRef.data) + offset);
                 cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
                 cur_batch->length[row_id] = len;
