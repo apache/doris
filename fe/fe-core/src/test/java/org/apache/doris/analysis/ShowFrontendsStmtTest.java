@@ -17,13 +17,11 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.ShowResultSetMetaData;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -34,7 +32,7 @@ import org.junit.jupiter.api.Assertions;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class ShowBackendsStmtTest {
+public class ShowFrontendsStmtTest {
     private Analyzer analyzer;
     private ConnectContext ctx = new ConnectContext();
 
@@ -60,27 +58,11 @@ public class ShowBackendsStmtTest {
             }
         };
 
-        ShowBackendsStmt stmt = new ShowBackendsStmt();
+        ShowFrontendsStmt stmt = new ShowFrontendsStmt();
         Assertions.assertThrows(AnalysisException.class, () -> stmt.analyze(analyzer));
 
         privilege.set(true);
         stmt.analyze(analyzer);
     }
 
-    @Test
-    public void getMetaData() {
-        ShowBackendsStmt stmt = new ShowBackendsStmt();
-        ShowResultSetMetaData result = stmt.getMetaData();
-        Assertions.assertEquals(result.getColumnCount(), 27);
-        result.getColumns().forEach(col -> Assertions.assertEquals(col.getType(), ScalarType.createVarchar(30)));
-    }
-
-    @Test
-    public void getRedirectStatus() {
-        ShowBackendsStmt stmt = new ShowBackendsStmt();
-        Assertions.assertEquals(RedirectStatus.FORWARD_NO_SYNC, stmt.getRedirectStatus());
-
-        ctx.getSessionVariable().forwardToMaster = false;
-        Assertions.assertEquals(RedirectStatus.NO_FORWARD, stmt.getRedirectStatus());
-    }
 }
