@@ -129,6 +129,11 @@ public class PreMaterializedViewRewriter {
      */
     public static boolean needPreRewrite(CascadesContext cascadesContext) {
         StatementContext statementContext = cascadesContext.getStatementContext();
+        if (!needRecordTmpPlanForRewrite(cascadesContext)) {
+            LOG.debug("needPreRewrite found not need record tmp plan, query id is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
+            return false;
+        }
         if (statementContext.getTmpPlanForMvRewrite().isEmpty()) {
             LOG.debug("does not need pre rewrite, because TmpPlanForMvRewrite is empty, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());
