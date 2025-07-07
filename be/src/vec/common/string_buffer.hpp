@@ -24,7 +24,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris::vectorized {
-static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 4GB
+static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
 static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 
 // store and commit data. only after commit the data is effective on its' base(ColumnString)
