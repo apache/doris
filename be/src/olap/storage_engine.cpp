@@ -20,6 +20,7 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
@@ -1501,8 +1502,7 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
     return false;
 }
 
-bool StorageEngine::get_peers_replicas_info(int64_t tablet_id, std::vector<TReplicaInfo>* replicas,
-                                            std::string* token) {
+bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends) {
     TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
@@ -1514,10 +1514,20 @@ bool StorageEngine::get_peers_replicas_info(int64_t tablet_id, std::vector<TRepl
         DCHECK_NE(reps.size(), 0);
         for (const auto& rep : reps) {
             if (rep.replica_id != tablet->replica_id()) {
-                replicas->emplace_back(rep);
+                TBackend backend;
+                backend.__set_host(rep.host);
+                backend.__set_be_port(rep.be_port);
+                backend.__set_http_port(rep.http_port);
+                backend.__set_brpc_port(rep.brpc_port);
+                if (rep.__isset.is_alive) {
+                    backend.__set_is_alive(rep.is_alive);
+                }
+                if (rep.__isset.backend_id) {
+                    backend.__set_id(rep.backend_id);
+                }
+                backends->emplace_back(backend);
             }
         }
-        *token = _token;
         return true;
     }
     return false;

@@ -313,8 +313,7 @@ public:
 
     bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
 
-    bool get_peers_replicas_info(int64_t tablet_id, std::vector<TReplicaInfo>* replicas,
-                                 std::string* token);
+    bool get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends);
 
     bool should_fetch_from_peer(int64_t tablet_id);
 

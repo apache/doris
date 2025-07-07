@@ -218,19 +218,29 @@ Status EnginePublishVersionTask::execute() {
                     }
                     auto handle_version_not_continuous = [&]() {
                         if (config::enable_compaction_clone_missing_rowset) {
+                            std::vector<TBackend> backends;
+                            if (!_engine.get_peers_replica_backends(tablet->tablet_id(),
+                                                                    &backends)) {
+                                LOG(WARNING) << tablet->tablet_id()
+                                             << " tablet don't have peer replica backends";
+                            }
                             TAgentTaskRequest task;
-                            TMissingRowsetReq req;
-                            req.__set_tablet_id(0);
-                            req.__set_missing_rowset_start_version(max_version + 1);
-                            req.__set_missing_rowset_end_version(version.first - 1);
+                            TCloneReq req;
+                            req.__set_tablet_id(tablet->tablet_id());
+                            req.__set_schema_hash(tablet->schema_hash());
+                            req.__set_src_backends(backends);
+                            req.__set_version(version.first - 1);
+                            req.__set_replica_id(tablet->replica_id());
+                            req.__set_partition_id(tablet->partition_id());
+                            req.__set_table_id(tablet->table_id());
                             task.__set_task_type(TTaskType::CLONE);
-                            task.__set_missing_rowset_req(req);
+                            task.__set_clone_req(req);
                             task.__set_priority(TPriority::HIGH);
                             PriorTaskWorkerPool* thread_pool = ExecEnv::GetInstance()
                                                                        ->storage_engine()
                                                                        .to_local()
                                                                        .missing_rowset_thread_pool;
-                            auto st = thread_pool->submit_high_prior_task(task);
+                            auto st = thread_pool->submit_high_prior_and_cancel_low(task);
                             if (!st.ok()) {
                                 LOG_WARNING("mow clone missing rowset fail");
                             }

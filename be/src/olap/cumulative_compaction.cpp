@@ -18,6 +18,8 @@
 #include "olap/cumulative_compaction.h"
 
 #include <cpp/sync_point.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Types_types.h>
 
 #include <memory>
 #include <mutex>
@@ -192,17 +194,26 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                      << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
         if (config::enable_compaction_clone_missing_rowset) {
+            std::vector<TBackend> backends;
+            if (!_engine.get_peers_replica_backends(_tablet->tablet_id(), &backends)) {
+                LOG(WARNING) << _tablet->tablet_id() << " tablet don't have peer replica backends";
+                return Status::InternalError("");
+            }
             TAgentTaskRequest task;
-            TMissingRowsetReq req;
-            req.__set_tablet_id(0);
-            req.__set_missing_rowset_start_version(missing_versions[0].second + 1);
-            req.__set_missing_rowset_end_version(missing_versions[1].first - 1);
+            TCloneReq req;
+            req.__set_tablet_id(_tablet->tablet_id());
+            req.__set_schema_hash(_tablet->schema_hash());
+            req.__set_src_backends(backends);
+            req.__set_version(missing_versions.back().first);
+            req.__set_replica_id(tablet()->replica_id());
+            req.__set_partition_id(_tablet->partition_id());
+            req.__set_table_id(_tablet->table_id());
             task.__set_task_type(TTaskType::CLONE);
-            task.__set_missing_rowset_req(req);
+            task.__set_clone_req(req);
             task.__set_priority(TPriority::HIGH);
             PriorTaskWorkerPool* thread_pool =
                     ExecEnv::GetInstance()->storage_engine().to_local().missing_rowset_thread_pool;
-            RETURN_IF_ERROR(thread_pool->submit_high_prior_task(task));
+            RETURN_IF_ERROR(thread_pool->submit_high_prior_and_cancel_low(task));
         }
     }
 
