@@ -8321,7 +8321,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_DATETIMEV1:id
     {: RESULT = id; :}
-    | KW_DAYAS:id
+    | KW_DAYS:id
     {: RESULT = id; :}
     | KW_DECIMAL:id
     {: RESULT = id; :}
