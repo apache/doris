@@ -718,7 +718,6 @@ TEST_F(ColumnQuantileStateTest, OperatorValidate) {
     check_field_type(column);
 }
 
-
 TEST(ColumnComplexTest, TestErase) {
     using ColumnTest = ColumnComplexType<TYPE_BITMAP>;
 
@@ -736,6 +735,5 @@ TEST(ColumnComplexTest, TestErase) {
 
     EXPECT_EQ(column_test->size(), 4);
 }
-
 
 } // namespace doris::vectorized
