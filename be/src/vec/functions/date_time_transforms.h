@@ -36,6 +36,15 @@
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
+// FIXME: This file contains widespread UB due to unsafe type-punning casts.
+//        These must be properly refactored to eliminate reliance on reinterpret-style behavior.
+//
+// Temporarily suppress GCC 15+ warnings on user-defined type casts to allow build to proceed.
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-user-defined"
+#endif
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
@@ -476,3 +485,7 @@ struct DateTimeTransformImpl {
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
+
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic pop
+#endif
