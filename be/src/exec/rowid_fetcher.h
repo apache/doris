@@ -119,6 +119,13 @@ private:
             std::shared_ptr<FileMapping> first_file_mapping, const TUniqueId& query_id,
             vectorized::Block& result_block, PRuntimeProfileTree* pprofile,
             int64_t* init_reader_avg_ms, int64_t* get_block_avg_ms, size_t* scan_range_cnt);
+
+    struct ExternalFetchStatistics {
+        int64_t init_reader_ms = 0;
+        int64_t get_block_ms = 0;
+        std::string file_read_bytes;
+        std::string file_read_times;
+    };
 };
 
 template <typename Func>

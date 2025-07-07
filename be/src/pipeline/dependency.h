@@ -829,7 +829,7 @@ public:
     void create_counter_dependency(int operator_id, int node_id, const std::string& name);
 
 private:
-    Status _update_profile_info(int64_t backend_id, RuntimeProfile* response_profile);
+    void _update_profile_info(int64_t backend_id, RuntimeProfile* response_profile);
 
 public:
     bool rpc_struct_inited = false;
@@ -847,7 +847,7 @@ public:
     // Zero means NULL value.
     std::vector<std::vector<int64_t>> block_order_results;
     // backend id => <rpc profile info string key, rpc profile info string value>.
-    std::map<int64_t, std::map<std::string, std::stringstream>> backend_profile_info_string;
+    std::map<int64_t, std::map<std::string, fmt::memory_buffer>> backend_profile_info_string;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -713,21 +713,19 @@ Status RowIdStorageReader::read_batch_external_row(
         max_file_scanners = id_file_map->get_max_file_scanners();
     }
 
-    using namespace std;
-    // Hash(TFileRangeDesc) => { all the rows that need to be read and their positions in the result block. }
-    map<std::string, map<segment_v2::rowid_t, size_t>> scan_rows;
+    // Hash(TFileRangeDesc) => { all the rows that need to be read and their positions in the result block. } +  file mapping
+    std::map<std::string,
+             std::pair<std::map<segment_v2::rowid_t, size_t>, std::shared_ptr<FileMapping>>>
+            scan_rows;
 
     // Block corresponding to the order of `scan_rows` map.
-    vector<vectorized::Block> scan_blocks;
+    std::vector<vectorized::Block> scan_blocks;
 
     // row_id (Indexing of vectors) => < In which block, which line in the block >
-    vector<pair<size_t, size_t>> row_id_block_idx;
+    std::vector<std::pair<size_t, size_t>> row_id_block_idx;
 
     // Count the time/bytes it takes to read each TFileRangeDesc. (for profile)
-    vector<int64_t> init_reader_ms;
-    vector<int64_t> get_block_ms;
-    vector<string> file_read_bytes;
-    vector<string> file_read_times;
+    std::vector<ExternalFetchStatistics> fetch_statistics;
 
     auto hash_file_range = [](const TFileRangeDesc& file_range_desc) {
         std::string value;
@@ -754,19 +752,16 @@ Status RowIdStorageReader::read_batch_external_row(
 
         auto scan_range_hash = hash_file_range(scan_range_desc);
         if (scan_rows.contains(scan_range_hash)) {
-            scan_rows.at(scan_range_hash).emplace(request_block_desc.row_id(j), j);
+            scan_rows.at(scan_range_hash).first.emplace(request_block_desc.row_id(j), j);
         } else {
-            map<segment_v2::rowid_t, size_t> tmp {{request_block_desc.row_id(j), j}};
-            scan_rows.emplace(scan_range_hash, tmp);
+            std::map<segment_v2::rowid_t, size_t> tmp {{request_block_desc.row_id(j), j}};
+            scan_rows.emplace(scan_range_hash, std::make_pair(tmp, file_mapping));
         }
     }
 
     scan_blocks.resize(scan_rows.size());
     row_id_block_idx.resize(request_block_desc.row_id_size());
-    init_reader_ms.resize(scan_rows.size(), 0);
-    get_block_ms.resize(scan_rows.size(), 0);
-    file_read_bytes.resize(scan_rows.size());
-    file_read_times.resize(scan_rows.size());
+    fetch_statistics.resize(scan_rows.size());
 
     // Get the workload group for subsequent scan task submission.
     std::vector<uint64_t> workload_group_ids;
@@ -790,36 +785,30 @@ Status RowIdStorageReader::read_batch_external_row(
                 std::counting_semaphore semaphore {max_file_scanners};
 
                 size_t idx = 0;
-                for (const auto& [_, row_ids] : scan_rows) {
+                for (const auto& [_, scan_info] : scan_rows) {
                     semaphore.acquire();
                     RETURN_IF_ERROR(
                             remote_scan_sched->submit_scan_task(vectorized::SimplifiedScanTask(
-                                    [&, row_ids, idx]() {
+                                    [&, scan_info, idx]() {
+                                        auto& row_ids = scan_info.first;
+                                        auto& file_mapping = scan_info.second;
+
                                         SCOPED_ATTACH_TASK(
                                                 ExecEnv::GetInstance()
                                                         ->rowid_storage_reader_tracker());
                                         signal::set_signal_task_id(query_id);
 
-                                        scan_blocks[idx] = vectorized::Block(slots, row_ids.size());
+                                        scan_blocks[idx] =
+                                                vectorized::Block(slots, scan_info.first.size());
 
                                         size_t j = 0;
-                                        list<int64_t> read_ids;
+                                        std::list<int64_t> read_ids;
                                         //Generate an ordered list with the help of the orderliness of the map.
                                         for (const auto& [row_id, result_block_idx] : row_ids) {
                                             read_ids.emplace_back(row_id);
-                                            row_id_block_idx[result_block_idx] = make_pair(idx, j);
+                                            row_id_block_idx[result_block_idx] =
+                                                    std::make_pair(idx, j);
                                             j++;
-                                        }
-
-                                        auto file_id =
-                                                request_block_desc.file_id(row_ids.begin()->second);
-                                        auto file_mapping = id_file_map->get_file_mapping(file_id);
-                                        if (!file_mapping) {
-                                            return Status::InternalError(
-                                                    "Backend:{} file_mapping not found, query_id: "
-                                                    "{}, file_id: {}",
-                                                    BackendOptions::get_localhost(),
-                                                    print_id(query_id), file_id);
                                         }
 
                                         auto& external_info =
@@ -855,8 +844,8 @@ Status RowIdStorageReader::read_batch_external_row(
                                                     vfile_scanner_ptr->read_lines_from_range(
                                                             scan_range_desc, read_ids,
                                                             &scan_blocks[idx], external_info,
-                                                            &init_reader_ms[idx],
-                                                            &get_block_ms[idx]));
+                                                            &fetch_statistics[idx].init_reader_ms,
+                                                            &fetch_statistics[idx].get_block_ms));
                                         }
 
                                         auto file_read_bytes_counter =
@@ -865,9 +854,10 @@ Status RowIdStorageReader::read_batch_external_row(
                                                                 FileReadBytesProfile);
 
                                         if (file_read_bytes_counter != nullptr) {
-                                            file_read_bytes[idx] = PrettyPrinter::print(
-                                                    file_read_bytes_counter->value(),
-                                                    file_read_bytes_counter->type());
+                                            fetch_statistics[idx].file_read_bytes =
+                                                    PrettyPrinter::print(
+                                                            file_read_bytes_counter->value(),
+                                                            file_read_bytes_counter->type());
                                         }
 
                                         auto file_read_times_counter =
@@ -875,9 +865,10 @@ Status RowIdStorageReader::read_batch_external_row(
                                                         vectorized::FileScanner::
                                                                 FileReadTimeProfile);
                                         if (file_read_times_counter != nullptr) {
-                                            file_read_times[idx] = PrettyPrinter::print(
-                                                    file_read_times_counter->value(),
-                                                    file_read_times_counter->type());
+                                            fetch_statistics[idx].file_read_times =
+                                                    PrettyPrinter::print(
+                                                            file_read_times_counter->value(),
+                                                            file_read_times_counter->type());
                                         }
 
                                         semaphore.release();
@@ -900,17 +891,21 @@ Status RowIdStorageReader::read_batch_external_row(
             &scan_running_time));
 
     // Insert the read data into result_block.
-    for (const auto& [pos_block, block_idx] : row_id_block_idx) {
-        for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
-            auto dst_col =
-                    const_cast<vectorized::IColumn*>(result_block.get_columns()[column_id].get());
+    for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
+        auto dst_col =
+                const_cast<vectorized::IColumn*>(result_block.get_columns()[column_id].get());
 
+        std::vector<const vectorized::IColumn*> scan_src_columns;
+        scan_src_columns.reserve(row_id_block_idx.size());
+        std::vector<size_t> scan_positions;
+        scan_positions.reserve(row_id_block_idx.size());
+        for (const auto& [pos_block, block_idx] : row_id_block_idx) {
             DCHECK(scan_blocks.size() > pos_block);
             DCHECK(scan_blocks[pos_block].get_columns().size() > column_id);
-            auto& src_col = *scan_blocks[pos_block].get_columns()[column_id].get();
-
-            dst_col->insert_range_from(src_col, block_idx, 1);
+            scan_src_columns.emplace_back(scan_blocks[pos_block].get_columns()[column_id].get());
+            scan_positions.emplace_back(block_idx);
         }
+        dst_col->insert_from_multi_column(scan_src_columns, scan_positions);
     }
 
     // Statistical runtime profile information.
@@ -919,52 +914,41 @@ Status RowIdStorageReader::read_batch_external_row(
     {
         runtime_profile->add_info_string(ScannersRunningTimeProfile,
                                          std::to_string(scan_running_time) + "ms");
-    }
+        fmt::memory_buffer file_read_lines_buffer;
+        format_to(file_read_lines_buffer, "[");
+        fmt::memory_buffer file_read_bytes_buffer;
+        format_to(file_read_bytes_buffer, "[");
+        fmt::memory_buffer file_read_times_buffer;
+        format_to(file_read_times_buffer, "[");
 
-    {
-        *init_reader_avg_ms =
-                std::accumulate(init_reader_ms.begin(), init_reader_ms.end(), int64_t(0)) /
-                init_reader_ms.size();
+        size_t idx = 0;
+        for (const auto& [_, scan_info] : scan_rows) {
+            format_to(file_read_lines_buffer, "{}, ", scan_info.first.size());
+            *init_reader_avg_ms = fetch_statistics[idx].init_reader_ms;
+            *get_block_avg_ms += fetch_statistics[idx].get_block_ms;
+            format_to(file_read_bytes_buffer, "{}, ", fetch_statistics[idx].file_read_bytes);
+            format_to(file_read_times_buffer, "{}, ", fetch_statistics[idx].file_read_times);
+            idx++;
+        }
+
+        format_to(file_read_lines_buffer, "]");
+        format_to(file_read_bytes_buffer, "]");
+        format_to(file_read_times_buffer, "]");
+
+        *init_reader_avg_ms /= fetch_statistics.size();
+        *get_block_avg_ms /= fetch_statistics.size();
         runtime_profile->add_info_string(InitReaderAvgTimeProfile,
                                          std::to_string(*init_reader_avg_ms) + "ms");
-    }
-
-    {
-        *get_block_avg_ms = std::accumulate(get_block_ms.begin(), get_block_ms.end(), int64_t(0)) /
-                            get_block_ms.size();
         runtime_profile->add_info_string(GetBlockAvgTimeProfile,
                                          std::to_string(*init_reader_avg_ms) + "ms");
+        runtime_profile->add_info_string(FileReadLinesProfile,
+                                         fmt::to_string(file_read_lines_buffer));
+        runtime_profile->add_info_string(vectorized::FileScanner::FileReadBytesProfile,
+                                         fmt::to_string(file_read_bytes_buffer));
+        runtime_profile->add_info_string(vectorized::FileScanner::FileReadTimeProfile,
+                                         fmt::to_string(file_read_times_buffer));
     }
 
-    {
-        stringstream ss;
-        ss << "[";
-        for (const auto& [_, row_ids] : scan_rows) {
-            ss << std::to_string(row_ids.size()) << ", ";
-        }
-        ss << "]";
-        runtime_profile->add_info_string(FileReadLinesProfile, ss.str());
-    }
-
-    {
-        stringstream ss;
-        ss << "[";
-        for (const auto& str : file_read_bytes) {
-            ss << str << ", ";
-        }
-        ss << "]";
-        runtime_profile->add_info_string(vectorized::FileScanner::FileReadBytesProfile, ss.str());
-    }
-
-    {
-        stringstream ss;
-        ss << "[";
-        for (const auto& str : file_read_times) {
-            ss << str << ",";
-        }
-        ss << "]";
-        runtime_profile->add_info_string(vectorized::FileScanner::FileReadTimeProfile, ss.str());
-    }
     runtime_profile->to_proto(pprofile, 2);
 
     *scan_range_cnt = scan_rows.size();

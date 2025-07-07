@@ -486,7 +486,7 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
             if (rpc_struct.callback->response_->blocks(i).has_profile()) {
                 auto response_profile = RuntimeProfile::from_proto(
                         rpc_struct.callback->response_->blocks(i).profile());
-                RETURN_IF_ERROR(_update_profile_info(backend_id, response_profile.get()));
+                _update_profile_info(backend_id, response_profile.get());
             }
 
             if (!partial_block.is_empty_column()) {
@@ -541,34 +541,32 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
     return Status::OK();
 }
 
-Status MaterializationSharedState::_update_profile_info(int64_t backend_id,
-                                                        RuntimeProfile* response_profile) {
+void MaterializationSharedState::_update_profile_info(int64_t backend_id,
+                                                      RuntimeProfile* response_profile) {
     if (!backend_profile_info_string.contains(backend_id)) {
         backend_profile_info_string.emplace(backend_id,
-                                            std::map<std::string, std::stringstream> {});
+                                            std::map<std::string, fmt::memory_buffer> {});
     }
     auto& info_map = backend_profile_info_string[backend_id];
 
-    auto func = [&](const std::string& info_key) -> Status {
+    auto update_profile_info_key = [&](const std::string& info_key) {
         const auto* info_value = response_profile->get_info_string(info_key);
         if (info_value == nullptr) [[unlikely]] {
             LOG(WARNING) << "Get row id fetch rpc profile success, but no info key :" << info_key;
-            return Status::OK();
+            return;
         }
         if (!info_map.contains(info_key)) {
-            info_map.emplace(info_key, std::stringstream {});
+            info_map.emplace(info_key, fmt::memory_buffer {});
         }
-        info_map[info_key] << *info_value << ", ";
-        return Status::OK();
+        fmt::format_to(info_map[info_key], "{}, ", *info_value);
     };
 
-    RETURN_IF_ERROR(func(RowIdStorageReader::ScannersRunningTimeProfile));
-    RETURN_IF_ERROR(func(RowIdStorageReader::InitReaderAvgTimeProfile));
-    RETURN_IF_ERROR(func(RowIdStorageReader::GetBlockAvgTimeProfile));
-    RETURN_IF_ERROR(func(RowIdStorageReader::FileReadLinesProfile));
-    RETURN_IF_ERROR(func(vectorized::FileScanner::FileReadBytesProfile));
-    RETURN_IF_ERROR(func(vectorized::FileScanner::FileReadTimeProfile));
-    return Status::OK();
+    update_profile_info_key(RowIdStorageReader::ScannersRunningTimeProfile);
+    update_profile_info_key(RowIdStorageReader::InitReaderAvgTimeProfile);
+    update_profile_info_key(RowIdStorageReader::GetBlockAvgTimeProfile);
+    update_profile_info_key(RowIdStorageReader::FileReadLinesProfile);
+    update_profile_info_key(vectorized::FileScanner::FileReadBytesProfile);
+    update_profile_info_key(vectorized::FileScanner::FileReadTimeProfile);
 }
 
 void MaterializationSharedState::create_counter_dependency(int operator_id, int node_id,
@@ -694,12 +692,6 @@ Status MaterializationSharedState::init_multi_requests(
                                                              .request = multi_get_request,
                                                              .callback = nullptr,
                                                              .rpc_timer = MonotonicStopWatch()});
-        //        if (profile != nullptr) {
-        //            profile.add_co
-        //
-        //        }
-        //        profile->add_child()
-        //        node_info.printTo()
     }
     // add be_num ad count finish counter for source dependency
     ((CountedFinishDependency*)source_deps.back().get())->add((int)rpc_struct_map.size());

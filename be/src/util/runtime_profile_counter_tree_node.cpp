@@ -133,12 +133,6 @@ void RuntimeProfileCounterTreeNode::to_proto(
         (*child_counter_map)[name].add_child_counters(child.name);
         child.to_proto(proto_counters, child_counter_map);
     }
-
-    // Recurse into children
-    //    for (const auto& child : children) {
-    //        (*(*child_counter_map)[name].mutable_child_counters()).Add(child.name);
-    //        child.to_proto(proto_counters, child_counter_map);
-    //    }
 }
 
 TCounter RuntimeProfileCounterTreeNode::to_thrift() const {

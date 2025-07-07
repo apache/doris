@@ -58,7 +58,7 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
                     "RowIDFetcher: BackendId:" + std::to_string(backend_id));
             for (const auto& [info_key, info_value] :
                  local_state._shared_state->backend_profile_info_string[backend_id]) {
-                child_profile->add_info_string(info_key, "{" + info_value.str() + "}");
+                child_profile->add_info_string(info_key, "{" + fmt::to_string(info_value) + "}");
             }
             local_state._runtime_profile->add_child(child_profile, true);
         }
