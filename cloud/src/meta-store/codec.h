@@ -84,6 +84,8 @@ uint32_t encode_versionstamp(const Versionstamp& vs, std::string* b);
  */
 int decode_versionstamp(std::string_view* in, Versionstamp* vs);
 
+int decode_tailing_versionstamp(std::string_view* in, Versionstamp* vs);
+
 /**
  * Encodes int64 to 8-byte big endian
  * Negative 0x11 0000000000000000
