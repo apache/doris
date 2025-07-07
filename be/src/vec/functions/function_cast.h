@@ -1763,7 +1763,7 @@ private:
             auto& variant = assert_cast<const ColumnVariant&>(*col_from);
             ColumnPtr col_to = data_type_to->create_column();
             if (!variant.is_finalized()) {
-                // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
+                // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
                 variant.assume_mutable()->finalize();
             }
             // It's important to convert as many elements as possible in this context. For instance,

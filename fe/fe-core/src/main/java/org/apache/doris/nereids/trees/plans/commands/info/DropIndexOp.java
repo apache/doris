@@ -33,7 +33,6 @@ import java.util.Map;
  */
 public class DropIndexOp extends AlterTableOp {
     private final String indexName;
-    private final TableNameInfo tableName;
     private boolean ifExists;
 
     private boolean alter;

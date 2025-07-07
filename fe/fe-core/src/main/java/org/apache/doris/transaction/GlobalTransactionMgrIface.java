@@ -46,11 +46,23 @@ import java.util.concurrent.TimeoutException;
 
 public interface GlobalTransactionMgrIface extends Writable {
     default void checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond,
-            int minLoadTimeOutSecond) throws AnalysisException {
-        if (timeoutSecond > maxLoadTimeoutSecond || timeoutSecond < minLoadTimeOutSecond) {
-            throw new AnalysisException("Invalid timeout: " + timeoutSecond + ". Timeout should between "
-                    + minLoadTimeOutSecond + " and " + maxLoadTimeoutSecond
-                    + " seconds");
+                                         int minLoadTimeOutSecond, LoadJobSourceType sourceType)
+            throws AnalysisException {
+        if (timeoutSecond < minLoadTimeOutSecond) {
+            throw new AnalysisException("Invalid timeout: " + timeoutSecond
+                    + ". Timeout should be higher than Config.min_load_timeout_second: "
+                    + minLoadTimeOutSecond);
+        } else if (timeoutSecond > maxLoadTimeoutSecond) {
+            switch (sourceType) {
+                case BACKEND_STREAMING:
+                    throw new AnalysisException("Invalid timeout: " + timeoutSecond
+                            + ". Timeout should be lower than Config.max_stream_load_timeout_second: "
+                            + maxLoadTimeoutSecond);
+                default:
+                    throw new AnalysisException("Invalid timeout: " + timeoutSecond
+                            + ". Timeout should be lower than Config.max_load_timeout_second: "
+                            + maxLoadTimeoutSecond);
+            }
         }
     }
 

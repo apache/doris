@@ -35,11 +35,11 @@
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_accessor.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
@@ -4659,6 +4659,10 @@ void make_single_txn_related_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t i
                 .tag("txn_id", txn_id);
         return;
     }
+
+    uint32_t offset = label_val.size();
+    label_val.append(10, '\x00'); // 10 bytes for versionstamp
+    label_val.append((const char*)&offset, 4);
     MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
     txn->put(label_key, label_val);
 

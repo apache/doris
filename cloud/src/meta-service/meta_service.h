@@ -31,8 +31,8 @@
 #include "common/stats.h"
 #include "cpp/sync_point.h"
 #include "meta-service/delete_bitmap_lock_white_list.h"
-#include "meta-service/txn_kv.h"
 #include "meta-service/txn_lazy_committer.h"
+#include "meta-store/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
@@ -328,6 +328,26 @@ public:
                                                std::string table_id_str);
 
     void get_delete_bitmap_lock_version(std::string& use_version, std::string& instance_id);
+
+    void begin_snapshot(::google::protobuf::RpcController* controller,
+                        const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
+                        ::google::protobuf::Closure* done) override;
+
+    void commit_snapshot(::google::protobuf::RpcController* controller,
+                         const CommitSnapshotRequest* request, CommitSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override;
+
+    void abort_snapshot(::google::protobuf::RpcController* controller,
+                        const AbortSnapshotRequest* request, AbortSnapshotResponse* response,
+                        ::google::protobuf::Closure* done) override;
+
+    void list_snapshot(::google::protobuf::RpcController* controller,
+                       const ListSnapshotRequest* request, ListSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
+    void clone_instance(::google::protobuf::RpcController* controller,
+                        const CloneInstanceRequest* request, CloneInstanceResponse* response,
+                        ::google::protobuf::Closure* done) override;
 
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
@@ -758,6 +778,36 @@ public:
 
     void get_delete_bitmap_lock_version(std::string& use_version, std::string& instance_id) {
         impl_->get_delete_bitmap_lock_version(use_version, instance_id);
+    }
+
+    void begin_snapshot(::google::protobuf::RpcController* controller,
+                        const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
+                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::begin_snapshot, controller, request, response, done);
+    }
+
+    void commit_snapshot(::google::protobuf::RpcController* controller,
+                         const CommitSnapshotRequest* request, CommitSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_snapshot, controller, request, response, done);
+    }
+
+    void abort_snapshot(::google::protobuf::RpcController* controller,
+                        const AbortSnapshotRequest* request, AbortSnapshotResponse* response,
+                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_snapshot, controller, request, response, done);
+    }
+
+    void list_snapshot(::google::protobuf::RpcController* controller,
+                       const ListSnapshotRequest* request, ListSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::list_snapshot, controller, request, response, done);
+    }
+
+    void clone_instance(::google::protobuf::RpcController* controller,
+                        const CloneInstanceRequest* request, CloneInstanceResponse* response,
+                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::clone_instance, controller, request, response, done);
     }
 
 private:

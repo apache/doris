@@ -218,14 +218,69 @@ function stop_doris() {
 
 function stop_doris_grace() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if "${DORIS_HOME}"/be/bin/stop_be.sh --grace && "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
-        echo "INFO: normally stoped doris --grace"
+    local ret=0
+    local keywords="detected memory leak|undefined-behavior"
+    if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
+        echo "INFO: doris be stopped gracefully."
+        if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
+            echo "INFO: try to find keywords ${keywords} in be.out"
+            if [[ -f "${DORIS_HOME}"/be/log/be.out ]]; then
+                if grep -E "${keywords}" "${DORIS_HOME}"/be/log/be.out; then
+                    echo "ERROR: found memory leaks or undefined behavior in be.out" && ret=1
+                else
+                    echo "INFO: no memory leaks or undefined behavior found in be.out"
+                fi
+            else
+                echo "ERROR: be.out not find, which is not expected" && ret=1
+            fi
+        fi
     else
-        pgrep -fi doris | xargs kill -9 &>/dev/null
-        echo "WARNING: force stoped doris"
+        echo "ERROR: doris be stop grace failed." && ret=1
     fi
-    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; fi
-    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; fi
+    if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
+        echo "INFO: doris fe stopped gracefully."
+    else
+        echo "ERROR: doris fe stop grace failed." && ret=1
+    fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then
+        if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; then
+            echo "INFO: doris ms stopped gracefully."
+            if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
+                echo "INFO: try to find keywords ${keywords} in doris_cloud.out"
+                if [[ -f "${DORIS_HOME}"/ms/log/doris_cloud.out ]]; then
+                    if grep -E "${keywords}" "${DORIS_HOME}"/ms/log/doris_cloud.out; then
+                        echo "ERROR: found memory leaks or undefined behavior in ms/log/doris_cloud.out" && ret=1
+                    else
+                        echo "INFO: no memory leaks or undefined behavior found in ms/log/doris_cloud.out"
+                    fi
+                else
+                    echo "ERROR: ms/log/doris_cloud.out not find, which is not expected" && ret=1
+                fi
+            fi
+        else
+            echo "ERROR: doris ms stop grace failed." && ret=1
+        fi
+    fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then
+        if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; then
+            echo "INFO: doris recycler stopped gracefully."
+            echo "INFO: try to find keywords ${keywords} in doris_cloud.out"
+            if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
+                if [[ -f "${DORIS_HOME}"/recycler/log/doris_cloud.out ]]; then
+                    if grep -E "${keywords}" "${DORIS_HOME}"/recycler/log/doris_cloud.out; then
+                        echo "ERROR: found memory leaks or undefined behavior in recycler/log/doris_cloud.out" && ret=1
+                    else
+                        echo "INFO: no memory leaks or undefined behavior found in recycler/log/doris_cloud.out"
+                    fi
+                else
+                    echo "ERROR: recycler/log/doris_cloud.out not find, which is not expected" && ret=1
+                fi
+            fi
+        else
+            echo "ERROR: doris recycler stop grace failed." && ret=1
+        fi
+    fi
+    return "${ret}"
 }
 
 function clean_fdb() {
@@ -295,7 +350,7 @@ deploy_doris_sql_converter() {
     fi
 }
 
-function restart_doris() {
+function _restart_doris() {
     if stop_doris; then echo; fi
     if ! start_doris_fe; then return 1; fi
     if ! start_doris_be; then return 1; fi
@@ -313,6 +368,11 @@ function restart_doris() {
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
     sleep 10s
+}
+
+function restart_doris() {
+    # restart BE may block on JVM_MonitorWait() for a long time, here try twice
+    _restart_doris || _restart_doris
 }
 
 function check_tpch_table_rows() {

@@ -186,7 +186,7 @@ struct CurryDirectAndData {
 };
 
 template <bool allow_integer, bool allow_float, bool allow_decimal, bool allow_stringlike,
-          bool allow_datelike, int define_index = 0>
+          bool allow_datelike, bool allow_ip, int define_index = 0>
 struct creator_with_type_base {
     template <typename Class, typename... TArgs>
     static AggregateFunctionPtr create_base(const DataTypes& argument_types,
@@ -267,6 +267,17 @@ struct creator_with_type_base {
             }
         }
 
+        if constexpr (allow_ip) {
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_IPV4:
+                return create.template operator()<PrimitiveType::TYPE_IPV4>();
+            case PrimitiveType::TYPE_IPV6:
+                return create.template operator()<PrimitiveType::TYPE_IPV6>();
+            default:
+                break;
+            }
+        }
+
         return nullptr;
     }
 
@@ -331,12 +342,14 @@ struct creator_with_type_base {
                 std::forward<TArgs>(args)...);
     }
 };
-
-using creator_with_integer_type = creator_with_type_base<true, false, false, false, false>;
-using creator_with_numeric_type = creator_with_type_base<true, true, false, false, false>;
-using creator_with_decimal_type = creator_with_type_base<false, false, true, false, false>;
-using creator_with_type = creator_with_type_base<true, true, true, false, false>;
-using creator_with_any = creator_with_type_base<true, true, true, true, true>;
+template <int define_index>
+using creator_with_integer_type_with_index =
+        creator_with_type_base<true, false, false, false, false, false, define_index>;
+using creator_with_integer_type = creator_with_integer_type_with_index<0>;
+using creator_with_numeric_type = creator_with_type_base<true, true, false, false, false, false>;
+using creator_with_decimal_type = creator_with_type_base<false, false, true, false, false, false>;
+using creator_with_type = creator_with_type_base<true, true, true, false, false, false>;
+using creator_with_any = creator_with_type_base<true, true, true, true, true, true>;
 
 } // namespace  doris::vectorized
 

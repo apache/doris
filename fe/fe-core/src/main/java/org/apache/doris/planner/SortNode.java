@@ -130,18 +130,6 @@ public class SortNode extends PlanNode {
         isAnalyticSort = v;
     }
 
-    public boolean isAnalyticSort() {
-        return isAnalyticSort;
-    }
-
-    public DataPartition getInputPartition() {
-        return inputPartition;
-    }
-
-    public void setInputPartition(DataPartition inputPartition) {
-        this.inputPartition = inputPartition;
-    }
-
     public SortInfo getSortInfo() {
         return info;
     }
@@ -161,16 +149,8 @@ public class SortNode extends PlanNode {
         }
     }
 
-    public boolean getUseTopnOpt() {
-        return useTopnOpt;
-    }
-
     public void setUseTopnOpt(boolean useTopnOpt) {
         this.useTopnOpt = useTopnOpt;
-    }
-
-    public boolean getUseTwoPhaseReadOpt() {
-        return this.useTwoPhaseReadOpt;
     }
 
     public void setUseTwoPhaseReadOpt(boolean useTwoPhaseReadOpt) {
@@ -233,21 +213,6 @@ public class SortNode extends PlanNode {
         }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
-    }
-
-    @Override
-    protected void computeOldCardinality() {
-        cardinality = getChild(0).cardinality;
-        if (hasLimit()) {
-            if (cardinality == -1) {
-                cardinality = limit;
-            } else {
-                cardinality = Math.min(cardinality, limit);
-            }
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
-        }
     }
 
     private void removeUnusedExprs() {
@@ -327,10 +292,6 @@ public class SortNode extends PlanNode {
     public void setOffset(long offset) {
         super.setOffset(offset);
         updateSortAlgorithm();
-    }
-
-    public List<Pair<Integer, Integer>> getTopnFilterTargets() {
-        return topnFilterTargets;
     }
 
     public void setTopnFilterTargets(

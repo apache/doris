@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupByClause;
 import org.apache.doris.analysis.GroupingInfo;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -33,8 +32,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -56,14 +53,6 @@ public class RepeatNode extends PlanNode {
     private PlanNode input;
     private GroupByClause groupByClause;
 
-    protected RepeatNode(PlanNodeId id, PlanNode input, GroupingInfo groupingInfo, GroupByClause groupByClause) {
-        super(id, groupingInfo.getOutputTupleDesc().getId().asList(), "REPEAT_NODE", StatisticalType.REPEAT_NODE);
-        this.children.add(input);
-        this.groupingInfo = groupingInfo;
-        this.input = input;
-        this.groupByClause = groupByClause;
-    }
-
     /**
      * just for new Optimizer.
      */
@@ -77,30 +66,6 @@ public class RepeatNode extends PlanNode {
         this.allSlotId = Objects.requireNonNull(allSlotId, "allSlotId can not be null");
         this.groupingList = Objects.requireNonNull(groupingList, "groupingList can not be null");
         this.outputTupleDesc = groupingInfo.getOutputTupleDesc();
-    }
-
-    // only for unittest
-    protected RepeatNode(PlanNodeId id, PlanNode input, List<Set<SlotId>> repeatSlotIdList,
-            TupleDescriptor outputTupleDesc, List<List<Long>> groupingList) {
-        super(id, input.getTupleIds(), "REPEAT_NODE", StatisticalType.REPEAT_NODE);
-        this.children.add(input);
-        this.repeatSlotIdList = buildIdSetList(repeatSlotIdList);
-        this.groupingList = groupingList;
-        this.outputTupleDesc = outputTupleDesc;
-        tupleIds.add(outputTupleDesc.getId());
-    }
-
-    private static List<Set<Integer>> buildIdSetList(List<Set<SlotId>> repeatSlotIdList) {
-        List<Set<Integer>> slotIdList = new ArrayList<>();
-        for (Set slotSet : repeatSlotIdList) {
-            Set<Integer> intSet = new HashSet<>();
-            for (Object slotId : slotSet) {
-                intSet.add(((SlotId) slotId).asInt());
-            }
-            slotIdList.add(intSet);
-        }
-
-        return slotIdList;
     }
 
     @Override

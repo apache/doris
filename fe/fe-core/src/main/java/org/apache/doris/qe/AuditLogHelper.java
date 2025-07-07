@@ -17,13 +17,9 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.Queriable;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.analysis.ValueList;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -120,16 +116,6 @@ public class AuditLogHelper {
 
     private static Optional<String> handleInsertStmt(String origStmt, StatementBase parsedStmt) {
         int rowCnt = 0;
-        // old planner
-        if (parsedStmt instanceof NativeInsertStmt) {
-            QueryStmt queryStmt = ((NativeInsertStmt) parsedStmt).getQueryStmt();
-            if (queryStmt instanceof SelectStmt) {
-                ValueList list = ((SelectStmt) queryStmt).getValueList();
-                if (list != null && list.getRows() != null) {
-                    rowCnt = list.getRows().size();
-                }
-            }
-        }
         // nereids planner
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();

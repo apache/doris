@@ -748,7 +748,12 @@ public:
     JsonbDecimalVal() = delete;
 
     // get the decimal value
-    T val() const { return T(value); }
+    NativeType val() const {
+        // to avoid memory alignment issues, we use memcpy to copy the value
+        NativeType tmp;
+        memcpy(&tmp, &value, sizeof(NativeType));
+        return tmp;
+    }
 
     static constexpr int numPackedBytes() {
         return sizeof(JsonbValue) + sizeof(precision) + sizeof(scale) + sizeof(value);

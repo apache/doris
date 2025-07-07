@@ -17,16 +17,12 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.common.Pair;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNestedLoopJoinNode;
@@ -66,21 +62,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
     private List<Expr> markJoinConjuncts;
 
-    public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
-        super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, outer, inner, innerRef);
-        tupleIds.addAll(outer.getOutputTupleIds());
-        tupleIds.addAll(inner.getOutputTupleIds());
-    }
-
     public static boolean canParallelize(JoinOperator joinOp) {
         return joinOp == JoinOperator.CROSS_JOIN || joinOp == JoinOperator.INNER_JOIN
                 || joinOp == JoinOperator.LEFT_OUTER_JOIN || joinOp == JoinOperator.LEFT_SEMI_JOIN
                 || joinOp == JoinOperator.LEFT_ANTI_JOIN || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
-    public boolean canParallelize() {
-        return canParallelize(joinOp);
-    }
 
     public void setJoinConjuncts(List<Expr> joinConjuncts) {
         this.joinConjuncts = joinConjuncts;
@@ -90,20 +77,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         this.markJoinConjuncts = markJoinConjuncts;
     }
 
-    @Override
-    protected List<SlotId> computeSlotIdsForJoinConjuncts(Analyzer analyzer) {
-        // conjunct
-        List<SlotId> conjunctSlotIds = Lists.newArrayList();
-        Expr.getIds(joinConjuncts, null, conjunctSlotIds);
-        return conjunctSlotIds;
-    }
-
-    @Override
-    protected Pair<Boolean, Boolean> needToCopyRightAndLeft() {
-        boolean copyleft = true;
-        boolean copyRight = true;
-        return Pair.of(copyleft, copyRight);
-    }
 
     /**
      * Only for Nereids.
@@ -142,33 +115,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         return runtimeFilterExpr;
     }
 
-    public void addBitmapFilterExpr(Expr runtimeFilterExpr) {
-        this.runtimeFilterExpr.add(runtimeFilterExpr);
-    }
-
-    public TableRef getInnerRef() {
-        return innerRef;
-    }
-
-    @Override
-    protected void computeOldCardinality() {
-        if (getChild(0).cardinality == -1 || getChild(1).cardinality == -1) {
-            cardinality = -1;
-        } else {
-            cardinality = getChild(0).cardinality * getChild(1).cardinality;
-            if (computeOldSelectivity() != -1) {
-                cardinality = Math.round(((double) cardinality) * computeOldSelectivity());
-            }
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats NestedLoopJoin: cardinality={}", Long.toString(cardinality));
-        }
-    }
-
-    @Override
-    protected void computeOtherConjuncts(Analyzer analyzer, ExprSubstitutionMap originToIntermediateSmap) {
-        joinConjuncts = Expr.substituteList(joinConjuncts, originToIntermediateSmap, analyzer, false);
-    }
 
     @Override
     protected String debugString() {
@@ -200,15 +146,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         msg.node_type = TPlanNodeType.CROSS_JOIN_NODE;
     }
 
-
-    private void computeCrossRuntimeFilterExpr() {
-        for (int i = conjuncts.size() - 1; i >= 0; --i) {
-            if (conjuncts.get(i) instanceof BitmapFilterPredicate) {
-                addBitmapFilterExpr(conjuncts.get(i));
-                conjuncts.remove(i);
-            }
-        }
-    }
 
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {

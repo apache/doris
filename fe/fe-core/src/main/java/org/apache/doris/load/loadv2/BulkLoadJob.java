@@ -19,7 +19,6 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -430,33 +429,5 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             return properties.get("fs.s3a.access.key");
         }
         return null;
-    }
-
-    // ---------------- for load stmt ----------------
-    public static BulkLoadJob fromInsertStmt(InsertStmt insertStmt) throws DdlException {
-        // get db id
-        String dbName = insertStmt.getLoadLabel().getDbName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-        // create job
-        BulkLoadJob bulkLoadJob;
-        try {
-            switch (insertStmt.getLoadType()) {
-                case BROKER_LOAD:
-                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
-                            insertStmt.getLoadLabel().getLabelName(), (BrokerDesc) insertStmt.getResourceDesc(),
-                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
-                    break;
-                default:
-                    throw new DdlException("Unknown load job type.");
-            }
-            bulkLoadJob.setComment(insertStmt.getComments());
-            bulkLoadJob.setJobProperties(insertStmt.getProperties());
-            // TODO(tsy): use generic and change the param in checkAndSetDataSourceInfo
-            bulkLoadJob.checkAndSetDataSourceInfo(db, (List<DataDescription>) insertStmt.getDataDescList());
-            return bulkLoadJob;
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        }
     }
 }

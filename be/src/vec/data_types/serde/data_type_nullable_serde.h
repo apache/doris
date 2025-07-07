@@ -94,6 +94,9 @@ public:
         nested_serde->set_return_object_as_string(value);
     }
 
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                   int64_t row_num) const override;
