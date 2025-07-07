@@ -14,21 +14,36 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// Define file format struct, like data header, index header.
 
-#pragma once
+syntax="proto2";
 
-#include <cstddef>
-#include <string>
+package doris.io.cache;
 
-namespace doris {
-
-void errno_to_cstring(int err, char* buf, size_t buf_len);
-
-// Return a string representing an errno.
-inline static std::string errno_to_string(int err) {
-    char buf[512];
-    errno_to_cstring(err, buf, sizeof(buf));
-    return std::string(buf);
+message UInt128WrapperPb {
+    optional uint64 high = 1;
+    optional uint64 low = 2;
 }
 
-} // namespace doris
+message LRUDumpEntryPb {
+    optional UInt128WrapperPb hash = 1;
+    optional uint64 offset = 2;
+    optional uint64 size = 3;
+}
+
+message LRUDumpEntryGroupPb {
+    repeated LRUDumpEntryPb entries = 1;
+}
+
+message EntryGroupOffsetSizePb {
+    optional uint64 offset = 1;
+    optional uint64 size = 2;
+    optional uint32 checksum = 3;
+}
+
+message LRUDumpMetaPb{
+    optional uint64 entry_num = 1;
+    optional string queue_name = 2;
+    repeated EntryGroupOffsetSizePb group_offset_size = 3;
+}
+

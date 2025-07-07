@@ -327,7 +327,6 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         String sql = "REFRESH CATALOG " + hmsExternalCatalog.getName();
         OriginStatement originStmt = new OriginStatement(sql, 0);
         ConnectContext ctx = new ConnectContext();
-        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setEnv(Env.getCurrentEnv());
         MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, ctx,
