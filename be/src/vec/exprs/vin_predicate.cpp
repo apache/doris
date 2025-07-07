@@ -114,6 +114,11 @@ Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t seg
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
+bool VInPredicate::could_prune_result_bitmap_for_missing_column(VExprContext* context) {
+    DCHECK_EQ(get_num_children(), 2);
+    return _could_prune_result_bitmap_for_missing_column(context);
+}
+
 Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
