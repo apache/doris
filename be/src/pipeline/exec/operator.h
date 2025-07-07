@@ -1116,7 +1116,9 @@ public:
     ~DummyOperatorLocalState() = default;
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
-    std::vector<Dependency*> execution_dependencies() override { return {_filter_dependency.get()}; }
+    std::vector<Dependency*> execution_dependencies() override {
+        return {_filter_dependency.get()};
+    }
     Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 private:
