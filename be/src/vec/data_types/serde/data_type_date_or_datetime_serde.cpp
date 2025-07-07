@@ -389,10 +389,18 @@ Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
     uint32_t year, month, day;
 
     // read year
-    RETURN_IF_ERROR((consume_digit<UInt32, 2, 4>(ptr, end, year)));
-    if (year < 100) {
-        // Convert 2-digit year based on 1970 boundary
-        year += (year >= 70) ? 1900 : 2000;
+    RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, year)));
+    if (is_digit_range(ptr, ptr + 1)) {
+        // continue by digit, it must be a 4-digit year
+        uint32_t year2;
+        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, year2)));
+        year = year * 100 + year2;
+    } else {
+        // otherwise, it must be a 2-digit year
+        if (year < 100) {
+            // Convert 2-digit year based on 1970 boundary
+            year += (year >= 70) ? 1900 : 2000;
+        }
     }
 
     // check for separator
@@ -922,9 +930,24 @@ Status DataTypeDateSerDe<T>::from_int_batch(const IntDataType::ColumnType& int_c
     col_nullmap.resize(int_col.size());
 
     for (size_t i = 0; i < int_col.size(); ++i) {
+        if (int_col.get_element(i) > std::numeric_limits<int64_t>::max() ||
+            int_col.get_element(i) < std::numeric_limits<int64_t>::min()) {
+            col_nullmap.get_data()[i] = true;
+            if constexpr (IsDatetime) {
+                col_data.get_data()[i] = MIN_DATETIME_V2;
+            } else {
+                col_data.get_data()[i] = MIN_DATE_V2;
+            }
+            continue;
+        }
         auto int_val = (int64_t)int_col.get_element(i);
         if (int_val <= 0) {
             col_nullmap.get_data()[i] = true;
+            if constexpr (IsDatetime) {
+                col_data.get_data()[i] = MIN_DATETIME_V2;
+            } else {
+                col_data.get_data()[i] = MIN_DATE_V2;
+            }
             continue;
         }
         int length = common::count_digits_fast(int_val);
@@ -936,6 +959,11 @@ Status DataTypeDateSerDe<T>::from_int_batch(const IntDataType::ColumnType& int_c
             col_nullmap.get_data()[i] = false;
         } else if (st.template is<ErrorCode::INVALID_ARGUMENT>()) {
             col_nullmap.get_data()[i] = true;
+            if constexpr (IsDatetime) {
+                col_data.get_data()[i] = MIN_DATETIME_V2;
+            } else {
+                col_data.get_data()[i] = MIN_DATE_V2;
+            }
         } else {
             return st;
         }
@@ -951,6 +979,11 @@ Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(const IntDataType::Colum
     col_data.resize(int_col.size());
 
     for (size_t i = 0; i < int_col.size(); ++i) {
+        if (int_col.get_element(i) > std::numeric_limits<int64_t>::max() ||
+            int_col.get_element(i) < std::numeric_limits<int64_t>::min()) {
+            return Status::InvalidArgument("invalid int value for time: {}",
+                                           int_col.get_element(i));
+        }
         auto int_val = (int64_t)int_col.get_element(i);
         if (int_val <= 0) {
             return Status::InvalidArgument("invalid int value for datetimev2: {}", int_val);
@@ -979,6 +1012,11 @@ Status DataTypeDateSerDe<T>::from_float_batch(const FloatDataType::ColumnType& f
         if (float_value <= 0 || std::isnan(float_value) || std::isinf(float_value) ||
             float_value >= (double)std::numeric_limits<int64_t>::max()) {
             col_nullmap.get_data()[i] = true;
+            if constexpr (IsDatetime) {
+                col_data.get_data()[i] = MIN_DATETIME_V2;
+            } else {
+                col_data.get_data()[i] = MIN_DATE_V2;
+            }
             continue;
         }
         auto int_part = static_cast<int64_t>(float_value);
@@ -994,6 +1032,11 @@ Status DataTypeDateSerDe<T>::from_float_batch(const FloatDataType::ColumnType& f
             col_nullmap.get_data()[i] = false;
         } else if (st.template is<ErrorCode::INVALID_ARGUMENT>()) {
             col_nullmap.get_data()[i] = true;
+            if constexpr (IsDatetime) {
+                col_data.get_data()[i] = MIN_DATETIME_V2;
+            } else {
+                col_data.get_data()[i] = MIN_DATE_V2;
+            }
         } else {
             return st;
         }
@@ -1039,9 +1082,24 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(const DecimalDataType::ColumnTyp
     col_nullmap.resize(decimal_col.size());
 
     for (size_t i = 0; i < decimal_col.size(); ++i) {
+        if (decimal_col.get_intergral_part(i) > std::numeric_limits<int64_t>::max() ||
+            decimal_col.get_intergral_part(i) < std::numeric_limits<int64_t>::min()) {
+            col_nullmap.get_data()[i] = true;
+            if constexpr (IsDatetime) {
+                col_data.get_data()[i] = MIN_DATETIME_V2;
+            } else {
+                col_data.get_data()[i] = MIN_DATE_V2;
+            }
+            continue;
+        }
         auto int_part = (int64_t)decimal_col.get_intergral_part(i);
         if (int_part <= 0) {
             col_nullmap.get_data()[i] = true;
+            if constexpr (IsDatetime) {
+                col_data.get_data()[i] = MIN_DATETIME_V2;
+            } else {
+                col_data.get_data()[i] = MIN_DATE_V2;
+            }
             continue;
         }
         int length = common::count_digits_fast(int_part);
@@ -1056,6 +1114,11 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(const DecimalDataType::ColumnTyp
             col_nullmap.get_data()[i] = false;
         } else if (st.template is<ErrorCode::INVALID_ARGUMENT>()) {
             col_nullmap.get_data()[i] = true;
+            if constexpr (IsDatetime) {
+                col_data.get_data()[i] = MIN_DATETIME_V2;
+            } else {
+                col_data.get_data()[i] = MIN_DATE_V2;
+            }
         } else {
             return st;
         }
@@ -1071,6 +1134,11 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
     col_data.resize(decimal_col.size());
 
     for (size_t i = 0; i < decimal_col.size(); ++i) {
+        if (decimal_col.get_intergral_part(i) > std::numeric_limits<int64_t>::max() ||
+            decimal_col.get_intergral_part(i) < std::numeric_limits<int64_t>::min()) {
+            return Status::InvalidArgument("invalid intergral value for time: {}",
+                                           decimal_col.get_element(i));
+        }
         auto int_part = (int64_t)decimal_col.get_intergral_part(i);
         if (int_part <= 0) {
             return Status::InvalidArgument("invalid decimal integral part for datetimev2: {}",

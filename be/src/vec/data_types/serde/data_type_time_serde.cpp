@@ -590,6 +590,12 @@ Status DataTypeTimeV2SerDe::from_int_batch(const IntDataType::ColumnType& int_co
     col_nullmap.resize(int_col.size());
 
     for (size_t i = 0; i < int_col.size(); ++i) {
+        if (int_col.get_element(i) > std::numeric_limits<int64_t>::max() ||
+            int_col.get_element(i) < std::numeric_limits<int64_t>::min()) {
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = 0;
+            continue;
+        }
         auto int_val = (int64_t)int_col.get_element(i);
         int length = common::count_digits_fast(int_val);
 
@@ -599,6 +605,7 @@ Status DataTypeTimeV2SerDe::from_int_batch(const IntDataType::ColumnType& int_co
             col_nullmap.get_data()[i] = false;
         } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
             col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = 0;
         } else {
             return st;
         }
@@ -613,6 +620,11 @@ Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(const IntDataType::Column
     col_data.resize(int_col.size());
 
     for (size_t i = 0; i < int_col.size(); ++i) {
+        if (int_col.get_element(i) > std::numeric_limits<int64_t>::max() ||
+            int_col.get_element(i) < std::numeric_limits<int64_t>::min()) {
+            return Status::InvalidArgument("invalid int value for time: {}",
+                                           int_col.get_element(i));
+        }
         auto int_val = (int64_t)int_col.get_element(i);
         int length = common::count_digits_fast(int_val);
 
@@ -636,6 +648,7 @@ Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& fl
         if (std::isnan(float_value) || std::isinf(float_value) ||
             float_value >= (double)std::numeric_limits<int64_t>::max()) {
             col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = 0;
             continue;
         }
         auto int_part = static_cast<int64_t>(float_value);
@@ -649,9 +662,11 @@ Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& fl
                 col_nullmap.get_data()[i] = false;
             } else {
                 col_nullmap.get_data()[i] = true;
+                col_data.get_data()[i] = 0;
             }
         } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
             col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = 0;
         } else {
             return st;
         }
@@ -697,6 +712,12 @@ Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType
     col_nullmap.resize(decimal_col.size());
 
     for (size_t i = 0; i < decimal_col.size(); ++i) {
+        if (decimal_col.get_intergral_part(i) > std::numeric_limits<int64_t>::max() ||
+            decimal_col.get_intergral_part(i) < std::numeric_limits<int64_t>::min()) {
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = 0;
+            continue;
+        }
         auto int_part = (int64_t)decimal_col.get_intergral_part(i);
         int length = common::count_digits_fast(int_part);
 
@@ -708,9 +729,11 @@ Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType
                 col_nullmap.get_data()[i] = false;
             } else {
                 col_nullmap.get_data()[i] = true;
+                col_data.get_data()[i] = 0;
             }
         } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
             col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = 0;
         } else {
             return st;
         }
@@ -725,6 +748,11 @@ Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
     col_data.resize(decimal_col.size());
 
     for (size_t i = 0; i < decimal_col.size(); ++i) {
+        if (decimal_col.get_intergral_part(i) > std::numeric_limits<int64_t>::max() ||
+            decimal_col.get_intergral_part(i) < std::numeric_limits<int64_t>::min()) {
+            return Status::InvalidArgument("invalid intergral value for time: {}",
+                                           decimal_col.get_element(i));
+        }
         auto int_part = (int64_t)decimal_col.get_intergral_part(i);
         int length = common::count_digits_fast(int_part);
 
