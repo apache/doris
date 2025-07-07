@@ -60,7 +60,6 @@ public class MysqlDataDescription {
     private List<String> columns;
     private final List<Expression> columnMappingList;
     private final Map<String, String> properties;
-    private boolean isAnalyzed = false;
     private boolean clientLocal;
     private List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
     private FileFormatProperties fileFormatProperties;
@@ -173,12 +172,8 @@ public class MysqlDataDescription {
      * analyze
      */
     public void analyze(String fullDbName) throws UserException {
-        if (isAnalyzed) {
-            return;
-        }
         checkLoadPriv(fullDbName);
         analyzeWithoutCheckPriv(fullDbName);
-        isAnalyzed = true;
     }
 
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
