@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #include "vec/json/json_parser.h"
 
 #include <gtest/gtest.h>
@@ -72,14 +89,42 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
 
     // Test complex nested structure
     config.enable_flatten_nested = false;
+    std::string json1 = R"({"a":[[1,2],[3],[4,5,6]]})";
+    // multi level nested array in object
+    result = parser.parse(json1.c_str(), json1.size(), config);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->values.size(), 1);
+    EXPECT_EQ(result->paths.size(), 1);
+    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+
     std::string json = R"({"nested": [{"a": [1,2,3]}]})";
     // result should be jsonbField
     result = parser.parse(json.c_str(), json.size(), config);
     ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->values.size(), 1);
+    EXPECT_EQ(result->paths.size(), 1);
     EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_JSONB);
 
+    // multi level nested array in nested array object
+    std::string json2 = R"({"a":[{"b":[[1,2,3]]}]})";
+    result = parser.parse(json2.c_str(), json2.size(), config);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->values.size(), 1);
+    EXPECT_EQ(result->paths.size(), 1);
+    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_JSONB);
+
+    // test flatten nested
     config.enable_flatten_nested = true;
     EXPECT_ANY_THROW(parser.parse(json.c_str(), json.size(), config));
+    // test flatten nested with multi level nested array
+    // no throw because it is not nested object array
+    result = parser.parse(json1.c_str(), json1.size(), config);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->values.size(), 1);
+    EXPECT_EQ(result->paths.size(), 1);
+    EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
+
+    EXPECT_ANY_THROW(parser.parse(json2.c_str(), json2.size(), config));
 }
 
 TEST(JsonParserTest, ParseNestedAndFlatten) {

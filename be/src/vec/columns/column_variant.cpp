@@ -892,6 +892,27 @@ void ColumnVariant::Subcolumn::get(size_t n, Field& res) const {
     }
     if (is_finalized()) {
         if (least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
+            if (least_common_type.get_type_id() == PrimitiveType::TYPE_ARRAY) {
+                // Array of JsonbField is special case
+                get_finalized_column().get(n, res);
+                // here we will get a Array<String> Field, we need to convert it to Array<JsonbField>
+                if (res.get_type() == PrimitiveType::TYPE_ARRAY) {
+                    Field converted_res = Field::create_field<TYPE_ARRAY>(Array());
+                    for (auto& item : res.get<Array&>()) {
+                        Field jsonb_item;
+                        DCHECK(item.get_type() == PrimitiveType::TYPE_STRING);
+                        auto& string_item = item.get<String&>();
+                        jsonb_item = Field::create_field<TYPE_JSONB>(
+                                JsonbField(string_item.c_str(), string_item.size()));
+                        converted_res.get<Array&>().emplace_back(std::move(jsonb_item));
+                    }
+                    res = std::move(converted_res);
+                } else {
+                    res = Field::create_field<TYPE_ARRAY>(
+                            Array {Field::create_field<TYPE_JSONB>(JsonbField())});
+                }
+                return;
+            }
             // JsonbFiled is special case
             res = Field::create_field<TYPE_JSONB>(JsonbField());
         }

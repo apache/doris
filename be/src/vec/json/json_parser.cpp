@@ -59,14 +59,14 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
     if (element.isObject()) {
         traverseObject(element.getObject(), ctx);
     } else if (element.isArray()) {
-        if (ctx.has_nested) {
+        if (ctx.has_nested_in_flatten) {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Nesting of array in Nested array within variant subcolumns is "
                                    "currently not supported.");
         }
-        ctx.has_nested = false;
+        has_nested = false;
         check_has_nested_object(element);
-        ctx.has_nested = has_nested;
+        ctx.has_nested_in_flatten = has_nested && ctx.enable_flatten_nested;
         if (has_nested && !ctx.enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
@@ -143,7 +143,7 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseContext& ctx) {
     /// Traverse elements of array and collect an array of fields by each path.
     ParseArrayContext array_ctx;
-    array_ctx.has_nested = ctx.has_nested;
+    array_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     array_ctx.total_size = array.size();
     for (auto it = array.begin(); it != array.end(); ++it) {
         traverseArrayElement(*it, array_ctx);
@@ -169,7 +169,7 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
                                                       ParseArrayContext& ctx) {
     ParseContext element_ctx;
-    element_ctx.has_nested = ctx.has_nested;
+    element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     traverse(element, element_ctx);
     auto& [_, paths, values, flatten_nested, has_nested] = element_ctx;
     size_t size = paths.size();
