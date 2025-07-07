@@ -20,7 +20,7 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class VirtualSlotRef MOCK_REMOVE(final) : public VExpr {
     ENABLE_FACTORY_CREATOR(VirtualSlotRef);
 
@@ -78,7 +78,7 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap) override;
+            roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) override;
 
 #ifdef BE_TEST
     void set_column_id(int column_id) { _column_id = column_id; }
@@ -100,5 +100,5 @@ private:
     std::shared_ptr<VExpr> _virtual_column_expr;
     DataTypePtr _column_data_type;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

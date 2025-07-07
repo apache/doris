@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -284,7 +285,7 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap);
+            roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats);
 
     // Prepare the runtime for ANN range search.
     // RangeSearchRuntimeInfo is used to store the runtime information of ann range search.

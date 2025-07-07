@@ -16,6 +16,7 @@
 // under the License.
 
 suite("create_ann_index_test") {
+    // Test that CREATE INDEX for ANN is not supported
     sql "drop table if exists tbl_not_null"
     sql """
     CREATE TABLE `tbl_not_null` (
@@ -29,170 +30,6 @@ suite("create_ann_index_test") {
     );
     """
 
-    sql "drop table if exists tbl_nullable"
-    sql """
-        CREATE TABLE tbl_nullable (
-            id INT NOT NULL COMMENT "",
-            embedding ARRAY<FLOAT> NULL COMMENT ""
-        ) ENGINE=OLAP
-        DUPLICATE KEY(id) COMMENT "OLAP"
-        DISTRIBUTED BY HASH(id) BUCKETS 2
-        PROPERTIES (
-            "replication_num" = "1"
-        );
-    """
-    sql "drop index if exists idx_nullable_ann ON tbl_nullable"
-    // 1. Case for nullable column
-    test {
-        sql """
-            CREATE INDEX idx_nullable_ann ON tbl_nullable(`embedding`) USING ANN PROPERTIES(
-                "index_type"="hnsw",
-                "metric_type"="l2_distance",
-                "dim"="1"
-            );
-        """
-        exception "ANN index must be built on a column that is not nullable"
-    }
-
-    // 2. Invalid properties cases
-    // dim is not a positive integer
-    sql "drop index if exists idx_test_ann2 ON tbl_not_null"
-    test {
-        sql """
-            CREATE INDEX idx_test_ann2 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "index_type"="hnsw",
-                "metric_type"="l2_distance",
-                "dim"="-1"
-            );
-        """
-        exception "dim of ann index must be a positive integer"
-    }
-
-    // dim is not a number
-    sql "drop index if exists idx_test_ann3 ON tbl_not_null"
-    test {
-        sql """
-            CREATE INDEX idx_test_ann3 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "index_type"="hnsw",
-                "metric_type"="l2_distance",
-                "dim"="abc"
-            );
-        """
-        exception "dim of ann index must be a positive integer"
-    }
-
-    // dim is missing
-    test {
-        sql """
-            CREATE INDEX idx_test_ann4 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "index_type"="hnsw",
-                "metric_type"="l2_distance"
-            );
-        """
-        exception "dim of ann index must be specified"
-    }
-
-    // index_type is missing
-    test {
-        sql """
-            CREATE INDEX idx_test_ann5 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "metric_type"="l2_distance",
-                "dim"="1"
-            );
-        """
-        exception "index_type of ann index be specified."
-    }
-
-    // metric_type is missing
-    test {
-        sql """
-            CREATE INDEX idx_test_ann6 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "index_type"="hnsw",
-                "dim"="1"
-            );
-        """
-        exception "metric_type of ann index must be specified."
-    }
-
-    // index_type is incorrect
-    test {
-        sql """
-            CREATE INDEX idx_test_ann7 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "index_type"="ivf",
-                "metric_type"="l2_distance",
-                "dim"="1"
-            );
-        """
-        exception "only support ann index with type hnsw"
-    }
-
-    // metric_type is incorrect
-    test {
-        sql """
-            CREATE INDEX idx_test_ann8 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "index_type"="hnsw",
-                "metric_type"="cosine",
-                "dim"="1"
-            );
-        """
-        exception "only support ann index with metric l2_distance or inner_product"
-    }
-
-    // quantization is incorrect
-    test {
-        sql """
-            CREATE INDEX idx_test_ann9 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "index_type"="hnsw",
-                "metric_type"="l2_distance",
-                "dim"="1",
-                "quantization"="bad"
-            );
-        """
-        exception "only support ann index with quantization flat or pq"
-    }
-
-    // Unknown property
-    test {
-        sql """
-            CREATE INDEX idx_test_ann12 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-                "index_type"="hnsw",
-                "metric_type"="l2_distance",
-                "dim"="1",
-                "unknown"="xxx"
-            );
-        """
-        exception "unknown ann index property: unknown"
-    }
-
-    // Since drop index can not interupt the execution of create index, so below cases are ignored.
-
-    // // quantization = flat
-    // test {
-    //     sql """
-    //         CREATE INDEX idx_test_ann10 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-    //             "index_type"="hnsw",
-    //             "metric_type"="l2_distance",
-    //             "dim"="1",
-    //             "quantization"="flat"
-    //         );
-    //     """
-    // }
-
-    // sql "drop index idx_test_ann10 ON tbl_not_null"
-
-    // // quantization = pq
-    // test {
-    //     sql """
-    //         CREATE INDEX idx_test_ann11 ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
-    //             "index_type"="hnsw",
-    //             "metric_type"="inner_product",
-    //             "dim"="1",
-    //             "quantization"="pq"
-    //         );
-    //     """
-    // }
-
-    // 3. Valid CREATE INDEX syntax (execute last)
     test {
         sql """
             CREATE INDEX idx_test_ann ON tbl_not_null(`embedding`) USING ANN PROPERTIES(
@@ -201,5 +38,306 @@ suite("create_ann_index_test") {
                 "dim"="1"
             );
         """
+        exception "ANN index can only be created during table creation, not through CREATE INDEX"
     }
+
+    // Test cases for creating tables with ANN indexes
+
+    // 1. Case for nullable column
+    sql "drop table if exists tbl_nullable_ann"
+    test {
+        sql """
+            CREATE TABLE tbl_nullable_ann (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NULL COMMENT "",
+                INDEX idx_nullable_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="hnsw",
+                    "metric_type"="l2_distance",
+                    "dim"="1"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "ANN index must be built on a column that is not nullable"
+    }
+
+    // 2. Invalid properties cases
+    // dim is not a positive integer
+    sql "drop table if exists tbl_ann_invalid_dim"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_invalid_dim (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="hnsw",
+                    "metric_type"="l2_distance",
+                    "dim"="-1"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "dim of ann index must be a positive integer"
+    }
+
+    // dim is not a number
+    sql "drop table if exists tbl_ann_invalid_dim_str"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_invalid_dim_str (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="hnsw",
+                    "metric_type"="l2_distance",
+                    "dim"="abc"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "dim of ann index must be a positive integer"
+    }
+
+    // dim is missing
+    sql "drop table if exists tbl_ann_missing_dim"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_missing_dim (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="hnsw",
+                    "metric_type"="l2_distance"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "dim of ann index must be specified"
+    }
+
+    // index_type is missing
+    sql "drop table if exists tbl_ann_missing_index_type"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_missing_index_type (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "metric_type"="l2_distance",
+                    "dim"="1"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "index_type of ann index be specified."
+    }
+
+    // metric_type is missing
+    sql "drop table if exists tbl_ann_missing_metric_type"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_missing_metric_type (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="hnsw",
+                    "dim"="1"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "metric_type of ann index must be specified."
+    }
+
+    // index_type is incorrect
+    sql "drop table if exists tbl_ann_invalid_index_type"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_invalid_index_type (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="ivf",
+                    "metric_type"="l2_distance",
+                    "dim"="1"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "only support ann index with type hnsw"
+    }
+
+    // metric_type is incorrect
+    sql "drop table if exists tbl_ann_invalid_metric_type"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_invalid_metric_type (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="hnsw",
+                    "metric_type"="cosine",
+                    "dim"="1"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "only support ann index with metric l2_distance or inner_product"
+    }
+
+    // quantization is incorrect
+    sql "drop table if exists tbl_ann_invalid_quantization"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_invalid_quantization (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="hnsw",
+                    "metric_type"="l2_distance",
+                    "dim"="1",
+                    "quantization"="bad"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "only support ann index with quantization flat or pq"
+    }
+
+    // Unknown property
+    sql "drop table if exists tbl_ann_unknown_property"
+    test {
+        sql """
+            CREATE TABLE tbl_ann_unknown_property (
+                id INT NOT NULL COMMENT "",
+                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                    "index_type"="hnsw",
+                    "metric_type"="l2_distance",
+                    "dim"="1",
+                    "unknown"="xxx"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "unknown ann index property: unknown"
+    }
+
+    // 3. Valid CREATE TABLE with ANN index (l2_distance)
+    sql "drop table if exists tbl_ann_valid_l2"
+    sql """
+        CREATE TABLE tbl_ann_valid_l2 (
+            id INT NOT NULL COMMENT "",
+            embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+            INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                "index_type"="hnsw",
+                "metric_type"="l2_distance",
+                "dim"="128"
+            )
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+
+    // 4. Valid CREATE TABLE with ANN index (inner_product)
+    sql "drop table if exists tbl_ann_valid_inner_product"
+    sql """
+        CREATE TABLE tbl_ann_valid_inner_product (
+            id INT NOT NULL COMMENT "",
+            embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+            INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                "index_type"="hnsw",
+                "metric_type"="inner_product",
+                "dim"="128"
+            )
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+
+    // 5. Valid CREATE TABLE with ANN index (quantization=flat)
+    sql "drop table if exists tbl_ann_valid_flat"
+    sql """
+        CREATE TABLE tbl_ann_valid_flat (
+            id INT NOT NULL COMMENT "",
+            embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+            INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                "index_type"="hnsw",
+                "metric_type"="l2_distance",
+                "dim"="128",
+                "quantization"="flat"
+            )
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+
+    // 6. Valid CREATE TABLE with ANN index (quantization=pq)
+    sql "drop table if exists tbl_ann_valid_pq"
+    sql """
+        CREATE TABLE tbl_ann_valid_pq (
+            id INT NOT NULL COMMENT "",
+            embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+            INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                "index_type"="hnsw",
+                "metric_type"="inner_product",
+                "dim"="128",
+                "quantization"="pq"
+            )
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
 }

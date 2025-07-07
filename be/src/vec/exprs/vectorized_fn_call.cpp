@@ -468,12 +468,13 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap) {
+        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
     if (range_search_runtime.is_ann_range_search == false) {
         return Status::OK();
     }
-    LOG_INFO("Try apply ann range search. Local search params: {}",
-             range_search_runtime.to_string());
+
+    VLOG_DEBUG << fmt::format("Try apply ann range search. Local search params: {}",
+                              range_search_runtime.to_string());
     size_t origin_num = row_bitmap.cardinality();
 
     int idx_in_block = static_cast<int>(range_search_runtime.src_col_idx);
@@ -512,6 +513,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     DCHECK(params.roaring != nullptr);
     DCHECK(params.query_value != nullptr);
     RangeSearchResult result;
+    result.stats = std::make_unique<AnnIndexStats>();
     RETURN_IF_ERROR(
             ann_index_iterator->range_search(params, range_search_runtime.user_params, &result));
 
@@ -561,8 +563,11 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     }
 
     _has_been_executed = true;
-    LOG_INFO("Ann range search filtered {} rows, origin {} rows",
-             origin_num - row_bitmap.cardinality(), origin_num);
+    VLOG_DEBUG << fmt::format("Ann range search filtered {} rows, origin {} rows",
+                              origin_num - row_bitmap.cardinality(), origin_num);
+
+    ann_index_stats.load_index_costs_ns.update(result.stats->load_index_costs_ns.value());
+    ann_index_stats.search_costs_ns.update(result.stats->search_costs_ns.value());
     return Status::OK();
 }
 

@@ -377,11 +377,12 @@ struct OlapReaderStatistics {
     int64_t inverted_index_downgrade_count = 0;
     InvertedIndexStatistics inverted_index_stats;
 
-    int64_t ann_index_downgrade_count = 0;
     int64_t ann_index_load_ns = 0;
     int64_t ann_index_query_ns = 0;
     int64_t rows_ann_index_topn_filtered = 0;
     int64_t rows_ann_index_range_filtered = 0;
+    int64_t rows_ann_index_topn_costs_ns = 0;
+    int64_t rows_ann_index_range_costs_ns = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

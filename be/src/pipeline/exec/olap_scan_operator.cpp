@@ -190,6 +190,17 @@ Status OlapScanLocalState::_init_profile() {
     _inverted_index_downgrade_count_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT);
 
+    _ann_index_filter_counter = ADD_COUNTER(_segment_profile, "AnnIndexFiltered", TUnit::UNIT);
+    _ann_index_range_search_filter_counter = ADD_CHILD_COUNTER(
+            _segment_profile, "AnnIndexRangeSearchFiltered", TUnit::UNIT, "AnnIndexFiltered");
+    _ann_index_topn_filter_counter = ADD_CHILD_COUNTER(_segment_profile, "AnnIndexTopNFiltered",
+                                                       TUnit::UNIT, "AnnIndexFiltered");
+    _ann_index_filter_timer = ADD_TIMER(_segment_profile, "AnnIndexFilterTime");
+    _ann_index_topn_timer =
+            ADD_CHILD_TIMER(_segment_profile, "AnnIndexTopNTimer", "AnnIndexFilterTime");
+    _ann_index_range_search_timer =
+            ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeSearchTimer", "AnnIndexFilterTime");
+
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);

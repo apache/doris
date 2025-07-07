@@ -36,9 +36,8 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
-
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 VirtualSlotRef::VirtualSlotRef(const doris::TExprNode& node)
         : VExpr(node),
           _column_id(-1),
@@ -133,7 +132,8 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
 
     if (this->_virtual_column_expr != nullptr) {
         if (col_nothing != nullptr) {
-            LOG_INFO("Virtual slot {} is not materialized, going to materialize it", _slot_id);
+            VLOG_DEBUG << fmt::format(
+                    "Virtual slot {} is not materialized, going to materialize it", _slot_id);
             // Virtual column is not materialized, so we need to materialize it.
             // 注意，在执行 execute 之后，后续代码里不能在用 120 行的 column 了，因为 execute 的时候 vector 可能发生
             // resize，导致之前的引用实效。
@@ -144,7 +144,7 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
             block->replace_by_position(_column_id,
                                        std::move(block->get_by_position(tmp_column_id).column));
             auto tmp_column = block->get_by_position(_column_id).column;
-            LOG_INFO(
+            VLOG_DEBUG << fmt::format(
                     "Materialization of virtual column finished, slot_id {}, column_id {}, "
                     "tmp_column_id {}, "
                     "column_name {}, column size {}",
@@ -212,13 +212,13 @@ Status VirtualSlotRef::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap) {
+        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
     if (_virtual_column_expr != nullptr) {
-        return _virtual_column_expr->evaluate_ann_range_search(range_search_runtime,
-                                                               cid_to_index_iterators, idx_to_cid,
-                                                               column_iterators, row_bitmap);
+        return _virtual_column_expr->evaluate_ann_range_search(
+                range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
+                row_bitmap, ann_index_stats);
     }
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

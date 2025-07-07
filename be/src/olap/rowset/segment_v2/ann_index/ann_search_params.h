@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Opcodes_types.h>
 
 #include <roaring/roaring.hh>
@@ -25,6 +27,7 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 struct AnnIndexParam {
     const float* query_value;
     const size_t query_value_size;
@@ -48,10 +51,18 @@ struct RangeSearchParams {
     virtual ~RangeSearchParams() = default;
 };
 
+struct AnnIndexStats {
+    AnnIndexStats() : search_costs_ns(TUnit::TIME_NS, 0), load_index_costs_ns(TUnit::TIME_NS, 0) {}
+
+    RuntimeProfile::Counter search_costs_ns;     // time cost of search
+    RuntimeProfile::Counter load_index_costs_ns; // time cost of load index
+};
+
 struct RangeSearchResult {
     std::shared_ptr<roaring::Roaring> roaring;
     std::unique_ptr<std::vector<uint64_t>> row_ids;
     std::unique_ptr<float[]> distance;
+    std::unique_ptr<AnnIndexStats> stats = nullptr;
 };
 
 /*
@@ -80,4 +91,5 @@ struct HNSWSearchParameters : public IndexSearchParameters {
     bool check_relative_distance = true;
     bool bounded_queue = true;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -194,6 +194,13 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
 
+    RuntimeProfile::Counter* _ann_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_range_search_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_topn_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_filter_timer = nullptr;
+    RuntimeProfile::Counter* _ann_index_range_search_timer = nullptr;
+    RuntimeProfile::Counter* _ann_index_topn_timer = nullptr;
+
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
     // number of segment filtered by column stat when creating seg iterator

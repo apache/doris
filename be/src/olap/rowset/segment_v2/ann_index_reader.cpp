@@ -77,14 +77,7 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
                                    compound_dir.error().to_string());
         }
         _vector_index = std::make_unique<FaissVectorIndex>();
-        {
-            RuntimeProfile::Counter load_counter {TUnit::TIME_NS};
-            SCOPED_TIMER(&load_counter);
-            RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
-            LOG_INFO("Ann index load costs {} ms",
-                     load_counter.value() / 1e6); // Convert to milliseconds
-        }
-
+        RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
         return Status::OK();
     });
 }
@@ -95,7 +88,7 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, vectorized::AnnIndexParam* p
 #endif
     DCHECK(_vector_index != nullptr);
     const float* query_vec = param->query_value;
-    const int limit = param->limit;
+    const int limit = static_cast<int>(param->limit);
     vectorized::IndexSearchResult index_search_result;
     if (_index_type == "hnsw") {
         vectorized::HNSWSearchParameters hnsw_search_params;
@@ -123,8 +116,12 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, vectorized::AnnIndexParam* p
 Status AnnIndexReader::range_search(const vectorized::RangeSearchParams& params,
                                     const VectorSearchUserParams& custom_params,
                                     vectorized::RangeSearchResult* result, io::IOContext* io_ctx) {
+    SCOPED_TIMER(&(*result->stats).search_costs_ns);
 #ifndef BE_TEST
-    RETURN_IF_ERROR(load_index(io_ctx));
+    {
+        SCOPED_TIMER(&(*result->stats).load_index_costs_ns);
+        RETURN_IF_ERROR(load_index(io_ctx));
+    }
 #endif
     DCHECK(_vector_index != nullptr);
     vectorized::IndexSearchResult search_result;

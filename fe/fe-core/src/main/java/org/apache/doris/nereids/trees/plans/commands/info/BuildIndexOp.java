@@ -126,7 +126,8 @@ public class BuildIndexOp extends AlterTableOp {
             }
         }
         if (indexDef.getIndexType() == IndexDef.IndexType.ANN) {
-            throw new AnalysisException("Do not support build ANN index, append index definition in your DDL.");
+            throw new AnalysisException(
+                "ANN index can only be created during table creation, not through BUILD INDEX.");
         }
         indexDef.validate();
         this.index = existedIdx.clone();

@@ -674,7 +674,9 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                                                                   result_column, result_row_ids));
     VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
                               _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
-    _opts.stats->rows_ann_index_topn_filtered += (pre_size - _row_bitmap.cardinality());
+
+    int64_t rows_filterd = pre_size - _row_bitmap.cardinality();
+    _opts.stats->rows_ann_index_topn_filtered += rows_filterd;
     const size_t dst_col_idx = _ann_topn_runtime->get_dest_column_idx();
     ColumnIterator* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
     DCHECK(column_iter != nullptr);
@@ -956,11 +958,15 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     // Apply ann range search
+    vectorized::AnnIndexStats ann_index_stats;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         size_t origin_rows = _row_bitmap.cardinality();
         RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(_index_iterators, _schema->column_ids(),
-                                                            _column_iterators, _row_bitmap));
+                                                            _column_iterators, _row_bitmap,
+                                                            ann_index_stats));
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
+        _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
+        _opts.stats->ann_index_query_ns += ann_index_stats.search_costs_ns.value();
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {

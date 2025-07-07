@@ -451,10 +451,11 @@ Status VExprContext::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap) {
+        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
     if (_root != nullptr) {
         return _root->evaluate_ann_range_search(_ann_range_search_runtime, cid_to_index_iterators,
-                                                idx_to_cid, column_iterators, row_bitmap);
+                                                idx_to_cid, column_iterators, row_bitmap,
+                                                ann_index_stats);
     }
     return Status::OK();
 }

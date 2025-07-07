@@ -183,7 +183,6 @@ Status OlapScanner::init() {
                 //  so we have to use schema from a query plan witch FE puts it in query plans.
                 tablet_schema->clear_columns();
                 for (const auto& column_desc : olap_scan_node.columns_desc) {
-                    LOG_INFO("Column desc\n{}", apache::thrift::ThriftDebugString(column_desc));
                     tablet_schema->append_column(TabletColumn(column_desc));
                 }
                 if (olap_scan_node.__isset.schema_version) {
@@ -282,12 +281,6 @@ Status OlapScanner::_init_tablet_reader_params(
                                             (push_down_agg_type != TPushAggOp::NONE &&
                                              push_down_agg_type != TPushAggOp::COUNT_ON_INDEX);
     }
-    LOG_INFO(
-            "Direct mode {}, pre-aggregation {}, skip_storage_engine_merge: {}, single_version: "
-            "{}, push_down_agg_type {}",
-            _tablet_reader_params.direct_mode, _tablet_reader_params.is_pre_aggregation,
-            _state->skip_storage_engine_merge(), single_version,
-            _local_state->get_push_down_agg_type());
 
     RETURN_IF_ERROR(_init_variant_columns());
     RETURN_IF_ERROR(_init_return_columns());
@@ -796,6 +789,18 @@ void OlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(local_state->_read_uncompressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
+
+    COUNTER_UPDATE(local_state->_ann_index_range_search_filter_counter,
+                   stats.rows_ann_index_range_filtered);
+    COUNTER_UPDATE(local_state->_ann_index_topn_filter_counter, stats.rows_ann_index_topn_filtered);
+    COUNTER_UPDATE(local_state->_ann_index_filter_counter,
+                   (local_state->_ann_index_range_search_filter_counter->value() +
+                    local_state->_ann_index_topn_filter_counter->value()));
+    COUNTER_UPDATE(local_state->_ann_index_range_search_timer, stats.rows_ann_index_range_costs_ns);
+    COUNTER_UPDATE(local_state->_ann_index_topn_timer, stats.rows_ann_index_topn_costs_ns);
+    COUNTER_UPDATE(local_state->_ann_index_filter_timer,
+                   (local_state->_ann_index_range_search_timer->value() +
+                    local_state->_ann_index_topn_timer->value()));
 }
 
 } // namespace doris::vectorized
