@@ -1192,6 +1192,7 @@ DEFINE_Int32(segment_cache_capacity, "-1");
 DEFINE_Int32(segment_cache_fd_percentage, "20");
 DEFINE_mInt32(estimated_mem_per_column_reader, "512");
 DEFINE_Int32(segment_cache_memory_percentage, "5");
+DEFINE_Bool(enable_segment_cache_prune, "true");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
