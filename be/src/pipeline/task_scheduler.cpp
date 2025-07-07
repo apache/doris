@@ -92,7 +92,7 @@ void _close_task(PipelineTask* task, Status exec_status, PipelineFragmentContext
 
 void TaskScheduler::_do_work(size_t index) {
     while (_markers[index]) {
-        auto task = _task_queue.take(index);
+        auto task = _task_queue->take(index);
         if (!task) {
             continue;
         }
@@ -122,7 +122,7 @@ void TaskScheduler::_do_work(size_t index) {
             // If pipeline is canceled, it will report after pipeline closed, and will propagate
             // errors to downstream through exchange. So, here we needn't send_report.
             // fragment_ctx->send_report(true);
-            _close_task(task, fragment_context->get_query_ctx()->exec_status(),
+            _close_task(task.get(), fragment_context->get_query_ctx()->exec_status(),
                         fragment_context.get());
             continue;
         }
@@ -166,7 +166,7 @@ void TaskScheduler::_do_work(size_t index) {
             LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
                                         print_id(fragment_context->get_query_ctx()->query_id()),
                                         status.to_string());
-            _close_task(task, status, fragment_context.get());
+            _close_task(task.get(), status, fragment_context.get());
             continue;
         }
         fragment_context->trigger_report_if_necessary();
@@ -179,7 +179,7 @@ void TaskScheduler::_do_work(size_t index) {
                 task->set_running(false);
             } else {
                 Status exec_status = fragment_context->get_query_ctx()->exec_status();
-                _close_task(task, exec_status, fragment_context.get());
+                _close_task(task.get(), exec_status, fragment_context.get());
             }
             continue;
         }

@@ -59,6 +59,7 @@ PipelineTask::PipelineTask(
 #else
           _query_id(fragment_context->get_query_id()),
 #endif
+          _pip_id(pipeline->id()),
           _index(task_id),
           _pipeline(pipeline),
           _opened(false),
@@ -71,7 +72,8 @@ PipelineTask::PipelineTask(
           _sink(pipeline->sink_shared_pointer()),
           _le_state_map(std::move(le_state_map)),
           _task_idx(task_idx),
-          _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
+          _execution_dep(state->get_query_ctx()->get_execution_dependency()),
+          _pipeline_name(_pipeline->name()){
     _pipeline_task_watcher.start();
 
     auto shared_state = _sink->create_shared_state();
@@ -314,11 +316,11 @@ Status PipelineTask::execute(bool* eos) {
         }
         int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
         _task_cpu_timer->update(delta_cpu_time);
-        auto cpu_qs = query_context()->get_cpu_statistics();
+        auto cpu_qs = fragment_context->get_query_ctx()->get_cpu_statistics();
         if (cpu_qs) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
-        query_context()->update_cpu_time(delta_cpu_time);
+        fragment_context->get_query_ctx()->update_cpu_time(delta_cpu_time);
     }};
     if (_wait_to_start()) {
         if (config::enable_prefetch_tablet) {
@@ -502,13 +504,18 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
 void PipelineTask::finalize() {
     auto fragment = _fragment_context.lock();
     if (!fragment) {
-        return Status::OK();
+        return;
     }
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker);
     std::unique_lock<std::mutex> lc(_dependency_lock);
     _finalized = true;
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _le_state_map.clear();
+    _block.reset();
+    _operators.clear();
+    _sink.reset();
+    _pipeline.reset();
 }
 
 Status PipelineTask::close(Status exec_status, bool close_sink) {
@@ -543,7 +550,6 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
 }
 
 std::string PipelineTask::debug_string() {
-    std::unique_lock<std::mutex> lc(_dependency_lock);
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(_query_id));
@@ -560,6 +566,7 @@ std::string PipelineTask::debug_string() {
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
     if (is_finalized() || !fragment) {
+        fmt::format_to(debug_string_buffer, " pipeline name = {}", _pipeline_name);
         return fmt::to_string(debug_string_buffer);
     }
     auto elapsed = fragment->elapsed_time() / NANOS_PER_SEC;

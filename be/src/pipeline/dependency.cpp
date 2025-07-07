@@ -70,7 +70,7 @@ void Dependency::set_ready() {
     for (auto task : local_block_task) {
         if (auto t = task.lock()) {
             std::unique_lock<std::mutex> lc(_task_lock);
-            THROW_IF_ERROR(t->wake_up(this));
+            t->wake_up();
         }
     }
 }
@@ -109,7 +109,7 @@ std::string RuntimeFilterDependency::debug_string(int indentation_level) {
     return fmt::to_string(debug_string_buffer);
 }
 
-Dependency* RuntimeFilterDependency::is_blocked_by(PipelineTask* task) {
+Dependency* RuntimeFilterDependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {

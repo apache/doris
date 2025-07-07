@@ -282,7 +282,7 @@ public:
             : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
-    Dependency* is_blocked_by(PipelineTask* task) override;
+    Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task) override;
 
 private:
     const IRuntimeFilter* _runtime_filter = nullptr;

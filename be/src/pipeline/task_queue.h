@@ -40,13 +40,13 @@ public:
     virtual void close() = 0;
     // Get the task by core id.
     // TODO: To think the logic is useful?
-    virtual PipelineTask* take(int core_id) = 0;
+    virtual PipelineTaskSPtr take(int core_id) = 0;
 
     // push from scheduler
-    virtual Status push_back(PipelineTask* task) = 0;
+    virtual Status push_back(PipelineTaskSPtr task) = 0;
 
     // push from worker
-    virtual Status push_back(PipelineTask* task, int core_id) = 0;
+    virtual Status push_back(PipelineTaskSPtr task, int core_id) = 0;
 
     virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
 
@@ -133,7 +133,7 @@ public:
     void close() override;
 
     // Get the task by core id.
-    PipelineTask* take(int core_id) override;
+    PipelineTaskSPtr take(int core_id) override;
 
     // TODO combine these methods to `push_back(task, core_id = -1)`
     Status push_back(PipelineTaskSPtr task) override;

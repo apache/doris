@@ -153,7 +153,6 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     _runtime_filter_states.clear();
     _runtime_filter_mgr_map.clear();
     _op_id_to_le_state.clear();
-    _op_id_to_shared_state.clear();
     _query_ctx.reset();
 }
 
@@ -447,7 +446,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 task_runtime_state->set_task_id(cur_task_id);
                 task_runtime_state->set_task_num(pipeline->num_tasks());
                 auto task = std::make_shared<PipelineTask>(
-                        pipeline, cur_task_id, task_runtime_state.get(), shared_from_this(),
+                        pipeline, cur_task_id, task_runtime_state.get(),
+                        std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
                         pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),
                         i);
                 pipeline->incr_created_tasks(i, task.get());
