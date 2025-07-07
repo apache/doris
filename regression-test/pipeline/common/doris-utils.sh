@@ -226,11 +226,13 @@ function stop_doris_grace() {
             echo "INFO: try to find keywords ${keywords} in be.out"
             if [[ -f "${DORIS_HOME}"/be/log/be.out ]]; then
                 if grep -E "${keywords}" "${DORIS_HOME}"/be/log/be.out; then
+                    echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
                     echo "ERROR: found memory leaks or undefined behavior in be.out" && ret=1
                 else
                     echo "INFO: no memory leaks or undefined behavior found in be.out"
                 fi
             else
+                echo "##teamcity[buildProblem description='Stop BE grace fail']"
                 echo "ERROR: be.out not find, which is not expected" && ret=1
             fi
         fi
@@ -249,6 +251,7 @@ function stop_doris_grace() {
                 echo "INFO: try to find keywords ${keywords} in doris_cloud.out"
                 if [[ -f "${DORIS_HOME}"/ms/log/doris_cloud.out ]]; then
                     if grep -E "${keywords}" "${DORIS_HOME}"/ms/log/doris_cloud.out; then
+                        echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
                         echo "ERROR: found memory leaks or undefined behavior in ms/log/doris_cloud.out" && ret=1
                     else
                         echo "INFO: no memory leaks or undefined behavior found in ms/log/doris_cloud.out"
@@ -258,6 +261,7 @@ function stop_doris_grace() {
                 fi
             fi
         else
+            echo "##teamcity[buildProblem description='Stop MS grace fail']"
             echo "ERROR: doris ms stop grace failed." && ret=1
         fi
     fi
@@ -268,6 +272,7 @@ function stop_doris_grace() {
             if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
                 if [[ -f "${DORIS_HOME}"/recycler/log/doris_cloud.out ]]; then
                     if grep -E "${keywords}" "${DORIS_HOME}"/recycler/log/doris_cloud.out; then
+                        echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
                         echo "ERROR: found memory leaks or undefined behavior in recycler/log/doris_cloud.out" && ret=1
                     else
                         echo "INFO: no memory leaks or undefined behavior found in recycler/log/doris_cloud.out"
@@ -277,6 +282,7 @@ function stop_doris_grace() {
                 fi
             fi
         else
+            echo "##teamcity[buildProblem description='Stop RECYCLER grace fail']"
             echo "ERROR: doris recycler stop grace failed." && ret=1
         fi
     fi
