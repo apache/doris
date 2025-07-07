@@ -1294,6 +1294,25 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
     }
 }
 
+void DeleteBitmap::subset(int64_t start_version, int64_t end_version,
+                          DeleteBitmap* subset_delete_map) const {
+    roaring::Roaring roaring;
+    DCHECK(start_version <= end_version);
+    std::shared_lock l(lock);
+    for (auto& i : delete_bitmap) {
+        auto version = std::get<2>(i.first);
+        if (version >= start_version && version <= end_version) {
+            subset_delete_map->merge(i.first, i.second);
+            VLOG_DEBUG << "subset delete bitmap, tablet=" << _tablet_id << ", version=["
+                       << start_version << ", " << end_version
+                       << "]. rowset=" << std::get<0>(i.first).to_string()
+                       << ", segment=" << std::get<1>(i.first)
+                       << ", version=" << std::get<2>(i.first)
+                       << ", cardinality=" << i.second.cardinality();
+        }
+    }
+}
+
 size_t DeleteBitmap::get_count_with_range(const BitmapKey& start, const BitmapKey& end) const {
     DCHECK(start < end);
     size_t count = 0;

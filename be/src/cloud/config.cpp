@@ -73,6 +73,8 @@ DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
 
 DEFINE_mInt32(get_delete_bitmap_lock_max_retry_times, "100");
 
+DEFINE_Int32(delete_bitmap_store_version, "1");
+
 DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
 
 DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
