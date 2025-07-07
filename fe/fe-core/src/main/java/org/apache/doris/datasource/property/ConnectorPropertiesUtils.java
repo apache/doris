@@ -74,7 +74,7 @@ public class ConnectorPropertiesUtils {
                     Object convertedValue = convertValue(rawValue, field.getType());
                     field.set(target, convertedValue);
                 } catch (Exception e) {
-                    throw new RuntimeException(
+                    throw new IllegalArgumentException(
                             "Failed to set property '" + matchedName + "' on " + target.getClass().getSimpleName()
                                     + ": " + e.getMessage(), e
                     );

@@ -27,7 +27,6 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
 import org.apache.commons.collections.MapUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,7 +40,6 @@ import java.util.function.Function;
  * CatalogProperty to store the properties for catalog.
  * the properties in "properties" will overwrite properties in "resource"
  */
-@Data
 public class CatalogProperty {
     private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
 
@@ -98,6 +96,10 @@ public class CatalogProperty {
         }
         mergedProperties.putAll(properties);
         return mergedProperties;
+    }
+
+    public String getResource() {
+        return resource;
     }
 
     public void modifyCatalogProps(Map<String, String> props) {

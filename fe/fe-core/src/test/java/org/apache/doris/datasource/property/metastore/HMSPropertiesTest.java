@@ -116,6 +116,24 @@ public class HMSPropertiesTest {
     }
 
     @Test
+    public void testRefreshParams() throws UserException {
+        Map<String, String> params = createBaseParams();
+        HMSProperties hmsProperties = getHMSProperties(params);
+        Assertions.assertFalse(hmsProperties.isHmsEventsIncrementalSyncEnabled());
+        params.put("hive.enable_hms_events_incremental_sync", "true");
+        hmsProperties = getHMSProperties(params);
+        Assertions.assertTrue(hmsProperties.isHmsEventsIncrementalSyncEnabled());
+        params.put("hive.enable_hms_events_incremental_sync", "xxxx");
+        hmsProperties = getHMSProperties(params);
+        Assertions.assertFalse(hmsProperties.isHmsEventsIncrementalSyncEnabled());
+        params.put("hive.hms_events_batch_size_per_rpc", "false");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> getHMSProperties(params));
+        params.put("hive.hms_events_batch_size_per_rpc", "123");
+        hmsProperties = getHMSProperties(params);
+        Assertions.assertEquals(123, hmsProperties.getHmsEventsBatchSizePerRpc());
+    }
+
+    @Test
     public void testHmsKerberosParams() throws UserException {
         Map<String, String> params = createBaseParams();
         params.put("hive.metastore.uris", "thrift://127.0.0.1:9083");

@@ -23,7 +23,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
@@ -96,11 +95,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return hmsProperties;
     }
 
-    private HadoopAuthenticator getHadoopAuthenticator() {
-        return getHmsProperties().getHdfsAuthenticator();
-    }
-
-    private void initHmsProperties() {
+    private void initAndCheckHmsProperties() {
         try {
             this.hmsProperties = (AbstractHMSProperties) MetastoreProperties.create(catalogProperty.getProperties());
         } catch (UserException e) {
@@ -174,19 +169,19 @@ public class HMSExternalCatalog extends ExternalCatalog {
                         "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
             }
         }
-        //todo check ms properties
+        initAndCheckHmsProperties();
     }
 
     @Override
     protected synchronized void initPreExecutionAuthenticator() {
         if (preExecutionAuthenticator == null) {
-            preExecutionAuthenticator = new PreExecutionAuthenticator(getHadoopAuthenticator());
+            preExecutionAuthenticator = new PreExecutionAuthenticator(hmsProperties.getHdfsAuthenticator());
         }
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        initHmsProperties();
+        initAndCheckHmsProperties();
         initPreExecutionAuthenticator();
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hmsProperties.getHiveConf(), this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(

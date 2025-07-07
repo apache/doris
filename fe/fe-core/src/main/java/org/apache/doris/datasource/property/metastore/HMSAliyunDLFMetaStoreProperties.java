@@ -48,5 +48,4 @@ public class HMSAliyunDLFMetaStoreProperties extends AbstractHMSProperties {
         hiveConf.set("dlf.catalog.id", baseProperties.dlfUid);
     }
 
-
 }

@@ -21,11 +21,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectionProperties;
 
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -75,18 +75,12 @@ public class MetastoreProperties extends ConnectionProperties {
     @Getter
     protected Type type;
 
-    private static final List<String> POSSIBLE_TYPE_KEYS = Arrays.asList(
-            "metastore.type",
-            "hive.metastore.catalog.type",
-            "iceberg.catalog.type",
-            "paimon.catalog.type",
-            "type"
-    );
+    private static final String METASTORE_TYPE_KEY = "type";
 
     private static final Map<Type, MetastorePropertiesFactory> FACTORY_MAP = new EnumMap<>(Type.class);
 
     static {
-        // 注册所有一级类型
+        //subclasses should be registered here
         register(Type.HMS, new HMSPropertiesFactory());
         register(Type.ICEBERG_REST, props -> {
             IcebergRestProperties inst = new IcebergRestProperties(props);
@@ -114,17 +108,17 @@ public class MetastoreProperties extends ConnectionProperties {
     }
 
     private static Type resolveType(Map<String, String> props) {
-        for (String key : POSSIBLE_TYPE_KEYS) {
-            String value = props.get(key);
-            Optional<Type> typeOpt = Type.fromString(value);
-            if (typeOpt.isPresent()) {
-                return typeOpt.get();
-            }
-            if (value != null) {
-                throw new IllegalArgumentException("Unknown metastore type value '" + value + "' for key: " + key);
-            }
+        String typeValue = props.get(METASTORE_TYPE_KEY);
+        if (StringUtils.isBlank(typeValue)) {
+            throw new IllegalArgumentException("Metastore type is required");
         }
-        throw new IllegalArgumentException("No metastore type found in properties. Tried keys: " + POSSIBLE_TYPE_KEYS);
+
+        Optional<Type> typeOpt = Type.fromString(typeValue);
+        if (typeOpt.isPresent()) {
+            return typeOpt.get();
+        }
+        throw new IllegalArgumentException("Unknown metastore type value '" + typeValue + "'. "
+                + "Supported types are: " + Arrays.toString(Type.values()));
     }
 
     protected MetastoreProperties(Type type, Map<String, String> props) {
