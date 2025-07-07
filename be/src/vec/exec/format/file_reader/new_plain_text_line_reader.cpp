@@ -19,6 +19,8 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
+
+#include "common/logging.h"
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif

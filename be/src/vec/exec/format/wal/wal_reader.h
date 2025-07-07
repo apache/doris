@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include "common/factory_creator.h"
 #include "olap/wal/wal_reader.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/format/generic_reader.h"

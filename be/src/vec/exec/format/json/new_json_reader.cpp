@@ -37,6 +37,7 @@
 #include <string_view>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"

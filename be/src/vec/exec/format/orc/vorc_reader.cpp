@@ -374,7 +374,7 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
 }
 
 Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_names,
-                                                std::vector<uint64_t>* col_attributes,
+                                                std::vector<int32_t>* col_attributes,
                                                 const std::string& attribute,
                                                 bool* exist_attribute) {
     *exist_attribute = true;
@@ -1946,7 +1946,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
 
     if (_lazy_read_ctx.can_lazy_read) {
         std::vector<uint32_t> columns_to_filter;
-        int column_to_keep = block->columns();
+        auto column_to_keep = block->columns();
         columns_to_filter.resize(column_to_keep);
         for (uint32_t i = 0; i < column_to_keep; ++i) {
             columns_to_filter[i] = i;
@@ -2096,7 +2096,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             _build_delete_row_filter(block, _batch->numElements);
 
             std::vector<uint32_t> columns_to_filter;
-            int column_to_keep = block->columns();
+            auto column_to_keep = block->columns();
             columns_to_filter.resize(column_to_keep);
             for (uint32_t i = 0; i < column_to_keep; ++i) {
                 columns_to_filter[i] = i;

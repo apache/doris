@@ -66,7 +66,7 @@ Status TransactionalHiveReader::init_reader(
     return status;
 }
 
-Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status TransactionalHiveReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     for (const auto& i : TransactionalHive::READ_PARAMS) {
         DataTypePtr data_type =
                 DataTypeFactory::instance().create_data_type(TypeDescriptor(i.type), false);

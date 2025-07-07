@@ -570,10 +570,11 @@ public:
                         _dst_type_desc->get_precision(), _dst_type_desc->get_scale());
             } else if constexpr (DstPrimitiveType == TYPE_DATETIMEV2) {
                 can_cast = SafeCastString<TYPE_DATETIMEV2>::safe_cast_string(
-                        string_value.data, string_value.size, &value, _dst_type_desc->get_scale());
+                        string_value.data, cast_set<int>(string_value.size), &value,
+                        _dst_type_desc->get_scale());
             } else if constexpr (DstPrimitiveType == TYPE_BOOLEAN && fileFormat == ORC) {
                 can_cast = SafeCastString<TYPE_BOOLEAN, ORC>::safe_cast_string(
-                        string_value.data, string_value.size, &value);
+                        string_value.data, cast_set<int>(string_value.size), &value);
             } else {
                 can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(
                         string_value.data, cast_set<int>(string_value.size), &value);

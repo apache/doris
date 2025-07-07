@@ -76,8 +76,8 @@ public:
 
 protected:
     template <bool is_date>
-    void _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                 int end, const cctz::time_zone& ctz) const;
+    void _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                 int64_t end, const cctz::time_zone& ctz) const;
 
 private:
     template <bool is_binary_format>

@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
@@ -515,7 +516,7 @@ private:
                 v.from_unixtime(data->data[i], _time_zone);
                 if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
                     // nanoseconds will lose precision. only keep microseconds.
-                    v.set_microsecond(data->nanoseconds[i] / 1000);
+                    v.set_microsecond(cast_set<uint32_t>(data->nanoseconds[i] / 1000));
                 }
             }
         }
