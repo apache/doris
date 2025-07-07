@@ -67,7 +67,7 @@ suite ("diffrent_serialize") {
         contains "(mv2)"
     }
     */
-    qt_select_mv "select k1,map_agg(k2,k3) from d_table group by k1 order by 1;"
+    qt_select_mv3 "select k1,map_agg(k2,k3) from d_table group by k1 order by 1;"
 
     explain {
         sql("select k1,array_agg(k2) from d_table group by k1 order by 1;")
