@@ -793,6 +793,28 @@ suite("txn_insert") {
             order_qt_select_cu2 """select * from ${unique_table}_2"""
             order_qt_select_cu3 """select * from ${unique_table}_3"""
         }
+
+        // 19. delete from empty table
+        sql """ drop table if exists txn_insert_dt6; """
+        sql """
+            CREATE TABLE `txn_insert_dt6` (
+                `ID` int NOT NULL,
+                `NAME` varchar(100) NULL,
+                `SCORE` int NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`ID`)
+            DISTRIBUTED BY HASH(`ID`) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            ); 
+        """
+        sql """ begin; """
+        sql """ INSERT INTO txn_insert_dt6 select 1, 'Alice', 100; """
+        test {
+            sql """ delete from txn_insert_dt6 where id = 1; """
+            exception """Can not delete because there is a insert operation for the same table"""
+        }
+        sql """ rollback; """
     }
 
     def db_name = "regression_test_insert_p0_transaction"

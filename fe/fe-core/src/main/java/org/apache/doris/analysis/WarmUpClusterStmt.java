@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -34,6 +35,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -46,12 +48,15 @@ public class WarmUpClusterStmt extends StatementBase implements NotFallbackInPar
     private String srcClusterName;
     private boolean isWarmUpWithTable;
     private boolean isForce;
+    private Map<String, String> properties;
 
-    public WarmUpClusterStmt(String dstClusterName, String srcClusterName, boolean isForce) {
+    public WarmUpClusterStmt(String dstClusterName, String srcClusterName, boolean isForce,
+            Map<String, String> properties) {
         this.dstClusterName = dstClusterName;
         this.srcClusterName = srcClusterName;
         this.isForce = isForce;
         this.isWarmUpWithTable = false;
+        this.properties = properties;
     }
 
     public WarmUpClusterStmt(String dstClusterName, List<Map<TableName, String>> tableList, boolean isForce) {
@@ -59,6 +64,7 @@ public class WarmUpClusterStmt extends StatementBase implements NotFallbackInPar
         this.tableList = tableList;
         this.isForce = isForce;
         this.isWarmUpWithTable = true;
+        this.properties = new HashMap<>();
     }
 
     @Override
@@ -67,11 +73,14 @@ public class WarmUpClusterStmt extends StatementBase implements NotFallbackInPar
             throw new UserException("The sql is illegal in disk mode ");
         }
         super.analyze(analyzer);
-        if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).containClusterName(dstClusterName)) {
+        CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
+        if (!cloudSys.containClusterName(dstClusterName)) {
             throw new AnalysisException("The dstClusterName " + dstClusterName + " doesn't exist");
         }
-        if (!isWarmUpWithTable
-                    && !((CloudSystemInfoService) Env.getCurrentSystemInfo()).containClusterName(srcClusterName)) {
+
+        checkWarmupCgs(cloudSys);
+
+        if (!isWarmUpWithTable && !cloudSys.containClusterName(srcClusterName)) {
             boolean contains = false;
             try {
                 contains = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().containsCluster(srcClusterName);
@@ -110,6 +119,33 @@ public class WarmUpClusterStmt extends StatementBase implements NotFallbackInPar
                     Triple<String, String, String> part = Triple.of(dbName, tableName.getTbl(), partitionName);
                     tables.add(part);
                 }
+            }
+        }
+    }
+
+    private void checkWarmupCgs(CloudSystemInfoService cloudSys) throws AnalysisException {
+        if (!Strings.isNullOrEmpty(srcClusterName)) {
+            ComputeGroup srcCg = cloudSys.getComputeGroupByName(srcClusterName);
+            if (srcCg != null && srcCg.isVirtual()) {
+                throw new AnalysisException("The srcClusterName " + srcClusterName
+                    + " is a virtual compute group, not support");
+            }
+        }
+
+        if (!Strings.isNullOrEmpty(dstClusterName)) {
+            ComputeGroup dstCg = cloudSys.getComputeGroupByName(dstClusterName);
+            if (dstCg != null && dstCg.isVirtual()) {
+                throw new AnalysisException("The dstClusterName " + dstClusterName
+                    + " is a virtual compute group, not support");
+            }
+        }
+
+        if (!Strings.isNullOrEmpty(srcClusterName) && !Strings.isNullOrEmpty(dstClusterName)) {
+            String srcMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(srcClusterName);
+            String dstMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(srcClusterName);
+            if (srcMayOwnedVcg != null && srcMayOwnedVcg.equals(dstMayOwnedVcg)) {
+                throw new AnalysisException("The srcClusterName " + srcClusterName + " dstClusterName " + dstClusterName
+                    + " is owned by virtual compute group " + srcMayOwnedVcg + " not support");
             }
         }
     }
@@ -160,5 +196,9 @@ public class WarmUpClusterStmt extends StatementBase implements NotFallbackInPar
 
     public boolean isForce() {
         return isForce;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 }

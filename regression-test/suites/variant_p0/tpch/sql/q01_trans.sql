@@ -1,5 +1,5 @@
 -- TABLES: lineitem
-SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false,enable_profile=true) */
   CAST(var["L_RETURNFLAG"] AS TEXT),
   CAST(var["L_LINESTATUS"] AS TEXT),
   SUM(CAST(var["L_QUANTITY"] AS DOUBLE))                                       AS SUM_QTY,

@@ -92,6 +92,7 @@ public:
         int64_t read_page_index_time = 0;
         int64_t parse_page_index_time = 0;
         int64_t predicate_filter_time = 0;
+        int64_t dict_filter_rewrite_time = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -105,8 +106,6 @@ public:
     ~ParquetReader() override;
     // for test
     void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
-
-    Status open();
 
     Status init_reader(
             const std::vector<std::string>& all_column_names,
@@ -132,6 +131,8 @@ public:
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+
+    Status init_schema_reader() override;
 
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
@@ -190,6 +191,7 @@ private:
         RuntimeProfile::Counter* skip_page_header_num = nullptr;
         RuntimeProfile::Counter* parse_page_header_num = nullptr;
         RuntimeProfile::Counter* predicate_filter_time = nullptr;
+        RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
     };
 
     Status _open_file();

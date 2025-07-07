@@ -77,13 +77,13 @@ public:
 
     doris::TabletStorageType get_storage_type() override;
 
+    void update_realtime_counters() override;
+
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     void _collect_profile_before_close() override;
 
 private:
-    void _update_realtime_counters();
-
     Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
                                       const std::vector<TCondition>& filters,
                                       const pipeline::FilterPredicates& filter_predicates,

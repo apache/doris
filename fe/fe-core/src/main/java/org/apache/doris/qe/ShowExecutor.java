@@ -156,6 +156,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.proto.Cloud;
@@ -207,6 +208,7 @@ import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
@@ -807,8 +809,14 @@ public class ShowExecutor {
         final ShowClusterStmt showStmt = (ShowClusterStmt) stmt;
         final List<List<String>> rows = Lists.newArrayList();
         List<String> clusterNames = null;
-        clusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
+        clusterNames = cloudSys.getCloudClusterNames();
+        // virtual cluster info
+        List<ComputeGroup> virtualComputeGroup = cloudSys.getComputeGroups(true);
+        List<String> virtualComputeGroupNames = virtualComputeGroup.stream()
+                .map(ComputeGroup::getName).collect(Collectors.toList());
 
+        clusterNames.addAll(virtualComputeGroupNames);
         final Set<String> clusterNameSet = Sets.newTreeSet();
         clusterNameSet.addAll(clusterNames);
 
@@ -840,10 +848,35 @@ public class ShowExecutor {
 
             String result = Joiner.on(", ").join(users);
             row.add(result);
-            int backendNum = ((CloudSystemInfoService) Env.getCurrentEnv().getCurrentSystemInfo())
-                    .getBackendsByClusterName(clusterName).size();
-            row.add(String.valueOf(backendNum));
+
+            // subClusters
+            String subClusterNames = "";
+            // Policy
+            String policy = "";
+            if (!virtualComputeGroupNames.contains(clusterName)) {
+                int backendNum = cloudSys.getBackendsByClusterName(clusterName).size();
+                row.add(String.valueOf(backendNum));
+                rows.add(row);
+                row.add(subClusterNames);
+                row.add(policy);
+                continue;
+            }
+            // virtual compute group
+            // virtual cg backends eq 0
+            row.add(String.valueOf(0));
             rows.add(row);
+            ComputeGroup cg = cloudSys.getComputeGroupByName(clusterName);
+            if (cg == null) {
+                continue;
+            }
+            String activeCluster = cg.getPolicy().getActiveComputeGroup();
+            String standbyCluster = cg.getPolicy().getStandbyComputeGroup();
+            // first active, second standby
+            subClusterNames = Joiner.on(", ").join(activeCluster, standbyCluster);
+            row.add(subClusterNames);
+
+            // Policy
+            row.add(cg.getPolicy().toString());
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -1183,6 +1216,13 @@ public class ShowExecutor {
             if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
                 rows.add(Arrays.asList(table.getName(),
                         HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
+                resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+                return;
+            }
+            if ((table.getType() == TableType.ICEBERG_EXTERNAL_TABLE)
+                    && ((IcebergExternalTable) table).isView()) {
+                rows.add(Arrays.asList(table.getName(),
+                        IcebergUtils.showCreateView(((IcebergExternalTable) table))));
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
                 return;
             }

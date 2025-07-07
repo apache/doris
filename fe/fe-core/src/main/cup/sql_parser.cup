@@ -1473,17 +1473,17 @@ alter_stmt ::=
     ;
 
 warm_up_stmt ::=
-    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force
+    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force opt_properties:properties
     {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force, properties);
     :}
     | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
     {:
         RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
     :}
-    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force
+    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force opt_properties:properties
     {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force, properties);
     :}
     | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
     {:
@@ -6194,7 +6194,7 @@ opt_scan_params_ref ::=
     :}
     | AT ident:func_name LPAREN opt_key_value_map_in_paren:properties RPAREN
     {:
-        RESULT = new TableScanParams(func_name, properties);
+        RESULT = new TableScanParams(func_name, properties, new ArrayList<String>());
     :}
     ;
 
@@ -6340,11 +6340,11 @@ opt_table_snapshot ::=
 table_snapshot ::=
     KW_FOR KW_VERSION KW_AS KW_OF INTEGER_LITERAL:version
     {:
-        RESULT = new TableSnapshot(version);
+        RESULT = TableSnapshot.versionOf(String.valueOf(version));
     :}
     | KW_FOR KW_TIME KW_AS KW_OF STRING_LITERAL:time
     {:
-        RESULT = new TableSnapshot(time);
+        RESULT = TableSnapshot.timeOf(time);
     :}
     ;
 

@@ -524,7 +524,6 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
         _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
         *eof = false;
     }
-    _update_realtime_counters();
     return Status::OK();
 }
 
@@ -537,17 +536,42 @@ Status NewOlapScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void NewOlapScanner::_update_realtime_counters() {
+void NewOlapScanner::update_realtime_counters() {
     pipeline::OlapScanLocalState* local_state =
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
-    COUNTER_UPDATE(local_state->_scan_bytes, stats.compressed_bytes_read);
-    _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
-
+    COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
-    // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
+
+    // Make sure the scan bytes and scan rows counter in audit log is the same as the counter in
+    // doris metrics.
+    // ScanBytes is the uncompressed bytes read from local + remote
+    // bytes_read_from_local is the compressed bytes read from local
+    // bytes_read_from_remote is the compressed bytes read from remote
+    // scan bytes > bytes_read_from_local + bytes_read_from_remote
+    if (_query_statistics) {
+        _query_statistics->add_scan_rows(stats.raw_rows_read);
+        _query_statistics->add_scan_bytes(stats.uncompressed_bytes_read);
+    }
+
+    // In case of no cache, we still need to update the IO stats. uncompressed bytes read == local + remote
+    if (stats.file_cache_stats.bytes_read_from_local == 0 &&
+        stats.file_cache_stats.bytes_read_from_remote == 0) {
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats.compressed_bytes_read);
+    } else {
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats.file_cache_stats.bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                stats.file_cache_stats.bytes_read_from_remote);
+    }
+
+    _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
+    _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
+    _tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_local = 0;
+    _tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_remote = 0;
 }
 
 void NewOlapScanner::_collect_profile_before_close() {
@@ -563,7 +587,7 @@ void NewOlapScanner::_collect_profile_before_close() {
 #define INCR_COUNTER(Parent)                                                                    \
     COUNTER_UPDATE(Parent->_io_timer, stats.io_ns);                                             \
     COUNTER_UPDATE(Parent->_read_compressed_counter, stats.compressed_bytes_read);              \
-    COUNTER_UPDATE(Parent->_scan_bytes, stats.compressed_bytes_read);                           \
+    COUNTER_UPDATE(Parent->_scan_bytes, stats.uncompressed_bytes_read);                         \
     COUNTER_UPDATE(Parent->_decompressor_timer, stats.decompress_ns);                           \
     COUNTER_UPDATE(Parent->_read_uncompressed_counter, stats.uncompressed_bytes_read);          \
     COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                             \
@@ -710,10 +734,10 @@ void NewOlapScanner::_collect_profile_before_close() {
 
     // Update metrics
     DorisMetrics::instance()->query_scan_bytes->increment(
-            local_state->_read_compressed_counter->value());
+            local_state->_read_uncompressed_counter->value());
     DorisMetrics::instance()->query_scan_rows->increment(local_state->_scan_rows->value());
     auto& tablet = _tablet_reader_params.tablet;
-    tablet->query_scan_bytes->increment(local_state->_read_compressed_counter->value());
+    tablet->query_scan_bytes->increment(local_state->_read_uncompressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
     if (_query_statistics) {

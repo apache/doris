@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -98,6 +99,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // Save the reference of session variable, so that we don't need to get it from connection context.
     // connection context is a thread local variable, it is not available is running in other thread.
     protected SessionVariable sessionVariable;
+
+    protected TableScanParams scanParams;
 
     /**
      * External file scan node for Query hms table
@@ -629,6 +632,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return snapshot;
         }
         return this.tableSnapshot;
+    }
+
+    public void setScanParams(TableScanParams scanParams) {
+        this.scanParams = scanParams;
+    }
+
+    public TableScanParams getScanParams() {
+        TableScanParams scan = desc.getRef().getScanParams();
+        if (scan != null) {
+            return scan;
+        }
+        return this.scanParams;
     }
 
     /**

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_with_index"){
+suite("regression_test_variant_with_index", "p0"){
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"

@@ -490,6 +490,7 @@ DECLARE_mInt32(max_single_replica_compaction_threads);
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
 DECLARE_mInt64(base_compaction_max_compaction_score);
+DECLARE_mInt64(mow_base_compaction_max_compaction_score);
 DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
@@ -1154,6 +1155,7 @@ DECLARE_mBool(enbale_dump_error_file);
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
 DECLARE_mInt64(cache_lock_wait_long_tail_threshold_us);
 DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
+
 // Base compaction may retrieve and produce some less frequently accessed data,
 // potentially affecting the file cache hit rate.
 // This configuration determines whether to retain the output within the file cache.
@@ -1167,6 +1169,15 @@ DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
+DECLARE_Int32(file_cache_downloader_thread_num_min);
+DECLARE_Int32(file_cache_downloader_thread_num_max);
+// used to persist lru information before be reboot and load the info back
+DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
+// dump queue only if the queue update specific times through several dump intervals
+DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
+DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
+DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1229,6 +1240,8 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 DECLARE_Int32(segment_cache_capacity);
 DECLARE_Int32(segment_cache_fd_percentage);
 DECLARE_Int32(segment_cache_memory_percentage);
+DECLARE_Bool(enable_segment_cache_prune);
+
 DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog

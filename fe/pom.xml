@@ -225,7 +225,7 @@ under the License.
         <doris.hive.catalog.shade.version>3.0.1</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.0</avro.version>
-        <parquet.version>1.13.1</parquet.version>
+       <parquet.version>1.15.2</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>0.15.0</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
@@ -249,12 +249,13 @@ under the License.
         <commons-filerupload.version>1.5</commons-filerupload.version>
         <commons-configuration2.version>2.11.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
+        <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
         <commons-text.version>1.10.0</commons-text.version>
-        <commons-validator.version>1.7</commons-validator.version>
+        <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
         <guava.version>33.2.1-jre</guava.version>
         <jackson.version>2.16.0</jackson.version>
@@ -770,7 +771,11 @@ under the License.
                 <artifactId>commons-cli</artifactId>
                 <version>${commons-cli.version}</version>
             </dependency>
-
+            <dependency>
+                <groupId>commons-beanutils</groupId>
+                <artifactId>commons-beanutils</artifactId>
+                <version>${commons-beanutils.version}</version>
+            </dependency>
             <dependency>
                 <groupId>commons-fileupload</groupId>
                 <artifactId>commons-fileupload</artifactId>

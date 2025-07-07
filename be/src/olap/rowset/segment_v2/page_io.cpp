@@ -147,6 +147,8 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
                                       footer_size, opts.file_reader->path().native());
         }
         *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
+        // If read from cache, then should also recorded in uncompressed bytes read counter.
+        opts.stats->uncompressed_bytes_read += body->size;
         return Status::OK();
     }
 

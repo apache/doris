@@ -151,6 +151,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
+    public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
@@ -726,6 +727,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SCHEMA_SCAN_FROM_MASTER_FE = "enable_schema_scan_from_master_fe";
 
+    public static final String SHOW_COLUMN_COMMENT_IN_DESCRIBE = "show_column_comment_in_describe";
+
     public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
 
     public static final String PREFER_UDF_OVER_BUILTIN = "prefer_udf_over_builtin";
@@ -1052,6 +1055,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS,
+            fuzzy = true,
+            description = {
+                "是否允许使用二分查找算法去过滤分区。默认开。",
+                "Whether to allow use binary search algorithm to filter partitions. ON by default."
+            }
+    )
+    public boolean enableBinarySearchFilteringPartitions = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = false;
@@ -2503,6 +2516,13 @@ public class SessionVariable implements Serializable, Writable {
             "Whether to allow scanning information_schema.tables from the master node"
     })
     public boolean enableSchemaScanFromMasterFe = true;
+
+    @VariableMgr.VarAttr(name = SHOW_COLUMN_COMMENT_IN_DESCRIBE, needForward = true,
+            description = {
+                    "是否在 DESCRIBE TABLE 语句中显示列注释",
+                    "whether to show column comments in DESCRIBE TABLE statement"
+            })
+    public boolean showColumnCommentInDescribe = false;
 
     @VariableMgr.VarAttr(name = SQL_CONVERTOR_CONFIG, needForward = true,
             description = {

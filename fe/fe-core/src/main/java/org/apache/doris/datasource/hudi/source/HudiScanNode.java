@@ -55,11 +55,13 @@ import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -195,7 +197,7 @@ public class HudiScanNode extends HiveScanNode {
             if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
                 throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
             }
-            queryInstant = tableSnapshot.getTime().replaceAll("[-: ]", "");
+            queryInstant = tableSnapshot.getValue().replaceAll("[-: ]", "");
         } else {
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
             if (!snapshotInstant.isPresent()) {
@@ -214,9 +216,7 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .getFsViewProcessor(hmsTable.getCatalog())
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
-        if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
-            params.setHistorySchemaInfo(new ConcurrentHashMap<>());
-        }
+        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
     }
 
     @Override
@@ -276,8 +276,20 @@ public class HudiScanNode extends HiveScanNode {
                         .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
                 params.history_schema_info.computeIfAbsent(
                         internalSchema.schemaId(),
-                        k -> HudiUtils.getSchemaInfo(internalSchema));
-                fileDesc.setSchemaId(internalSchema.schemaId()); //for schema change. (native reader)
+                        k -> HudiUtils.getSchemaInfo(internalSchema)); //for schema change. (native reader)
+                fileDesc.setSchemaId(internalSchema.schemaId());
+            } else {
+                try {
+                    TableSchemaResolver schemaUtil = new TableSchemaResolver(hudiClient);
+                    InternalSchema internalSchema =
+                            AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
+                    params.history_schema_info.computeIfAbsent(
+                            internalSchema.schemaId(),
+                            k -> HudiUtils.getSchemaInfo(internalSchema)); // Handle column name case for BE.
+                    fileDesc.setSchemaId(internalSchema.schemaId());
+                } catch (Exception e) {
+                    throw new RuntimeException("Cannot get hudi table schema.", e);
+                }
             }
         }
         tableFormatFileDesc.setHudiParams(fileDesc);

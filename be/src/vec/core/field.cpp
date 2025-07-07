@@ -26,14 +26,9 @@
 #include "vec/io/io_helper.h"
 #include "vec/io/var_int.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 void read_binary(Array& x, BufferReadable& buf) {
     size_t size;

@@ -18,9 +18,9 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -36,15 +36,13 @@
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class BufferWritable;
 class IColumn;
 class ReadBuffer;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
 class DataTypeJsonb final : public IDataType {
 public:
     using ColumnType = ColumnString;
@@ -68,10 +66,13 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    virtual Field get_default() const override {
+    Field get_default() const override {
         std::string default_json = "null";
-        JsonBinaryValue binary_val(default_json.c_str(), default_json.size());
-        return JsonbField(binary_val.value(), binary_val.size());
+        // convert default_json to binary
+        JsonBinaryValue binary_val(default_json.c_str(), static_cast<Int32>(default_json.size()));
+        // Throw exception if default_json.size() is large than INT32_MAX
+        // JsonbField keeps its own memory
+        return JsonbField(binary_val.value(), static_cast<UInt32>(binary_val.size()));
     }
 
     Field get_field(const TExprNode& node) const override {
@@ -106,4 +107,6 @@ public:
 private:
     DataTypeString data_type_string;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

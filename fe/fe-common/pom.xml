@@ -57,6 +57,10 @@ under the License.
             <artifactId>libthrift</artifactId>
         </dependency>
         <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>hive-catalog-shade</artifactId>
             <scope>provided</scope>

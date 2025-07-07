@@ -2210,12 +2210,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_external_schema_cache_num = 10000;
 
-    /**
-     * The expiration time of a cache object after last access of it.
-     * For external schema cache and hive meta cache.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static long external_cache_expire_time_minutes_after_access = 10; // 10 mins
+    @ConfField(description = {
+            "外部表元数据缓存对象在最后访问后过期的时间。",
+            "The expiration time of a cache object after last access of it. For external meta cache."
+    })
+    public static long external_cache_expire_time_seconds_after_access = 86400L; // 24 hours
+
+    @ConfField(description = {
+            "外部表元数据缓存对象的自动刷新时间",
+            "The auto refresh time of external meta cache."
+    })
+    public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
     /**
      * Github workflow test type, for setting some session variables
@@ -2260,6 +2265,9 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_query_hive_views = true;
+
+    @ConfField(mutable = true)
+    public static boolean enable_query_iceberg_views = true;
 
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
@@ -3234,6 +3242,12 @@ public class Config extends ConfigBase {
     public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
 
     @ConfField(mutable = true, masterOnly = true)
+    public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_warm_up_force_all_partitions = false;
+
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_fetch_cluster_cache_hotspot = true;
 
     @ConfField(mutable = true)
@@ -3330,6 +3344,15 @@ public class Config extends ConfigBase {
             "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
     public static int meta_service_rpc_timeout_retry_times = 1;
 
+    @ConfField(mutable = true, description = {"存算分离模式下自动启停功能，对于该配置中的数据库名不进行唤醒操作，"
+            + "用于内部作业的数据库，例如统计信息用到的数据库，"
+            + "举例: auto_start_ignore_db_names=__internal_schema, information_schema",
+            "In the cloud mode, the automatic start and stop ignores the DB name of the internal job,"
+            + "used for databases involved in internal jobs, such as those used for statistics, "
+            + "For example: auto_start_ignore_db_names=__internal_schema, information_schema"
+            })
+    public static String[] auto_start_ignore_resume_db_names = {"__internal_schema", "information_schema"};
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
@@ -3384,4 +3407,25 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"Prometheus 输出表维度指标的个数限制",
             "Prometheus output table dimension metric count limit"})
     public static int prom_output_table_metrics_limit = 10000;
+
+    @ConfField(description = {"认证插件目录",
+            "Authentication plugin directory"})
+    public static String authentication_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authentication";
+
+    @ConfField(description = {"鉴权插件目录",
+            "Authorization plugin directory"})
+    public static String authorization_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authorization";
+
+    @ConfField(description = {
+            "鉴权插件配置文件路径，需在 DORIS_HOME 下，默认为 conf/authorization.conf",
+            "Authorization plugin configuration file path, need to be in DORIS_HOME,"
+                    + "default is conf/authorization.conf"})
+    public static String authorization_config_file_path = "/conf/authorization.conf";
+
+    @ConfField(description = {
+            "认证插件配置文件路径，需在 DORIS_HOME 下，默认为 conf/authentication.conf",
+            "Authentication plugin configuration file path, need to be in DORIS_HOME,"
+                    + "default is conf/authentication.conf"})
+    public static String authentication_config_file_path = "/conf/authentication.conf";
+
 }

@@ -39,6 +39,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "cloud/schema_cloud_dictionary_cache.h"
@@ -69,6 +70,13 @@ namespace doris::cloud {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
+void* run_bthread_work(void* arg) {
+    auto* f = reinterpret_cast<std::function<void()>*>(arg);
+    (*f)();
+    delete f;
+    return nullptr;
+}
+
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
     if (tasks.empty()) {
         return Status::OK();
@@ -78,13 +86,6 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
     bthread::ConditionVariable cond;
     Status status; // Guard by lock
     int count = 0; // Guard by lock
-
-    auto* run_bthread_work = +[](void* arg) -> void* {
-        auto* f = reinterpret_cast<std::function<void()>*>(arg);
-        (*f)();
-        delete f;
-        return nullptr;
-    };
 
     for (const auto& task : tasks) {
         {
@@ -129,6 +130,24 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
     }
 
     return status;
+}
+
+Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency,
+                         std::future<Status>* fut) {
+    // std::function will cause `copy`, we need to use heap memory to avoid copy ctor called
+    auto prom = std::make_shared<std::promise<Status>>();
+    *fut = prom->get_future();
+    std::function<void()>* fn =
+            new std::function<void()>([&tasks, concurrency, p = std::move(prom)]() mutable {
+                p->set_value(bthread_fork_join(tasks, concurrency));
+            });
+
+    bthread_t bthread_id;
+    if (bthread_start_background(&bthread_id, nullptr, run_bthread_work, fn) != 0) {
+        delete fn;
+        return Status::InternalError<false>("failed to create bthread");
+    }
+    return Status::OK();
 }
 
 namespace {
@@ -968,7 +987,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
+Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
@@ -1010,6 +1029,8 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string&
         RETURN_IF_ERROR(
                 engine.get_schema_cloud_dictionary_cache().refresh_dict(rs_meta_pb.index_id()));
     }
+    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+    manager.warm_up_rowset(rs_meta);
     return st;
 }
 

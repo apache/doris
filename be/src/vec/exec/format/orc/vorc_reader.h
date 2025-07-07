@@ -124,7 +124,9 @@ public:
         int64_t set_fill_column_time = 0;
         int64_t decode_value_time = 0;
         int64_t decode_null_map_time = 0;
-        int64_t filter_block_time = 0;
+        int64_t predicate_filter_time = 0;
+        int64_t dict_filter_rewrite_time = 0;
+        int64_t lazy_read_filtered_rows = 0;
     };
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
@@ -175,6 +177,8 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
+    Status init_schema_reader() override;
+
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
@@ -223,7 +227,9 @@ private:
         RuntimeProfile::Counter* set_fill_column_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
-        RuntimeProfile::Counter* filter_block_time = nullptr;
+        RuntimeProfile::Counter* predicate_filter_time = nullptr;
+        RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
+        RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
         RuntimeProfile::Counter* selected_row_group_count = nullptr;
         RuntimeProfile::Counter* evaluated_row_group_count = nullptr;
     };
@@ -636,6 +642,7 @@ private:
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;
+    bool _disable_dict_filter = false;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::shared_ptr<ObjectPool> _obj_pool;

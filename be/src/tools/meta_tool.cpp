@@ -34,23 +34,36 @@
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/data_dir.h"
+#include "olap/olap_define.h"
 #include "olap/options.h"
+#include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/utils.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 
+using std::filesystem::path;
 using doris::DataDir;
 using doris::StorageEngine;
+using doris::OlapMeta;
 using doris::Status;
 using doris::TabletMeta;
 using doris::TabletMetaManager;
 using doris::Slice;
 using strings::Substitute;
 using doris::segment_v2::SegmentFooterPB;
+using doris::segment_v2::ColumnReader;
+using doris::segment_v2::PageHandle;
+using doris::segment_v2::PagePointer;
+using doris::segment_v2::ColumnReaderOptions;
+using doris::segment_v2::ColumnIteratorOptions;
+using doris::segment_v2::PageFooterPB;
 using doris::io::FileReaderSPtr;
+
+const std::string HEADER_PREFIX = "tabletmeta_";
 
 DEFINE_string(root_path, "", "storage root path");
 DEFINE_string(operation, "get_meta",
@@ -308,7 +321,6 @@ void show_segment_footer(const std::string& file_name) {
 }
 
 int main(int argc, char** argv) {
-    SCOPED_INIT_THREAD_CONTEXT();
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -117,6 +118,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.compareWidthAndDepth = compareWidthAndDepth;
                 this.fastChildrenHashCode = fastChildrenHashCode;
         }
+        checkLimit();
         this.inferred = false;
         this.hasUnbound = hasUnbound || this instanceof Unbound;
     }
@@ -170,8 +172,20 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.compareWidthAndDepth = compareWidthAndDepth && supportCompareWidthAndDepth();
                 this.fastChildrenHashCode = fastChildrenhashCode;
         }
+        checkLimit();
         this.inferred = inferred;
         this.hasUnbound = hasUnbound || this instanceof Unbound;
+    }
+
+    private void checkLimit() {
+        if (depth > Config.expr_depth_limit) {
+            throw new AnalysisException(String.format("Exceeded the maximum depth of an "
+                    + "expression tree (%s).", Config.expr_depth_limit));
+        }
+        if (width > Config.expr_children_limit) {
+            throw new AnalysisException(String.format("Exceeded the maximum children of an "
+                    + "expression tree (%s).", Config.expr_children_limit));
+        }
     }
 
     public Alias alias(String alias) {
@@ -404,6 +418,32 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     public boolean isKeyColumnFromTable() {
         return (this instanceof SlotReference) && ((SlotReference) this).getOriginalColumn().isPresent()
                 && ((SlotReference) this).getOriginalColumn().get().isKey();
+    }
+
+    /** containsNullLiteralChildren */
+    public boolean containsNullLiteralChildren() {
+        return getOrInitMutableState("CONTAINS_NULL_LITERAL_CHILDREN", () -> {
+            for (Expression child : children) {
+                if (child instanceof NullLiteral) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    /** allChildrenAreLiteral */
+    public boolean allChildrenAreLiteral() {
+        return getOrInitMutableState("ALL_CHILDREN_ARE_LITERAL", () -> {
+            boolean allLiteral = true;
+            for (Expression child : getArguments()) {
+                if (!(child instanceof Literal)) {
+                    allLiteral = false;
+                    break;
+                }
+            }
+            return allLiteral;
+        });
     }
 
     @Override

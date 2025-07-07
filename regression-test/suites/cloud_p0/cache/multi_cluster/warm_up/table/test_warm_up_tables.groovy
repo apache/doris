@@ -21,7 +21,7 @@ suite("test_warm_up_tables") {
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][2]
+         return jobStateResult[0][3]
     }
     def getTablesFromShowCommand = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
