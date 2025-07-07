@@ -182,10 +182,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             throw new AnalysisException(String.format("Exceeded the maximum depth of an "
                     + "expression tree (%s).", Config.expr_depth_limit));
         }
-        if (width > Config.expr_children_limit) {
-            throw new AnalysisException(String.format("Exceeded the maximum children of an "
-                    + "expression tree (%s).", Config.expr_children_limit));
-        }
     }
 
     public Alias alias(String alias) {

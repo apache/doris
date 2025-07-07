@@ -407,12 +407,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return;
         }
 
-        // Check the expr child limit.
-        if (children.size() > Config.expr_children_limit) {
-            throw new AnalysisException(String.format("Exceeded the maximum number of child "
-                    + "expressions (%d).", Config.expr_children_limit));
-        }
-
         // analyzer may be null for certain literal constructions (e.g. IntLiteral).
         if (analyzer != null) {
             analyzer.incrementCallDepth();

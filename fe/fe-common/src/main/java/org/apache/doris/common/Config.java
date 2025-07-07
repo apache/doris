@@ -810,13 +810,7 @@ public class Config extends ConfigBase {
     @ConfField public static int meta_publish_timeout_ms = 1000;
     @ConfField public static boolean proxy_auth_enable = false;
     @ConfField public static String proxy_auth_magic_prefix = "x@8";
-    /**
-     * Limit on the number of expr children of an expr tree.
-     * Exceed this limit may cause long analysis time while holding database read lock.
-     * Do not set this if you know what you are doing.
-     */
-    @ConfField(mutable = true)
-    public static int expr_children_limit = 10000;
+
     /**
      * Limit on the depth of an expr tree.
      * Exceed this limit may cause long analysis time while holding db read lock.
