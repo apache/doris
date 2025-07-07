@@ -23,7 +23,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllBEs()
 
     def tableName = "test_flexible_partial_update_publish_conflict"
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS ${tableName} FORCE;"""
     sql """ CREATE TABLE ${tableName} (
         `k` int(11) NULL, 
         `v1` BIGINT NULL,
@@ -94,7 +94,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
             }
         }
 
-        Thread.sleep(500)
+        Thread.sleep(1500)
 
         def t2 = Thread.start {
             streamLoad {
@@ -108,7 +108,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
             }
         }
 
-        Thread.sleep(500)
+        Thread.sleep(1500)
 
         disable_publish_spin_wait()
         disable_block_in_publish()
@@ -128,7 +128,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${tableName} values(1,1,1,1,1,1),(2,2,2,2,2,2);"
         }
-        Thread.sleep(700)
+        Thread.sleep(1500)
         def t4 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "set insert_visible_timeout_ms=60000;"
@@ -136,7 +136,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${tableName}(k,v1,v2,v3) values(1,99,99,99);"
         }
-        Thread.sleep(700)
+        Thread.sleep(1500)
         enable_publish_spin_wait("token2")
         def t5 = Thread.start {
             streamLoad {
@@ -149,7 +149,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
                 time 40000
             }
         }
-        Thread.sleep(700)
+        Thread.sleep(1500)
         // let t3 and t4 publish
         enable_block_in_publish("token1")
         t3.join()

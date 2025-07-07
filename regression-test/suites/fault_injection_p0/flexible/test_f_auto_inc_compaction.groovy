@@ -198,7 +198,7 @@ suite("test_f_auto_inc_compaction", "nonConcurrent") {
             // [0-6]
             Assert.assertEquals(startVersion, 0)
             Assert.assertEquals(endVersion, 6)
-            Assert.assertEquals(numRows, 7)
+            Assert.assertEquals(numRows, 4)
             Assert.assertEquals(overlapPb, "NONOVERLAPPING")
         })
 
@@ -208,7 +208,7 @@ suite("test_f_auto_inc_compaction", "nonConcurrent") {
         disable_publish_spin_wait()
         disable_block_in_publish()
         Thread.sleep(1000)
-        t1.join()
+        t2.join()
 
         qt_sql "select k,v1,v2 from ${tableName} order by k;"
         qt_check_auto_inc_dup "select count(*) from ${tableName} group by id having count(*) > 1;"

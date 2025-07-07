@@ -174,7 +174,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${tableName} values(1,10,1,1,1),(2,20,2,2,2),(3,30,3,3,3),(4,40,4,4,4);"
         }
-        Thread.sleep(700)
+        Thread.sleep(1500)
         def t4 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "set insert_visible_timeout_ms=60000;"
@@ -182,7 +182,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${tableName}(k,v1,v2,v3) values(1,99,99,99),(3,88,88,88);"
         }
-        Thread.sleep(700)
+        Thread.sleep(1500)
         enable_publish_spin_wait("token2")
         def t5 = Thread.start {
             streamLoad {
@@ -195,7 +195,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
                 time 40000
             }
         }
-        Thread.sleep(700)
+        Thread.sleep(1500)
         // let t3 and t4 publish
         enable_block_in_publish("token1")
         t3.join()
