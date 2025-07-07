@@ -225,7 +225,7 @@ function stop_doris_grace() {
         if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
             echo "INFO: try to find keywords ${keywords} in be.out"
             if [[ -f "${DORIS_HOME}"/be/log/be.out ]]; then
-                if grep -E "${keywords}" "${DORIS_HOME}"/be/logs/be.out; then
+                if grep -E "${keywords}" "${DORIS_HOME}"/be/log/be.out; then
                     echo "ERROR: found memory leaks or undefined behavior in be.out" && ret=1
                 else
                     echo "INFO: no memory leaks or undefined behavior found in be.out"
