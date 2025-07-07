@@ -17,6 +17,8 @@
 
 package org.apache.doris.plugin.dialect;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -36,6 +38,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 /**
  * This class is used to convert sql with different dialects using sql convertor service.
@@ -50,8 +53,11 @@ import java.util.concurrent.ThreadLocalRandom;
 public class HttpDialectUtils {
     private static final Logger LOG = LogManager.getLogger(HttpDialectUtils.class);
 
-    // Cache URL manager instances to avoid duplicate parsing
-    private static final ConcurrentHashMap<String, UrlManager> urlManagerCache = new ConcurrentHashMap<>();
+    // Cache URL manager instances to avoid duplicate parsing with automatic expiration
+    private static final Cache<String, UrlManager> urlManagerCache = Caffeine.newBuilder()
+            .maximumSize(10)
+            .expireAfterAccess(8, TimeUnit.HOURS)
+            .build();
 
     // Blacklist recovery time (ms): 1 minute
     private static final long BLACKLIST_RECOVERY_TIME_MS = 60 * 1000;
@@ -84,14 +90,13 @@ public class HttpDialectUtils {
         for (String url : allUrls) {
             try {
                 String result = doConvertSql(url, requestStr);
-                if (result != null && !result.equals(originStmt)) {
-                    // Conversion succeeded, mark URL as healthy (remove from blacklist)
-                    urlManager.markUrlAsHealthy(url);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Successfully converted SQL using URL: {}", url);
-                    }
-                    return result;
+                // If no exception thrown, HTTP response was successful (200)
+                // Mark URL as healthy and return result (even if empty)
+                urlManager.markUrlAsHealthy(url);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Successfully converted SQL using URL: {}", url);
                 }
+                return result;
             } catch (Exception e) {
                 LOG.warn("Failed to convert SQL using URL: {}, error: {}", url, e.getMessage());
                 // Add failed URL to blacklist for future optimization
@@ -100,7 +105,6 @@ public class HttpDialectUtils {
             }
         }
 
-        LOG.warn("All URLs failed to convert SQL, return original SQL");
         return originStmt;
     }
 
@@ -108,7 +112,7 @@ public class HttpDialectUtils {
      * Get or create a URL manager
      */
     private static UrlManager getOrCreateUrlManager(String targetURLs) {
-        return urlManagerCache.computeIfAbsent(targetURLs, UrlManager::new);
+        return urlManagerCache.get(targetURLs, UrlManager::new);
     }
 
     /**
@@ -117,7 +121,10 @@ public class HttpDialectUtils {
     private static String doConvertSql(String targetURL, String requestStr) throws Exception {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL(targetURL);
+            if (targetURL == null || targetURL.trim().isEmpty()) {
+                throw new Exception("Target URL is null or empty");
+            }
+            URL url = new URL(targetURL.trim());
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/json");
@@ -154,14 +161,11 @@ public class HttpDialectUtils {
                     }
                     if (result.code == 0) {
                         if (!"v1".equals(result.version)) {
-                            LOG.warn("Failed to convert sql, response version is not v1: {}, URL: {}",
-                                    result.version, targetURL);
-                            return null;
+                            throw new Exception("Unsupported version: " + result.version);
                         }
                         return result.data;
                     } else {
-                        LOG.warn("Failed to convert sql, response: {}, URL: {}", result, targetURL);
-                        return null;
+                        throw new Exception("Conversion failed: " + result.message);
                     }
                 }
             } else {
