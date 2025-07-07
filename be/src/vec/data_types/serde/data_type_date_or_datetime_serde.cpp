@@ -622,9 +622,9 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
                                           "invalid day {}", part[3]);
             }
         } else {
-            if (!try_convert_set_zero_date(res, 1900 + part[0], part[1], part[2])) {
+            if (!try_convert_set_zero_date(res, complete_4digit_year(part[0]), part[1], part[2])) {
                 RETURN_INVALID_ARG_IF_NOT(
-                        res.template set_time_unit<TimeUnit::YEAR>(1900 + part[0]),
+                        res.template set_time_unit<TimeUnit::YEAR>(complete_4digit_year(part[0])),
                         "invalid year {}", part[0]);
                 RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
                                           "invalid month {}", part[1]);
@@ -644,8 +644,9 @@ Status DataTypeDateSerDe<T>::_from_string_strict_mode(
             RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
 
             if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(part[0]),
-                                          "invalid year {}", part[0]);
+                RETURN_INVALID_ARG_IF_NOT(
+                        res.template set_time_unit<TimeUnit::YEAR>(complete_4digit_year(part[0])),
+                        "invalid year {}", part[0]);
                 RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
                                           "invalid month {}", part[1]);
                 RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),

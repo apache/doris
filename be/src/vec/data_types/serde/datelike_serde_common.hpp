@@ -22,6 +22,14 @@
 
 namespace doris::vectorized {
 
+inline PURE uint32_t complete_4digit_year(uint32_t year) {
+    if (year < 70) {
+        return year + 2000; // 00-69 -> 2000-2069
+    } else {
+        return year + 1900; // 70-99 -> 1970-1999
+    }
+}
+
 // return true if we set the date value in this way.
 template <typename T>
 inline bool try_convert_set_zero_date(T& date_val, uint32_t year, uint32_t month, uint32_t day) {
