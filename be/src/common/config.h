@@ -1589,6 +1589,7 @@ DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
 DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
+DECLARE_mBool(enable_fetch_rowsets_from_peer_replicas);
 // the max length of segments key bounds, in bytes
 // ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);

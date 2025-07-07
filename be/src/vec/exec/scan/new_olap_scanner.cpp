@@ -68,7 +68,7 @@
 
 namespace doris::vectorized {
 
-using ReadSource = TabletReader::ReadSource;
+using ReadSource = TabletReadSource;
 
 NewOlapScanner::NewOlapScanner(pipeline::ScanLocalStateBase* parent,
                                NewOlapScanner::Params&& params)
@@ -97,7 +97,8 @@ NewOlapScanner::NewOlapScanner(pipeline::ScanLocalStateBase* parent,
                   .filter_block_conjuncts {},
                   .key_group_cluster_key_idxes {},
           }) {
-    _tablet_reader_params.set_read_source(std::move(params.read_source));
+    _tablet_reader_params.set_read_source(std::move(params.read_source),
+                                          _state->skip_delete_bitmap());
     _is_init = false;
 }
 
@@ -193,12 +194,14 @@ Status NewOlapScanner::init() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
-            auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                 &read_source.rs_splits,
-                                                 _state->skip_missing_version());
-            if (!st.ok()) {
-                LOG(WARNING) << "fail to init reader.res=" << st;
-                return st;
+            auto maybe_read_source = tablet->capture_read_source(
+                    _tablet_reader_params.version,
+                    {.skip_missing_versions = _state->skip_missing_version(),
+                     .enable_fetch_rowsets_from_peers =
+                             config::enable_fetch_rowsets_from_peer_replicas});
+            if (!maybe_read_source) {
+                LOG(WARNING) << "fail to init reader. res=" << maybe_read_source.error();
+                return maybe_read_source.error();
             }
             if (config::enable_mow_verbose_log && tablet->enable_unique_key_merge_on_write()) {
                 LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
@@ -309,7 +312,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
 
-    auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred : _tablet_reader_params.delete_predicates) {
@@ -368,10 +370,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
     }
 
     _tablet_reader_params.use_page_cache = _state->enable_page_cache();
-
-    if (tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
-        _tablet_reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
-    }
 
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 

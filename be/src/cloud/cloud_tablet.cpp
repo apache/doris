@@ -37,6 +37,7 @@
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "olap/base_tablet.h"
 #include "olap/compaction.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
@@ -69,23 +70,6 @@ bool CloudTablet::exceed_version_limit(int32_t limit) {
     return _approximate_num_rowsets.load(std::memory_order_relaxed) > limit;
 }
 
-Status CloudTablet::capture_consistent_rowsets_unlocked(
-        const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const {
-    Versions version_path;
-    auto st = _timestamped_version_tracker.capture_consistent_versions(spec_version, &version_path);
-    if (!st.ok()) {
-        // Check no missed versions or req version is merged
-        auto missed_versions = get_missed_versions(spec_version.second);
-        if (missed_versions.empty()) {
-            st.set_code(VERSION_ALREADY_MERGED); // Reset error code
-        }
-        st.append(" tablet_id=" + std::to_string(tablet_id()));
-        return st;
-    }
-    VLOG_DEBUG << "capture consitent versions: " << version_path;
-    return _capture_consistent_rowsets_unlocked(version_path, rowsets);
-}
-
 std::string CloudTablet::tablet_path() const {
     return "";
 }
@@ -97,25 +81,10 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
         LOG_WARNING("CloudTablet.capture_rs_readers.return e-230").tag("tablet_id", tablet_id());
         return Status::Error<false>(-230, "injected error");
     });
-    Versions version_path;
     std::shared_lock rlock(_meta_lock);
-    auto st = _timestamped_version_tracker.capture_consistent_versions(spec_version, &version_path);
-    if (!st.ok()) {
-        rlock.unlock(); // avoid logging in lock range
-        // Check no missed versions or req version is merged
-        auto missed_versions = get_missed_versions(spec_version.second);
-        if (missed_versions.empty()) {
-            st.set_code(VERSION_ALREADY_MERGED); // Reset error code
-            st.append(" versions are already compacted, ");
-        }
-        st.append(" tablet_id=" + std::to_string(tablet_id()));
-        // clang-format off
-        LOG(WARNING) << st << '\n' << [this]() { std::string json; get_compaction_status(&json); return json; }();
-        // clang-format on
-        return st;
-    }
-    VLOG_DEBUG << "capture consitent versions: " << version_path;
-    return capture_rs_readers_unlocked(version_path, rs_splits);
+    *rs_splits = DORIS_TRY(capture_rs_readers_unlocked(
+            spec_version, CaptureRowsetOps {.skip_missing_versions = skip_missing_version}));
+    return Status::OK();
 }
 
 Status CloudTablet::merge_rowsets_schema() {
@@ -469,7 +438,7 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
         }
         _reconstruct_version_tracker_if_necessary();
     }
-    _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
+    _tablet_meta->delete_bitmap()->remove_stale_delete_bitmap_from_queue(version_to_delete);
     recycle_cached_data(expired_rowsets);
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
@@ -977,7 +946,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     std::size_t missed_rows_size = 0;
     calc_compaction_output_rowset_delete_bitmap(
             input_rowsets, rowid_conversion, 0, version.second + 1, missed_rows.get(),
-            location_map.get(), tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+            location_map.get(), *tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
     if (missed_rows) {
         missed_rows_size = missed_rows->size();
         if (!allow_delete_in_cumu_compaction) {
@@ -1013,7 +982,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
 
     calc_compaction_output_rowset_delete_bitmap(
             input_rowsets, rowid_conversion, version.second, UINT64_MAX, missed_rows.get(),
-            location_map.get(), tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+            location_map.get(), *tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
     int64_t t4 = MonotonicMicros();
     if (location_map) {
         RETURN_IF_ERROR(check_rowid_conversion(output_rowset, *location_map));
