@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import java.util.Optional;
 
+/**
+ * Represents retention options for branch in create branch statement
+ */
 public class RetentionSnapshots {
 
     private final Optional<Integer> numSnapshots;

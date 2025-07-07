@@ -391,15 +391,12 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVReplaceInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchOp;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
@@ -425,7 +422,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -499,7 +495,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -3823,102 +3818,5 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowIndexTokenFilter(ShowIndexTokenFilterContext ctx) {
         return new ShowIndexTokenFilterCommand();
     }
-
-    @Override
-    public AlterTableOp visitCreateOrReplaceBranchClauses(DorisParser.CreateOrReplaceBranchClausesContext ctx) {
-        return visitCreateOrReplaceBranchClause(ctx.createOrReplaceBranchClause());
-    }
-
-    @Override
-    public CreateOrReplaceBranchOp visitCreateOrReplaceBranchClause(
-            DorisParser.CreateOrReplaceBranchClauseContext ctx) {
-        BranchOptions branchOptions = visitBranchOptions(ctx.branchOptions());
-        return new CreateOrReplaceBranchOp(
-                ctx.name.getText(),
-                ctx.CREATE() != null,
-                ctx.REPLACE() != null,
-                ctx.EXISTS() != null,
-                branchOptions);
-    }
-
-    @Override
-    public BranchOptions visitBranchOptions(DorisParser.BranchOptionsContext ctx) {
-        if (ctx == null) {
-            return BranchOptions.EMPTY;
-        }
-
-        Optional<Long> snapshotId = Optional.empty();
-        if (ctx.version != null) {
-            snapshotId = Optional.of(Long.parseLong(ctx.version.getText()));
-        }
-
-        Optional<Long> retainTime = Optional.empty();
-        if (ctx.retainTime() != null) {
-            DorisParser.TimeValueWithUnitContext time = ctx.retainTime().timeValueWithUnit();
-            if (time != null) {
-                retainTime = Optional.of(visitTimeValueWithUnit(time));
-            }
-        }
-
-        Optional<Integer> numSnapshots = Optional.empty();
-        Optional<Long> retention = Optional.empty();
-        if (ctx.retentionSnapshot() != null) {
-            DorisParser.RetentionSnapshotContext retentionSnapshotContext = ctx.retentionSnapshot();
-            if (retentionSnapshotContext.minSnapshotsToKeep() != null) {
-                numSnapshots = Optional.of(
-                    Integer.parseInt(retentionSnapshotContext.minSnapshotsToKeep().value.getText()));
-            }
-            if (retentionSnapshotContext.timeValueWithUnit() != null) {
-                retention = Optional.of(visitTimeValueWithUnit(retentionSnapshotContext.timeValueWithUnit()));
-            }
-        }
-        return new BranchOptions(snapshotId, retainTime, numSnapshots, retention);
-    }
-
-    @Override
-    public AlterTableOp visitCreateOrReplaceTagClauses(DorisParser.CreateOrReplaceTagClausesContext ctx) {
-        return visitCreateOrReplaceTagClause(ctx.createOrReplaceTagClause());
-    }
-
-    @Override
-    public CreateOrReplaceTagOp visitCreateOrReplaceTagClause(DorisParser.CreateOrReplaceTagClauseContext ctx) {
-
-        TagOptions tagOptions = visitTagOptions(ctx.tagOptions());
-        return new CreateOrReplaceTagOp(
-                ctx.name.getText(),
-                ctx.CREATE() != null,
-                ctx.REPLACE() != null,
-                ctx.EXISTS() != null,
-                tagOptions);
-    }
-
-    @Override
-    public TagOptions visitTagOptions(DorisParser.TagOptionsContext ctx) {
-        if (ctx == null) {
-            return TagOptions.EMPTY;
-        }
-
-        Optional<Long> snapshotId = Optional.empty();
-        if (ctx.version != null) {
-            snapshotId = Optional.of(Long.parseLong(ctx.version.getText()));
-        }
-
-        Optional<Long> retainTime = Optional.empty();
-        if (ctx.retainTime() != null) {
-            DorisParser.TimeValueWithUnitContext time = ctx.retainTime().timeValueWithUnit();
-            if (time != null) {
-                retainTime = Optional.of(visitTimeValueWithUnit(time));
-            }
-        }
-
-        return new TagOptions(snapshotId, retainTime);
-    }
-
-    @Override
-    public Long visitTimeValueWithUnit(DorisParser.TimeValueWithUnitContext ctx) {
-        return TimeUnit.valueOf(ctx.timeUnit.getText().toUpperCase())
-            .toMillis(Long.parseLong(ctx.timeValue.getText()));
-    }
-
 }
 

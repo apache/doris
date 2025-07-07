@@ -59,6 +59,8 @@ import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.mysql.MysqlPassword;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.RetentionSnapshots;
@@ -1815,7 +1817,7 @@ alter_table_clause ::=
 branch_options ::=
     opt_as_of_version:asOfVersion opt_retain_time:retainTime opt_retention_snapshots:retentionSnapshots
     {:
-        RESULT = new BranchOptions(asOfVersion, retainTime, retentionSnapshots.getNumSnapshots(), retentionSnapshots.getRetention());
+        RESULT = new BranchOptions(asOfVersion, retainTime, retentionSnapshots.getNumSnapshots(), retentionSnapshots.getRetain());
     :}
     ;
 
@@ -1860,15 +1862,15 @@ opt_retention_snapshots ::=
     :}
     | KW_WITH KW_SNAPSHOT KW_RETENTION INTEGER_LITERAL:s KW_SNAPSHOTS
     {:
-        RESULT = new RetentionSnapshots(Optional.of(s), Optional.empty());
+        RESULT = new RetentionSnapshots(Optional.of(s.intValue()), Optional.empty());
     :}
     | KW_WITH KW_SNAPSHOT KW_RETENTION time_value_with_unit:timeValueWithUnit
     {:
-        RESULT = new RetentionSnapshots(Optional.empty, timeValueWithUnit);
+        RESULT = new RetentionSnapshots(Optional.empty(), timeValueWithUnit);
     :}
     | KW_WITH KW_SNAPSHOT KW_RETENTION INTEGER_LITERAL:s KW_SNAPSHOTS time_value_with_unit:timeValueWithUnit
     {:
-        RESULT = new RetentionSnapshots(Optional.of(s), timeValueWithUnit);
+        RESULT = new RetentionSnapshots(Optional.of(s.intValue()), timeValueWithUnit);
     :}
     ;
 
