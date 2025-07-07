@@ -311,8 +311,8 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
 }
 
 void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int start,
-                                                int end, const cctz::time_zone& ctz) const {
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     for (auto r = start; r < end; ++r) {

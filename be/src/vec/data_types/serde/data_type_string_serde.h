@@ -303,7 +303,7 @@ public:
     }
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override {
         const auto& string_column = assert_cast<const ColumnType&>(column);
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);

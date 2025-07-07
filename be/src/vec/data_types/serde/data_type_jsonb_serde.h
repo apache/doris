@@ -44,7 +44,7 @@ public:
                                  int row_idx, bool col_const,
                                  const FormatOptions& options) const override;
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
 
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,

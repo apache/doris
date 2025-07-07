@@ -107,8 +107,9 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
 }
 
 void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                    arrow::ArrayBuilder* array_builder, int start,
-                                                    int end, const cctz::time_zone& ctz) const {
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz) const {
     const auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
     auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     std::shared_ptr<arrow::TimestampType> timestamp_type =

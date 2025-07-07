@@ -174,7 +174,7 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
 }
 
 void DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                   int start, int end,
+                                                   int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
     _read_column_from_arrow<false>(column, arrow_array, start, end, ctz);
 }
@@ -218,9 +218,10 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
     }
 }
 
-void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int64_t start, int64_t end,
-                                                 const cctz::time_zone& ctz) const {
+template <bool is_date>
+void DataTypeDate64SerDe::_read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                  int64_t start, int64_t end,
+                                                  const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
@@ -276,7 +277,7 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
 }
 
 void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int start, int end,
+                                                 int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
     _read_column_from_arrow<true>(column, arrow_array, start, end, ctz);
 }

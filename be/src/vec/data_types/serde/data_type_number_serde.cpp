@@ -71,8 +71,9 @@ using DORIS_NUMERIC_ARROW_BUILDER =
 
 template <typename T>
 void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                   arrow::ArrayBuilder* array_builder, int start,
-                                                   int end, const cctz::time_zone& ctz) const {
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<T, DORIS_NUMERIC_ARROW_BUILDER>::ValueType;
     auto arrow_null_map = revert_null_map(null_map, start, end);

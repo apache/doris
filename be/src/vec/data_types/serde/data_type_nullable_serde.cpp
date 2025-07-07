@@ -262,7 +262,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
 
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                     Arena* mem_pool, int32_t col_id,
-                                                    int64_t row_num) const {
+                                                    int row_num) const {
     auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     result.writeKey(col_id);
     if (nullable_col.is_null_at(row_num)) {
@@ -289,8 +289,8 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
    2/ pass the arrow null byteamp to nested column , and call AppendValues
 **/
 void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                  arrow::ArrayBuilder* array_builder, int start,
-                                                  int end, const cctz::time_zone& ctz) const {
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
                                         &column_nullable.get_null_map_data(), array_builder, start,

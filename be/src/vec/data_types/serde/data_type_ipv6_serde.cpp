@@ -145,8 +145,8 @@ Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& ar
 }
 
 void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                              arrow::ArrayBuilder* array_builder, int start,
-                                              int end, const cctz::time_zone& ctz) const {
+                                              arrow::ArrayBuilder* array_builder, int64_t start,
+                                              int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
