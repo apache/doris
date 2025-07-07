@@ -709,13 +709,18 @@ void ExecEnv::destroy() {
     // Memory barrier to prevent other threads from accessing destructed resources
     _s_ready = false;
 
+    LOG(INFO) << "step 1";
     SAFE_STOP(_wal_manager);
+    LOG(INFO) << "step 2";
     _wal_manager.reset();
     SAFE_STOP(_load_channel_mgr);
+    LOG(INFO) << "step 3";
     SAFE_STOP(_scanner_scheduler);
     SAFE_STOP(_broker_mgr);
+    LOG(INFO) << "step 4";
     SAFE_STOP(_load_path_mgr);
     SAFE_STOP(_result_mgr);
+    LOG(INFO) << "step 5";
     SAFE_STOP(_group_commit_mgr);
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
