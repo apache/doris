@@ -134,7 +134,10 @@ public class Statistics {
                     || isNumNullsDecreaseByProportion && columnStatistic.numNulls != 0)) {
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
                 double ndv = Math.min(columnStatistic.ndv, rowCount);
-                double numNulls = Math.min(columnStatistic.numNulls * factor, rowCount - ndv);
+                double numNulls = columnStatistic.numNulls;
+                if (numNulls > 0) {
+                    numNulls = Math.max(1, Math.min(columnStatistic.numNulls * factor, rowCount - ndv));
+                }
                 columnStatisticBuilder.setNumNulls(numNulls);
                 columnStatisticBuilder.setNdv(ndv);
                 columnStatistic = columnStatisticBuilder.build();

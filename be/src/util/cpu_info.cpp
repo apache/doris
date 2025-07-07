@@ -160,6 +160,11 @@ void CpuInfo::init() {
         }
     }
 
+#ifdef __APPLE__
+    size_t len = sizeof(max_num_cores_);
+    sysctlbyname("hw.physicalcpu", &physical_num_cores, &len, nullptr, 0);
+#endif
+
     int num_cores = CGroupUtil::get_cgroup_limited_cpu_number(physical_num_cores);
     if (max_mhz != 0) {
         cycles_per_ms_ = int64_t(max_mhz) * 1000;
@@ -178,7 +183,6 @@ void CpuInfo::init() {
     }
 
 #ifdef __APPLE__
-    size_t len = sizeof(max_num_cores_);
     sysctlbyname("hw.logicalcpu", &max_num_cores_, &len, nullptr, 0);
 #else
     max_num_cores_ = get_nprocs_conf();
