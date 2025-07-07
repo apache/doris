@@ -25,6 +25,8 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
+
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -37,24 +39,36 @@ import java.util.regex.Pattern;
  */
 public abstract class StringLikeLiteral extends Literal implements ComparableLiteral {
     public static final int CHINESE_CHAR_BYTE_LENGTH = 4;
-    public static final String toDateStrictRegex = "^(?:(?<year1>\\d{2}|\\d{4})-(?<month1>\\d{1,2})-(?<date1>\\d{1,2})"
+    public static final String toDateStrictRegex
+            // <date> ::= (<year> "-" <month1> "-" <day1>) | (<year> <month2> <day2>)
+            = "((?:(?<year1>\\d{2}|\\d{4})-(?<month1>\\d{1,2})-(?<date1>\\d{1,2})"
             + "|(?<year2>\\d{2}|\\d{4})(?<month2>\\d{2})(?<date2>\\d{2}))"
-            + "(?:(?:[T ])"
-            + "(?:(?:(?<hour1>\\d{1,2})(?::(?<minute1>\\d{1,2})(?::(?<second1>\\d{1,2})(?<fraction1>\\.\\d*)?)?)?)"
-            + "|(?:(?<hour2>\\d{2})(?:(?<minute2>\\d{2})(?:(?<second2>\\d{2})(?<fraction2>\\.\\d*)?)?)?)))?"
-            + "(?:\\s*(?<tz>(?:[+-](?:\\d{1,2})(?::?(?:00|30|45))?)"
-            + "|(?:(?i)(?:CST|UTC|GMT|ZULU|Z|(?:[A-Za-z_]+/[A-Za-z_]+)))))?$";
+            + "(?:[T ]"
+            // <time> ::= <hour1> (":" <minute1> (":" <second1> <fraction>?)?)?
+            // | <hour2> (<minute2> (<second2> <fraction>?)?)?
+            + "(?:(?<hour1>\\d{1,2})(?::(?<minute1>\\d{1,2})(?::(?<second1>\\d{1,2})(?<fraction1>\\.\\d*)?)?)?"
+            + "|(?<hour2>\\d{2})(?:(?<minute2>\\d{2})(?:(?<second2>\\d{2})(?<fraction2>\\.\\d*)?)?)?)"
+            // <offset> ::= (( "+" | "-" ) <hour-offset> [ ":"? <minute-offset> ]) | (<tz-name>)
+            + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
+            + "|(?i)(?:CST|UTC|GMT|ZULU|Z|[A-Za-z_]+/[A-Za-z_]+)))?"
+            + ")?)"
+            + "|"
+            // <digit>{14} <fraction>? <whitespace>* <offset>?
+            + "((?<timestamp>\\d{14})(?<fraction3>\\.\\d*)?\\s*"
+            + "(?:\\s*(?<tz1>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)(?:CST|UTC|GMT|ZULU|Z|[A-Za-z_]+/[A-Za-z_]+)))?)";
     public static final String toDateUnStrictRegex
             = "^\\s*((?<year>\\d{2,4})[^a-zA-Z\\d](?<month>\\d{1,2})[^a-zA-Z\\d](?<date>\\d{1,2}))"
-            + "(?:(?:[ T])"
-            + "(?:(?<hour>\\d{1,2})[^a-zA-Z\\d](?<minute>\\d{1,2})[^a-zA-Z\\d]"
-            + "(?<second>\\d{1,2})(?<fraction>\\.\\d*)?))?"
-            + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)(?:CST|UTC|GMT|ZULU|Z|[A-Za-z_]+/[A-Za-z_]+)))?\\s*$";
+            + "(?:[ T]"
+            + "(?<hour>\\d{1,2})[^a-zA-Z\\d](?<minute>\\d{1,2})[^a-zA-Z\\d](?<"
+            + "second>\\d{1,2})(?<fraction>\\.\\d*)?"
+            + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
+            + "|(?i)(?:CST|UTC|GMT|ZULU|Z|[A-Za-z_]+/[A-Za-z_]+)))?"
+            + ")?\\s*$";
     public static final String toDoubleRegex
-            = "^\\s*(?:[+-]?(?:(?:[0-9]+|[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
-            + "|(?i)(?:INF|INFINITY)|(?i)NAN))\\s*$";
+            = "^\\s*[+-]?(?:(?:[0-9]+|[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|(?"
+            + "i)(?:INF|INFINITY)|(?i)NAN)\\s*$";
     public static final String toDecimalRegex
-            = "^\\s*[+-]?((\\d+\\.\\d+)|(\\d+)|(\\d+\\.)|(\\.\\d+))(?:(e|E)[+-]?\\d+)?\\s*$";
+            = "^\\s*[+-]?((\\d+\\.\\d+)|(\\d+)|(\\d+\\.)|(\\.\\d+))(?:([eE])[+-]?\\d+)?\\s*$";
     public static final String toIntStrict = "\\s*[+-]?\\d+\\s*";
     public static final String toIntUnStrict = "\\s*[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\s*";
     public static final Pattern dateStrictPattern = Pattern.compile(toDateStrictRegex);
@@ -230,34 +244,61 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
 
     protected Expression castToDateTime(DataType targetType, boolean strictCast) {
         Matcher strictMatcher = dateStrictPattern.matcher(value);
+        String year;
+        String month;
+        String date;
+        String hour;
+        String minute;
+        String second;
+        String fraction;
+        String tz;
         if (strictMatcher.matches()) {
-            String year = strictMatcher.group("year1") == null
-                    ? strictMatcher.group("year2") : strictMatcher.group("year1");
-            String month = strictMatcher.group("month1") == null
-                    ? strictMatcher.group("month2") : strictMatcher.group("month1");
-            String date = strictMatcher.group("date1") == null
-                    ? strictMatcher.group("date2") : strictMatcher.group("date1");
-            String hour = strictMatcher.group("hour1") == null
-                    ? strictMatcher.group("hour2") : strictMatcher.group("hour1");
-            String minute = strictMatcher.group("minute1") == null
-                    ? strictMatcher.group("minute2") : strictMatcher.group("minute1");
-            String second = strictMatcher.group("second1") == null
-                    ? strictMatcher.group("second2") : strictMatcher.group("second1");
-            String fraction = strictMatcher.group("fraction1") == null
-                    ? strictMatcher.group("fraction2") : strictMatcher.group("fraction1");
-            String tz = strictMatcher.group("tz");
+            if (strictMatcher.group("timestamp") != null) {
+                String timestamp = strictMatcher.group("timestamp");
+                Preconditions.checkArgument(timestamp.length() == 14);
+                year = timestamp.substring(0, 4);
+                month = timestamp.substring(4, 6);
+                date = timestamp.substring(6, 8);
+                hour = timestamp.substring(8, 10);
+                minute = timestamp.substring(10, 12);
+                second = timestamp.substring(12, 14);
+                fraction = strictMatcher.group("fraction3");
+                tz = strictMatcher.group("tz1");
+            } else {
+                year = strictMatcher.group("year1") == null
+                        ? strictMatcher.group("year2") : strictMatcher.group("year1");
+                month = strictMatcher.group("month1") == null
+                        ? strictMatcher.group("month2") : strictMatcher.group("month1");
+                date = strictMatcher.group("date1") == null
+                        ? strictMatcher.group("date2") : strictMatcher.group("date1");
+                hour = strictMatcher.group("hour1") == null
+                        ? strictMatcher.group("hour2") : strictMatcher.group("hour1");
+                minute = strictMatcher.group("minute1") == null
+                        ? strictMatcher.group("minute2") : strictMatcher.group("minute1");
+                second = strictMatcher.group("second1") == null
+                        ? strictMatcher.group("second2") : strictMatcher.group("second1");
+                fraction = strictMatcher.group("fraction1") == null
+                        ? strictMatcher.group("fraction2") : strictMatcher.group("fraction1");
+                tz = strictMatcher.group("tz");
+            }
+            if (tz != null && tz.equalsIgnoreCase("CST")) {
+                tz = "+08:00";
+            }
             return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
         } else if (!strictCast) {
             Matcher unStrictMatcher = dateUnStrictPattern.matcher(value);
             if (unStrictMatcher.matches()) {
-                String year = unStrictMatcher.group("year");
-                String month = unStrictMatcher.group("month");
-                String date = unStrictMatcher.group("date");
-                String hour = unStrictMatcher.group("hour");
-                String minute = unStrictMatcher.group("minute");
-                String second = unStrictMatcher.group("second");
-                String fraction = unStrictMatcher.group("fraction");
-                String tz = unStrictMatcher.group("tz");
+                year = unStrictMatcher.group("year");
+                month = unStrictMatcher.group("month");
+                date = unStrictMatcher.group("date");
+                hour = unStrictMatcher.group("hour");
+                minute = unStrictMatcher.group("minute");
+                second = unStrictMatcher.group("second");
+                fraction = unStrictMatcher.group("fraction");
+                tz = unStrictMatcher.group("tz");
+                if (tz != null && tz.equalsIgnoreCase("CST")) {
+                    tz = "+08:00";
+                }
                 return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
             }
         }
