@@ -181,6 +181,36 @@ TEST(MathFunctionTest, cbrt_test) {
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
+TEST(MathFunctionTest, cot_test) {
+    std::string func_name = "cot";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{1.0}, 0.64209}, {{M_PI / 4}, 1.0}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, sec_test) {
+    std::string func_name = "sec";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{1.0}, 1.85082}, {{1000.0}, 1.77816}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, cosec_test) {
+    std::string func_name = "cosec";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{1.0}, 1.1884}, {{2.0}, 1.09975}, {{1000.0}, 1.20937}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
 TEST(MathFunctionTest, tan_test) {
     std::string func_name = "tan"; //tan(x)
 
