@@ -88,6 +88,7 @@ static const char* META_PARTITION_KEY_INFIX             = "partition";
 static const char* META_INDEX_KEY_INFIX                 = "index";
 static const char* META_ROWSET_LOAD_KEY_INFIX           = "rowset_load";
 static const char* META_ROWSET_COMPACT_KEY_INFIX        = "rowset_compact";
+static const char* META_ROWSET_REF_COUNT_KEY_INFIX      = "rowset_ref_count";
 
 static const char* SNAPSHOT_FULL_KEY_INFIX              = "full";
 static const char* SNAPSHOT_REFERENCE_KEY_INFIX         = "reference";
@@ -743,13 +744,13 @@ void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, Versionstamp v,
 //==============================================================================
 // Data keys
 //==============================================================================
-void data_rowset_key(const DataRowsetKeyInfo& in, std::string* out) {
+void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
-    encode_bytes(DATA_KEY_PREFIX, out);       // "data"
-    encode_bytes(std::get<0>(in), out);       // instance_id
-    encode_bytes(META_KEY_INFIX_ROWSET, out); // "rowset"
-    encode_int64(std::get<1>(in), out);       // tablet_id
-    encode_bytes(std::get<2>(in), out);       // rowset_id
+    encode_bytes(DATA_KEY_PREFIX, out);                 // "data"
+    encode_bytes(std::get<0>(in), out);                 // instance_id
+    encode_bytes(META_ROWSET_REF_COUNT_KEY_INFIX, out); // "rowset_ref_count"
+    encode_int64(std::get<1>(in), out);                 // tablet_id
+    encode_bytes(std::get<2>(in), out);                 // rowset_id
 }
 
 //==============================================================================

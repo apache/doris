@@ -96,7 +96,7 @@
 // 0x03 "meta" ${instance_id} "rowset_load" ${tablet_id} ${version} ${timestamp}    -> RowsetMetaPB
 // 0x03 "meta" ${instance_id} "rowset_compact" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
 //
-// 0x03 "data" ${instance_id} "rowset" ${tablet_id} ${rowset_id} => int64
+// 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id} => int64
 //
 // 0x03 "snapshot" ${instance_id} "full" ${timestamp} -> SnapshotPB
 // 0x03 "snapshot" ${instance_id} "reference" ${timestamp} ${instance_id} -> ${empty_value}
@@ -294,9 +294,9 @@ using MetaRowsetLoadKeyInfo = BasicKeyInfo<44, std::tuple<std::string, int64_t, 
 //                                                      0:instance_id  1:tablet_id  2:version 
 using MetaRowsetCompactKeyInfo = BasicKeyInfo<45, std::tuple<std::string, int64_t, int64_t>>;
 
-// 0x03 "data" ${instance_id} "rowset" ${tablet_id} ${rowset_id}            -> int64
+// 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id}            -> int64
 //                                                      0:instance_id  1:tablet_id  2:rowset_id
-using DataRowsetKeyInfo = BasicKeyInfo<46, std::tuple<std::string, int64_t, std::string>>;
+using DataRowsetRefCountKeyInfo = BasicKeyInfo<46, std::tuple<std::string, int64_t, std::string>>;
 
 // 0x03 "snapshot" ${instance_id} "full" ${timestamp}                       -> SnapshotPB
 //                                                      0:instance_id
@@ -515,8 +515,8 @@ static inline void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, s
 static inline std::string meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, Versionstamp v) { std::string s; meta_rowset_compact_key(in, v, &s); return s; }
 static inline std::string meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in) { return meta_rowset_compact_key(in, Versionstamp::min()); }
 
-void data_rowset_key(const DataRowsetKeyInfo& in, std::string* out);
-static inline std::string data_rowset_key(const DataRowsetKeyInfo& in) { std::string s; data_rowset_key(in, &s); return s; }
+void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string* out);
+static inline std::string data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in) { std::string s; data_rowset_ref_count_key(in, &s); return s; }
 
 void snapshot_full_key_prefix(const SnapshotFullKeyInfo& in, std::string* out);
 static inline std::string snapshot_full_key_prefix(const SnapshotFullKeyInfo& in) { std::string s; snapshot_full_key_prefix(in, &s); return s; }

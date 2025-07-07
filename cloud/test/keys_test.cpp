@@ -2038,7 +2038,7 @@ TEST(KeysTest, VersionedMetaRowsetCompactKeyTest) {
         EXPECT_EQ(timestamp.order(), decoded_timestamp.order());
     }
 }
-TEST(KeysTest, VersionedDataRowsetKeyTest) {
+TEST(KeysTest, VersionedDataRowsetRefCountKeyTest) {
     using namespace doris::cloud::versioned;
     using doris::cloud::decode_bytes;
     using doris::cloud::decode_int64;
@@ -2051,9 +2051,9 @@ TEST(KeysTest, VersionedDataRowsetKeyTest) {
         // test data_rowset_key
 
         // 0x03 "data" ${instance_id} "rowset" ${tablet_id} ${rowset_id} -> int64
-        DataRowsetKeyInfo data_rowset_info {instance_id, tablet_id, rowset_id};
+        DataRowsetRefCountKeyInfo data_rowset_info {instance_id, tablet_id, rowset_id};
         std::string encoded_data_rowset_key;
-        data_rowset_key(data_rowset_info, &encoded_data_rowset_key);
+        data_rowset_ref_count_key(data_rowset_info, &encoded_data_rowset_key);
 
         std::string decoded_data_prefix;
         std::string decoded_instance_id;
@@ -2072,7 +2072,7 @@ TEST(KeysTest, VersionedDataRowsetKeyTest) {
 
         EXPECT_EQ("data", decoded_data_prefix);
         EXPECT_EQ(instance_id, decoded_instance_id);
-        EXPECT_EQ("rowset", decoded_rowset_prefix);
+        EXPECT_EQ("rowset_ref_count", decoded_rowset_prefix);
         EXPECT_EQ(tablet_id, decoded_tablet_id);
         EXPECT_EQ(rowset_id, decoded_rowset_id);
     }
