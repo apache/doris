@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatisticRange;
@@ -100,7 +101,24 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             for (Expression expr : inputStats.columnStatistics().keySet()) {
                 deltaStats.putColumnStatistics(expr, ColumnStatistic.UNKNOWN);
             }
-            outputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
+            Statistics deltaOutputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
+            StatisticsBuilder builder = new StatisticsBuilder(inputStats).setDeltaRowCount(0)
+                    .setRowCount(deltaOutputStats.getRowCount());
+            if (expression instanceof And) {
+                List<Expression> conjuncts = ExpressionUtils.extractConjunction(expression);
+                for (Expression conjunct : conjuncts) {
+                    if (conjunct instanceof ComparisonPredicate) {
+                        Statistics partial = conjunct.accept(this, new EstimationContext(inputStats));
+                        if (partial.getRowCount() == 0) {
+                            for (Slot slot : conjunct.getInputSlots()) {
+                                builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
+                            }
+                        }
+                    }
+
+                }
+            }
+            outputStats = builder.build();
         }
         outputStats.normalizeColumnStatistics();
         return outputStats;
