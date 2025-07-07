@@ -42,11 +42,12 @@ public class ProcessUtils {
     public static List<Long> getChildProcessIds(long pid) {
         try {
             Process pgrep = (new ProcessBuilder("pgrep", "-P", String.valueOf(pid))).start();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(pgrep.getInputStream()));
             List<Long> result = new LinkedList<>();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                result.add(Long.valueOf(line.trim()));
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(pgrep.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    result.add(Long.valueOf(line.trim()));
+                }
             }
             pgrep.waitFor();
             return result;
