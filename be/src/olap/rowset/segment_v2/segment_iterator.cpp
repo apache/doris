@@ -1705,8 +1705,7 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
     VLOG_DEBUG << fmt::format(
             "Output non-predicate columns, _non_predicate_columns: [{}], "
             "_schema_block_id_map: [{}]",
-            fmt::join(_non_predicate_columns, ","),
-            fmt::join(_schema_block_id_map, ","));
+            fmt::join(_non_predicate_columns, ","), fmt::join(_schema_block_id_map, ","));
     for (auto cid : _non_predicate_columns) {
         auto loc = _schema_block_id_map[cid];
         bool return_column_is_nothing =
