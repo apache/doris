@@ -383,6 +383,8 @@ private:
     SchemaSPtr _schema;
     // storage type schema related to _schema, since column in segment may be different with type in _schema
     std::vector<vectorized::IndexFieldNameAndTypePair> _storage_name_and_type;
+    // Indicates whether each column exists in the local storage (true = present)
+    std::vector<bool> _column_exists_iterators;
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
