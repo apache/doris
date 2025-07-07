@@ -2088,10 +2088,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (func.arity() <= 1) {
                 continue;
             }
-            for (int i = 1; i < func.arity(); i++) {
-                // think about group_concat(distinct col_1, ',')
-                if (!(func.child(i) instanceof OrderExpression) && !func.child(i).getInputSlots().isEmpty()) {
-                    return false;
+            if (func instanceof Count) {
+                for (int i = 1; i < func.arity(); i++) {
+                    // think about group_concat(distinct col_1, ',')
+                    if (!(func.child(i) instanceof OrderExpression) && !func.child(i).getInputSlots().isEmpty()) {
+                        return false;
+                    }
                 }
             }
         }
