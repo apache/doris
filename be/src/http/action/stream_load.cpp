@@ -87,6 +87,92 @@ static const std::string CHUNK = "chunked";
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
+namespace {
+Status parse_from_http_headers(HttpRequest* http_req, StreamLoadContext* ctx) {
+    ctx->label = http_req->header(HTTP_LABEL_KEY);
+    ctx->two_phase_commit = http_req->header(HTTP_TWO_PHASE_COMMIT) == "true";
+
+    // get format of this put
+    std::string format_str = http_req->header(HTTP_FORMAT_KEY);
+    if (iequal(format_str, BeConsts::CSV_WITH_NAMES) ||
+        iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
+        ctx->header_type = format_str;
+        // treat as CSV
+        format_str = BeConsts::CSV;
+    }
+    LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
+                           &ctx->compress_type);
+    if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
+        return Status::Error<ErrorCode::DATA_FILE_TYPE_ERROR>("unknown data format, format={}",
+                                                              http_req->header(HTTP_FORMAT_KEY));
+    }
+    ctx->use_streaming = LoadUtil::is_format_support_streaming(ctx->format);
+
+    // check content length
+    ctx->body_bytes = 0;
+    size_t max_body_length_in_bytes = config::streaming_load_max_mb * 1024 * 1024;
+    size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    bool read_json_by_line = false;
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            read_json_by_line = true;
+        }
+    }
+    if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+        try {
+            ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                           http_req->header(HttpHeaders::CONTENT_LENGTH), e.what());
+        }
+        // json max body size
+        if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
+            (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
+            return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                    "json body size {} exceed BE's conf `streaming_load_json_max_mb` {}. increase "
+                    "it if you are sure this load is reasonable",
+                    ctx->body_bytes, json_max_body_bytes);
+        }
+        // csv max body size
+        else if (ctx->body_bytes > max_body_length_in_bytes) {
+            LOG(WARNING) << "body exceed max size." << ctx->brief();
+            return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                    "body size {} exceed BE's conf `streaming_load_max_mb` {}. increase it if you "
+                    "are sure this load is reasonable",
+                    ctx->body_bytes, max_body_length_in_bytes);
+        }
+    }
+
+    if (!http_req->header(HttpHeaders::TRANSFER_ENCODING).empty()) {
+        if (http_req->header(HttpHeaders::TRANSFER_ENCODING).find(CHUNK) != std::string::npos) {
+            ctx->is_chunked_transfer = true;
+        }
+    }
+    if (http_req->header(HttpHeaders::CONTENT_LENGTH).empty() && !ctx->is_chunked_transfer)
+            [[unlikely]] {
+        LOG(WARNING) << "content_length is empty and transfer-encoding!=chunked, please set "
+                        "content_length or transfer-encoding=chunked";
+        return Status::InvalidArgument(
+                "content_length is empty and transfer-encoding!=chunked, please set content_length "
+                "or transfer-encoding=chunked");
+    } else if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty() && ctx->is_chunked_transfer)
+            [[unlikely]] {
+        LOG(WARNING) << "please do not set both content_length and transfer-encoding";
+        return Status::InvalidArgument(
+                "please do not set both content_length and transfer-encoding");
+    }
+
+    if (!http_req->header(HTTP_TIMEOUT).empty()) {
+        ctx->timeout_second = DORIS_TRY(safe_stoi(http_req->header(HTTP_TIMEOUT), HTTP_TIMEOUT));
+    }
+    if (!http_req->header(HTTP_COMMENT).empty()) {
+        ctx->load_comment = http_req->header(HTTP_COMMENT);
+    }
+
+    return Status::OK();
+}
+} // namespace
+
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
     _stream_load_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
@@ -205,8 +291,6 @@ int StreamLoadAction::on_header(HttpRequest* req) {
 
     url_decode(req->param(HTTP_DB_KEY), &ctx->db);
     url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
-    ctx->label = req->header(HTTP_LABEL_KEY);
-    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
     Status st = _handle_group_commit(req, ctx);
     if (!ctx->group_commit && ctx->label.empty()) {
         ctx->label = generate_uuid_string();
@@ -220,7 +304,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         st = _on_header(req, ctx);
         LOG(INFO) << "finished to handle HTTP header, " << ctx->brief();
     }
-    if (!st.ok()) {
+    if (!st.ok()) [[unlikely]] {
         ctx->status = std::move(st);
         if (ctx->need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
@@ -251,86 +335,16 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         return Status::NotAuthorized("no valid Basic authorization");
     }
 
-    // get format of this put
-    std::string format_str = http_req->header(HTTP_FORMAT_KEY);
-    if (iequal(format_str, BeConsts::CSV_WITH_NAMES) ||
-        iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
-        ctx->header_type = format_str;
-        //treat as CSV
-        format_str = BeConsts::CSV;
-    }
-    LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
-                           &ctx->compress_type);
-    if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-        return Status::Error<ErrorCode::DATA_FILE_TYPE_ERROR>("unknown data format, format={}",
-                                                              http_req->header(HTTP_FORMAT_KEY));
-    }
+    RETURN_IF_ERROR(parse_from_http_headers(http_req, ctx.get()));
 
-    // check content length
-    ctx->body_bytes = 0;
-    size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
-    size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
-    bool read_json_by_line = false;
-    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
-        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
-            read_json_by_line = true;
-        }
-    }
-    if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-        try {
-            ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
-        } catch (const std::exception& e) {
-            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
-                                           http_req->header(HttpHeaders::CONTENT_LENGTH), e.what());
-        }
-        // json max body size
-        if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
-            (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
-            return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "json body size {} exceed BE's conf `streaming_load_json_max_mb` {}. increase "
-                    "it if you are sure this load is reasonable",
-                    ctx->body_bytes, json_max_body_bytes);
-        }
-        // csv max body size
-        else if (ctx->body_bytes > csv_max_body_bytes) {
-            LOG(WARNING) << "body exceed max size." << ctx->brief();
-            return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "body size {} exceed BE's conf `streaming_load_max_mb` {}. increase it if you "
-                    "are sure this load is reasonable",
-                    ctx->body_bytes, csv_max_body_bytes);
-        }
-    } else {
 #ifndef BE_TEST
+    if (http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         evhttp_connection_set_max_body_size(
-                evhttp_request_get_connection(http_req->get_evhttp_request()), csv_max_body_bytes);
+                evhttp_request_get_connection(http_req->get_evhttp_request()),
+                config::streaming_load_max_mb * 1024 * 1024);
+    }
 #endif
-    }
 
-    if (!http_req->header(HttpHeaders::TRANSFER_ENCODING).empty()) {
-        if (http_req->header(HttpHeaders::TRANSFER_ENCODING).find(CHUNK) != std::string::npos) {
-            ctx->is_chunked_transfer = true;
-        }
-    }
-    if (UNLIKELY((http_req->header(HttpHeaders::CONTENT_LENGTH).empty() &&
-                  !ctx->is_chunked_transfer))) {
-        LOG(WARNING) << "content_length is empty and transfer-encoding!=chunked, please set "
-                        "content_length or transfer-encoding=chunked";
-        return Status::InvalidArgument(
-                "content_length is empty and transfer-encoding!=chunked, please set content_length "
-                "or transfer-encoding=chunked");
-    } else if (UNLIKELY(!http_req->header(HttpHeaders::CONTENT_LENGTH).empty() &&
-                        ctx->is_chunked_transfer)) {
-        LOG(WARNING) << "please do not set both content_length and transfer-encoding";
-        return Status::InvalidArgument(
-                "please do not set both content_length and transfer-encoding");
-    }
-
-    if (!http_req->header(HTTP_TIMEOUT).empty()) {
-        ctx->timeout_second = DORIS_TRY(safe_stoi(http_req->header(HTTP_TIMEOUT), HTTP_TIMEOUT));
-    }
-    if (!http_req->header(HTTP_COMMENT).empty()) {
-        ctx->load_comment = http_req->header(HTTP_COMMENT);
-    }
     // begin transaction
     if (!ctx->group_commit) {
         int64_t begin_txn_start_time = MonotonicNanos();
@@ -400,9 +414,6 @@ void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
 
 Status StreamLoadAction::_process_put(HttpRequest* http_req,
                                       std::shared_ptr<StreamLoadContext> ctx) {
-    // Now we use stream
-    ctx->use_streaming = LoadUtil::is_format_support_streaming(ctx->format);
-
     // put request
     TStreamLoadPutRequest request;
     set_request_auth(&request, ctx->auth);

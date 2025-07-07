@@ -28,6 +28,6 @@ public:
                              TFileFormatType::type* format_type,
                              TFileCompressType::type* compress_type);
 
-    static bool is_format_support_streaming(TFileFormatType::type format);
+    [[nodiscard]] static bool is_format_support_streaming(TFileFormatType::type format);
 };
 } // namespace  doris
