@@ -76,10 +76,11 @@ template <typename T>
 void ForEncoder<T>::bit_pack_8(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
     int64_t s = 0;
     uint8_t output_mask = 255;
-    int tail_count = in_num & 7;
-    int full_batch_size = (in_num >> 3) << 3;
+    int tail_count = in_num & 7; // the remainder of in_num modulo 8
+    int full_batch_size = (in_num >> 3) << 3; // Adjust in_num to a multiple of 8
 
     for (int i = 0; i < full_batch_size; i += 8) {
+        // Put the 8 numbers in the input into s in order, each number occupies bit_width bit
         s |= static_cast<int64_t>(input[i + 7]);
         s |= (static_cast<int64_t>(input[i + 6])) << bit_width;
         s |= (static_cast<int64_t>(input[i + 5])) << (2 * bit_width);
@@ -89,6 +90,9 @@ void ForEncoder<T>::bit_pack_8(const T* input, uint8_t in_num, int bit_width, ui
         s |= (static_cast<int64_t>(input[i + 1])) << (6 * bit_width);
         s |= (static_cast<int64_t>(input[i])) << (7 * bit_width);
 
+        // Starting with the highest valid bit, take out 8 bits in sequence
+        // perform an AND operation with output_mask to ensure that only 8 bits are valid
+        // (bit_width - j - 1) << 3 used to calculate how many bits need to be removed at the end
         for (int j = 0; j < bit_width; j++) {
             output[j] = (s >> ((bit_width - j - 1) << 3)) & output_mask;
         }
@@ -97,110 +101,90 @@ void ForEncoder<T>::bit_pack_8(const T* input, uint8_t in_num, int bit_width, ui
     }
 
     // remainder
-    int byte = tail_count * bit_width;
-    int bytes = (byte + 7) >> 3;
+    int byte = tail_count * bit_width; // How many bits are left to store
+    int bytes = (byte + 7) >> 3; // How many more bytes are needed to store the rest of input
 
+    // Put the tail_count numbers in the input into s in order, each number occupies bit_width bit
     for (int i = 0; i < tail_count; i++) {
         s |= (static_cast<int64_t>(input[i + full_batch_size]))
              << ((tail_count - i - 1) * bit_width);
     }
 
+    // If byte is not a multiple of 8 and therefore needs to be padded with 0 at the end
     s <<= (bytes << 3) - byte;
 
+    // Starting with the highest valid bit, take out 8 bits in sequence
+    // perform an AND operation with output_mask to ensure that only 8 bits are valid.
+    // (bytes - i - 1) << 3 used to calculate how many bits need to be removed at the end
     for (int i = 0; i < bytes; i++) {
         output[i] = (s >> ((bytes - i - 1) << 3)) & output_mask;
     }
 }
 
 template <typename T>
-void ForEncoder<T>::bit_pack_16(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
-    int64_t s = 0;
-    uint8_t output_mask = 255;
-    int tail_count = in_num & 3;
-    int full_batch_size = (in_num >> 2) << 2;
-    int output_size = 0; // How many outputs can be processed at a time
-    int bit_width_remainder =
-            (bit_width << 2) & 7; // How many bits will be left after processing 4 numbers at a time
-    int extra_bit = 0;            // Extra bits after each process
-
-    for (int i = 0; i < full_batch_size; i += 4) {
-        s <<= bit_width;
-        s |= (static_cast<int64_t>(input[i]));
-        s <<= bit_width;
-        s |= (static_cast<int64_t>(input[i + 1]));
-        s <<= bit_width;
-        s |= (static_cast<int64_t>(input[i + 2]));
-        s <<= bit_width;
-        s |= (static_cast<int64_t>(input[i + 3]));
-
-        output_size = (bit_width * 4 + extra_bit) >> 3;
-        extra_bit = (extra_bit + bit_width_remainder) & 7;
-        for (int j = 0; j < output_size; j++) {
-            output[j] = (s >> (((output_size - j - 1) << 3) + extra_bit)) & output_mask;
-        }
-        output += output_size;
-        s &= (1 << extra_bit) - 1;
-    }
-
-    // remainder
-    int byte = tail_count * bit_width;
-    if (extra_bit != 0) byte += extra_bit;
-    int bytes = (byte + 7) >> 3;
-
-    for (int i = 0; i < tail_count; i++) {
-        s <<= bit_width;
-        s |= (input[i + full_batch_size]);
-    }
-
-    s <<= (bytes << 3) - byte;
-
-    for (int i = 0; i < bytes; i++) {
-        output[i] = (s >> (((bytes - i - 1) << 3))) & output_mask;
-    }
-}
-
-template <typename T>
+template <typename U>
 void ForEncoder<T>::bit_pack_32(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
-    __int128 s = 0;
+    U s = 0;
     uint8_t output_mask = 255;
-    int tail_count = in_num & 3;
-    int full_batch_size = (in_num >> 2) << 2;
+    int tail_count = in_num & 3;  // the remainder of in_num modulo 4
+    int full_batch_size = (in_num >> 2) << 2;  // Adjust in_num to a multiple of 4
     int output_size = 0; // How many outputs can be processed at a time
     int bit_width_remainder =
             (bit_width << 2) & 7; // How many bits will be left after processing 4 numbers at a time
     int extra_bit = 0;            // Extra bits after each process
 
     for (int i = 0; i < full_batch_size; i += 4) {
+        // Put the 4 numbers in the input into s in order, each number occupies bit_width bit
+        // The reason for using s<<=bit_width first is that there are unprocessed bits in the previous loop
         s <<= bit_width;
-        s |= (static_cast<__int128_t>(input[i]));
+        s |= (static_cast<U>(input[i]));
         s <<= bit_width;
-        s |= (static_cast<__int128_t>(input[i + 1]));
+        s |= (static_cast<U>(input[i + 1]));
         s <<= bit_width;
-        s |= (static_cast<__int128_t>(input[i + 2]));
+        s |= (static_cast<U>(input[i + 2]));
         s <<= bit_width;
-        s |= (static_cast<__int128_t>(input[i + 3]));
+        s |= (static_cast<U>(input[i + 3]));
 
-        output_size = (bit_width * 4 + extra_bit) / 8;
+        // ((bit_width * 4) + extra_bit) / 8: There are bit_width*4 bits to be processed in s, 
+        // and there are extra_bit bits left over from the last loop, 
+        // divide by 8 to calculate how much output can be processed in this loop.
+        output_size = ((bit_width << 2) + extra_bit) >> 3;
+        
+        // Each loop will leave bit_width_remainder bit unprocessed, 
+        // last loop will leave extra_bit bit, eventually will leave 
+        // (extra_bit + bit_width_remainder) & 7 bit unprocessed
         extra_bit = (extra_bit + bit_width_remainder) & 7;
+        
+        // Starting with the highest valid bit, take out 8 bits in sequence
+        // perform an AND operation with output_mask to ensure that only 8 bits are valid
+        // (output_size-j-1)<<3 used to calculate how many bits need to be removed at the end
+        // But since there are still extra_bit bits that can't be processed, need to add the extra_bit
         for (int j = 0; j < output_size; j++) {
             output[j] = (s >> (((output_size - j - 1) << 3) + extra_bit)) & output_mask;
         }
         output += output_size;
+        
+        // s retains the post extra_bit bit as it is not processed
         s &= (1 << extra_bit) - 1;
     }
 
     // remainder
-    int byte = tail_count * bit_width;
-    if (extra_bit != 0) byte += extra_bit;
-    int bytes = (byte + 7) >> 3;
+    int byte = tail_count * bit_width; // How many bits are left to store
+    if (extra_bit != 0) byte += extra_bit; // add extra_bit bit as it is not processed
+    int bytes = (byte + 7) >> 3; // How many more bytes are needed to store the rest of input
 
+    // Put the tail_count numbers in the input into s in order, each number occupies bit_width bit
     for (int i = 0; i < tail_count; i++) {
         s <<= bit_width;
         s |= (input[i + full_batch_size]);
     }
 
+    // If byte is not a multiple of 8 and therefore needs to be padded with 0 at the end
     s <<= (bytes << 3) - byte;
 
+    // Starting with the highest valid bit, take out 8 bits in sequence
+    // perform an AND operation with output_mask to ensure that only 8 bits are valid.
+    // (bytes - i - 1) << 3 used to calculate how many bits need to be removed at the end
     for (int i = 0; i < bytes; i++) {
         output[i] = (s >> (((bytes - i - 1) << 3))) & output_mask;
     }
@@ -209,27 +193,40 @@ void ForEncoder<T>::bit_pack_32(const T* input, uint8_t in_num, int bit_width, u
 template <typename T>
 void ForEncoder<T>::bit_pack_128(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
     int output_mask = 255;
-    int extra_bit = 0; // still need
+    int need_bit = 0; // still need
 
     for (int i = 0; i < in_num; i++) {
         T x = input[i];
         int width = bit_width;
-        if (extra_bit) {
-            *output |= x >> (width - extra_bit);
+        if (need_bit) {
+            // The last time we take away the high 8 - need_bit, 
+            // we need to make up the rest of the need_bit from the width.
+            // Use width - need_bit to compute high need_bit bits
+            *output |= x >> (width - need_bit);
             output++;
-            width -= extra_bit;
+            // There are need_bit bits being used, so subtract
+            width -= need_bit;
         }
-        int num = width / 8;
-        int re = width & 7;
+        int num = width >> 3; // How many outputs can be processed at a time
+        int remainder = width & 7; // How many bits are left to store
+        
+        // Starting with the highest valid bit, take out 8 bits in sequence
+        // perform an AND operation with output_mask to ensure that only 8 bits are valid
+        // (num-j-1)<<3 used to calculate how many bits need to be removed at the end
+        // But since there are still remainder bits that can't be processed, need to add the remainder
         for (int j = 0; j < num; j++) {
-            *output = (x >> (((num - j - 1) * 8) + re)) & output_mask;
+            *output = (x >> (((num - j - 1) << 3) + remainder)) & output_mask;
             output++;
         }
-        if (re) {
-            *output = (x & ((1 << re) - 1)) << (8 - re);
-            extra_bit = 8 - re;
+        if (remainder) {
+            // Process the last remaining remainder bit.
+            // y = (x & ((1 << remainder) - 1)) extract the last remainder bits.
+            // ouput = y << (8 - reaminder)  Use the high 8 - remainder bit
+            *output = (x & ((1 << remainder) - 1)) << (8 - remainder);
+            // Already have remainder bits, next time need 8-remainder bits
+            need_bit = 8 - remainder;
         } else {
-            extra_bit = 0;
+            need_bit = 0;
         }
     }
 }
@@ -252,17 +249,12 @@ void ForEncoder<T>::bit_pack(const T* input, uint8_t in_num, int bit_width, uint
     if (bit_width <= 8) {
         bit_pack_8(input, in_num, bit_width, output);
     } else if (bit_width <= 16) {
-        bit_pack_16(input, in_num, bit_width, output);
+        bit_pack_32<int64_t>(input, in_num, bit_width, output);
     } else if (bit_width <= 32) {
-        bit_pack_32(input, in_num, bit_width, output);
+        bit_pack_32<__int128_t>(input, in_num, bit_width, output);
     } else {
         bit_pack_128(input, in_num, bit_width, output);
     }
-}
-
-template <typename T>
-void ForEncoder<T>::test_bit_pack(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
-    bit_pack(input, in_num, bit_width, output);
 }
 
 template <typename T>

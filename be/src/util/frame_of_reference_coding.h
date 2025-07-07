@@ -99,9 +99,6 @@ public:
 
     void put_batch(const T* value, size_t count);
 
-    // for test
-    void test_bit_pack(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
-
     // Flushes any pending values to the underlying buffer.
     // Returns the total number of bytes written
     uint32_t flush();
@@ -122,8 +119,7 @@ private:
 
     void bit_pack_8(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
-    void bit_pack_16(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
-
+    template <typename U>
     void bit_pack_32(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
     void bit_pack_128(const T* input, uint8_t in_num, int bit_width, uint8_t* output);

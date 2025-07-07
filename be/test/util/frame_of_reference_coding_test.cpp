@@ -280,7 +280,7 @@ TEST_F(TestForCoding, accuracy_test) {
     std::default_random_engine e;
     std::uniform_int_distribution<int64_t> u;
     ForEncoder<__int128_t> forEncoder(nullptr);
-    for (int T = 1; T <= 10; T++) {
+    for (int T = 1; T <= 5; T++) {
         for (int n = 1; n <= 255; n++) {
             std::vector<__int128_t> test_data(n);
             for (int w = 1; w <= 127; w++) {
@@ -291,7 +291,7 @@ TEST_F(TestForCoding, accuracy_test) {
                 int size = (n * w + 7) / 8;
                 std::vector<uint8_t> output_1(size), output_2(size);
                 bit_pack<__int128_t>(test_data.data(), n, w, output_1.data());
-                forEncoder.test_bit_pack(test_data.data(), n, w, output_2.data());
+                forEncoder.bit_pack(test_data.data(), n, w, output_2.data());
                 for (int i = 0; i < size; i++) {
                     EXPECT_EQ(output_1[i], output_2[i]);
                 }

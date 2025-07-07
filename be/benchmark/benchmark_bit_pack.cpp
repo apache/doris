@@ -49,7 +49,7 @@ namespace doris {
     }
 
     static void BM_BitPack(benchmark::State& state) {
-        int w = state.range(0); // 获取参数 w（bit_width）
+        int w = state.range(0);
         int n = 255;
 
         std::default_random_engine e;
@@ -93,7 +93,7 @@ namespace doris {
         for (auto _ : state) {
             benchmark::DoNotOptimize(test_data.data());
             benchmark::DoNotOptimize(output.data());
-            forEncoder.test_bit_pack(test_data.data(), n, w, output.data());
+            forEncoder.bit_pack(test_data.data(), n, w, output.data());
             benchmark::ClobberMemory();
         }
 
