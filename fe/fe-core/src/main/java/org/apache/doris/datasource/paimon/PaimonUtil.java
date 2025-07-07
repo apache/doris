@@ -240,32 +240,6 @@ public class PaimonUtil {
         return paimonPrimitiveTypeToDorisType(type);
     }
 
-    public static List<Column> parseSchema(Table table) {
-        List<String> primaryKeys = table.primaryKeys();
-        return parseSchema(table.rowType(), primaryKeys);
-    }
-
-    public static List<Column> parseSchema(RowType rowType, List<String> primaryKeys) {
-        List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
-        rowType.getFields().forEach(field -> {
-            resSchema.add(new Column(field.name().toLowerCase(),
-                    PaimonUtil.paimonTypeToDorisType(field.type()), primaryKeys.contains(field.name()), null,
-                    field.type().isNullable(),
-                    field.description(), true,
-                    field.id()));
-        });
-        return resSchema;
-    }
-
-    public static <T> String encodeObjectToString(T t) {
-        try {
-            byte[] bytes = InstantiationUtil.serializeObject(t);
-            return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     public static void updatePaimonColumnUniqueId(Column column, DataType dataType) {
         List<Column> columns = column.getChildren();
         switch (dataType.getTypeRoot()) {
@@ -366,6 +340,35 @@ public class PaimonUtil {
         tSchema.setSchemaId(paimonTableSchema.id());
         tSchema.setRootField(getSchemaInfo(paimonTableSchema.fields()));
         return tSchema;
+    }
+
+    public static List<Column> parseSchema(Table table) {
+        List<String> primaryKeys = table.primaryKeys();
+        return parseSchema(table.rowType(), primaryKeys);
+    }
+
+    public static List<Column> parseSchema(RowType rowType, List<String> primaryKeys) {
+        List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
+        rowType.getFields().forEach(field -> {
+            resSchema.add(new Column(field.name().toLowerCase(),
+                    PaimonUtil.paimonTypeToDorisType(field.type()),
+                    primaryKeys.contains(field.name()),
+                    null,
+                    field.type().isNullable(),
+                    field.description(),
+                    true,
+                    field.id()));
+        });
+        return resSchema;
+    }
+
+    public static <T> String encodeObjectToString(T t) {
+        try {
+            byte[] bytes = InstantiationUtil.serializeObject(t);
+            return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
 }

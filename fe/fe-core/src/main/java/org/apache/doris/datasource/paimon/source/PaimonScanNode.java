@@ -56,8 +56,6 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
-import org.apache.paimon.utils.InstantiationUtil;
-import org.apache.paimon.types.DataField;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -151,12 +149,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         source = new PaimonSource(desc);
-        serializedTable = encodeObjectToString(source.getPaimonTable());
+        serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
         // Todo: Get the current schema id of the table, instead of using -1.
         ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
-        serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
-        Preconditions.checkNotNull(source);
-        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
     }
 
     @VisibleForTesting
@@ -187,7 +182,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (currentQuerySchema.putIfAbsent(schemaId, Boolean.TRUE) == null) {
             PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
             TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
-                            .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
+                    .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
             params.addToHistorySchemaInfo(PaimonUtil.getSchemaInfo(tableSchema));
         }
     }
@@ -372,13 +367,13 @@ public class PaimonScanNode extends FileQueryScanNode {
             return Collections.emptyList();
         }
         int[] projected = desc.getSlots().stream().mapToInt(
-            slot -> source.getPaimonTable().rowType()
-                    .getFieldNames()
-                    .stream()
-                    .map(String::toLowerCase)
-                    .collect(Collectors.toList())
-                    .indexOf(slot.getColumn().getName()))
-                    .toArray();
+                        slot -> source.getPaimonTable().rowType()
+                                .getFieldNames()
+                                .stream()
+                                .map(String::toLowerCase)
+                                .collect(Collectors.toList())
+                                .indexOf(slot.getColumn().getName()))
+                .toArray();
         Table paimonTable = source.getPaimonTable();
         Map<String, String> incrReadParams = getIncrReadParams();
         paimonTable = paimonTable.copy(incrReadParams);
