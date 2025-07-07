@@ -478,40 +478,63 @@ std::unique_ptr<cloud::FullRangeGetIterator> Transaction::full_range_get(std::st
 
 void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_view val) {
     StopWatch sw;
-    std::unique_ptr<std::string> key(new std::string(key_prefix));
-    int prefix_size = key->size();
+    std::string key(key_prefix);
+    int prefix_size = key.size();
     // ATTN:
     // 10 bytes for versiontimestamp must be 0, trailing 4 bytes is for prefix len
-    key->resize(key->size() + 14, '\0');
-    std::memcpy(key->data() + (key->size() - 4), &prefix_size, 4);
+    key.append(14, '\0');
+    std::memcpy(key.data() + (key.size() - 4), &prefix_size, 4);
 
-    fdb_transaction_atomic_op(txn_, (uint8_t*)key->data(), key->size(), (uint8_t*)val.data(),
+    fdb_transaction_atomic_op(txn_, (uint8_t*)key.data(), key.size(), (uint8_t*)val.data(),
                               val.size(),
                               FDBMutationType::FDB_MUTATION_TYPE_SET_VERSIONSTAMPED_KEY);
 
     g_bvar_txn_kv_atomic_set_ver_key << sw.elapsed_us();
     ++num_put_keys_;
-    put_bytes_ += key_prefix.size() + val.size();
-    approximate_bytes_ += key_prefix.size() * 3 + val.size();
+    put_bytes_ += key.size() + val.size();
+    approximate_bytes_ += key.size() * 3 + val.size();
+}
+
+bool Transaction::atomic_set_ver_key(std::string_view key, uint32_t offset, std::string_view val) {
+    if (key.size() < 10 || offset + 10 > key.size()) {
+        LOG(WARNING) << "atomic_set_ver_key: invalid key or offset, key=" << hex(key)
+                     << " offset=" << offset << ", key_size=" << key.size();
+        return false;
+    }
+
+    StopWatch sw;
+    std::string key_buf(key);
+    // 4 bytes for prefix len, assume in letter-endian
+    key_buf.append((const char*)&offset, 4);
+
+    fdb_transaction_atomic_op(txn_, (uint8_t*)key_buf.data(), key_buf.size(), (uint8_t*)val.data(),
+                              val.size(),
+                              FDBMutationType::FDB_MUTATION_TYPE_SET_VERSIONSTAMPED_KEY);
+
+    g_bvar_txn_kv_atomic_set_ver_key << sw.elapsed_us();
+    ++num_put_keys_;
+    put_bytes_ += key_buf.size() + val.size();
+    approximate_bytes_ += key_buf.size() * 3 + val.size();
+    return true;
 }
 
 void Transaction::atomic_set_ver_value(std::string_view key, std::string_view value) {
     StopWatch sw;
-    std::unique_ptr<std::string> val(new std::string(value));
-    int prefix_size = val->size();
+    std::string val(value);
+    int prefix_size = val.size();
     // ATTN:
     // 10 bytes for versiontimestamp must be 0, trailing 4 bytes is for prefix len
-    val->resize(val->size() + 14, '\0');
-    std::memcpy(val->data() + (val->size() - 4), &prefix_size, 4);
+    val.append(14, '\0');
+    std::memcpy(val.data() + (val.size() - 4), &prefix_size, 4);
 
-    fdb_transaction_atomic_op(txn_, (uint8_t*)key.data(), key.size(), (uint8_t*)val->data(),
-                              val->size(),
+    fdb_transaction_atomic_op(txn_, (uint8_t*)key.data(), key.size(), (uint8_t*)val.data(),
+                              val.size(),
                               FDBMutationType::FDB_MUTATION_TYPE_SET_VERSIONSTAMPED_VALUE);
 
     g_bvar_txn_kv_atomic_set_ver_value << sw.elapsed_us();
     ++num_put_keys_;
-    put_bytes_ += key.size() + value.size();
-    approximate_bytes_ += key.size() * 3 + value.size();
+    put_bytes_ += key.size() + val.size();
+    approximate_bytes_ += key.size() * 3 + val.size();
 }
 
 void Transaction::atomic_add(std::string_view key, int64_t to_add) {
@@ -850,9 +873,16 @@ void FullRangeGetIterator::async_inner_get(std::string_view begin, std::string_v
 
 void FullRangeGetIterator::async_get_next_batch() {
     if (opts_.reverse) {
-        async_inner_get(begin_, inner_iter_->prev_end_key());
+        // Change the end key to the previous last key. The key selector will be
+        // FIRST_GREATER_OR_EQUAL, so we need to use the last key of the inner iterator as the
+        // end key, since the end key is exclusive.
+        opts_.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+        std::string_view end_key = inner_iter_->last_key();
+        async_inner_get(begin_, end_key);
     } else {
-        async_inner_get(inner_iter_->next_begin_key(), end_);
+        opts_.begin_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+        std::string begin_key = inner_iter_->next_begin_key();
+        async_inner_get(begin_key, end_);
     }
 }
 

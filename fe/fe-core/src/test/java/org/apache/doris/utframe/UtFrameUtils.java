@@ -78,7 +78,6 @@ public class UtFrameUtils {
     public static ConnectContext createDefaultCtx(UserIdentity userIdentity, String remoteIp) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(userIdentity);
-        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setRemoteIP(remoteIp);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();

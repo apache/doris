@@ -287,7 +287,6 @@ public abstract class TestWithFeService {
     public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(user);
-        ctx.setQualifiedUser(user.getQualifiedUser());
         ctx.setRemoteIP(host);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
@@ -805,7 +804,6 @@ public abstract class TestWithFeService {
         UserIdentity user = new UserIdentity(userName, host);
         user.analyze();
         connectContext.setCurrentUserIdentity(user);
-        connectContext.setQualifiedUser(userName);
     }
 
     protected void addUser(String userName, boolean ifNotExists) throws Exception {

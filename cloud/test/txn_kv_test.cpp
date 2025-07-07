@@ -142,7 +142,7 @@ TEST(TxnKvTest, ConflictTest) {
 }
 
 TEST(TxnKvTest, AtomicSetVerKeyTest) {
-    std::string key_prefix = "key_1";
+    std::string key_prefix = "atomic_set_ver_key_1";
 
     std::string versionstamp_1;
     {
@@ -159,7 +159,8 @@ TEST(TxnKvTest, AtomicSetVerKeyTest) {
         ASSERT_EQ(txn->get(key_prefix, end_key, &it), TxnErrorCode::TXN_OK);
         ASSERT_TRUE(it->has_next());
         auto&& [key_1, _1] = it->next();
-        ASSERT_EQ(key_1.length(), key_prefix.size() + 10); // versionstamp = 10bytes
+        ASSERT_EQ(key_1.length(), key_prefix.size() + 10)
+                << key_1 << key_prefix; // versionstamp = 10bytes
         key_1.remove_prefix(key_prefix.size());
         versionstamp_1 = key_1;
     }
@@ -169,7 +170,7 @@ TEST(TxnKvTest, AtomicSetVerKeyTest) {
         // write key_2
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        key_prefix = "key_2";
+        key_prefix = "atomic_set_ver_key_2";
         txn->atomic_set_ver_key(key_prefix, "2");
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -186,6 +187,48 @@ TEST(TxnKvTest, AtomicSetVerKeyTest) {
     }
 
     ASSERT_LT(versionstamp_1, versionstamp_2);
+
+    std::string versionstamp_3;
+    {
+        // write key_3, with offset
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string suffix = "_suffix";
+        std::string prefix = "atomic_set_ver_key_3_";
+        std::string k(prefix);
+        uint32_t offset = k.size();
+        k.append(10, '\0'); // reserve 10 bytes for versionstamp
+        k += suffix;
+        ASSERT_TRUE(txn->atomic_set_ver_key(k, offset, "3"));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        // read key_3
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string end_key = prefix + "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(prefix, end_key, &it), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(it->has_next());
+        auto&& [key_3, _3] = it->next();
+        ASSERT_EQ(key_3.length(), k.size());
+        key_3.remove_suffix(suffix.size());
+        key_3.remove_prefix(prefix.size());
+        versionstamp_3 = key_3;
+    }
+
+    ASSERT_LT(versionstamp_2, versionstamp_3);
+
+    {
+        // write key, but offset is invalid
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string prefix = "atomic_set_ver_key_4_";
+        std::string k(prefix);
+        k.append(10, '\0');             // reserve 10 bytes for versionstamp
+        uint32_t offset = k.size() + 1; // invalid offset
+        ASSERT_FALSE(txn->atomic_set_ver_key(k, offset, "4"));
+
+        k = "fake";
+        ASSERT_FALSE(txn->atomic_set_ver_key(k, 0, "4"));
+    }
 }
 
 TEST(TxnKvTest, AtomicAddTest) {
@@ -1216,7 +1259,115 @@ TEST(TxnKvTest, ReverseFullRangeGet) {
                     expected_keys.emplace_back(k);
                 }
                 // Get next begin key for reverse range get
-                end = it->prev_end_key();
+                end = it->last_key();
+                options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+            } while (it->more());
+        }
+
+        std::vector<std::string> actual_keys;
+        {
+            // Read the actual keys via full_range_get
+            FullRangeGetOptions opts(txn_kv);
+            opts.batch_limit = 11;
+            opts.begin_key_selector = tc.begin_key_selector;
+            opts.end_key_selector = tc.end_key_selector;
+            opts.reverse = true; // Reserve full range get
+
+            auto it = txn_kv->full_range_get(range_begin, range_end, opts);
+            ASSERT_TRUE(it->is_valid());
+
+            while (it->has_next()) {
+                auto kvp = it->next();
+                ASSERT_TRUE(kvp.has_value());
+                auto [k, v] = *kvp;
+                actual_keys.emplace_back(k);
+            }
+        }
+
+        EXPECT_EQ(actual_keys, expected_keys)
+                << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
+                << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
+    }
+}
+
+TEST(TxnKvTest, ReverseFullRangeGet2) {
+    constexpr std::string_view prefix = "reverse_full_range_get_2_";
+
+    {
+        // Remove the existing keys and insert some new keys.
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::string last_key = fmt::format("{}b", prefix);
+        encode_int64(INT64_MAX, &last_key);
+        txn->remove(prefix, last_key);
+        std::string key(prefix);
+        for (int i = 0; i < 100; ++i) {
+            key += 'a';
+            txn->put(key, std::to_string(i));
+        }
+        err = txn->commit();
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    std::string range_begin(prefix);
+    std::string range_end = fmt::format("{}b", prefix);
+
+    struct TestCase {
+        RangeKeySelector begin_key_selector, end_key_selector;
+    };
+
+    std::vector<TestCase> test_case {
+            // 1. [begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+            },
+            // 2. [begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+            },
+            // 3. (begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+            },
+            // 4. (begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+            },
+    };
+
+    for (const auto& tc : test_case) {
+        std::vector<std::string> expected_keys;
+        {
+            // Read the expected keys via range_get
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv->create_txn(&txn);
+            ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+            RangeGetOptions options;
+            options.batch_limit = 11;
+            options.begin_key_selector = tc.begin_key_selector;
+            options.end_key_selector = tc.end_key_selector;
+            options.reverse = true; // Reserve range get
+            std::string begin = range_begin, end = range_end;
+
+            std::unique_ptr<RangeGetIterator> it;
+            do {
+                err = txn->get(begin, end, &it, options);
+                ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+                while (it->has_next()) {
+                    auto [k, v] = it->next();
+                    expected_keys.emplace_back(k);
+                }
+                // Get next begin key for reverse range get
+                end = it->last_key();
+                options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
             } while (it->more());
         }
 
