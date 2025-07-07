@@ -50,11 +50,13 @@ import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -757,7 +759,7 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children());
-        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+        List<NamedExpression> boundProjections = Lists.newArrayListWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
@@ -815,7 +817,18 @@ public class BindExpression implements AnalysisRuleFactory {
                 });
             }
         }
-        return project.withProjects(boundProjections.build());
+        boundProjections.replaceAll(expression -> (NamedExpression) expression.rewriteDownShortCircuit(e -> {
+            if (e instanceof WindowExpression) {
+                WindowExpression windowExpr = (WindowExpression) e;
+                Expression func = windowExpr.getFunction();
+                if (func instanceof NullableAggregateFunction) {
+                    return windowExpr.withFunction(((NullableAggregateFunction) func).withAlwaysNullable(true));
+                }
+            }
+
+            return e;
+        }));
+        return project.withProjects(ImmutableList.copyOf(boundProjections));
     }
 
     private Plan bindFilter(MatchingContext<LogicalFilter<Plan>> ctx) {

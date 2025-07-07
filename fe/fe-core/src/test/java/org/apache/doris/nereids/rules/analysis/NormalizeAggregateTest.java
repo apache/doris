@@ -29,8 +29,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.FieldChecker;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -41,6 +43,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
@@ -58,6 +61,13 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
         connectContext.setDatabase("default_cluster:test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS t1 (\n"
+                        + "    id int not null,\n"
+                        + "    name char\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS t2 (\n"
                         + "    id int not null,\n"
                         + "    name char\n"
                         + ")\n"
@@ -300,5 +310,108 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                 .matches(logicalAggregate().when(agg ->
                         agg.getGroupByExpressions().size() == 1
                                 && agg.getOutputExpressions().stream().anyMatch(e -> e.toString().contains("COUNT"))));
+    }
+
+    @Test
+    void testAggFunctionNullabe() {
+        List<String> aggNullableSqls = ImmutableList.of(
+                "select sum(id) as k from t1",
+                "select sum(id) as k from t1 where id > 10",
+
+                // sub query alias
+                "select * from (select sum(id) as k from t1) t",
+                "select * from (select sum(id) as k from t1 where id > 10) t",
+
+                // project sub query
+                "select id, (select sum(t2.id) as k from t2) from t1",
+                "select id, (select sum(t2.id) as k from t2 where t2.id > 10) from t1",
+                "select id, (select sum(t2.id) as k from t2 where t1.id = t2.id) from t1",
+
+                // filter sub query
+                "select * from t1 where t1.id > (select sum(t2.id) as k from t2)",
+                "select * from t1 where t1.id > (select sum(t2.id) as k from t2 where t2.id > 10)",
+                "select * from t1 where t1.id > (select sum(t2.id) as k from t2 where t1.name = t2.name)"
+        );
+        for (String sql : aggNullableSqls) {
+            checkAggFunctionNullable(sql, true);
+        }
+
+        List<String> aggNotNullableSqls = ImmutableList.of(
+                "select sum(id) as k from t1 group by name",
+                "select sum(id) as k from t1 group by 'abcde' ",
+                "select sum(id) as k from t1 where id > 10 group by name",
+                "select sum(id) as k from t1 where id > 10 group by 'abcde' ",
+
+                // sub query alias
+                "select * from (select sum(id) as k from t1 group by name) t",
+                "select * from (select sum(id) as k from t1 group by 'abcde') t",
+                "select * from (select sum(id) as k from t1 where id > 10 group by name) t",
+                "select * from (select sum(id) as k from t1 where id > 10 group by 'abcde') t"
+        );
+        for (String sql : aggNotNullableSqls) {
+            checkAggFunctionNullable(sql, false);
+        }
+    }
+
+    private void checkAggFunctionNullable(String sql, boolean nullable) {
+        List<LogicalAggregate<?>> aggList = Lists.newArrayList();
+        List<LogicalProject<?>> projectList = Lists.newArrayList();
+        List<LogicalApply<?, ?>> applyList = Lists.newArrayList();
+        Plan root = PlanChecker.from(connectContext)
+                .analyze(sql).getPlan();
+        root.foreach(plan -> {
+            if (plan instanceof LogicalAggregate) {
+                aggList.add((LogicalAggregate<?>) plan);
+            } else if (plan instanceof LogicalProject) {
+                projectList.add((LogicalProject<?>) plan);
+            } else if (plan instanceof LogicalApply) {
+                applyList.add((LogicalApply<?, ?>) plan);
+            }
+        });
+        List<String> slotKName = ImmutableList.of("k");
+
+        Assertions.assertEquals(1, aggList.size());
+        LogicalAggregate<?> agg = aggList.get(0);
+        NamedExpression slotK = agg.getOutputExpressions().stream()
+                .filter(output -> slotKName.contains(output.getName()))
+                .findFirst().orElse(null);
+        Assertions.assertNotNull(slotK);
+        Assertions.assertEquals(nullable, slotK.nullable());
+
+        Assertions.assertTrue(applyList.size() <= 1);
+        if (applyList.size() == 1) {
+            LogicalApply<?, ?> apply = applyList.get(0);
+            NamedExpression expr = apply.getOutput().stream()
+                    .filter(output -> output.getExprId().equals(slotK.getExprId()))
+                    .findFirst().orElse(null);
+            Assertions.assertNotNull(expr);
+            Assertions.assertTrue(expr.nullable());
+        }
+        for (LogicalProject<?> project : projectList) {
+            if (!project.anyMatch(plan -> plan instanceof LogicalAggregate)) {
+                continue;
+            }
+
+            NamedExpression expr = project.getProjects().stream()
+                    .filter(output -> output.getExprId().equals(slotK.getExprId()))
+                    .findFirst().orElse(null);
+            if (expr == null) {
+                expr = project.getProjects().stream()
+                        .map(output -> output instanceof Alias && output.child(0) instanceof SlotReference
+                                ? (SlotReference) output.child(0) : output)
+                        .filter(output -> output.getExprId().equals(slotK.getExprId()))
+                        .findFirst().orElse(null);
+            }
+            if (expr == null) {
+                continue;
+            }
+
+            boolean aboveApply = project.anyMatch(plan -> plan instanceof LogicalApply);
+            if (aboveApply) {
+                Assertions.assertTrue(expr.nullable());
+            } else {
+                Assertions.assertEquals(nullable, expr.nullable());
+            }
+        }
     }
 }
