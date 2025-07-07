@@ -1447,7 +1447,9 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
                            << ", segment=" << std::get<1>(bmk);
                 start_version += 1;
             }
-            DeleteBitmapAggCache::instance()->release(handle2);
+            if (handle2 != nullptr) {
+                DeleteBitmapAggCache::instance()->release(handle2);
+            }
         }
         {
             std::shared_lock l(lock);
