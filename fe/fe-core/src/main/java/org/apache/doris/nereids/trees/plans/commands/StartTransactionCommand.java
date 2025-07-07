@@ -25,7 +25,7 @@ import org.apache.doris.qe.StmtExecutor;
 /**
  * unsupported start transaction command.
  */
-public class StartTransactionCommand extends Command {
+public class StartTransactionCommand extends Command implements NoForward {
     public StartTransactionCommand() {
         super(PlanType.UNSUPPORTED_START_TRANSACTION_COMMAND);
     }
