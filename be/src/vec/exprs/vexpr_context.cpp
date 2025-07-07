@@ -144,6 +144,10 @@ bool VExprContext::all_expr_inverted_index_evaluated() {
     return _inverted_index_context->has_inverted_index_result_for_expr(_root.get());
 }
 
+bool VExprContext::could_prune_result_bitmap_for_missing_column() {
+    return _root->could_prune_result_bitmap_for_missing_column(this);
+}
+
 Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, size_t column_to_keep) {
     if (vexpr_ctx == nullptr || block->rows() == 0) {
         return Status::OK();

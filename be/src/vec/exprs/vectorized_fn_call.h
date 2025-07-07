@@ -54,6 +54,7 @@ public:
                                   doris::vectorized::Block* block, int* result_column_id,
                                   ColumnNumbers& args) override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    bool could_prune_result_bitmap_for_missing_column(VExprContext* context) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
