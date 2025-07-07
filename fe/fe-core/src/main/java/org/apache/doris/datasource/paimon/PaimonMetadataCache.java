@@ -71,8 +71,9 @@ public class PaimonMetadataCache {
             PaimonPartitionInfo partitionInfo = loadPartitionInfo(key, partitionColumns);
             return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot);
         } catch (Exception e) {
-            throw new CacheException("failed to load paimon snapshot for: %s.%s.%s",
-                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
+            throw new CacheException("failed to load paimon snapshot %s.%s.%s or reason: %s",
+                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
+                    e.getMessage());
         }
     }
 
