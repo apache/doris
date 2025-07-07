@@ -85,7 +85,7 @@ public class CatalogProperty {
      * @return true if varbinary mapping is enabled, false otherwise
      */
     public boolean getEnableMappingVarbinary() {
-        return Boolean.parseBoolean(getOrDefault(ENABLE_MAPPING_VARBINARY, "false"));
+        return Boolean.parseBoolean(getOrDefault(ENABLE_MAPPING_VARBINARY, "true")); // test
     }
 
     /**
