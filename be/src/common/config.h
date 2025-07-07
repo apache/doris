@@ -1579,6 +1579,7 @@ DECLARE_mInt32(mow_compaction_hold_lock_threshold_ms);
 DECLARE_mInt32(sync_rowsets_hold_lock_threshold_ms);
 DECLARE_mBool(enable_delete_stale_rowset_log);
 DECLARE_mBool(mow_delete_stale_use_yield);
+DECLARE_mInt32(mow_delete_stale_sleep_time_us);
 
 DECLARE_mInt32(tablet_sched_delay_time_ms);
 DECLARE_mInt32(load_trigger_compaction_version_percent);

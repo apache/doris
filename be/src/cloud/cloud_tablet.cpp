@@ -500,7 +500,8 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
         if (config::mow_delete_stale_use_yield) {
             std::this_thread::yield();
         } else {
-            std::this_thread::sleep_for(std::chrono::microseconds(50));
+            std::this_thread::sleep_for(
+                    std::chrono::microseconds(config::mow_delete_stale_sleep_time_us));
         }
     }
     {
