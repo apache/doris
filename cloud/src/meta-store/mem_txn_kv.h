@@ -56,7 +56,8 @@ public:
 
     TxnErrorCode get_kv(const std::string& key, std::string* val, int64_t version);
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
-                        int limit, bool* more, std::map<std::string, std::string>* kv_list);
+                        const RangeGetOptions& opts, bool* more,
+                        std::vector<std::pair<std::string, std::string>>* kv_list);
 
     size_t total_kvs() const {
         std::lock_guard<std::mutex> l(lock_);
@@ -299,19 +300,9 @@ public:
         return k;
     }
 
-    std::string prev_end_key() const override {
+    std::string_view last_key() const override {
         if (!more()) return {};
-        std::string k(kvs_[kvs_size_ - 1].first);
-        if (k.empty()) {
-            // The minimum key, return an empty string
-        } else if (k.back() == '\x00') {
-            // If the last byte is a null byte, we should remove it
-            k.pop_back();
-        } else {
-            // Otherwise, we should decrement the last byte
-            k.back() -= 1;
-        }
-        return k;
+        return kvs_[kvs_size_ - 1].first;
     }
 
 private:
