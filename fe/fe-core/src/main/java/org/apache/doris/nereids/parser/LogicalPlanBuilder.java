@@ -1914,24 +1914,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<String> mutableColNames = colNames == null ? null : new ArrayList<>(colNames);
             List<String> mutableColumnsFromPath = columnsFromPath == null ? null : new ArrayList<>(columnsFromPath);
 
-            List<String> partitions = ddc.partition == null ? null : visitIdentifierList(ddc.partition);
-            PartitionNames partitionNames = partitions == null ? null : new PartitionNames(false, partitions);
+            PartitionNames partitionNames = null;
+            if (ddc.partitionSpec() != null) {
+                Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ddc.partitionSpec());
+                partitionNames = new PartitionNames(partitionSpec.first, partitionSpec.second);
+            }
             // TODO: multi location
             List<String> multiFilePaths = new ArrayList<>();
             for (Token filePath : ddc.filePaths) {
                 multiFilePaths.add(filePath.getText().substring(1, filePath.getText().length() - 1));
             }
             List<String> filePaths = ddc.filePath == null ? null : multiFilePaths;
-            Map<String, Expression> colMappings;
+            List<Expression> colMappings;
             if (ddc.columnMapping == null) {
                 colMappings = null;
             } else {
-                colMappings = new HashMap<>();
+                colMappings = new ArrayList<>();
                 for (DorisParser.MappingExprContext mappingExpr : ddc.columnMapping.mappingSet) {
-                    colMappings.put(mappingExpr.mappingCol.getText(), getExpression(mappingExpr.expression()));
+                    String colName = mappingExpr.mappingCol.getText();
+                    UnboundSlot colSlot = new UnboundSlot(Lists.newArrayList(colName));
+                    Expression expr = getExpression(mappingExpr.expression());
+                    EqualTo equalTo = new EqualTo(colSlot, expr);
+                    colMappings.add(equalTo);
                 }
             }
-            List<Expression> colMappingList = colMappings == null ? null : new ArrayList<>(colMappings.values());
 
             LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
                     : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
@@ -1959,7 +1965,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     srcTable,
                     mutableColumnsFromPath,
                     false,
-                    colMappingList,
+                    colMappings,
                     ddc.preFilter == null ? null : getExpression(ddc.preFilter.expression()),
                     ddc.where == null ? null : getExpression(ddc.where.booleanExpression()),
                     mergeType,
@@ -1971,11 +1977,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.propertyClause() != null) {
             properties = visitPropertyItemList(ctx.propertyClause().propertyItemList());
         }
+        Map<String, String> mutableProperties = new HashMap<>(properties);
         String commentSpec = ctx.commentSpec() == null ? "''" : ctx.commentSpec().STRING_LITERAL().getText();
         String comment =
                 LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
         return new LoadCommand(new LabelName(labelDbName, labelName), dataDescriptions, brokerDesc,
-                resourceDesc, properties, comment);
+                resourceDesc, mutableProperties, comment);
     }
 
     /* ********************************************************************************************
