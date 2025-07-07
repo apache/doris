@@ -18,7 +18,6 @@ suite("lazy_materialize_topn") {
     sql """
         set enable_two_phase_read_opt = true;
         set topn_opt_limit_threshold = 1000;
-        set enable_topn_lazy_materialization = false;
     """
 
     sql """
