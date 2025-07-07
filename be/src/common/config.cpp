@@ -1114,6 +1114,12 @@ DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
+DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
+// dump queue only if the queue update specific times through several dump intervals
+DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
+DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
+DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
+DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
@@ -1203,6 +1209,9 @@ DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 // Deprecated
 DEFINE_mInt32(kerberos_refresh_interval_second, "43200");
+
+// JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
+DEFINE_mBool(jdk_process_reaper_use_default_stack_size, "true");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
