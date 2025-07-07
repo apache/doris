@@ -154,6 +154,35 @@ public:
         return Status::OK();
     }
 
+    bool could_prune_result_bitmap_for_missing_column(VExprContext* context) override {
+        if (_children.empty()) {
+            return false;
+        }
+
+        switch (_op) {
+        case TExprOpcode::COMPOUND_OR: {
+            // All child nodes must return true
+            for (const auto& child : _children) {
+                if (!child->could_prune_result_bitmap_for_missing_column(context)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        case TExprOpcode::COMPOUND_AND: {
+            // Any child node can return true
+            for (const auto& child : _children) {
+                if (child->could_prune_result_bitmap_for_missing_column(context)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        default:
+            return false;
+        }
+    }
+
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         if (fast_execute(context, block, result_column_id)) {
             return Status::OK();
