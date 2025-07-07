@@ -82,15 +82,16 @@ public:
 
         UInt32 from_precision = NumberTraits::max_ascii_len<FromFieldType>();
         UInt32 from_scale = 0;
+        UInt32 from_original_precision = UINT32_MAX;
+        UInt32 from_original_scale = UINT32_MAX;
 
         if constexpr (IsDataTypeDecimal<FromDataType>) {
             const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
+            from_precision = from_decimal_type.get_precision();
+            from_scale = from_decimal_type.get_scale();
             if constexpr (IsDataTypeDecimalV2<FromDataType>) {
-                from_precision = from_decimal_type.get_original_precision();
-                from_scale = from_decimal_type.get_original_scale();
-            } else {
-                from_precision = from_decimal_type.get_precision();
-                from_scale = from_decimal_type.get_scale();
+                from_original_precision = from_decimal_type.get_original_precision();
+                from_original_scale = from_decimal_type.get_original_scale();
             }
         }
         UInt32 to_max_digits = NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
@@ -106,6 +107,9 @@ public:
         ToFieldType min_result = -max_result;
 
         auto from_max_int_digit_count = from_precision - from_scale;
+        if constexpr (IsDataTypeDecimalV2<FromDataType>) {
+            from_max_int_digit_count = from_original_precision - from_original_scale;
+        }
         auto to_max_int_digit_count = to_precision - to_scale;
         bool narrow_integral =
                 (to_max_int_digit_count < from_max_int_digit_count) ||
@@ -133,9 +137,8 @@ public:
                     if constexpr (IsDataTypeDecimal<FromDataType>) {
                         convert_decimal_cols<FromDataType, ToDataType, multiply_may_overflow,
                                              narrow_integral, result_is_nullable>(
-                                vec_from.data(), vec_to.data(), from_precision,
-                                vec_from.get_scale(), to_precision, vec_to.get_scale(), size,
-                                null_map_data);
+                                vec_from.data(), vec_to.data(), from_precision, from_scale,
+                                to_precision, vec_to.get_scale(), size, null_map_data);
                     } else {
                         convert_to_decimal<FromDataType, ToDataType, multiply_may_overflow,
                                            narrow_integral, result_is_nullable>(

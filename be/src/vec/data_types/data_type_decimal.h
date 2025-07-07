@@ -371,6 +371,17 @@ template <>
 inline constexpr bool IsDataTypeDecimal<DataTypeDecimal256> = true;
 
 template <typename DataType>
+constexpr bool IsDataTypeDecimalV3 = false;
+template <>
+inline constexpr bool IsDataTypeDecimalV3<DataTypeDecimal32> = true;
+template <>
+inline constexpr bool IsDataTypeDecimalV3<DataTypeDecimal64> = true;
+template <>
+inline constexpr bool IsDataTypeDecimalV3<DataTypeDecimal128> = true;
+template <>
+inline constexpr bool IsDataTypeDecimalV3<DataTypeDecimal256> = true;
+
+template <typename DataType>
 constexpr bool IsDataTypeDecimalV2 = false;
 template <>
 inline constexpr bool IsDataTypeDecimalV2<DataTypeDecimalV2> = true;
