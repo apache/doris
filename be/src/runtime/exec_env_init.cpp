@@ -724,14 +724,17 @@ void ExecEnv::destroy() {
     SAFE_STOP(_group_commit_mgr);
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
+    LOG(INFO) << "step 6";
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // stop pipline step 2, cgroup execution
     SAFE_STOP(_workload_group_manager);
-
+    LOG(INFO) << "step 7";
     SAFE_STOP(_external_scan_context_mgr);
+    LOG(INFO) << "step 8";
     SAFE_STOP(_fragment_mgr);
     SAFE_STOP(_runtime_filter_timer_queue);
+    LOG(INFO) << "step 9";
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
     _load_stream_mgr.reset();
     _new_load_stream_mgr.reset();
@@ -740,6 +743,7 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
+    LOG(INFO) << "step 10";
 
     // _id_manager must be destoried before tablet schema cache
     SAFE_DELETE(_id_manager);
@@ -747,20 +751,30 @@ void ExecEnv::destroy() {
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
+    LOG(INFO) << "step 11";
 
     SAFE_STOP(_spill_stream_mgr);
     if (_runtime_query_statistics_mgr) {
         _runtime_query_statistics_mgr->stop_report_thread();
     }
+    LOG(INFO) << "step 12";
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    LOG(INFO) << "step 13";
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
+    LOG(INFO) << "step 14";
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
+    LOG(INFO) << "step 15";
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
+    LOG(INFO) << "step 16";
     SAFE_SHUTDOWN(_s3_file_system_thread_pool);
+    LOG(INFO) << "step 17";
     SAFE_SHUTDOWN(_send_batch_thread_pool);
+    LOG(INFO) << "step 18";
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
+    LOG(INFO) << "step 19";
 
     SAFE_DELETE(_load_channel_mgr);
+    LOG(INFO) << "step 20";
 
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
@@ -770,11 +784,13 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_row_cache);
     SAFE_DELETE(_query_cache);
     SAFE_DELETE(_delete_bitmap_agg_cache);
+    LOG(INFO) << "step 21";
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
     SAFE_DELETE(_tablet_schema_cache);
     SAFE_DELETE(_tablet_column_object_pool);
+    LOG(INFO) << "step 22";
 
     // _scanner_scheduler must be desotried before _storage_page_cache
     SAFE_DELETE(_scanner_scheduler);
@@ -792,10 +808,12 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_function_client_cache);
     SAFE_DELETE(_streaming_client_cache);
     SAFE_DELETE(_internal_client_cache);
+    LOG(INFO) << "step 23";
 
     SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_result_cache);
     SAFE_DELETE(_vstream_mgr);
+    LOG(INFO) << "step 24";
     // When _vstream_mgr is deconstructed, it will try call query context's dctor and will
     // access spill stream mgr, so spill stream mgr should be deconstructed after data stream manager
     SAFE_DELETE(_spill_stream_mgr);
@@ -805,6 +823,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     SAFE_DELETE(_dict_factory);
+    LOG(INFO) << "step 25";
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
@@ -822,6 +841,7 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
+    LOG(INFO) << "step 26";
 
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
@@ -830,12 +850,14 @@ void ExecEnv::destroy() {
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);
+    LOG(INFO) << "step 27";
 
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
     // access cluster_info.backend_id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_cluster_info);
+    LOG(INFO) << "step 28";
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
