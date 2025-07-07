@@ -200,7 +200,15 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
 
         List<Partition> partitions = getHistoricalPartitions(table, nowPartitionName);
-        List<Long> visibleVersions = getVisibleVersions(partitions, table, partitionName, property.getBuckets());
+        List<Long> visibleVersions;
+        try {
+            visibleVersions = Partition.getVisibleVersions(partitions);
+        } catch (RpcException e) {
+            LOG.warn("auto bucket use property's buckets get visible version fail, table: [{}-{}], "
+                    + "partition: {}, buckets num: {}, exception: ",
+                    table.getName(), table.getId(), partitionName, property.getBuckets(), e);
+            return Pair.of(property.getBuckets(), 0);
+        }
 
         List<Partition> hasDataPartitions = filterDataPartitions(partitions, visibleVersions);
         if (hasDataPartitions.isEmpty()) {
@@ -220,19 +228,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 .collect(Collectors.toList());
     }
 
-    private static List<Long> getVisibleVersions(List<Partition> partitions, OlapTable table,
-                                                 String partitionName, int defaultBuckets) {
-        try {
-            return Partition.getVisibleVersions(partitions);
-        } catch (RpcException e) {
-            LOG.warn("auto bucket use property's buckets get visible version fail, table: [{}-{}], "
-                    + "partition: {}, buckets num: {}, exception: ",
-                    table.getName(), table.getId(), partitionName, defaultBuckets, e);
-            return Collections.emptyList(); // Return empty list to indicate failure
-        }
-    }
-
     private static List<Partition> filterDataPartitions(List<Partition> partitions, List<Long> visibleVersions) {
+        Preconditions.checkState(partitions.size() == visibleVersions.size(),
+                String.format("partitions size %d not eq visibleVersions size %d, impossible",
+                    partitions.size(), visibleVersions.size()));
         List<Partition> hasDataPartitions = new ArrayList<>();
         for (int i = 0; i < partitions.size(); i++) {
             if (visibleVersions.get(i) >= 2) {
