@@ -1541,7 +1541,7 @@ public:
         }
 
     protected:
-        Status handle_searcher_cache(RuntimeState*, InvertedIndexCacheHandle*, const io::IOContext*,
+        Status handle_searcher_cache(InvertedIndexCacheHandle*, const io::IOContext*,
                                      OlapReaderStatistics*) override {
             CLuceneError err;
             err.set(CL_ERR_IO, "mock handle_searcher_cache failure");
@@ -1565,7 +1565,7 @@ public:
         }
 
     protected:
-        Status handle_searcher_cache(RuntimeState*, InvertedIndexCacheHandle*, const io::IOContext*,
+        Status handle_searcher_cache(InvertedIndexCacheHandle*, const io::IOContext*,
                                      OlapReaderStatistics*) override {
             CLuceneError err;
             err.set(CL_ERR_IO, "mock tokenized index searcher cache failure");
@@ -1607,7 +1607,6 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions opts;
-        opts.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(opts);
 
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
@@ -1661,7 +1660,6 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions opts;
-        opts.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(opts);
 
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
