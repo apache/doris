@@ -23,6 +23,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
@@ -623,6 +624,10 @@ public class DateLiteral extends Literal implements ComparableLiteral {
             return new DoubleLiteral(year * 10000 + month * 100 + day);
         } else if (targetType.isDateTimeV2Type()) {
             return new DateTimeV2Literal((DateTimeV2Type) targetType, year, month, day, 0, 0, 0, 0);
+        } else if (targetType.isDateTimeType()) {
+            return new DateTimeLiteral((DateTimeType) targetType, year, month, day, 0, 0, 0, 0);
+        } else if (targetType.isDateV2Type()) {
+            return new DateV2Literal(year, month, day);
         }
         return super.uncheckedCastTo(targetType);
     }
