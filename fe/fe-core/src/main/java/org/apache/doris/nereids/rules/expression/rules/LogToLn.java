@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
-import org.apache.log4j.Logger;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 
 import com.google.common.collect.ImmutableList;
@@ -48,8 +47,6 @@ public class LogToLn implements ExpressionPatternRuleFactory {
 
     /** rewrite */
     public static Expression rewrite(Log log) {
-        Logger logger = Logger.getLogger(LogToLn.class);
-        logger.info("asd Log to Ln: " + log);
         if (log.arity() == 1) {
             return new Ln(log.child(0));
         } else {
