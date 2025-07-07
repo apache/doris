@@ -78,9 +78,9 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
           _sink(pipeline->sink_shared_pointer()),
           _shared_state_map(std::move(shared_state_map)),
           _task_idx(task_idx),
-          _execution_dep(state->get_query_ctx()->get_execution_dependency()),
           _memory_sufficient_dependency(state->get_query_ctx()->get_memory_sufficient_dependency()),
           _pipeline_name(_pipeline->name()) {
+    _execution_dependencies.push_back(state->get_query_ctx()->get_execution_dependency());
     if (!_shared_state_map.contains(_sink->dests_id().front())) {
         auto shared_state = _sink->create_shared_state();
         if (shared_state) {
@@ -119,13 +119,11 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
         parent_profile = _state->get_local_state(op->operator_id())->profile();
     }
     {
-        std::vector<Dependency*> filter_dependencies;
-        const auto& deps = _state->get_local_state(_source->operator_id())->filter_dependencies();
-        std::copy(deps.begin(), deps.end(),
-                  std::inserter(filter_dependencies, filter_dependencies.end()));
-
+        const auto& deps =
+                _state->get_local_state(_source->operator_id())->execution_dependencies();
         std::unique_lock<std::mutex> lc(_dependency_lock);
-        filter_dependencies.swap(_filter_dependencies);
+        std::copy(deps.begin(), deps.end(),
+                  std::inserter(_execution_dependencies, _execution_dependencies.end()));
     }
     if (auto fragment = _fragment_context.lock()) {
         if (fragment->get_query_ctx()->is_cancelled()) {
@@ -263,10 +261,10 @@ bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
     // 2. Runtime filter dependencies are ready
-    return _execution_dep->is_blocked_by(shared_from_this()) ||
-           std::any_of(
-                   _filter_dependencies.begin(), _filter_dependencies.end(),
-                   [&](Dependency* dep) -> bool { return dep->is_blocked_by(shared_from_this()); });
+    // 3. All tablets are loaded into local storage
+    return std::any_of(
+            _execution_dependencies.begin(), _execution_dependencies.end(),
+            [&](Dependency* dep) -> bool { return dep->is_blocked_by(shared_from_this()); });
 }
 
 bool PipelineTask::_is_pending_finish() {
@@ -320,8 +318,6 @@ void PipelineTask::terminate() {
         DCHECK(_wake_up_early || fragment->is_canceled());
         std::for_each(_spill_dependencies.begin(), _spill_dependencies.end(),
                       [&](Dependency* dep) { dep->set_always_ready(); });
-        std::for_each(_filter_dependencies.begin(), _filter_dependencies.end(),
-                      [&](Dependency* dep) { dep->set_always_ready(); });
         std::for_each(_write_dependencies.begin(), _write_dependencies.end(),
                       [&](Dependency* dep) { dep->set_always_ready(); });
         std::for_each(_finish_dependencies.begin(), _finish_dependencies.end(),
@@ -331,7 +327,9 @@ void PipelineTask::terminate() {
                           std::for_each(deps.begin(), deps.end(),
                                         [&](Dependency* dep) { dep->set_always_ready(); });
                       });
-        _execution_dep->set_ready();
+        // All `_execution_deps` will never be set blocking from ready. So we just set ready here.
+        std::for_each(_execution_dependencies.begin(), _execution_dependencies.end(),
+                      [&](Dependency* dep) { dep->set_ready(); });
         _memory_sufficient_dependency->set_ready();
     }
 }
@@ -404,13 +402,19 @@ Status PipelineTask::execute(bool* done) {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
         return status;
     });
+    // `hold_tablets` is designed as a reentrant method. For cloud mode, we reach here first to
+    // request remote tablets by RPC, and then hold local tablets by the second call.
+    if (!_hold_cloud_tablet && !_wake_up_early) {
+        RETURN_IF_ERROR(_source->hold_tablets(_state));
+    }
     // `_wake_up_early` must be after `_wait_to_start()`
     if (_wait_to_start() || _wake_up_early) {
-        if (config::enable_prefetch_tablet) {
-            RETURN_IF_ERROR(_source->hold_tablets(_state));
-        }
         return Status::OK();
     }
+    if (!_hold_cloud_tablet && !_wake_up_early) {
+        RETURN_IF_ERROR(_source->hold_tablets(_state));
+    }
+    _hold_cloud_tablet = true;
 
     // The status must be runnable
     if (!_opened && !fragment_context->is_canceled()) {
@@ -740,10 +744,10 @@ std::string PipelineTask::debug_string() {
                        _write_dependencies[j]->debug_string(i + 1));
     }
 
-    fmt::format_to(debug_string_buffer, "\nRuntime Filter Dependency Information: \n");
-    for (size_t j = 0; j < _filter_dependencies.size(); j++, i++) {
+    fmt::format_to(debug_string_buffer, "\nExecution Dependency Information: \n");
+    for (size_t j = 0; j < _execution_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _filter_dependencies[j]->debug_string(i + 1));
+                       _execution_dependencies[j]->debug_string(i + 1));
     }
 
     fmt::format_to(debug_string_buffer, "\nSpill Dependency Information: \n");

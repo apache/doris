@@ -40,9 +40,9 @@ class OlapScanOperatorX;
 class OlapScanLocalState final : public ScanLocalState<OlapScanLocalState> {
 public:
     using Parent = OlapScanOperatorX;
+    using Base = ScanLocalState<OlapScanLocalState>;
     ENABLE_FACTORY_CREATOR(OlapScanLocalState);
-    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent)
-            : ScanLocalState(state, parent) {}
+    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
 
     TOlapScanNode& olap_scan_node() const;
 
@@ -52,6 +52,17 @@ public:
                            std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
     Status hold_tablets();
+    std::vector<Dependency*> execution_dependencies() override {
+        if (_cloud_tablet_dependencies.empty()) {
+            return Base::execution_dependencies();
+        }
+        std::vector<Dependency*> res(_cloud_tablet_dependencies.size());
+        std::transform(_cloud_tablet_dependencies.begin(), _cloud_tablet_dependencies.end(),
+                       res.begin(), [](DependencySPtr dep) { return dep.get(); });
+        std::vector<Dependency*> tmp = Base::execution_dependencies();
+        std::copy(tmp.begin(), tmp.end(), std::inserter(res, res.end()));
+        return res;
+    }
 
 private:
     friend class vectorized::OlapScanner;
@@ -90,6 +101,9 @@ private:
     Status _build_key_ranges_and_filters();
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    std::vector<std::shared_ptr<Dependency>> _cloud_tablet_dependencies;
+    std::future<Status> _cloud_tablet_future;
+    std::atomic_bool _sync_tablet = false;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
     std::vector<FilterOlapParam<TCondition>> _olap_filters;

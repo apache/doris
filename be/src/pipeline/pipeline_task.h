@@ -238,7 +238,8 @@ private:
     std::vector<Dependency*> _spill_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
-    std::vector<Dependency*> _filter_dependencies;
+    std::vector<Dependency*> _execution_dependencies;
+    std::atomic_bool _hold_cloud_tablet = false;
 
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
@@ -253,7 +254,6 @@ private:
     unsigned long long _exec_time_slice = config::pipeline_task_exec_time_slice * NANOS_PER_MILLIS;
     Dependency* _blocked_dep = nullptr;
 
-    Dependency* _execution_dep = nullptr;
     Dependency* _memory_sufficient_dependency;
     std::mutex _dependency_lock;
 

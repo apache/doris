@@ -201,7 +201,7 @@ public:
     virtual Dependency* finishdependency() { return nullptr; }
     virtual Dependency* spill_dependency() const { return nullptr; }
     //  override in Scan  MultiCastSink
-    virtual std::vector<Dependency*> filter_dependencies() { return {}; }
+    virtual std::vector<Dependency*> execution_dependencies() { return {}; }
 
     Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
                         vectorized::Block* block, size_t column_to_keep);
@@ -1116,7 +1116,7 @@ public:
     ~DummyOperatorLocalState() = default;
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
-    std::vector<Dependency*> filter_dependencies() override { return {_filter_dependency.get()}; }
+    std::vector<Dependency*> execution_dependencies() override { return {_filter_dependency.get()}; }
     Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 private:
