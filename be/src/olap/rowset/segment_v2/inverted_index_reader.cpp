@@ -418,8 +418,7 @@ Status StringTypeInvertedIndexReader::query(const io::IOContext* io_ctx,
                                                      search_str};
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
-        auto cache_status =
-                handle_query_cache(runtime_state, cache, cache_key, &cache_handler, stats, bit_map);
+        auto cache_status = handle_query_cache(cache, cache_key, &cache_handler, stats, bit_map);
         if (cache_status.ok()) {
             return Status::OK();
         }
@@ -433,8 +432,7 @@ Status StringTypeInvertedIndexReader::query(const io::IOContext* io_ctx,
         auto result = std::make_shared<roaring::Roaring>();
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
         InvertedIndexCacheHandle inverted_index_cache_handle;
-        RETURN_IF_ERROR(
-                handle_searcher_cache(runtime_state, &inverted_index_cache_handle, io_ctx, stats));
+        RETURN_IF_ERROR(handle_searcher_cache(&inverted_index_cache_handle, io_ctx, stats));
         auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
         searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
         if (searcher_ptr != nullptr) {
