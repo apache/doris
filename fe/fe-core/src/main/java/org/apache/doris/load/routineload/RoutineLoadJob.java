@@ -51,7 +51,6 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
@@ -1033,7 +1032,6 @@ public abstract class RoutineLoadJob
                     ConnectContext.get().setCloudCluster(clusterName);
                 }
                 ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
-                ConnectContext.get().setQualifiedUser(this.getUserIdentity().getQualifiedUser());
             } else {
                 setComputeGroup();
             }
@@ -1930,7 +1928,6 @@ public abstract class RoutineLoadJob
             statementContext.setConnectContext(ctx);
             ctx.setStatementContext(statementContext);
             ctx.setEnv(Env.getCurrentEnv());
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.getState().reset();
             try {
