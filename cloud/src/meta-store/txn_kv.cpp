@@ -423,7 +423,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
                      << " key=" << hex(key);
         return cast_as_txn_code(err);
     }
-    get_bytes_ += len;
+    get_bytes_ += len + key.size();
 
     if (!found) return TxnErrorCode::TXN_KEY_NOT_FOUND;
     *val = std::string((char*)ret, len);
@@ -686,6 +686,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
             const uint8_t* ret;
             int len;
             err = fdb_future_get_value(future, &found, &ret, &len);
+            num_get_keys_++;
             if (err) {
                 LOG(WARNING) << __PRETTY_FUNCTION__
                              << " failed to fdb_future_get_value err=" << fdb_get_error(err)
@@ -696,13 +697,12 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
                 res->push_back(std::nullopt);
                 continue;
             }
-            get_bytes_ += len;
+            get_bytes_ += len + key.size();
             res->push_back(std::string((char*)ret, len));
         }
         futures.clear();
     }
     DCHECK_EQ(res->size(), num_keys);
-    num_get_keys_ += num_keys;
     return TxnErrorCode::TXN_OK;
 }
 

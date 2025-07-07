@@ -258,8 +258,6 @@ void Transaction::put(std::string_view key, std::string_view val) {
 
 TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snapshot) {
     std::lock_guard<std::mutex> l(lock_);
-    num_get_keys_++;
-    kv_->get_count_++;
     std::string k(key.data(), key.size());
     // the key set by atomic_xxx can't not be read before the txn is committed.
     // if it is read, the txn will not be able to commit.
@@ -296,6 +294,8 @@ std::unique_ptr<cloud::FullRangeGetIterator> Transaction::full_range_get(
 }
 
 TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bool snapshot) {
+    num_get_keys_++;
+    kv_->get_count_++;
     // Read your writes.
     auto it = writes_.find(key);
     if (it != writes_.end()) {
@@ -314,8 +314,8 @@ TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bo
             return TxnErrorCode::TXN_KEY_NOT_FOUND;
         }
     }
-    get_bytes_ += val->size();
-    kv_->get_bytes_ += val->size();
+    get_bytes_ += val->size() + key.size();
+    kv_->get_bytes_ += val->size() + key.size();
     return TxnErrorCode::TXN_OK;
 }
 
@@ -513,8 +513,6 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         }
         std::string val;
         auto ret = inner_get(k, &val, opts.snapshot);
-        get_bytes_ += val.size();
-        kv_->get_bytes_ += val.size();
         ret == TxnErrorCode::TXN_OK ? res->push_back(val) : res->push_back(std::nullopt);
     }
     kv_->get_count_ += keys.size();

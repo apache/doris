@@ -555,11 +555,11 @@ public:
     int size() const override { return kvs_size_; }
 
     int64_t get_kv_bytes() const override {
-        int64_t total_bytes_ {};
+        int64_t total_bytes {};
         for (int i = 0; i < kvs_size_; i++) {
-            total_bytes_ += kvs_[i].key_length + kvs_[i].value_length;
+            total_bytes += kvs_[i].key_length + kvs_[i].value_length;
         }
-        return total_bytes_;
+        return total_bytes;
     }
 
     int remaining() const override {
