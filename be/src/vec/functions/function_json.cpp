@@ -127,9 +127,9 @@ void get_parsed_paths(const T& path_exprs, std::vector<JsonPath>* parsed_paths) 
     }
 }
 
-rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
-                              rapidjson::Document::AllocatorType& mem_allocator,
-                              bool is_insert_null = false) {
+rapidjson::Value* NO_SANITIZE_UNDEFINED
+match_value(const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
+            rapidjson::Document::AllocatorType& mem_allocator, bool is_insert_null = false) {
     rapidjson::Value* root = document;
     rapidjson::Value* array_obj = nullptr;
     for (int i = 1; i < parsed_paths.size(); i++) {
