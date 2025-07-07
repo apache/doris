@@ -402,7 +402,7 @@ public class MysqlLoadManager {
         }
         return -1;
     }
-  
+
     private int extractTimeOut(MysqlDataDescription desc) {
         if (desc.getProperties() != null && desc.getProperties().containsKey(MysqlLoadCommand.TIMEOUT_PROPERTY)) {
             return Integer.parseInt(desc.getProperties().get(MysqlLoadCommand.TIMEOUT_PROPERTY));
@@ -435,7 +435,7 @@ public class MysqlLoadManager {
         }
         return null;
     }
-  
+
     private String getColumns(MysqlDataDescription desc) {
         List<String> fields = desc.getColumns();
         if (!fields.isEmpty()) {
@@ -629,7 +629,7 @@ public class MysqlLoadManager {
         httpPut.setEntity(entity);
         return httpPut;
     }
-  
+
     public HttpPut generateRequestForMySqlLoadV2(
             InputStreamEntity entity,
             MysqlDataDescription desc,
