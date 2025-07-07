@@ -1835,7 +1835,7 @@ public class DynamicPartitionTableTest {
                 Partition partition = partitions.get(i);
                 partition.updateVisibleVersion(2L);
                 for (MaterializedIndex idx : partition.getMaterializedIndices(
-                    MaterializedIndex.IndexExtState.VISIBLE)) {
+                        MaterializedIndex.IndexExtState.VISIBLE)) {
                     if (i < 52) {
                         Assert.assertEquals(10, idx.getTablets().size());
                     } else if (i == 52) {
@@ -1858,8 +1858,7 @@ public class DynamicPartitionTableTest {
             table.readUnlock();
         }
 
-        String alterStmt3 =
-            "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '4')";
+        String alterStmt3 = "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '4')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt3));
         // 54th previous partition size set 53, check back to back logic work
         partitions.get(53).getDistributionInfo().setBucketNum(53);
