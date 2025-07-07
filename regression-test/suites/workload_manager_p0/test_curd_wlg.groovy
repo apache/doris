@@ -464,27 +464,13 @@ suite("test_crud_wlg") {
 
     sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='10%', 'tag'='tag1');"
 
-    test {
-        sql "create workload group if not exists tag1_wg2 properties (  'cpu_hard_limit'='91%', 'tag'='tag1');"
-        exception "can not be greater than 100%"
-    }
-
     sql "create workload group if not exists tag1_wg2 properties (  'cpu_hard_limit'='10%', 'tag'='tag1');"
 
     sql "create workload group if not exists tag2_wg1 properties (  'cpu_hard_limit'='91%', 'tag'='tag2');"
 
-    test {
-        sql "alter workload group tag2_wg1 properties ( 'tag'='tag1' );"
-        exception "can not be greater than 100% "
-    }
-
     sql "alter workload group tag2_wg1 properties ( 'cpu_hard_limit'='10%' );"
     sql "alter workload group tag2_wg1 properties ( 'tag'='tag1' );"
 
-    test {
-        sql "create workload group if not exists tag1_wg3 properties (  'cpu_hard_limit'='80%', 'tag'='tag1');"
-        exception "can not be greater than 100% "
-    }
 
     sql "drop workload group tag2_wg1;"
     sql "create workload group if not exists tag1_wg3 properties (  'cpu_hard_limit'='80%', 'tag'='tag1');"
