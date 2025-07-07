@@ -134,9 +134,9 @@ suite('use_vcg_read_write_s3_load', 'multi_cluster,docker') {
             def normalVclusterId = "normalVirtualClusterId"
             def vcgClusterNames = [clusterName1, clusterName2]
             def clusterPolicy = [type: "ActiveStandby", active_cluster_name: "${clusterName1}", standby_cluster_names: ["${clusterName2}"]]
-            clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_names:vcgClusterNames, cluster_policy:clusterPolicy]
+            def clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_names:vcgClusterNames, cluster_policy:clusterPolicy]
             def normalInstance = [instance_id: "${instance_id}", cluster: clusterMap]
-            jsonOutput = new JsonOutput()
+            def jsonOutput = new JsonOutput()
             def normalVcgBody = jsonOutput.toJson(normalInstance)
             add_cluster_api.call(msHttpPort, normalVcgBody) {
                 respCode, body ->
@@ -147,13 +147,13 @@ suite('use_vcg_read_write_s3_load', 'multi_cluster,docker') {
 
             // show cluster
             sleep(5000)
-            showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
+            def showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
             log.info("show compute group {}", showComputeGroup)
             def vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
-            assertTrue(vcgInShow.Policy.contains("activeComputeGroup='newcluster1', standbyComputeGroup='newcluster2'"))
+            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster1","standbyComputeGroup":"newcluster2"'))
 
-            showResult = sql "show clusters"
+            def showResult = sql "show clusters"
             for (row : showResult) {
                 println row
             }
@@ -186,46 +186,46 @@ suite('use_vcg_read_write_s3_load', 'multi_cluster,docker') {
 
             sql """ set enable_profile = true """
 
-            before_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
+            def before_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
             log.info("before_cluster1_be0_load_rows : ${before_cluster1_be0_load_rows}".toString())
-            before_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
+            def before_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
             log.info("before_cluster1_be0_flush : ${before_cluster1_be0_flush}".toString())
 
-            before_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
+            def before_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
             log.info("before_cluster1_be1_load_rows : ${before_cluster1_be1_load_rows}".toString())
-            before_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
+            def before_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
             log.info("before_cluster1_be1_flush : ${before_cluster1_be1_flush}".toString())
 
-            before_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
+            def before_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
             log.info("before_cluster2_be0_load_rows : ${before_cluster2_be0_load_rows}".toString())
-            before_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
+            def before_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
             log.info("before_cluster2_be0_flush : ${before_cluster2_be0_flush}".toString())
 
-            before_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
+            def before_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
             log.info("before_cluster2_be1_load_rows : ${before_cluster2_be1_load_rows}".toString())
-            before_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
+            def before_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("before_cluster2_be1_flush : ${before_cluster2_be1_flush}".toString())
 
             execute_s3_Load.call()
 
-            after_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
+            def after_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
             log.info("after_cluster1_be0_load_rows : ${after_cluster1_be0_load_rows}".toString())
-            after_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
+            def after_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
             log.info("after_cluster1_be0_flush : ${after_cluster1_be0_flush}".toString())
 
-            after_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
+            def after_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
             log.info("after_cluster1_be1_load_rows : ${after_cluster1_be1_load_rows}".toString())
-            after_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
+            def after_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
             log.info("after_cluster1_be1_flush : ${after_cluster1_be1_flush}".toString())
 
-            after_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
+            def after_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
             log.info("after_cluster2_be0_load_rows : ${after_cluster2_be0_load_rows}".toString())
-            after_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
+            def after_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
             log.info("after_cluster2_be0_flush : ${after_cluster2_be0_flush}".toString())
 
-            after_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
+            def after_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
             log.info("after_cluster2_be1_load_rows : ${after_cluster2_be1_load_rows}".toString())
-            after_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
+            def after_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("after_cluster2_be1_flush : ${after_cluster2_be1_flush}".toString())
 
             assertTrue(before_cluster1_be0_load_rows < after_cluster1_be0_load_rows || before_cluster1_be1_load_rows < after_cluster1_be1_load_rows)
@@ -236,9 +236,13 @@ suite('use_vcg_read_write_s3_load', 'multi_cluster,docker') {
             assertTrue(before_cluster2_be1_load_rows == after_cluster2_be1_load_rows)
             assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
 
-            set = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
+            def addrSet = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
             sql """ select N_REGIONKEY, count(N_NAME) AS theCount from nation group by N_REGIONKEY order by theCount """
-            checkProfileNew.call(set)
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
 
             cluster.stopBackends(4)
             sleep(6000)
@@ -299,9 +303,13 @@ suite('use_vcg_read_write_s3_load', 'multi_cluster,docker') {
             assertTrue(before_cluster2_be1_load_rows == after_cluster2_be1_load_rows)
             assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
 
-            set = [cluster1Ips[0] + ":" + "8060"] as Set
+            addrSet = [cluster1Ips[0] + ":" + "8060"] as Set
             sql """ select N_REGIONKEY, count(N_NAME) AS theCount from nation group by N_REGIONKEY order by theCount """
-            checkProfileNew.call(set)
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
 
             cluster.stopBackends(5)
             sleep(5000)
@@ -331,9 +339,13 @@ suite('use_vcg_read_write_s3_load', 'multi_cluster,docker') {
             assertTrue(before_cluster2_be0_load_rows < after_cluster2_be0_load_rows || before_cluster2_be1_load_rows < after_cluster2_be1_load_rows)
             assertTrue(before_cluster2_be0_flush < after_cluster2_be0_flush || before_cluster2_be1_flush < after_cluster2_be1_flush)
 
-            set = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
+            addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select N_REGIONKEY, count(N_NAME) AS theCount from nation group by N_REGIONKEY order by theCount """
-            checkProfileNew.call(set)
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
 
             sleep(16000)
 
@@ -343,9 +355,9 @@ suite('use_vcg_read_write_s3_load', 'multi_cluster,docker') {
             log.info("show compute group {}", showComputeGroup)
             vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
-            assertTrue(vcgInShow.Policy.contains("activeComputeGroup='newcluster2', standbyComputeGroup='newcluster1'"))
+            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster2","standbyComputeGroup":"newcluster1"'))
         }
         // connect to follower, run again
-        //options.connectToFollower = true
+        options.connectToFollower = true
     }
 }

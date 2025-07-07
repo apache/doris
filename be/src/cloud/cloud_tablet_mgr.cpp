@@ -390,7 +390,9 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     auto skip = [now, compaction_type](CloudTablet* t) {
         auto* cloud_cluster_info = static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info());
         if (config::enable_standby_passive_compaction && cloud_cluster_info->is_in_standby()) {
-            return t->fetch_add_approximate_num_rowsets(0) < config::max_tablet_version_num * config::standby_compaction_version_ratio;
+            if (t->fetch_add_approximate_num_rowsets(0) < config::max_tablet_version_num * config::standby_compaction_version_ratio) {
+                return true;
+            }
         }
 
         int32_t max_version_config = t->max_version_config();

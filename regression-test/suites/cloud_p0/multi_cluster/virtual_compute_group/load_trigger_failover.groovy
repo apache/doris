@@ -75,9 +75,9 @@ suite('load_trigger_failover', 'multi_cluster,docker') {
             def normalVclusterId = "normalVirtualClusterId"
             def vcgClusterNames = [clusterName1, clusterName2]
             def clusterPolicy = [type: "ActiveStandby", active_cluster_name: "${clusterName1}", standby_cluster_names: ["${clusterName2}"], failover_failure_threshold: 3]
-            clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_names:vcgClusterNames, cluster_policy:clusterPolicy]
+            def clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_names:vcgClusterNames, cluster_policy:clusterPolicy]
             def normalInstance = [instance_id: "${instance_id}", cluster: clusterMap]
-            jsonOutput = new JsonOutput()
+            def jsonOutput = new JsonOutput()
             def normalVcgBody = jsonOutput.toJson(normalInstance)
             add_cluster_api.call(msHttpPort, normalVcgBody) {
                 respCode, body ->
@@ -88,13 +88,14 @@ suite('load_trigger_failover', 'multi_cluster,docker') {
 
             // show cluster
             sleep(5000)
-            showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
+            def showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
             log.info("show compute group {}", showComputeGroup)
             def vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
             assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster1","standbyComputeGroup":"newcluster2"'))
+            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster1","standbyComputeGroup":"newcluster2"'))
 
-            showResult = sql "show clusters"
+            def showResult = sql "show clusters"
             for (row : showResult) {
                 println row
             }
@@ -158,6 +159,6 @@ suite('load_trigger_failover', 'multi_cluster,docker') {
             assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster2","standbyComputeGroup":"newcluster1"'))
         }
         // connect to follower, run again
-        //options.connectToFollower = true
+        options.connectToFollower = true
     }
 }
