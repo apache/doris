@@ -19,10 +19,8 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DataSortInfo;
-import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.ResourceTypeEnum;
@@ -38,6 +36,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudEnvFactory;
+import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
@@ -49,11 +48,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.computegroup.ComputeGroup;
-import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
@@ -81,6 +77,28 @@ import java.util.Map;
 public class CloudIndexTest {
     private static final Logger LOG = LogManager.getLogger(CloudIndexTest.class);
 
+    // Simple ComputeGroupMgr wrapper for CloudSystemInfoService
+    public static class ComputeGroupMgr {
+        private final SystemInfoService systemInfoService;
+
+        public ComputeGroupMgr(SystemInfoService systemInfoService) {
+            this.systemInfoService = systemInfoService;
+        }
+
+        public ComputeGroup getComputeGroupByName(String name) {
+            if (systemInfoService instanceof CloudSystemInfoService) {
+                return ((CloudSystemInfoService) systemInfoService).getComputeGroupByName(name);
+            }
+            return null;
+        }
+
+        public ComputeGroup getAllBackendComputeGroup() {
+            // Return a default compute group for all backends
+            return new ComputeGroup("default_compute_group", "default_compute_group",
+                                    ComputeGroup.ComputeTypeEnum.SQL);
+        }
+    }
+
     private static String fileName = "./CloudIndexTest";
 
     private static FakeEditLog fakeEditLog;
@@ -88,14 +106,11 @@ public class CloudIndexTest {
     private static Env masterEnv;
     private static EditLog testEditLog;
     private ConnectContext ctx;
+    private static OlapTable olapTable;
 
     private static Analyzer analyzer;
     private static Database db;
-    private static OlapTable olapTable;
     private static CreateIndexClause createIndexClause;
-    private static BuildIndexClause buildIndexClause;
-    private static DropIndexClause dropIndexClause;
-    private static CancelBuildIndexCommand cancelBuildIndexCommand;
     private static SchemaChangeHandler schemaChangeHandler;
 
     @Before
@@ -289,15 +304,6 @@ public class CloudIndexTest {
             public String getDefaultCloudCluster(String user) {
                 return "test_group"; // Return default cluster for test
             }
-
-            @Mock
-            public ComputeGroup getComputeGroup(String user) {
-                try {
-                    return masterEnv.getComputeGroupMgr().getComputeGroupByName("test_group");
-                } catch (Exception e) {
-                    return masterEnv.getComputeGroupMgr().getAllBackendComputeGroup();
-                }
-            }
         };
 
         // Mock cloud environment permissions
@@ -354,7 +360,6 @@ public class CloudIndexTest {
         Assert.assertEquals(1, backends.size());
         Assert.assertEquals("host1", backends.get(0).getHost());
         backends.get(0).setAlive(true);
-        ctx.setComputeGroup(masterEnv.getComputeGroupMgr().getAllBackendComputeGroup());
 
         db = new Database(CatalogTestUtil.testDbId1, CatalogTestUtil.testDb1);
         masterEnv.unprotectCreateDb(db);
@@ -377,10 +382,10 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
-        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
         dataSortInfo.setSortType(TSortType.LEXICAL);
-        table.setDataSortInfo(dataSortInfo);
+        olapTable.setDataSortInfo(dataSortInfo);
         String indexName = "ngram_bf_index";
 
         // Add required properties for NGRAM_BF index
@@ -389,22 +394,22 @@ public class CloudIndexTest {
         properties.put("bf_size", "256");
 
         IndexDef indexDef = new IndexDef(indexName, false,
-                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                Lists.newArrayList(olapTable.getBaseSchema().get(3).getName()),
                 org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
                 properties, "ngram bf index");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
-                table.getName());
+                olapTable.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         ctx.getSessionVariable().setEnableAddIndexForNewData(true);
-        schemaChangeHandler.process(alterClauses, db, table);
+        schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assert.assertEquals(1, olapTable.getIndexes().size());
+        Assert.assertEquals("ngram_bf_index", olapTable.getIndexes().get(0).getIndexName());
+        Assert.assertEquals(OlapTableState.NORMAL, olapTable.getState());
 
         long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
 
@@ -427,10 +432,10 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
-        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
         dataSortInfo.setSortType(TSortType.LEXICAL);
-        table.setDataSortInfo(dataSortInfo);
+        olapTable.setDataSortInfo(dataSortInfo);
         String indexName = "ngram_bf_index";
 
         // Add required properties for NGRAM_BF index
@@ -439,21 +444,21 @@ public class CloudIndexTest {
         properties.put("bf_size", "256");
 
         IndexDef indexDef = new IndexDef(indexName, false,
-                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                Lists.newArrayList(olapTable.getBaseSchema().get(3).getName()),
                 org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
                 properties, "ngram bf index");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
-                table.getName());
+                olapTable.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         // Set session variable to false (default)
         ctx.getSessionVariable().setEnableAddIndexForNewData(false);
-        schemaChangeHandler.process(alterClauses, db, table);
+        schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
-        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
 
         long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
 
@@ -473,9 +478,9 @@ public class CloudIndexTest {
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
+        Assert.assertEquals(OlapTableState.NORMAL, olapTable.getState());
+        Assert.assertEquals(1, olapTable.getIndexes().size());
+        Assert.assertEquals("ngram_bf_index", olapTable.getIndexes().get(0).getIndexName());
     }
 
     @Test
@@ -492,32 +497,32 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
-        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
         dataSortInfo.setSortType(TSortType.LEXICAL);
-        table.setDataSortInfo(dataSortInfo);
+        olapTable.setDataSortInfo(dataSortInfo);
         String indexName = "raw_inverted_index";
         // Explicitly set parser="none" for raw inverted index
         Map<String, String> properties = Maps.newHashMap();
         properties.put("parser", "none");
 
         IndexDef indexDef = new IndexDef(indexName, false,
-                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                Lists.newArrayList(olapTable.getBaseSchema().get(3).getName()),
                 IndexType.INVERTED,
                 properties, "raw inverted index");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
-                table.getName());
+                olapTable.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         ctx.getSessionVariable().setEnableAddIndexForNewData(false);
-        schemaChangeHandler.process(alterClauses, db, table);
+        schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
 
         long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
-        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
 
         // Finish the create index job first
         SchemaChangeJobV2 createJobV2 = (SchemaChangeJobV2) indexChangeJobMap.get(createJobId);
@@ -536,9 +541,9 @@ public class CloudIndexTest {
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("raw_inverted_index", table.getIndexes().get(0).getIndexName());
+        Assert.assertEquals(OlapTableState.NORMAL, olapTable.getState());
+        Assert.assertEquals(1, olapTable.getIndexes().size());
+        Assert.assertEquals("raw_inverted_index", olapTable.getIndexes().get(0).getIndexName());
     }
 
     @Test
@@ -555,35 +560,35 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
-        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
         dataSortInfo.setSortType(TSortType.LEXICAL);
-        table.setDataSortInfo(dataSortInfo);
+        olapTable.setDataSortInfo(dataSortInfo);
         String indexName = "lightweight_raw_inverted_index";
         // Explicitly set parser="none" for raw inverted index
         Map<String, String> properties = Maps.newHashMap();
         properties.put("parser", "none");
         IndexDef indexDef = new IndexDef(indexName, false,
-                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                Lists.newArrayList(olapTable.getBaseSchema().get(3).getName()),
                 IndexType.INVERTED,
                 properties, "lightweight raw inverted index");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
-                table.getName());
+                olapTable.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         // Test with enable_add_index_for_new_data = true, should use lightweight mode
         ctx.getSessionVariable().setEnableAddIndexForNewData(true);
-        schemaChangeHandler.process(alterClauses, db, table);
+        schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         // Lightweight mode should not create any schema change jobs
         Assert.assertEquals(1, indexChangeJobMap.size());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("lightweight_raw_inverted_index", table.getIndexes().get(0).getIndexName());
-        Assert.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assert.assertEquals(1, olapTable.getIndexes().size());
+        Assert.assertEquals("lightweight_raw_inverted_index", olapTable.getIndexes().get(0).getIndexName());
+        Assert.assertEquals(OlapTableState.NORMAL, olapTable.getState());
         // Verify the index properties
-        Assert.assertEquals("none", table.getIndexes().get(0).getProperties().get("parser"));
+        Assert.assertEquals("none", olapTable.getIndexes().get(0).getProperties().get("parser"));
     }
 
     @Test
@@ -600,13 +605,13 @@ public class CloudIndexTest {
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CatalogTestUtil.createDupTable(db);
-        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         DataSortInfo dataSortInfo = new DataSortInfo();
         dataSortInfo.setSortType(TSortType.LEXICAL);
-        table.setDataSortInfo(dataSortInfo);
+        olapTable.setDataSortInfo(dataSortInfo);
 
         // Set inverted index file storage format to V2 for cloud mode
-        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+        olapTable.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
 
         String indexName = "tokenized_inverted_index";
         Map<String, String> properties = Maps.newHashMap();
@@ -616,19 +621,19 @@ public class CloudIndexTest {
 
         // Use VARCHAR column v1 (index 2) for string type support
         IndexDef indexDef = new IndexDef(indexName, false,
-                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                Lists.newArrayList(olapTable.getBaseSchema().get(2).getName()),
                 IndexType.INVERTED,
                 properties, "tokenized inverted index with english parser");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
-                table.getName());
+                olapTable.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
-        schemaChangeHandler.process(alterClauses, db, table);
+        schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
-        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
 
         SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
                 .findFirst()
@@ -653,12 +658,12 @@ public class CloudIndexTest {
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
 
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("tokenized_inverted_index", table.getIndexes().get(0).getIndexName());
+        Assert.assertEquals(1, olapTable.getIndexes().size());
+        Assert.assertEquals("tokenized_inverted_index", olapTable.getIndexes().get(0).getIndexName());
 
         // Verify that the index has the correct properties
-        Assert.assertEquals("english", table.getIndexes().get(0).getProperties().get("parser"));
-        Assert.assertEquals("true", table.getIndexes().get(0).getProperties().get("support_phrase"));
-        Assert.assertEquals("true", table.getIndexes().get(0).getProperties().get("lower_case"));
+        Assert.assertEquals("english", olapTable.getIndexes().get(0).getProperties().get("parser"));
+        Assert.assertEquals("true", olapTable.getIndexes().get(0).getProperties().get("support_phrase"));
+        Assert.assertEquals("true", olapTable.getIndexes().get(0).getProperties().get("lower_case"));
     }
 }
