@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -185,6 +187,38 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             return project;
         }
         return project.withProjects(newProjects.get());
+    }
+
+    @Override
+    public Plan visitLogicalApply(LogicalApply<? extends Plan, ? extends Plan> apply, Map<ExprId, Slot> replaceMap) {
+        apply = (LogicalApply<? extends Plan, ? extends Plan>) super.visit(apply, replaceMap);
+        Optional<Expression> newCompareExpr = updateExpression(apply.getCompareExpr(), replaceMap);
+        Optional<Expression> newTypeCoercionExpr = updateExpression(apply.getTypeCoercionExpr(), replaceMap);
+        Optional<List<Slot>> newCorrelationSlot = updateExpressions(apply.getCorrelationSlot(), replaceMap);
+        Optional<Expression> newCorrelationFilter = updateExpression(apply.getCorrelationFilter(), replaceMap);
+        Optional<MarkJoinSlotReference> newMarkJoinSlotReference =
+                updateExpression(apply.getMarkJoinSlotReference(), replaceMap);
+
+        for (Slot slot : apply.getOutput()) {
+            replaceMap.put(slot.getExprId(), slot);
+        }
+        if (!newCompareExpr.isPresent() && !newTypeCoercionExpr.isPresent() && !newCorrelationSlot.isPresent()
+                && !newCorrelationFilter.isPresent() && !newMarkJoinSlotReference.isPresent()) {
+            return apply;
+        }
+
+        return new LogicalApply<>(
+                newCorrelationSlot.orElse(apply.getCorrelationSlot()),
+                apply.getSubqueryType(),
+                apply.isNot(),
+                newCompareExpr.isPresent() ? newCompareExpr : apply.getCompareExpr(),
+                newTypeCoercionExpr.isPresent() ? newTypeCoercionExpr : apply.getTypeCoercionExpr(),
+                newCorrelationFilter.isPresent() ? newCorrelationFilter : apply.getCorrelationFilter(),
+                newMarkJoinSlotReference.isPresent() ? newMarkJoinSlotReference : apply.getMarkJoinSlotReference(),
+                apply.isNeedAddSubOutputToProjects(),
+                apply.isMarkJoinSlotNotNull(),
+                apply.left(),
+                apply.right());
     }
 
     @Override
@@ -354,6 +388,10 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             }
         }
         return cteConsumer.withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
+    }
+
+    private <T extends Expression> Optional<T> updateExpression(Optional<T> input, Map<ExprId, Slot> replaceMap) {
+        return input.isPresent() ? updateExpression(input.get(), replaceMap) : Optional.empty();
     }
 
     private <T extends Expression> Optional<T> updateExpression(T input, Map<ExprId, Slot> replaceMap) {

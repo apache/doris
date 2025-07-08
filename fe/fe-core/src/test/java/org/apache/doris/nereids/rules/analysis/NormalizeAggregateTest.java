@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -47,7 +48,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class NormalizeAggregateTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -62,6 +66,7 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
         createTables(
                 "CREATE TABLE IF NOT EXISTS t1 (\n"
                         + "    id int not null,\n"
+                        + "    no int not null,\n"
                         + "    name char\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
@@ -69,6 +74,7 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                         + "PROPERTIES (\"replication_num\" = \"1\")\n",
                 "CREATE TABLE IF NOT EXISTS t2 (\n"
                         + "    id int not null,\n"
+                        + "    no int not null,\n"
                         + "    name char\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
@@ -413,5 +419,224 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                 Assertions.assertEquals(nullable, expr.nullable());
             }
         }
+    }
+
+    @Test
+    void testAggFunctionNullabe2() {
+        PlanChecker.from(connectContext)
+                .analyze("select sum(id) from t1")
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate().when(agg -> {
+                                            List<Slot> output = agg.getOutput();
+                                            checkExprsToSql(output, "sum(id)");
+                                            Assertions.assertTrue(output.get(0).nullable());
+                                            return true;
+                                        })
+                                ).when(project -> {
+                                    List<NamedExpression> projects = project.getProjects();
+                                    checkExprsToSql(projects, "sum(id)");
+                                    Assertions.assertTrue(projects.get(0).nullable());
+                                    return true;
+                                })
+                        )
+                );
+
+        PlanChecker.from(connectContext)
+                .analyze("select 1 from t1 having sum(id) > 10")
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalFilter(
+                                        logicalProject(
+                                                logicalProject(
+                                                        logicalAggregate().when(agg -> {
+                                                                    List<Slot> output = agg.getOutput();
+                                                                    checkExprsToSql(output, "sum(id)");
+                                                                    Assertions.assertTrue(output.get(0).nullable());
+                                                                    return true;
+                                                                }
+                                                        )
+                                                ).when(project -> {
+                                                    List<NamedExpression> projects = project.getProjects();
+                                                    checkExprsToSql(projects, "sum(id)");
+                                                    Assertions.assertTrue(projects.get(0).nullable());
+                                                    return true;
+                                                })
+                                        ).when(project -> {
+                                            List<NamedExpression> projects = project.getProjects();
+                                            checkExprsToSql(projects, "1 AS `1`", "sum(id)");
+                                            Assertions.assertTrue(projects.get(1).nullable());
+                                            return true;
+                                        })
+                                ).when(filter -> {
+                                    List<Expression> conjuncts = filter.getExpressions();
+                                    checkExprsToSql(conjuncts, "(sum(id) > 10)");
+                                    Assertions.assertTrue(conjuncts.get(0).child(0).nullable());
+                                    return true;
+                                })
+                        )
+                );
+
+        PlanChecker.from(connectContext)
+                .analyze("select sum(id), sum(no) from t1 having sum(id) > 10")
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalProject(
+                                                logicalFilter(
+                                                        logicalAggregate().when(agg -> {
+                                                                    List<Slot> output = agg.getOutput();
+                                                                    checkExprsToSql(output, "sum(id)", "sum(no)");
+                                                                    Assertions.assertTrue(output.get(0).nullable());
+                                                                    Assertions.assertTrue(output.get(1).nullable());
+                                                                    return true;
+                                                                }
+                                                        )
+                                                ).when(filter -> {
+                                                    List<Expression> conjuncts = filter.getExpressions();
+                                                    checkExprsToSql(conjuncts, "(sum(id) > 10)");
+                                                    Assertions.assertTrue(conjuncts.get(0).child(0).nullable());
+                                                    return true;
+                                                })
+                                        ).when(project -> {
+                                            List<NamedExpression> projects = project.getProjects();
+                                            checkExprsToSql(projects, "sum(id)", "sum(no)");
+                                            Assertions.assertTrue(projects.get(0).nullable());
+                                            Assertions.assertTrue(projects.get(1).nullable());
+                                            return true;
+                                        })
+                                ).when(project -> {
+                                    List<NamedExpression> projects = project.getProjects();
+                                    checkExprsToSql(projects, "sum(id)", "sum(no)");
+                                    Assertions.assertTrue(projects.get(0).nullable());
+                                    Assertions.assertTrue(projects.get(1).nullable());
+                                    return true;
+                                })
+                        )
+                );
+
+        PlanChecker.from(connectContext)
+                .analyze("select sum(id), sum(no) from t1 order by sum(id)")
+                .matchesFromRoot(
+                        logicalResultSink(
+                                    logicalSort(
+                                            logicalProject(
+                                                    logicalAggregate().when(agg -> {
+                                                                List<Slot> output = agg.getOutput();
+                                                                checkExprsToSql(output, "sum(id)", "sum(no)");
+                                                                Assertions.assertTrue(output.get(0).nullable());
+                                                                Assertions.assertTrue(output.get(1).nullable());
+                                                                return true;
+                                                            }
+                                                    )
+                                            ).when(project -> {
+                                                List<NamedExpression> projects = project.getProjects();
+                                                checkExprsToSql(projects, "sum(id)", "sum(no)");
+                                                Assertions.assertTrue(projects.get(0).nullable());
+                                                Assertions.assertTrue(projects.get(1).nullable());
+                                                return true;
+                                            })
+                                    ).when(sort -> {
+                                        List<? extends Expression> keys = sort.getExpressions();
+                                        checkExprsToSql(keys, "sum(id)");
+                                        Assertions.assertTrue(keys.get(0).nullable());
+                                        return true;
+                                    })
+                        )
+                );
+
+        PlanChecker.from(connectContext)
+                .analyze("select sum(no) from t1 order by sum(id)")
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                    logicalSort(
+                                            logicalProject(
+                                                    logicalAggregate().when(agg -> {
+                                                                List<Slot> output = agg.getOutput();
+                                                                checkExprsToSql(output, "sum(no)", "sum(id)");
+                                                                Assertions.assertTrue(output.get(0).nullable());
+                                                                Assertions.assertTrue(output.get(1).nullable());
+                                                                return true;
+                                                            }
+                                                    )
+                                            ).when(project -> {
+                                                List<NamedExpression> projects = project.getProjects();
+                                                checkExprsToSql(projects, "sum(no)", "sum(id)");
+                                                Assertions.assertTrue(projects.get(0).nullable());
+                                                Assertions.assertTrue(projects.get(1).nullable());
+                                                return true;
+                                            })
+                                    ).when(sort -> {
+                                        List<? extends Expression> keys = sort.getExpressions();
+                                        checkExprsToSql(keys, "sum(id)");
+                                        Assertions.assertTrue(keys.get(0).nullable());
+                                        return true;
+                                    })
+                                ).when(project -> {
+                                    List<NamedExpression> projects = project.getProjects();
+                                    checkExprsToSql(projects, "sum(no)");
+                                    Assertions.assertTrue(projects.get(0).nullable());
+                                    return true;
+                                })
+                        )
+                );
+
+        PlanChecker.from(connectContext)
+                .analyze("select sum(no) from t1 having sum(no) > 10 order by sum(id)")
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalSort(
+                                                logicalProject(
+                                                        logicalProject(
+                                                                logicalFilter(
+                                                                        logicalAggregate().when(agg -> {
+                                                                                    List<Slot> output = agg.getOutput();
+                                                                                    checkExprsToSql(output, "sum(no)", "sum(id)");
+                                                                                    Assertions.assertTrue(output.get(0).nullable());
+                                                                                    Assertions.assertTrue(output.get(1).nullable());
+                                                                                    return true;
+                                                                       })
+                                                                ).when(filter -> {
+                                                                    List<Expression> conjuncts = filter.getExpressions();
+                                                                    checkExprsToSql(conjuncts, "(sum(no) > 10)");
+                                                                    Assertions.assertTrue(conjuncts.get(0).child(0).nullable());
+                                                                    return true;
+                                                                })
+                                                        ).when(project -> {
+                                                            List<NamedExpression> projects = project.getProjects();
+                                                            checkExprsToSql(projects, "sum(no)", "sum(id)");
+                                                            Assertions.assertTrue(projects.get(0).nullable());
+                                                            Assertions.assertTrue(projects.get(1).nullable());
+                                                            return true;
+                                                        })
+                                                ).when(project -> {
+                                                    List<NamedExpression> projects = project.getProjects();
+                                                    checkExprsToSql(projects, "sum(no)", "sum(id)");
+                                                    Assertions.assertTrue(projects.get(0).nullable());
+                                                    Assertions.assertTrue(projects.get(1).nullable());
+                                                    return true;
+                                                })
+                                        ).when(sort -> {
+                                            List<? extends Expression> keys = sort.getExpressions();
+                                            checkExprsToSql(keys, "sum(id)");
+                                            Assertions.assertTrue(keys.get(0).nullable());
+                                            return true;
+                                        })
+                                ).when(project -> {
+                                    List<NamedExpression> projects = project.getProjects();
+                                    checkExprsToSql(projects, "sum(no)");
+                                    Assertions.assertTrue(projects.get(0).nullable());
+                                    return true;
+                                })
+                        )
+                );
+    }
+
+    private void checkExprsToSql(Collection<? extends Expression> expressions, String... exprsToSql) {
+        Assertions.assertEquals(Arrays.asList(exprsToSql),
+                expressions.stream().map(Expression::toSql).collect(Collectors.toList()));
     }
 }
