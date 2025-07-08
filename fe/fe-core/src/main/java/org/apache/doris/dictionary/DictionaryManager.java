@@ -347,7 +347,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                     Dictionary dictionary = idToDictionary.get(id);
                     /// for all dictionaries:
                     // 1. if it's OUT_OF_DATE(maybe update failed or something), try to refresh it.
-                    if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE) {
+                    if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE && dictionary.checkBaseDataValid()) {
                         submitDataLoad(dictionary, false);
                         continue;
                     }
@@ -438,6 +438,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         if (ctx.getState().getErrorCode() != null && ctx.getState().getErrorMessage() != null) {
             dictionary.trySetStatus(oldStatus);
             dictionary.setLastUpdateResult(ctx.getState().getErrorMessage());
+            // for must failed refresh, we can skip it at next time. this mark is tricky but we have to do now.
+            if (ctx.getState().getErrorMessage().contains("[INVALID_DICT_MARK]")) {
+                LOG.warn("Dictionary {} load failed with src version {}, mark it invalid", dictionary.getName(),
+                        ctx.getStatementContext().getDictionaryUsedSrcVersion());
+                dictionary.updateLatestInvalidVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
+            }
             throw new RuntimeException(ctx.getState().getErrorMessage());
         }
 
@@ -455,9 +461,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 // already dropped. abort temporary version without lock.
                 // haven't increase version so use getVersion() + 1
                 if (ctx.getStatementContext().isPartialLoadDictionary()) {
-                    abortNextVersion(ctx, dictionary, dictionary.getVersion());
+                    abortSpecificVersion(ctx, dictionary, dictionary.getVersion());
                 } else {
-                    abortNextVersion(ctx, dictionary, dictionary.getVersion() + 1);
+                    abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
                 }
                 throw new RuntimeException("Dictionary " + dictionary.getName() + " has been dropped during loading");
             }
@@ -466,6 +472,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             if (!ctx.getStatementContext().isPartialLoadDictionary()) {
                 dictionary.increaseVersion();
                 Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
+            } else {
+                LOG.info("Dictionary {} is partial load, not increase version, keep {}", dictionary.getName(),
+                        dictionary.getVersion());
             }
         } finally {
             if (!unlocked) {
@@ -474,9 +483,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
 
         // commit and check the result. not modify metadata so dont need lock.
-        if (!commitNextVersion(ctx, dictionary)) {
+        if (!commitNowVersion(ctx, dictionary)) {
+            dictionary.decreaseVersion();
+            Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
             dictionary.trySetStatus(oldStatus);
-            abortNextVersion(ctx, dictionary, dictionary.getVersion());
+            abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
             throw new RuntimeException("Dictionary " + dictionary.getName() + " commit version "
                     + (dictionary.getVersion() + 1) + " failed");
         }
@@ -490,10 +501,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         } else {
             dictionary.setLastUpdateResult("succeed");
         }
-        LOG.info("Dictionary {} refresh succeed", dictionary.getName());
+        LOG.info("Dictionary {} refresh succeed. now version is {}. used src version {}", dictionary.getName(),
+                dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
     }
 
-    private boolean commitNextVersion(ConnectContext ctx, Dictionary dictionary) {
+    private boolean commitNowVersion(ConnectContext ctx, Dictionary dictionary) {
         // use the same BEs when we get before start loading.
         List<Backend> beList = ctx.getStatementContext().getUsedBackendsDistributing();
 
@@ -541,7 +553,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     // abort could to all BE. swallow any failures.
-    private void abortNextVersion(ConnectContext ctx, Dictionary dictionary, long versionId) {
+    private void abortSpecificVersion(ConnectContext ctx, Dictionary dictionary, long versionId) {
         // use the same BEs when we get before start loading.
         List<Backend> beList = ctx.getStatementContext().getUsedBackendsDistributing();
 
@@ -658,11 +670,13 @@ public class DictionaryManager extends MasterDaemon implements Writable {
      */
     public Map<Long, List<Long>> collectDictionaryStatus(List<Long> queryDicts) throws RuntimeException {
         Map<Long, List<Long>> unknownDictionaries = Maps.newHashMap();
-        // make the old stats of query dicts expired
+        // if dict is loading, may query dataDistribution. so we should do atomic replace at the end. otherwise may
+        // lead to wrong dataDistribution. when planning to load.
+        Map<Long, List<DictionaryDistribution>> newDataDistributions = Maps.newHashMap();
         if (queryDicts == null) {
             queryDicts = ImmutableList.of(); // query all dictionaries
             for (Dictionary dictionary : idToDictionary.values()) {
-                dictionary.resetDataDistributions();
+                newDataDistributions.put(dictionary.getId(), Lists.newArrayList());
             }
         } else {
             for (Long dictId : queryDicts) {
@@ -670,7 +684,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 if (dictionary == null) {
                     throw new RuntimeException("Dictionary " + dictId + " does not exist");
                 }
-                dictionary.resetDataDistributions();
+                newDataDistributions.put(dictionary.getId(), Lists.newArrayList());
             }
         }
 
@@ -721,7 +735,25 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                         status.getDictionaryMemorySize());
 
                 // add new distribution to list
-                dictionary.getDataDistributions().add(newDistribution);
+                if (newDataDistributions.containsKey(dictionaryId)) {
+                    newDataDistributions.get(dictionaryId).add(newDistribution);
+                } else {
+                    // maybe new dictionary added when collecting status. just skip them.
+                    LOG.warn("Dictionary {}-{} not found in FE when collecting status", dictionaryId,
+                            dictionary.getName());
+                }
+            }
+        }
+        // replace results
+        for (Map.Entry<Long, List<DictionaryDistribution>> entry : newDataDistributions.entrySet()) {
+            Long dictId = entry.getKey();
+            List<DictionaryDistribution> distributions = entry.getValue();
+            Dictionary dictionary = idToDictionary.get(dictId);
+            if (dictionary != null) {
+                // replace dataDistributions with new one
+                dictionary.setDataDistributions(distributions);
+            } else {
+                LOG.warn("Dictionary {} not found when collecting status", dictId);
             }
         }
         LOG.info("Collect all dictionaries status succeed");

@@ -87,12 +87,12 @@ inline DictionaryPtr create_ip_trie_dict_from_column(const std::string& name,
     if (!is_string_type(key_type->get_primitive_type())) {
         throw doris::Exception(
                 ErrorCode::INVALID_ARGUMENT,
-                "IPAddressDictionary only support string in key , input key type is {} ",
+                DICT_DATA_ERROR_TAG +
+                        "IPAddressDictionary only support string in key , input key type is {} ",
                 key_type->get_name());
     }
 
     DictionaryPtr dict = IPAddressDictionary::create_ip_trie_dict(name, key_column, values_data);
     return dict;
 }
-
 } // namespace doris::vectorized

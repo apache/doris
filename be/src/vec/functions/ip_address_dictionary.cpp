@@ -24,11 +24,10 @@
 #include <ranges>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
-#include "runtime/thread_context.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -61,13 +60,13 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                                           const DataTypePtr& key_type) const {
     if (have_nullable({attribute_type}) || have_nullable({key_type})) {
         throw doris::Exception(
-                ErrorCode::INVALID_ARGUMENT,
+                ErrorCode::INTERNAL_ERROR,
                 "IPAddressDictionary get_column attribute_type or key_type must not nullable type");
     }
     if (key_type->get_primitive_type() != TYPE_IPV4 &&
         key_type->get_primitive_type() != TYPE_IPV6) {
         throw doris::Exception(
-                ErrorCode::INVALID_ARGUMENT,
+                ErrorCode::INTERNAL_ERROR,
                 "IPAddressDictionary only support ip type key , input key type is {} ",
                 key_type->get_name());
     }
@@ -210,7 +209,12 @@ void IPAddressDictionary::load_data(const ColumnPtr& key_column,
     auto load_key_str = [&](const auto* str_column) {
         for (size_t i = 0; i < str_column->size(); i++) {
             auto ip_str = str_column->get_data_at(i);
-            ip_records.push_back(IPRecord {parse_ip_with_cidr(ip_str), i});
+            try {
+                ip_records.push_back(IPRecord {parse_ip_with_cidr(ip_str), i});
+            } catch (Exception& e) {
+                // add data unqualified error tag to the error message
+                throw Exception(e.code(), DICT_DATA_ERROR_TAG + e.message());
+            }
         }
     };
     if (key_column->is_column_string64()) {
@@ -238,8 +242,9 @@ void IPAddressDictionary::load_data(const ColumnPtr& key_column,
     ip_records.erase(new_end, ip_records.end());
 
     if (ip_records.size() < key_column->size()) {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                               "The CIDR has duplicate data in IpAddressDictionary");
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                DICT_DATA_ERROR_TAG + "The CIDR has duplicate data in IpAddressDictionary");
     }
 
     // Step 3: Process the data needed for the Trie.
@@ -327,5 +332,4 @@ IPAddressDictionary::RowIdxConstIter IPAddressDictionary::look_up_IP(const IPv6&
 
     return ip_not_found();
 }
-
 } // namespace doris::vectorized

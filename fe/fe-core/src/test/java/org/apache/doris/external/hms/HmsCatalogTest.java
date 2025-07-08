@@ -18,7 +18,6 @@
 package org.apache.doris.external.hms;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -40,6 +39,7 @@ import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -81,8 +81,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         mgr.createCatalog(hmsCatalog);
 
         // create inner db and tbl for test
-        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt("create database test", connectContext);
-        mgr.getInternalCatalog().createDb(createDbStmt);
+        mgr.getInternalCatalog().createDb("test", false, Maps.newHashMap());
 
         CreateTableStmt createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt("create table test.tbl1(\n"
                 + "k1 int comment 'test column k1', "
@@ -142,7 +141,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 result = TableIf.TableType.HMS_EXTERNAL_TABLE;
 
                 // mock initSchemaAndUpdateTime and do nothing
-                tbl.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey("hms_db", "hms_tbl"));
+                tbl.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl.getOrBuildNameMapping()));
                 minTimes = 0;
 
                 tbl.getDatabase();
@@ -381,8 +380,6 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Assertions.assertNotNull(sv);
 
         createDbAndTableForHmsCatalog((HMSExternalCatalog) env.getCatalogMgr().getCatalog(HMS_CATALOG));
-        queryViews(false);
-
         // force use nereids planner to query hive views
         queryViews(true);
     }

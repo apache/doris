@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MapType;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
@@ -38,7 +37,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Text;
@@ -46,7 +44,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -64,12 +61,12 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
@@ -95,9 +92,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String DEFAULT_EXPR_NAME = "expr";
 
     protected boolean disableTableName = false;
-    protected boolean needExternalSql = false;
-    protected TableType tableType = null;
-    protected TableIf inputTable = null;
 
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
@@ -922,31 +916,26 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toSql() {
+        if (disableTableName) {
+            return toSqlWithoutTbl();
+        }
         return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
     }
 
-    public void setDisableTableName(boolean value) {
-        disableTableName = value;
-        for (Expr child : children) {
-            child.setDisableTableName(value);
-        }
+    public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
+        return (printSqlInParens) ? "(" + toSqlImpl(disableTableName, needExternalSql, tableType, table) + ")"
+                : toSqlImpl(disableTableName, needExternalSql, tableType, table);
     }
 
-    public void setExternalContext(boolean needExternalSql, TableType tableType, TableIf inputTable) {
-        this.needExternalSql = needExternalSql;
-        this.tableType = tableType;
-        this.inputTable = inputTable;
-
+    public void disableTableName() {
+        disableTableName = true;
         for (Expr child : children) {
-            child.setExternalContext(needExternalSql, tableType, inputTable);
+            child.disableTableName();
         }
     }
 
     public String toSqlWithoutTbl() {
-        setDisableTableName(true);
-        String result = toSql();
-        setDisableTableName(false);
-        return result;
+        return toSql(true, false, null, null);
     }
 
     public String toDigest() {
@@ -959,6 +948,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     protected abstract String toSqlImpl();
 
+    protected abstract String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table);
+
     /**
      * !!!!!! Important !!!!!!
      * Subclasses should override this method if
@@ -969,10 +961,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toExternalSql(TableType tableType, TableIf table) {
-        setExternalContext(true, tableType, table);
-        String result = toSql();
-        setExternalContext(false, null, null);
-        return result;
+        return toSql(false, true, tableType, table);
     }
 
     /**
@@ -2035,10 +2024,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        throw new IOException("Not implemented serializable ");
-    }
-
     enum ExprSerCode {
         SLOT_REF(1),
         NULL_LITERAL(2),
@@ -2087,64 +2072,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             Text.writeString(output, GsonUtils.GSON.toJson(expr));
         } else {
             throw new IOException("Unsupported writable expr " + expr.toSql());
-        }
-    }
-
-    /**
-     * The expr result may be null
-     * @param in
-     * @return
-     * @throws IOException
-     */
-    public static Expr readIn(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_133) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Expr.class);
-        } else {
-            int code = in.readInt();
-            ExprSerCode exprSerCode = ExprSerCode.fromCode(code);
-            if (exprSerCode == null) {
-                throw new IOException("Unknown code: " + code);
-            }
-            switch (exprSerCode) {
-                case SLOT_REF:
-                    return SlotRef.read(in);
-                case NULL_LITERAL:
-                    return NullLiteral.read(in);
-                case BOOL_LITERAL:
-                    return BoolLiteral.read(in);
-                case INT_LITERAL:
-                    return IntLiteral.read(in);
-                case DATE_LITERAL:
-                    return DateLiteral.read(in);
-                case LARGE_INT_LITERAL:
-                    return LargeIntLiteral.read(in);
-                case FLOAT_LITERAL:
-                    return FloatLiteral.read(in);
-                case DECIMAL_LITERAL:
-                    return DecimalLiteral.read(in);
-                case STRING_LITERAL:
-                    return StringLiteral.read(in);
-                case JSON_LITERAL:
-                    return JsonLiteral.read(in);
-                case MAX_LITERAL:
-                    return MaxLiteral.read(in);
-                case BINARY_PREDICATE:
-                    return BinaryPredicate.read(in);
-                case FUNCTION_CALL:
-                    return FunctionCallExpr.read(in);
-                case ARRAY_LITERAL:
-                    return ArrayLiteral.read(in);
-                case MAP_LITERAL:
-                    return MapLiteral.read(in);
-                case STRUCT_LITERAL:
-                    return StructLiteral.read(in);
-                case CAST_EXPR:
-                    return CastExpr.read(in);
-                case ARITHMETIC_EXPR:
-                    return ArithmeticExpr.read(in);
-                default:
-                    throw new IOException("Unknown writable expr code: " + code);
-            }
         }
     }
 
@@ -2461,39 +2388,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple)
-            throws AnalysisException {
-        List<SlotRef> slots = new ArrayList<>();
-        collect(SlotRef.class, slots);
-        if (slots.size() == 0) {
-            return true;
-        }
-
-        String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
-        for (Expr expr : exprs) {
-            if (CreateMaterializedViewStmt.isMVColumnNormal(name)
-                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
-                            .mvColumnBreaker(name))) {
-                return true;
-            }
-            if (MVExprEquivalent.aggregateArgumentEqual(this, expr)) {
-                return true;
-            }
-        }
-
-        if (getChildren().isEmpty()) {
-            // Match base index when expr not be rewritten
-            return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
-        }
-
-        for (Expr expr : getChildren()) {
-            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tuple)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
         if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
             return true;
@@ -2619,6 +2513,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public void clearNullableFromNereids() {
         nullableFromNereids = Optional.empty();
+    }
+
+    public Set<SlotRef> getInputSlotRef() {
+        Set<SlotRef> slots = new HashSet<>();
+        if (this instanceof SlotRef) {
+            slots.add((SlotRef) this);
+            return slots;
+        } else {
+            for (Expr expr : children) {
+                slots.addAll(expr.getInputSlotRef());
+            }
+        }
+        return slots;
     }
 }
 

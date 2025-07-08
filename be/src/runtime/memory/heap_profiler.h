@@ -30,7 +30,9 @@ public:
 
     void heap_profiler_start();
     void heap_profiler_stop();
-    bool check_heap_profiler();
+    bool heap_profiler_reset(size_t lg_sample);
+    bool check_active_heap_profiler();
+    bool check_enable_heap_profiler();
     std::string dump_heap_profile();
     std::string dump_heap_profile_to_dot();
 

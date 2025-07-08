@@ -76,8 +76,8 @@ private:
         range.start_offset = 0;
         range.size = 1293;
         auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
-        auto status = reader->init_reader(&column_names, {}, nullptr, {}, false, tuple_desc,
-                                          &row_desc, nullptr, nullptr);
+        auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
+                                          nullptr, nullptr);
         EXPECT_TRUE(status.ok());
 
         // deserialize expr
@@ -103,7 +103,6 @@ private:
 };
 
 TEST_F(OrcReaderTest, test_build_search_argument) {
-    ExecEnv::GetInstance()->set_orc_memory_pool(new ORCMemoryPool());
     std::vector<std::string>
             exprs =
                     {

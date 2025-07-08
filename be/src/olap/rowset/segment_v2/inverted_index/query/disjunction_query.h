@@ -35,9 +35,10 @@ public:
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    const io::IOContext* _io_ctx = nullptr;
 
     std::wstring _field_name;
-    std::vector<std::string> _terms;
+    std::vector<TermInfo> _term_infos;
 };
 
 } // namespace doris::segment_v2

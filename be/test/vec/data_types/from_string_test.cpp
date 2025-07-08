@@ -36,7 +36,8 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
     // arithmetic scala field types
     {
         // fieldType, test_string, expect_wrapper_field_string, expect_data_type_string
-        typedef std::tuple<FieldType, std::vector<string>, std::vector<string>, std::vector<string>>
+        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> arithmetic_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-9"},
@@ -185,7 +186,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
             // wrapper_field
             for (int i = 0; i < std::get<1>(type_pair).size(); ++i) {
-                string test_str = std::get<1>(type_pair)[i];
+                std::string test_str = std::get<1>(type_pair)[i];
                 std::unique_ptr<WrapperField> wf(WrapperField::create_by_type(type));
                 std::cout << "the ith : " << i << " test_str: " << test_str << std::endl;
                 // from_string
@@ -200,7 +201,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             // data_type
             for (int i = 0; i < std::get<1>(type_pair).size(); ++i) {
                 std::cout << "the ith : " << i << std::endl;
-                string test_str = std::get<1>(type_pair)[i];
+                std::string test_str = std::get<1>(type_pair)[i];
                 // data_type from_string
                 ReadBuffer rb_test(test_str.data(), test_str.size());
                 Status st = data_type_ptr->from_string(rb_test, col.get());
@@ -211,7 +212,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 }
                 EXPECT_EQ(st.ok(), true);
                 // data_type to_string
-                string min_s_d = data_type_ptr->to_string(*col, i);
+                std::string min_s_d = data_type_ptr->to_string(*col, i);
                 EXPECT_EQ(min_s_d, std::get<3>(type_pair)[i]);
             }
         }
@@ -219,7 +220,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
     // date and datetime type
     {
-        typedef std::pair<FieldType, string> FieldType_RandStr;
+        typedef std::pair<FieldType, std::string> FieldType_RandStr;
         std::vector<FieldType_RandStr> date_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATEV2, "2020-01-01"),
@@ -247,9 +248,9 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             max_wf->set_to_max();
             static_cast<void>(rand_wf->from_string(pair.second, 0, 0));
 
-            string min_s = min_wf->to_string();
-            string max_s = max_wf->to_string();
-            string rand_date = rand_wf->to_string();
+            std::string min_s = min_wf->to_string();
+            std::string max_s = max_wf->to_string();
+            std::string rand_date = rand_wf->to_string();
 
             ReadBuffer min_rb(min_s.data(), min_s.size());
             ReadBuffer max_rb(max_s.data(), max_s.size());
@@ -263,9 +264,9 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), true);
 
-            string min_s_d = data_type_ptr->to_string(*col, 0);
-            string max_s_d = data_type_ptr->to_string(*col, 1);
-            string rand_s_d = data_type_ptr->to_string(*col, 2);
+            std::string min_s_d = data_type_ptr->to_string(*col, 0);
+            std::string max_s_d = data_type_ptr->to_string(*col, 1);
+            std::string rand_s_d = data_type_ptr->to_string(*col, 2);
             rtrim(min_s);
             rtrim(max_s);
             rtrim(rand_date);
@@ -290,7 +291,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
     // ipv4 and ipv6 type
     {
-        typedef std::pair<FieldType, string> FieldType_RandStr;
+        typedef std::pair<FieldType, std::string> FieldType_RandStr;
         std::vector<FieldType_RandStr> ip_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "0.0.0.0"),         // min case
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),       // rand case
@@ -316,12 +317,12 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                       << fmt::format("{}", type) << std::endl;
             std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
             Status st = rand_wf->from_string(pair.second, 0, 0);
-            string rand_ip = rand_wf->to_string();
+            std::string rand_ip = rand_wf->to_string();
             ReadBuffer rand_rb(rand_ip.data(), rand_ip.size());
             auto col = data_type_ptr->create_column();
             st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), true);
-            string rand_s_d = data_type_ptr->to_string(*col, 0);
+            std::string rand_s_d = data_type_ptr->to_string(*col, 0);
             rtrim(rand_ip);
             std::cout << "rand(" << rand_ip << ") with data_type_str:" << rand_s_d << std::endl;
             EXPECT_EQ(rand_ip, rand_s_d);
@@ -350,7 +351,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 WrapperField::create_by_type(FieldType::OLAP_FIELD_TYPE_STRING));
         std::string test_str = generate(128);
         static_cast<void>(rand_wf->from_string(test_str, 0, 0));
-        Field string_field(test_str);
+        Field string_field = Field::create_field<TYPE_STRING>(test_str);
         ColumnPtr col = nullable_ptr->create_column_const(0, string_field);
         EXPECT_EQ(rand_wf->to_string(), nullable_ptr->to_string(*col, 0));
     }

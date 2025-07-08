@@ -31,6 +31,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -131,7 +133,13 @@ public class ShowCreateTableCommand extends ShowCommand {
         try {
             if (table.getType() == Table.TableType.HMS_EXTERNAL_TABLE) {
                 rows.add(Arrays.asList(table.getName(),
-                        HiveMetaStoreClientHelper.showCreateTable(((HMSExternalTable) table).getRemoteTable())));
+                        HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
+                return new ShowResultSet(META_DATA, rows);
+            }
+            if ((table.getType() == Table.TableType.ICEBERG_EXTERNAL_TABLE)
+                    && ((IcebergExternalTable) table).isView()) {
+                rows.add(Arrays.asList(table.getName(),
+                        IcebergUtils.showCreateView(((IcebergExternalTable) table))));
                 return new ShowResultSet(META_DATA, rows);
             }
             List<String> createTableStmt = Lists.newArrayList();

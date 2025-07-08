@@ -58,6 +58,7 @@
 #include "olap/storage_policy.h"
 #include "runtime/memory/cache_manager.h"
 #include "util/parse_util.h"
+#include "util/time.h"
 #include "vec/common/assert_cast.h"
 
 namespace doris {
@@ -118,12 +119,25 @@ static Status vault_process_error(std::string_view id,
 }
 
 struct VaultCreateFSVisitor {
-    VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format)
-            : id(id), path_format(path_format) {}
+    VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format,
+                         bool check_fs)
+            : id(id), path_format(path_format), check_fs(check_fs) {}
     Status operator()(const S3Conf& s3_conf) const {
-        LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id;
+        LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id
+                  << " check_fs: " << check_fs;
 
         auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
+        if (check_fs && !s3_conf.client_conf.role_arn.empty()) {
+            bool res = false;
+            // just check connectivity, not care object if exist
+            auto st = fs->exists("not_exist_object", &res);
+            if (!st.ok()) {
+                LOG(FATAL) << "failed to check s3 fs, resource_id: " << id << " st: " << st
+                           << "s3_conf: " << s3_conf.to_string()
+                           << "add enable_check_storage_vault=false to be.conf to skip the check";
+            }
+        }
+
         put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create s3 vault, vault id {}", id);
         return Status::OK();
@@ -141,6 +155,7 @@ struct VaultCreateFSVisitor {
 
     const std::string& id;
     const cloud::StorageVaultPB_PathFormat& path_format;
+    bool check_fs;
 };
 
 struct RefreshFSVaultVisitor {
@@ -249,10 +264,10 @@ bool CloudStorageEngine::stopped() {
 }
 
 Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
-                                                      SyncRowsetStats* sync_stats) {
-    return _tablet_mgr->get_tablet(tablet_id, false, true, sync_stats).transform([](auto&& t) {
-        return static_pointer_cast<BaseTablet>(std::move(t));
-    });
+                                                      SyncRowsetStats* sync_stats,
+                                                      bool force_use_cache) {
+    return _tablet_mgr->get_tablet(tablet_id, false, true, sync_stats, force_use_cache)
+            .transform([](auto&& t) { return static_pointer_cast<BaseTablet>(std::move(t)); });
 }
 
 Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
@@ -324,6 +339,7 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
 void CloudStorageEngine::sync_storage_vault() {
     cloud::StorageVaultInfos vault_infos;
     bool enable_storage_vault = false;
+
     auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
     if (!st.ok()) {
         LOG(WARNING) << "failed to get storage vault info. err=" << st;
@@ -335,12 +351,23 @@ void CloudStorageEngine::sync_storage_vault() {
         return;
     }
 
+    bool check_storage_vault = false;
+    bool expected = false;
+    if (first_sync_storage_vault.compare_exchange_strong(expected, true)) {
+        check_storage_vault = config::enable_check_storage_vault;
+        LOG(INFO) << "first sync storage vault info, BE try to check iam role connectivity, "
+                     "check_storage_vault="
+                  << check_storage_vault;
+    }
+
     for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
-        auto status = (fs == nullptr)
-                              ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
-                              : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
-                                           vault_info);
+        auto status =
+                (fs == nullptr)
+                        ? std::visit(VaultCreateFSVisitor {id, path_format, check_storage_vault},
+                                     vault_info)
+                        : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                                     vault_info);
         if (!status.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
         }
@@ -445,6 +472,7 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
 
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
+        int64_t cur_time = UnixMillis();
         if (!config::disable_auto_compaction) {
             Status st = _adjust_compaction_thread_num();
             if (!st.ok()) {
@@ -452,7 +480,6 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
             }
 
             bool check_score = false;
-            int64_t cur_time = UnixMillis();
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
                 compaction_type = CompactionType::CUMULATIVE_COMPACTION;
                 round++;
@@ -504,6 +531,9 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
         } else {
             interval = config::check_auto_compaction_interval_seconds * 1000;
         }
+        int64_t end_time = UnixMillis();
+        DorisMetrics::instance()->compaction_producer_callback_a_round_time->set_value(end_time -
+                                                                                       cur_time);
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
@@ -1002,7 +1032,6 @@ void CloudStorageEngine::_check_tablet_delete_bitmap_score_callback() {
         }
         uint64_t max_delete_bitmap_score = 0;
         uint64_t max_base_rowset_delete_bitmap_score = 0;
-        std::vector<CloudTabletSPtr> tablets;
         tablet_mgr().get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
                                                          &max_base_rowset_delete_bitmap_score);
         if (max_delete_bitmap_score > 0) {

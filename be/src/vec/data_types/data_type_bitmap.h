@@ -36,15 +36,11 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
 class DataTypeBitMap : public IDataType {
 public:
     DataTypeBitMap() = default;
@@ -52,13 +48,14 @@ public:
 
     using ColumnType = ColumnBitmap;
     using FieldType = BitmapValue;
+    static constexpr PrimitiveType PType = TYPE_BITMAP;
 
     std::string do_get_name() const override { return get_family_name(); }
-    const char* get_family_name() const override { return "BitMap"; }
-    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_OBJECT; }
+    const std::string get_family_name() const override { return "BitMap"; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_BITMAP; }
 
     doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_OBJECT;
+        return doris::FieldType::OLAP_FIELD_TYPE_BITMAP;
     }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
@@ -92,12 +89,13 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    Field get_default() const override { return BitmapValue::empty_bitmap(); }
+    Field get_default() const override {
+        return Field::create_field<TYPE_BITMAP>(BitmapValue::empty_bitmap());
+    }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for BitMap");
-        __builtin_unreachable();
     }
 
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);

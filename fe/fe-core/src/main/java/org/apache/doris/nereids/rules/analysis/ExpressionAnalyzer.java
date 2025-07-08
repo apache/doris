@@ -36,6 +36,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
@@ -136,7 +137,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private boolean currentInLambda;
     private boolean hasNondeterministic;
 
     /** ExpressionAnalyzer */
@@ -211,17 +211,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return expr;
     }
 
-    @Override
-    public Expression visitLambda(Lambda lambda, ExpressionRewriteContext context) {
-        boolean originInLambda = currentInLambda;
-        try {
-            currentInLambda = true;
-            return super.visitLambda(lambda, context);
-        } finally {
-            currentInLambda = originInLambda;
-        }
-    }
-
     /* ********************************************************************************************
      * bind slot
      * ******************************************************************************************** */
@@ -281,13 +270,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<? extends Expression> bounded = boundedOpt.get();
         switch (bounded.size()) {
             case 0:
-                if (!currentInLambda) {
-                    String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
-                    if (tableName.isEmpty()) {
-                        tableName = "table list";
-                    }
-                    couldNotFoundColumn(unboundSlot, tableName);
+                String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
+                if (tableName.isEmpty()) {
+                    tableName = "table list";
                 }
+                couldNotFoundColumn(unboundSlot, tableName);
                 return unboundSlot;
             case 1:
                 Expression firstBound = bounded.get(0);
@@ -337,6 +324,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (currentPlan != null) {
             message += "' in " + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause";
         }
+        Optional<Origin> origin = unboundSlot.getOrigin();
+        if (origin.isPresent()) {
+            message += "(" + origin.get() + ")";
+        }
         throw new AnalysisException(message);
     }
 
@@ -344,11 +335,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundStar(UnboundStar unboundStar, ExpressionRewriteContext context) {
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
-        List<Slot> slots = getScope().getAsteriskSlots()
-                .stream()
-                .filter(slot -> !(slot instanceof SlotReference)
-                        || (((SlotReference) slot).isVisible()) || showHidden)
-                .collect(Collectors.toList());
+
+        List<Slot> scopeSlots = getScope().getAsteriskSlots();
+        ImmutableList.Builder<Slot> showSlots = ImmutableList.builderWithExpectedSize(scopeSlots.size());
+        for (Slot slot : scopeSlots) {
+            if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
+                showSlots.add(slot);
+            }
+        }
+        ImmutableList<Slot> slots = showSlots.build();
         switch (qualifier.size()) {
             case 0: // select *
                 return new BoundStar(slots);
@@ -365,24 +360,56 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     /* ********************************************************************************************
      * bind function
      * ******************************************************************************************** */
-    @Override
-    public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
+    private UnboundFunction processHighOrderFunction(UnboundFunction unboundFunction,
+            ExpressionRewriteContext context) {
+        int childrenSize = unboundFunction.children().size();
+        List<Expression> subChildren = new ArrayList<>();
+        for (int i = 1; i < childrenSize; i++) {
+            subChildren.add(unboundFunction.child(i).accept(this, context));
+        }
+
+        // bindLambdaFunction
+        Lambda lambda = (Lambda) unboundFunction.children().get(0);
+        Expression lambdaFunction = lambda.getLambdaFunction();
+        List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(subChildren);
+
+        List<Slot> boundedSlots = arrayItemReferences.stream()
+                .map(ArrayItemReference::toSlot)
+                .collect(ImmutableList.toImmutableList());
+
+        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
+                boundedSlots), context == null ? null : context.cascadesContext,
+                true, true) {
+            @Override
+            protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
+                throw new AnalysisException("Unknown lambda slot '"
+                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                        + " in lambda arguments" + lambda.getLambdaArgumentNames());
+            }
+        };
+        lambdaFunction = lambdaAnalyzer.analyze(lambdaFunction, context);
+
+        Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
+
+        // We don't add the ArrayExpression in high order function at all
+        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+    }
+
+    UnboundFunction preProcessUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
         if (unboundFunction.isHighOrder()) {
-            unboundFunction = bindHighOrderFunction(unboundFunction, context);
+            unboundFunction = processHighOrderFunction(unboundFunction, context);
         } else {
-            // NOTICE: some trick code here. because below functions
-            //  TIMESTAMPADD / DATEDIFF / TIMESTAMPADD / DATEADD
+            // NOTICE: some trick code here. because for time arithmetic functions,
             //  the first argument of them is TimeUnit, but is cannot distinguish with UnboundSlot in parser.
             //  So, convert the UnboundSlot to a fake SlotReference with ExprId = -1 here
             //  And, the SlotReference will be processed in DatetimeFunctionBinder
             if (StringUtils.isEmpty(unboundFunction.getDbName())
-                    && DatetimeFunctionBinder.TIMESTAMP_SERIES_FUNCTION_NAMES.contains(
-                            unboundFunction.getName().toUpperCase())
+                    && DatetimeFunctionBinder.isDatetimeArithmeticFunction(unboundFunction.getName())
                     && unboundFunction.arity() == 3
                     && unboundFunction.child(0) instanceof UnboundSlot) {
                 SlotReference slotReference = new SlotReference(new ExprId(-1),
                         ((UnboundSlot) unboundFunction.child(0)).getName(),
-                        TinyIntType.INSTANCE, true, ImmutableList.of());
+                        TinyIntType.INSTANCE, false, ImmutableList.of());
                 ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
                 newChildrenBuilder.add(slotReference);
                 for (int i = 1; i < unboundFunction.arity(); i++) {
@@ -392,6 +419,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
             unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
         }
+        return unboundFunction;
+    }
+
+    @Override
+    public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
+        unboundFunction = preProcessUnboundFunction(unboundFunction, context);
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
@@ -421,7 +454,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     return ret;
                 }
             }
-            if (DatetimeFunctionBinder.INSTANCE.isDatetimeFunction(unboundFunction.getName())) {
+            if (DatetimeFunctionBinder.isDatetimeFunction(unboundFunction.getName())) {
                 Expression ret = DatetimeFunctionBinder.INSTANCE.bind(unboundFunction);
                 if (ret instanceof BoundFunction) {
                     return TypeCoercionUtils.processBoundFunction((BoundFunction) ret);
@@ -559,7 +592,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
 
-            if (! child.equals(newChild)) {
+            if (!child.equals(newChild)) {
                 hasNewChild = true;
             }
             newChildren.add(newChild);
@@ -670,9 +703,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitWhenClause(WhenClause whenClause, ExpressionRewriteContext context) {
-        return whenClause.withChildren(TypeCoercionUtils.castIfNotSameType(
-                        whenClause.getOperand().accept(this, context), BooleanType.INSTANCE),
-                whenClause.getResult().accept(this, context));
+        Expression operand = whenClause.getOperand().accept(this, context);
+        Expression result = whenClause.getResult().accept(this, context);
+        return whenClause.withChildren(TypeCoercionUtils.castIfNotSameType(operand, BooleanType.INSTANCE), result);
     }
 
     @Override
@@ -725,6 +758,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitMatch(Match match, ExpressionRewriteContext context) {
         Expression left = match.left().accept(this, context);
         Expression right = match.right().accept(this, context);
+
         // check child type
         if (!left.getDataType().isStringLikeType()
                 && !(left.getDataType() instanceof ArrayType
@@ -753,6 +787,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
+
         // NOTICE: just for compatibility with legacy planner.
         if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {
             TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());
@@ -891,40 +926,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         } else {
             return boundSlot.equalsIgnoreCase(unboundSlot);
         }
-    }
-
-    private UnboundFunction bindHighOrderFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        int childrenSize = unboundFunction.children().size();
-        List<Expression> subChildren = new ArrayList<>();
-        for (int i = 1; i < childrenSize; i++) {
-            subChildren.add(unboundFunction.child(i).accept(this, context));
-        }
-
-        // bindLambdaFunction
-        Lambda lambda = (Lambda) unboundFunction.children().get(0);
-        Expression lambdaFunction = lambda.getLambdaFunction();
-        List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(subChildren);
-
-        List<Slot> boundedSlots = arrayItemReferences.stream()
-                .map(ArrayItemReference::toSlot)
-                .collect(ImmutableList.toImmutableList());
-
-        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
-                boundedSlots), context == null ? null : context.cascadesContext,
-                true, true) {
-            @Override
-            protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
-                throw new AnalysisException("Unknown lambda slot '"
-                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                        + " in lambda arguments" + lambda.getLambdaArgumentNames());
-            }
-        };
-        lambdaFunction = lambdaAnalyzer.analyze(lambdaFunction, context);
-
-        Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
-
-        // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
     }
 
     private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {

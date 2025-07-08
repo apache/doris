@@ -21,9 +21,12 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGlobResponse;
 import org.apache.doris.proto.InternalService.PGlobResponse.PFileInfo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -31,7 +34,6 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,13 +50,8 @@ import java.util.concurrent.TimeUnit;
 public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private static final Logger LOG = LogManager.getLogger(LocalTableValuedFunction.class);
     public static final String NAME = "local";
-    public static final String PROP_FILE_PATH = "file_path";
     public static final String PROP_BACKEND_ID = "backend_id";
     public static final String PROP_SHARED_STORAGE = "shared_storage";
-
-    private static final ImmutableSet<String> LOCATION_PROPERTIES = new ImmutableSet.Builder<String>()
-            .add(PROP_FILE_PATH)
-            .build();
 
     // This backend is user specified backend for listing files, fetching file schema and executing query.
     private long backendId;
@@ -66,17 +63,22 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
 
     public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
         // 1. analyze common properties
-        Map<String, String> otherProps = super.parseCommonProperties(properties);
+        Map<String, String> props = super.parseCommonProperties(properties);
 
-        // 2. analyze location properties
-        for (String key : LOCATION_PROPERTIES) {
-            if (!otherProps.containsKey(key)) {
-                throw new AnalysisException(String.format("Property '%s' is required.", key));
-            }
+        try {
+            this.storageProperties = StorageProperties.createPrimary(props);
+            backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
+            String uri = storageProperties.validateAndGetUri(props);
+            filePath = storageProperties.validateAndNormalizeUri(uri);
+        } catch (UserException e) {
+            throw new AnalysisException("Failed check storage props, " + e.getMessage(), e);
         }
-        filePath = otherProps.get(PROP_FILE_PATH);
-        backendId = Long.parseLong(otherProps.getOrDefault(PROP_BACKEND_ID, "-1"));
-        sharedStorage = Boolean.parseBoolean(otherProps.getOrDefault(PROP_SHARED_STORAGE, "false"));
+
+
+        backendId = Long.parseLong(storageProperties.getBackendConfigProperties()
+                .getOrDefault(PROP_BACKEND_ID, "-1"));
+        sharedStorage = Boolean.parseBoolean(storageProperties.getBackendConfigProperties()
+                .getOrDefault(PROP_SHARED_STORAGE, "false"));
 
         // If not shared storage, backend_id is required
         // If is shared storage, backend_id can still be set, so that we can query data on single BE node.
@@ -112,9 +114,10 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         TNetworkAddress address = be.getBrpcAddress();
         InternalService.PGlobRequest.Builder requestBuilder = InternalService.PGlobRequest.newBuilder();
         requestBuilder.setPattern(filePath);
+        long timeoutS = ConnectContext.get() == null ? 60 : Math.min(ConnectContext.get().getQueryTimeoutS(), 60);
         try {
             Future<PGlobResponse> response = proxy.glob(address, requestBuilder.build());
-            PGlobResponse globResponse = response.get(5, TimeUnit.SECONDS);
+            PGlobResponse globResponse = response.get(timeoutS, TimeUnit.SECONDS);
             if (globResponse.getStatus().getStatusCode() != 0) {
                 throw new AnalysisException(
                         "error code: " + globResponse.getStatus().getStatusCode()
@@ -141,7 +144,7 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("LocalTvfBroker", StorageType.LOCAL, locationProperties);
+        return new BrokerDesc("LocalTvfBroker", StorageType.LOCAL, processedParams);
     }
 
     @Override

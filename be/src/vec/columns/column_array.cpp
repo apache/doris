@@ -26,16 +26,20 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
+#include "util/simd/bits.h"
+#include "util/simd/vstring_function.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_common.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcpy_small.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
+#include "vec/core/sort_block.h"
 #include "vec/data_types/data_type.h"
 
 class SipHash;
@@ -133,7 +137,7 @@ Field ColumnArray::operator[](size_t n) const {
 
     for (size_t i = 0; i < size; ++i) res[i] = get_data()[offset + i];
 
-    return res;
+    return Field::create_field<TYPE_ARRAY>(res);
 }
 
 void ColumnArray::get(size_t n, Field& res) const {
@@ -146,7 +150,7 @@ void ColumnArray::get(size_t n, Field& res) const {
                                "single field, maximum size {}",
                                size, n, max_array_size_as_field);
 
-    res = Array(size);
+    res = Field::create_field<TYPE_ARRAY>(Array(size));
     Array& res_arr = doris::vectorized::get<Array&>(res);
 
     for (size_t i = 0; i < size; ++i) get_data().get(offset + i, res_arr[i]);
@@ -176,6 +180,56 @@ StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
     return res;
 }
 
+template <bool positive>
+struct less {
+    const ColumnArray& parent;
+    const int nan_direction_hint;
+    explicit less(const ColumnArray& parent_, int nan_direction_hint_)
+            : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
+    bool operator()(size_t lhs, size_t rhs) const {
+        size_t lhs_size = parent.size_at(lhs);
+        size_t rhs_size = parent.size_at(rhs);
+        size_t min_size = std::min(lhs_size, rhs_size);
+        int res = 0;
+        for (size_t i = 0; i < min_size; ++i) {
+            if (res = parent.get_data().compare_at(
+                        parent.offset_at(lhs) + i, parent.offset_at(rhs) + i,
+                        *parent.get_data_ptr().get(), nan_direction_hint);
+                res) {
+                // if res != 0 , here is something different ,just return
+                break;
+            }
+        }
+        if (res == 0) {
+            // then we check size of array
+            res = lhs_size < rhs_size ? -1 : (lhs_size == rhs_size ? 0 : 1);
+        }
+
+        return positive ? (res < 0) : (res > 0);
+    }
+};
+
+void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                                  IColumn::Permutation& res) const {
+    size_t s = size();
+    res.resize(s);
+    for (size_t i = 0; i < s; ++i) {
+        res[i] = i;
+    }
+
+    if (reverse) {
+        pdqsort(res.begin(), res.end(), less<false>(*this, nan_direction_hint));
+    } else {
+        pdqsort(res.begin(), res.end(), less<true>(*this, nan_direction_hint));
+    }
+}
+
+void ColumnArray::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                              IColumn::Permutation& perms, EqualRange& range,
+                              bool last_column) const {
+    sorter->sort_column(static_cast<const ColumnArray&>(*this), flags, perms, range, last_column);
+}
+
 int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
     // since column type is complex, we can't use this function
     const auto& rhs = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(rhs_);
@@ -194,6 +248,149 @@ int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_dir
 
     // then we check size of array
     return lhs_size < rhs_size ? -1 : (lhs_size == rhs_size ? 0 : 1);
+}
+
+size_t ColumnArray::get_max_row_byte_size() const {
+    DCHECK(!data->is_variable_length() || data->is_column_string() || data->is_column_string64());
+    size_t max_size = 0;
+    size_t num_rows = size();
+    for (size_t i = 0; i < num_rows; ++i) {
+        max_size = std::max(max_size,
+                            size_at(i) * data->get_max_row_byte_size() +
+                                    (data->is_variable_length() ? sizeof(size_t) * size_at(i) : 0));
+    }
+
+    return sizeof(size_t) + max_size;
+}
+
+void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
+                                              const UInt8* null_map) const {
+    DCHECK(null_map != nullptr);
+    DCHECK(!data->is_variable_length() || data->is_column_string() || data->is_column_string64());
+
+    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
+
+    const auto* nested_col = data->get_ptr().get();
+    if (data->is_nullable()) {
+        nested_col = assert_cast<const ColumnNullable*>(data->get_ptr().get())
+                             ->get_nested_column_ptr()
+                             .get();
+    }
+    auto serialize_impl = [&](size_t i, char* __restrict dest) {
+        size_t array_size = size_at(i);
+        size_t offset = offset_at(i);
+
+        memcpy(dest, &array_size, sizeof(array_size));
+        dest += sizeof(array_size);
+        keys[i].size += sizeof(array_size);
+        for (size_t j = 0; j < array_size; ++j) {
+            if (data->is_nullable()) {
+                auto flag = assert_cast<const ColumnNullable*>(data->get_ptr().get())
+                                    ->get_null_map_data()[offset + j];
+                memcpy(dest, &flag, sizeof(flag));
+                dest += sizeof(flag);
+                keys[i].size += sizeof(flag);
+                if (flag) {
+                    continue;
+                }
+            }
+            const auto& it = nested_col->get_data_at(offset + j);
+            if (nested_col->is_variable_length()) {
+                memcpy(dest, &it.size, sizeof(it.size));
+                dest += sizeof(it.size);
+                keys[i].size += sizeof(it.size);
+            }
+            memcpy(dest, it.data, it.size);
+            dest += it.size;
+            keys[i].size += it.size;
+        }
+    };
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(uint8_t));
+            dest += sizeof(uint8_t);
+            keys[i].size += sizeof(uint8_t);
+            if (null_map[i] == 0) {
+                serialize_impl(i, dest);
+            }
+        }
+    } else {
+        // All rows are not null, serialize null & value
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(uint8_t));
+            dest += sizeof(uint8_t);
+            keys[i].size += sizeof(uint8_t);
+            serialize_impl(i, dest);
+        }
+    }
+}
+
+void ColumnArray::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
+                                                const uint8_t* null_map) {
+    DCHECK(!data->is_variable_length() || data->is_column_string() || data->is_column_string64());
+    auto item_sz = remove_nullable(get_data().get_ptr())->get_max_row_byte_size();
+    for (size_t i = 0; i != num_rows; ++i) {
+        const auto* original_ptr = keys[i].data;
+        const auto* pos = keys[i].data;
+        if (null_map[i] == 0) {
+            size_t array_size = unaligned_load<size_t>(pos);
+            pos += sizeof(size_t);
+            for (size_t j = 0; j < array_size; j++) {
+                auto null_flag = unaligned_load<uint8_t>(pos);
+                pos += sizeof(uint8_t);
+                if (null_flag) {
+                    DCHECK(data->is_nullable()) << data->get_name();
+                    get_data().insert_default();
+                } else {
+                    size_t it_sz = item_sz;
+                    if (data->is_variable_length()) {
+                        it_sz = unaligned_load<size_t>(pos);
+                        pos += sizeof(it_sz);
+                    }
+                    get_data().insert_data(pos, it_sz);
+                    pos += it_sz;
+                }
+            }
+            get_offsets().push_back(get_offsets().back() + array_size);
+            keys[i].data = pos;
+        } else {
+            insert_default();
+        }
+        keys[i].size -= (keys[i].data - original_ptr);
+    }
+}
+
+void ColumnArray::deserialize_vec(StringRef* keys, const size_t num_rows) {
+    auto item_sz = remove_nullable(get_data().get_ptr())->get_max_row_byte_size();
+    for (size_t i = 0; i != num_rows; ++i) {
+        const auto* original_ptr = keys[i].data;
+        const auto* pos = keys[i].data;
+        size_t array_size = unaligned_load<size_t>(pos);
+        pos += sizeof(size_t);
+        for (size_t j = 0; j < array_size; j++) {
+            auto null_flag = unaligned_load<uint8_t>(pos);
+            pos += sizeof(uint8_t);
+            if (null_flag) {
+                DCHECK(data->is_nullable()) << data->get_name();
+                get_data().insert_default();
+            } else {
+                size_t it_sz = item_sz;
+                if (data->is_variable_length()) {
+                    it_sz = unaligned_load<size_t>(pos);
+                    pos += sizeof(it_sz);
+                }
+                get_data().insert_data(pos, it_sz);
+                pos += it_sz;
+            }
+        }
+        get_offsets().push_back(get_offsets().back() + array_size);
+        keys[i].data = pos;
+        keys[i].size -= (keys[i].data - original_ptr);
+    }
 }
 
 const char* ColumnArray::deserialize_and_insert_from_arena(const char* pos) {
@@ -314,7 +511,7 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
 void ColumnArray::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_ARRAY);
     if (x.is_null()) {
-        get_data().insert(Null());
+        get_data().insert(Field::create_field<TYPE_NULL>(Null()));
         get_offsets().push_back(get_offsets().back() + 1);
     } else {
         const auto& array = doris::vectorized::get<const Array&>(x);
@@ -467,25 +664,33 @@ void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t s
 
 ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
     if (typeid_cast<const ColumnUInt8*>(data.get()))
-        return filter_number<UInt8>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt16*>(data.get()))
-        return filter_number<UInt16>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt32*>(data.get()))
-        return filter_number<UInt32>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt64*>(data.get()))
-        return filter_number<UInt64>(filt, result_size_hint);
+        return filter_number<TYPE_BOOLEAN>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt8*>(data.get()))
-        return filter_number<Int8>(filt, result_size_hint);
+        return filter_number<TYPE_TINYINT>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt16*>(data.get()))
-        return filter_number<Int16>(filt, result_size_hint);
+        return filter_number<TYPE_SMALLINT>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt32*>(data.get()))
-        return filter_number<Int32>(filt, result_size_hint);
+        return filter_number<TYPE_INT>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt64*>(data.get()))
-        return filter_number<Int64>(filt, result_size_hint);
+        return filter_number<TYPE_BIGINT>(filt, result_size_hint);
     if (typeid_cast<const ColumnFloat32*>(data.get()))
-        return filter_number<Float32>(filt, result_size_hint);
+        return filter_number<TYPE_FLOAT>(filt, result_size_hint);
     if (typeid_cast<const ColumnFloat64*>(data.get()))
-        return filter_number<Float64>(filt, result_size_hint);
+        return filter_number<TYPE_DOUBLE>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDate*>(data.get()))
+        return filter_number<TYPE_DATE>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDateV2*>(data.get()))
+        return filter_number<TYPE_DATEV2>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDateTime*>(data.get()))
+        return filter_number<TYPE_DATETIME>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
+        return filter_number<TYPE_DATETIMEV2>(filt, result_size_hint);
+    if (typeid_cast<const ColumnTimeV2*>(data.get()))
+        return filter_number<TYPE_TIMEV2>(filt, result_size_hint);
+    if (typeid_cast<const ColumnTime*>(data.get()))
+        return filter_number<TYPE_TIME>(filt, result_size_hint);
+    if (typeid_cast<const ColumnIPv4*>(data.get()))
+        return filter_number<TYPE_IPV4>(filt, result_size_hint);
     if (typeid_cast<const ColumnString*>(data.get())) return filter_string(filt, result_size_hint);
     //if (typeid_cast<const ColumnTuple *>(data.get()))      return filterTuple(filt, result_size_hint);
     if (typeid_cast<const ColumnNullable*>(data.get()))
@@ -494,36 +699,25 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
 }
 
 size_t ColumnArray::filter(const Filter& filter) {
-    if (typeid_cast<const ColumnUInt8*>(data.get())) {
-        return filter_number<UInt8>(filter);
-    } else if (typeid_cast<const ColumnUInt16*>(data.get())) {
-        return filter_number<UInt16>(filter);
-    } else if (typeid_cast<const ColumnUInt32*>(data.get())) {
-        return filter_number<UInt32>(filter);
-    } else if (typeid_cast<const ColumnUInt64*>(data.get())) {
-        return filter_number<UInt64>(filter);
-    } else if (typeid_cast<const ColumnInt8*>(data.get())) {
-        return filter_number<Int8>(filter);
-    } else if (typeid_cast<const ColumnInt16*>(data.get())) {
-        return filter_number<Int16>(filter);
-    } else if (typeid_cast<const ColumnInt32*>(data.get())) {
-        return filter_number<Int32>(filter);
-    } else if (typeid_cast<const ColumnInt64*>(data.get())) {
-        return filter_number<Int64>(filter);
-    } else if (typeid_cast<const ColumnFloat32*>(data.get())) {
-        return filter_number<Float32>(filter);
-    } else if (typeid_cast<const ColumnFloat64*>(data.get())) {
-        return filter_number<Float64>(filter);
-    } else if (typeid_cast<const ColumnString*>(data.get())) {
-        return filter_string(filter);
-    } else if (typeid_cast<const ColumnNullable*>(data.get())) {
-        return filter_nullable(filter);
-    } else {
-        return filter_generic(filter);
-    }
+    if (typeid_cast<const ColumnUInt8*>(data.get())) return filter_number<TYPE_BOOLEAN>(filter);
+    if (typeid_cast<const ColumnInt8*>(data.get())) return filter_number<TYPE_TINYINT>(filter);
+    if (typeid_cast<const ColumnInt16*>(data.get())) return filter_number<TYPE_SMALLINT>(filter);
+    if (typeid_cast<const ColumnInt32*>(data.get())) return filter_number<TYPE_INT>(filter);
+    if (typeid_cast<const ColumnInt64*>(data.get())) return filter_number<TYPE_BIGINT>(filter);
+    if (typeid_cast<const ColumnFloat32*>(data.get())) return filter_number<TYPE_FLOAT>(filter);
+    if (typeid_cast<const ColumnFloat64*>(data.get())) return filter_number<TYPE_DOUBLE>(filter);
+    if (typeid_cast<const ColumnDate*>(data.get())) return filter_number<TYPE_DATE>(filter);
+    if (typeid_cast<const ColumnDateV2*>(data.get())) return filter_number<TYPE_DATEV2>(filter);
+    if (typeid_cast<const ColumnDateTime*>(data.get())) return filter_number<TYPE_DATETIME>(filter);
+    if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
+        return filter_number<TYPE_DATETIMEV2>(filter);
+    if (typeid_cast<const ColumnTimeV2*>(data.get())) return filter_number<TYPE_TIMEV2>(filter);
+    if (typeid_cast<const ColumnTime*>(data.get())) return filter_number<TYPE_TIME>(filter);
+    if (typeid_cast<const ColumnIPv4*>(data.get())) return filter_number<TYPE_IPV4>(filter);
+    return filter_generic(filter);
 }
 
-template <typename T>
+template <PrimitiveType T>
 ColumnPtr ColumnArray::filter_number(const Filter& filt, ssize_t result_size_hint) const {
     if (get_offsets().empty()) return ColumnArray::create(data);
 
@@ -532,15 +726,15 @@ ColumnPtr ColumnArray::filter_number(const Filter& filt, ssize_t result_size_hin
     auto& res_elems = assert_cast<ColumnVector<T>&>(res->get_data()).get_data();
     auto& res_offsets = res->get_offsets();
 
-    filter_arrays_impl<T, Offset64>(
+    filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, Offset64>(
             assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*data).get_data(),
             get_offsets(), res_elems, res_offsets, filt, result_size_hint);
     return res;
 }
 
-template <typename T>
+template <PrimitiveType T>
 size_t ColumnArray::filter_number(const Filter& filter) {
-    return filter_arrays_impl<T, Offset64>(
+    return filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, Offset64>(
             assert_cast<ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*data).get_data(),
             get_offsets(), filter);
 }
@@ -798,58 +992,67 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
 
     // keep ColumnUInt8 for ColumnNullable::null_map
     if (typeid_cast<const ColumnUInt8*>(data.get())) {
-        return replicate_number<UInt8>(replicate_offsets);
+        return replicate_number<TYPE_BOOLEAN>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt8*>(data.get())) {
-        return replicate_number<Int8>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnUInt8*>(data.get())) {
-        return replicate_number<UInt8>(replicate_offsets);
+        return replicate_number<TYPE_TINYINT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt16*>(data.get())) {
-        return replicate_number<Int16>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnUInt16*>(data.get())) {
-        return replicate_number<UInt16>(replicate_offsets);
+        return replicate_number<TYPE_SMALLINT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt32*>(data.get())) {
-        return replicate_number<Int32>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnUInt32*>(data.get())) {
-        return replicate_number<UInt32>(replicate_offsets);
+        return replicate_number<TYPE_INT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt64*>(data.get())) {
-        return replicate_number<Int64>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnUInt64*>(data.get())) {
-        return replicate_number<UInt64>(replicate_offsets);
+        return replicate_number<TYPE_BIGINT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt128*>(data.get())) {
-        return replicate_number<Int128>(replicate_offsets);
+        return replicate_number<TYPE_LARGEINT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnIPv4*>(data.get())) {
-        return replicate_number<IPv4>(replicate_offsets);
+        return replicate_number<TYPE_IPV4>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnIPv6*>(data.get())) {
+        return replicate_number<TYPE_IPV6>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDate*>(data.get())) {
+        return replicate_number<TYPE_DATE>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDateTime*>(data.get())) {
+        return replicate_number<TYPE_DATETIME>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDateV2*>(data.get())) {
+        return replicate_number<TYPE_DATEV2>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDateTimeV2*>(data.get())) {
+        return replicate_number<TYPE_DATETIMEV2>(replicate_offsets);
     }
     if (typeid_cast<const ColumnFloat32*>(data.get())) {
-        return replicate_number<Float32>(replicate_offsets);
+        return replicate_number<TYPE_FLOAT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnFloat64*>(data.get())) {
-        return replicate_number<Float64>(replicate_offsets);
+        return replicate_number<TYPE_DOUBLE>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnTime*>(data.get())) {
+        return replicate_number<TYPE_TIME>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnTimeV2*>(data.get())) {
+        return replicate_number<TYPE_TIMEV2>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal32*>(data.get())) {
-        return replicate_number<Decimal32>(replicate_offsets);
+        return replicate_number<TYPE_DECIMAL32>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal64*>(data.get())) {
-        return replicate_number<Decimal64>(replicate_offsets);
+        return replicate_number<TYPE_DECIMAL64>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
-        return replicate_number<Decimal128V2>(replicate_offsets);
+        return replicate_number<TYPE_DECIMALV2>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
-        return replicate_number<Decimal128V3>(replicate_offsets);
+        return replicate_number<TYPE_DECIMAL128I>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal256*>(data.get())) {
-        return replicate_number<Decimal256>(replicate_offsets);
+        return replicate_number<TYPE_DECIMAL256>(replicate_offsets);
     }
     if (typeid_cast<const ColumnString*>(data.get())) {
         return replicate_string(replicate_offsets);
@@ -860,7 +1063,7 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
     return replicate_generic(replicate_offsets);
 }
 
-template <typename T>
+template <PrimitiveType T>
 ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
     column_match_offsets_size(col_size, replicate_offsets.size());
@@ -873,12 +1076,13 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
 
     auto& res_arr = assert_cast<ColumnArray&>(*res);
 
-    const typename ColumnVectorOrDecimal<T>::Container& src_data =
-            assert_cast<const ColumnVectorOrDecimal<T>&>(*data).get_data();
+    const typename PrimitiveTypeTraits<T>::ColumnType::Container& src_data =
+            assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*data).get_data();
     const auto& src_offsets = get_offsets();
 
-    typename ColumnVectorOrDecimal<T>::Container& res_data =
-            assert_cast<ColumnVectorOrDecimal<T>&>(res_arr.get_data()).get_data();
+    typename PrimitiveTypeTraits<T>::ColumnType::Container& res_data =
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(res_arr.get_data())
+                    .get_data();
     auto& res_offsets = res_arr.get_offsets();
 
     res_data.reserve(data->size() / col_size * replicate_offsets.back());
@@ -899,7 +1103,7 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
             if (value_size) {
                 res_data.resize(res_data.size() + value_size);
                 memcpy(&res_data[res_data.size() - value_size], &src_data[prev_data_offset],
-                       value_size * sizeof(T));
+                       value_size * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType));
             }
         }
 
@@ -1031,7 +1235,7 @@ ColumnPtr ColumnArray::replicate_nullable(const IColumn::Offsets& replicate_offs
                     .get_offsets_ptr());
 }
 
-ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
     size_t size = offsets->size();
     if (limit == 0) {
         limit = size;

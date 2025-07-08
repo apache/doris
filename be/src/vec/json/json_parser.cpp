@@ -66,8 +66,8 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
             JsonbWriter writer;
             traverseArrayAsJsonb(element.getArray(), writer);
             ctx.paths.push_back(ctx.builder.get_parts());
-            ctx.values.push_back(
-                    JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize()));
+            ctx.values.push_back(Field::create_field<TYPE_JSONB>(
+                    JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize())));
         } else {
             traverseArray(element.getArray(), ctx);
         }
@@ -145,7 +145,7 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
     auto&& arrays_by_path = array_ctx.arrays_by_path;
     if (arrays_by_path.empty()) {
         ctx.paths.push_back(ctx.builder.get_parts());
-        ctx.values.push_back(Array());
+        ctx.values.push_back(Field::create_field<TYPE_ARRAY>(Array()));
     } else {
         ctx.paths.reserve(ctx.paths.size() + arrays_by_path.size());
         ctx.values.reserve(ctx.values.size() + arrays_by_path.size());
@@ -153,7 +153,7 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
             auto&& [path, path_array] = it->second;
             /// Merge prefix path and path of array element.
             ctx.paths.push_back(ctx.builder.append(path, true).get_parts());
-            ctx.values.push_back(std::move(path_array));
+            ctx.values.push_back(Field::create_field<TYPE_ARRAY>(std::move(path_array)));
             ctx.builder.pop_back(path.size());
         }
     }
@@ -207,7 +207,8 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
                     /// If newly added element is part of the Nested then
                     /// resize its elements to keep correct sizes of Nested arrays.
                     for (size_t j = 0; j < ctx.current_size; ++j) {
-                        path_array[j] = Array(current_nested_sizes[j]);
+                        path_array[j] =
+                                Field::create_field<TYPE_ARRAY>(Array(current_nested_sizes[j]));
                     }
                 }
                 if (current_nested_sizes.size() == ctx.current_size) {
@@ -271,7 +272,7 @@ bool JSONDataParser<ParserImpl>::tryInsertDefaultFromNested(ParseArrayContext& c
         current_nested_sizes.push_back(0);
     }
     size_t array_size = current_nested_sizes.back();
-    array.push_back(Array(array_size));
+    array.push_back(Field::create_field<TYPE_ARRAY>(Array(array_size)));
     return true;
 }
 

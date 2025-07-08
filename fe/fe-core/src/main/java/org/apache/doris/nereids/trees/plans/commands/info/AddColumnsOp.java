@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -49,6 +50,14 @@ public class AddColumnsOp extends AlterTableOp {
         this.columnDefs = columnDefs;
         this.rollupName = rollupName;
         this.properties = properties;
+    }
+
+    public AddColumnsOp(String rollupName, Map<String, String> properties, List<Column> columns) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.columnDefs = Collections.emptyList();
+        this.rollupName = rollupName;
+        this.properties = properties;
+        this.columns = columns;
     }
 
     public List<Column> getColumns() {

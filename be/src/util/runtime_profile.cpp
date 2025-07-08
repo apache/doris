@@ -331,6 +331,17 @@ void RuntimeProfile::add_child(RuntimeProfile* child, bool indent, RuntimeProfil
     add_child_unlock(child, indent, loc);
 }
 
+RuntimeProfile* RuntimeProfile::get_child(std::string name) {
+    std::lock_guard<std::mutex> l(_children_lock);
+    auto it = _child_map.find(name);
+
+    if (it == _child_map.end()) {
+        return nullptr;
+    }
+
+    return it->second;
+}
+
 void RuntimeProfile::get_children(std::vector<RuntimeProfile*>* children) {
     children->clear();
     std::lock_guard<std::mutex> l(_children_lock);
@@ -580,12 +591,12 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix,
     }
 }
 
-void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree, int64 profile_level) {
+void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree, int64_t profile_level) {
     tree->nodes.clear();
     to_thrift(&tree->nodes, profile_level);
 }
 
-void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64 profile_level) {
+void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64_t profile_level) {
     int index = nodes->size();
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];

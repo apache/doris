@@ -46,8 +46,8 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -64,7 +64,6 @@
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
@@ -90,14 +89,14 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
                                              const VerticalSegmentWriterOptions& opts,
-                                             InvertedIndexFileWriter* inverted_file_writer)
+                                             IndexFileWriter* index_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _inverted_index_file_writer(inverted_file_writer),
+          _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(
                   vertical_segment_writer_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
@@ -168,6 +167,9 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
         _init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i));
     }
+    meta->set_result_is_nullable(column.get_result_is_nullable());
+    meta->set_function_name(column.get_aggregation_name());
+    meta->set_be_exec_version(column.get_be_exec_version());
 }
 
 Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -220,8 +222,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
-        DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        DCHECK(_index_file_writer != nullptr);
+        opts.index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
     }
 
@@ -237,7 +239,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
     DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
     DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
-    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP, "object")
     DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
     DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
     DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
@@ -373,13 +375,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
                                       specified_rowsets, &loc, _mow_context->max_version,
                                       segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
-        if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-            ++stats.num_rows_filtered;
-            // delete the invalid newly inserted row
-            _mow_context->delete_bitmap->add(
-                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                    segment_pos);
-        } else if (!have_delete_sign) {
+        if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
@@ -555,8 +551,10 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
         auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema);
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema, [&]() -> std::string {
+                        return data.block->dump_one_line(block_pos, _num_sort_key_columns);
+                    });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos);
@@ -877,8 +875,12 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
                                  delete_sign_column_data[block_pos] != 0);
 
         auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema, &skip_bitmap);
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema,
+                    [&]() -> std::string {
+                        return data.block->dump_one_line(block_pos, _num_sort_key_columns);
+                    },
+                    &skip_bitmap);
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos, skip_bitmap);
@@ -1338,7 +1340,7 @@ Status VerticalSegmentWriter::_generate_short_key_index(
     return Status::OK();
 }
 
-void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, string* encoded_keys) {
+void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_keys) {
     encoded_keys->push_back(KEY_NORMAL_MARKER);
     _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
 }
@@ -1379,7 +1381,8 @@ std::string VerticalSegmentWriter::_full_encode_keys(
 }
 
 void VerticalSegmentWriter::_encode_seq_column(
-        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos, string* encoded_keys) {
+        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+        std::string* encoded_keys) {
     const auto* field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column

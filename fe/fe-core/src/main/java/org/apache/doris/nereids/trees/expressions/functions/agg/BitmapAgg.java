@@ -50,7 +50,7 @@ public class BitmapAgg extends NotNullableAggregateFunction
     }
 
     public BitmapAgg(boolean distinct, Expression arg0) {
-        super("bitmap_agg", distinct, arg0);
+        this(arg0);
     }
 
     @Override

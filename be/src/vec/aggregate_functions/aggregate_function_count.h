@@ -32,7 +32,6 @@
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -40,16 +39,11 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/var_int.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 struct AggregateFunctionCountData {
     UInt64 count = 0;
@@ -179,6 +173,23 @@ public:
 
     DataTypePtr get_serialized_type() const override {
         return std::make_shared<DataTypeFixedLengthObject>();
+    }
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
+        frame_start = std::max<int64_t>(frame_start, partition_start);
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+        if (frame_start >= frame_end) {
+            if (!*could_use_previous_result) {
+                *use_null_result = true;
+            }
+        } else {
+            AggregateFunctionCount::data(place).count += frame_end - frame_start;
+            *use_null_result = false;
+            *could_use_previous_result = true;
+        }
     }
 };
 
@@ -318,6 +329,35 @@ public:
 
     DataTypePtr get_serialized_type() const override {
         return std::make_shared<DataTypeFixedLengthObject>();
+    }
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
+        frame_start = std::max<int64_t>(frame_start, partition_start);
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+        if (frame_start >= frame_end) {
+            if (!*could_use_previous_result) {
+                *use_null_result = true;
+            }
+        } else {
+            const auto& nullable_column =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            size_t count = 0;
+            if (nullable_column.has_null()) {
+                for (int64_t i = frame_start; i < frame_end; ++i) {
+                    if (!nullable_column.is_null_at(i)) {
+                        ++count;
+                    }
+                }
+            } else {
+                count = frame_end - frame_start;
+            }
+            *use_null_result = false;
+            *could_use_previous_result = true;
+            AggregateFunctionCountNotNullUnary::data(place).count += count;
+        }
     }
 };
 

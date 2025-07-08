@@ -70,6 +70,8 @@ public:
         return _approximate_data_size.load(std::memory_order_relaxed);
     }
 
+    const std::string& tablet_path() const override;
+
     // clang-format off
     int64_t fetch_add_approximate_num_rowsets (int64_t x) { return _approximate_num_rowsets .fetch_add(x, std::memory_order_relaxed); }
     int64_t fetch_add_approximate_num_segments(int64_t x) { return _approximate_num_segments.fetch_add(x, std::memory_order_relaxed); }
@@ -260,6 +262,10 @@ public:
     int64_t last_cumu_no_suitable_version_ms = 0;
     int64_t last_access_time_ms = 0;
 
+    std::atomic<int64_t> local_read_time_us = 0;
+    std::atomic<int64_t> remote_read_time_us = 0;
+    std::atomic<int64_t> exec_compaction_time_us = 0;
+
     // Return merged extended schema
     TabletSchemaSPtr merged_tablet_schema() const override;
 
@@ -269,6 +275,16 @@ public:
 
     // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
     Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
+
+    void agg_delete_bitmap_for_compaction(int64_t start_version, int64_t end_version,
+                                          const std::vector<RowsetSharedPtr>& pre_rowsets,
+                                          DeleteBitmapPtr& new_delete_bitmap,
+                                          std::map<std::string, int64_t>& pre_rowset_to_versions);
+
+    bool need_remove_unused_rowsets();
+
+    void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
+    void remove_unused_rowsets();
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
@@ -329,6 +345,11 @@ private:
 
     // Schema will be merged from all rowsets when sync_rowsets
     TabletSchemaSPtr _merged_tablet_schema;
+
+    // unused_rowsets, [start_version, end_version]
+    std::mutex _gc_mutex;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
+    std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

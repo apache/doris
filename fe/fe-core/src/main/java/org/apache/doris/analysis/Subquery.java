@@ -20,9 +20,10 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprNode;
@@ -62,6 +63,12 @@ public class Subquery extends Expr {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return "(" + stmt.toSql() + ")";
+    }
+
+    @Override
     public String toDigestImpl() {
         return "(" + stmt.toDigest() + ")";
     }
@@ -90,9 +97,6 @@ public class Subquery extends Expr {
      */
     @Override
     public void analyzeImpl(Analyzer parentAnalyzer) throws AnalysisException {
-        if (!(stmt instanceof SelectStmt)) {
-            throw new AnalysisException("A subquery must contain a single select block: " + toSql());
-        }
         // The subquery is analyzed with its own analyzer.
         analyzer = new Analyzer(parentAnalyzer);
         analyzer.setIsSubquery();
@@ -114,11 +118,6 @@ public class Subquery extends Expr {
             }
         } else {
             type = createStructTypeFromExprList();
-        }
-
-        // If the subquery returns many rows, set its type to MultiRowType.
-        if (!((SelectStmt) stmt).returnsSingleRow()) {
-            type = new MultiRowType(type);
         }
 
         // Preconditions.checkNotNull(type);

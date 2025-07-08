@@ -36,10 +36,6 @@ using UInt128 = wide::UInt128;
 
 template <>
 inline constexpr bool IsNumber<UInt128> = true;
-template <>
-struct TypeName<UInt128> {
-    static const char* get() { return "UInt128"; }
-};
 
 #if defined(__SSE4_2__) || defined(__aarch64__)
 

@@ -22,8 +22,6 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.ShowCreateTableStmt;
-import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -41,8 +39,6 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.ShowExecutor;
-import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -85,7 +81,6 @@ public class UtFrameUtils {
     public static ConnectContext createDefaultCtx(UserIdentity userIdentity, String remoteIp) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(userIdentity);
-        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setRemoteIP(remoteIp);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
@@ -117,50 +112,6 @@ public class UtFrameUtils {
             }
         }
         statementBase.analyze(analyzer);
-        statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
-        return statementBase;
-    }
-
-    // for analyzing multi statements
-    public static List<StatementBase> parseAndAnalyzeStmts(String originStmt, ConnectContext ctx) throws Exception {
-        System.out.println("begin to parse stmts: " + originStmt);
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-        List<StatementBase> statementBases = null;
-        try {
-            statementBases = SqlParserUtils.getMultiStmts(parser);
-        } catch (AnalysisException e) {
-            String errorMessage = parser.getErrorMsg(originStmt);
-            System.err.println("parse failed: " + errorMessage);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        }
-        for (StatementBase stmt : statementBases) {
-            stmt.analyze(analyzer);
-        }
-        return statementBases;
-    }
-
-    public static StatementBase onlyParse(String originStmt, ConnectContext ctx) throws Exception {
-        System.out.println("begin to parse stmt: " + originStmt);
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        StatementBase statementBase = null;
-        try {
-            statementBase = SqlParserUtils.getFirstStmt(parser);
-        } catch (AnalysisException e) {
-            String errorMessage = parser.getErrorMsg(originStmt);
-            System.err.println("parse failed: " + errorMessage);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        }
         statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
         return statementBase;
     }
@@ -439,28 +390,6 @@ public class UtFrameUtils {
             Env.getCurrentEnv().createTable(stmt);
         }
         updateReplicaPathHash();
-    }
-
-    public static ShowResultSet showCreateTable(ConnectContext ctx, String sql) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql, ctx);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        return executor.execute();
-    }
-
-    public static ShowResultSet showCreateTableByName(ConnectContext ctx, String table) throws Exception {
-        String sql = "show create table " + table;
-        return showCreateTable(ctx, sql);
-    }
-
-    public static ShowResultSet showPartitions(ConnectContext ctx, String sql) throws Exception {
-        ShowPartitionsStmt stmt = (ShowPartitionsStmt) parseAndAnalyzeStmt(sql, ctx);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        return executor.execute();
-    }
-
-    public static ShowResultSet showPartitionsByName(ConnectContext ctx, String table) throws Exception {
-        String sql = "show partitions from " + table;
-        return showPartitions(ctx, sql);
     }
 
     private static void updateReplicaPathHash() {

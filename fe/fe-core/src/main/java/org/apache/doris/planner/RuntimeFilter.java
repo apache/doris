@@ -52,6 +52,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Representation of a runtime filter. A runtime filter is generated from
@@ -76,7 +77,7 @@ public final class RuntimeFilter {
     // Expr (lhs of join predicate) from which the targetExprs_ are generated.
     private final List<Expr> origTargetExprs;
     // Runtime filter targets
-    private final List<RuntimeFilterTarget> targets = new ArrayList<>();
+    private List<RuntimeFilterTarget> targets = new ArrayList<>();
     // Slots from base table tuples that have value transfer from the slots
     // of 'origTargetExpr'. The slots are grouped by tuple id.
     private final List<Map<TupleId, List<SlotId>>> targetSlotsByTid;
@@ -119,7 +120,7 @@ public final class RuntimeFilter {
      */
     public static class RuntimeFilterTarget {
         // Scan node that applies the filter
-        public ScanNode node;
+        public PlanNode node;
         // Expr on which the filter is applied
         public Expr expr;
         // Indicates if 'expr' is bound only by partition columns
@@ -127,14 +128,20 @@ public final class RuntimeFilter {
         // Indicates if 'node' is in the same fragment as the join that produces the filter
         public final boolean isLocalTarget;
 
-        public RuntimeFilterTarget(ScanNode targetNode, Expr targetExpr,
+        public RuntimeFilterTarget(PlanNode targetNode, Expr targetExpr,
                                    boolean isBoundByKeyColumns, boolean isLocalTarget) {
             Preconditions.checkState(targetExpr.isBoundByTupleIds(targetNode.getTupleIds())
-                    || targetNode instanceof CTEScanNode);
+                    || targetNode instanceof CTEScanNode,
+                    "RuntimeFilter target " + expr + " is not bounded: slotDesc"
+                            + (targetExpr instanceof SlotRef ? ((SlotRef) targetExpr).getTupleId() : "null"));
             this.node = targetNode;
             this.expr = targetExpr;
             this.isBoundByKeyColumns = isBoundByKeyColumns;
             this.isLocalTarget = isLocalTarget;
+        }
+
+        public RuntimeFilterTarget(PlanNode targetNode, Expr targetExpr) {
+            this(targetNode, targetExpr, false, false);
         }
 
         @Override
@@ -162,6 +169,25 @@ public final class RuntimeFilter {
         this.tMinMaxRuntimeFilterType = tMinMaxRuntimeFilterType;
         computeNdvEstimate();
         calculateFilterSize(filterSizeLimits);
+    }
+
+    public RuntimeFilter(RuntimeFilterId filterId,
+            PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
+            List<RuntimeFilterTarget> targets,
+            TRuntimeFilterType type,
+            long buildNdvOrRowCount,
+            TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType) {
+        this.id = filterId;
+        this.builderNode = filterSrcNode;
+        this.srcExpr = srcExpr;
+        this.exprOrder = exprOrder;
+        this.targets = ImmutableList.copyOf(targets);
+        this.runtimeFilterType = type;
+        this.tMinMaxRuntimeFilterType = tMinMaxRuntimeFilterType;
+        calculateBloomFilterSize(buildNdvOrRowCount);
+        // TODO: remove after refactor v1
+        origTargetExprs = targets.stream().map(target -> target.expr).collect(Collectors.toList());
+        targetSlotsByTid = ImmutableList.of();
     }
 
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
@@ -267,6 +293,8 @@ public final class RuntimeFilter {
             } else {
                 tFilter.setNullAware(false);
             }
+        } else if (builderNode instanceof SetOperationNode) {
+            tFilter.setNullAware(true);
         }
         return tFilter;
     }
@@ -343,10 +371,9 @@ public final class RuntimeFilter {
             return null;
         }
 
-        BinaryPredicate normalizedJoinConjunct =
-                SingleNodePlanner.getNormalizedEqPred(joinPredicate,
-                        filterSrcNode.getChild(0).getTupleIds(),
-                        filterSrcNode.getChild(1).getTupleIds(), analyzer);
+        BinaryPredicate normalizedJoinConjunct = getNormalizedEqPred(joinPredicate,
+                filterSrcNode.getChild(0).getTupleIds(),
+                filterSrcNode.getChild(1).getTupleIds(), analyzer);
         if (normalizedJoinConjunct == null) {
             return null;
         }
@@ -676,6 +703,18 @@ public final class RuntimeFilter {
         filterSizeBytes = Math.min(filterSizeBytes, filterSizeLimits.maxVal);
     }
 
+    public void calculateBloomFilterSize(long buildNdvOrRowCount) {
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        if (sessionVariable.useRuntimeFilterDefaultSize) {
+            filterSizeBytes = sessionVariable.getRuntimeBloomFilterSize();
+        } else {
+            filterSizeBytes = expectRuntimeFilterSize(buildNdvOrRowCount);
+            expectFilterSizeBytes = filterSizeBytes;
+            filterSizeBytes = Math.max(filterSizeBytes, sessionVariable.getRuntimeBloomFilterMinSize());
+            filterSizeBytes = Math.min(filterSizeBytes, sessionVariable.getRuntimeBloomFilterMaxSize());
+        }
+    }
+
     public static long expectRuntimeFilterSize(long ndv) {
         double fpp = FeConstants.default_bloom_filter_fpp;
         int logFilterSize = getMinLogSpaceForBloomFilter(ndv, fpp);
@@ -749,22 +788,25 @@ public final class RuntimeFilter {
         return expectFilterSizeBytes;
     }
 
-    public String getExplainString(boolean isBuildNode, boolean isBrief, PlanNodeId targetNodeId) {
+    public String getExplainString(PlanNodeId nodeId) {
         StringBuilder filterStr = new StringBuilder();
         filterStr.append(getFilterId());
-        if (!isBrief) {
-            filterStr.append("[");
-            filterStr.append(getTypeDesc());
-            filterStr.append("]");
-            if (isBuildNode) {
-                filterStr.append(" <- ");
-                filterStr.append(getSrcExpr().toSql());
-                filterStr.append("(").append(getEstimateNdv()).append("/")
-                        .append(getExpectFilterSizeBytes()).append("/")
-                        .append(getFilterSizeBytes()).append(")");
-            } else {
+
+        filterStr.append("[");
+        filterStr.append(getTypeDesc());
+        filterStr.append("]");
+        if (getBuilderNode().getId().equals(nodeId)) {
+            // source side
+            filterStr.append(" <- ");
+            filterStr.append(getSrcExpr().toSql());
+            filterStr.append("(").append(getEstimateNdv()).append("/")
+                    .append(getExpectFilterSizeBytes()).append("/")
+                    .append(getFilterSizeBytes()).append(")");
+        } else {
+            // target side
+            if (getTargetExpr(nodeId) != null) {
                 filterStr.append(" -> ");
-                filterStr.append(getTargetExpr(targetNodeId).toSql());
+                filterStr.append(getTargetExpr(nodeId).toSql());
             }
         }
         return filterStr.toString();
@@ -777,5 +819,42 @@ public final class RuntimeFilter {
 
     public void setBloomFilterSizeCalculatedByNdv(boolean bloomFilterSizeCalculatedByNdv) {
         this.bloomFilterSizeCalculatedByNdv = bloomFilterSizeCalculatedByNdv;
+    }
+
+    /**
+     * Returns a normalized version of a binary equality predicate 'expr' where the lhs
+     * child expr is bound by some tuple in 'lhsTids' and the rhs child expr is bound by
+     * some tuple in 'rhsTids'. Returns 'expr' if this predicate is already normalized.
+     * Returns null in any of the following cases:
+     * 1. It is not an equality predicate
+     * 2. One of the operands is a constant
+     * 3. Both children of this predicate are the same expr
+     * The so-called normalization is to ensure that the above conditions are met, and then
+     * to ensure that the order of expr is consistent with the order of node
+     */
+    public static BinaryPredicate getNormalizedEqPred(Expr expr, List<TupleId> lhsTids,
+            List<TupleId> rhsTids, Analyzer analyzer) {
+        if (!(expr instanceof BinaryPredicate)) {
+            return null;
+        }
+        BinaryPredicate pred = (BinaryPredicate) expr;
+        if (!pred.getOp().isEquivalence()) {
+            return null;
+        }
+        if (pred.getChild(0).isConstant() || pred.getChild(1).isConstant()) {
+            return null;
+        }
+
+        // Use the child that contains lhsTids as lhsExpr, for example, A join B on B.k = A.k,
+        // where lhsExpr=A.k, rhsExpr=B.k, changed the order, A.k = B.k
+        Expr lhsExpr = Expr.getFirstBoundChild(pred, lhsTids);
+        Expr rhsExpr = Expr.getFirstBoundChild(pred, rhsTids);
+        if (lhsExpr == null || rhsExpr == null || lhsExpr == rhsExpr) {
+            return null;
+        }
+
+        BinaryPredicate result = new BinaryPredicate(pred.getOp(), lhsExpr, rhsExpr);
+        result.analyzeNoThrow(analyzer);
+        return result;
     }
 }

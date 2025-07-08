@@ -147,7 +147,7 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     case TPrimitiveType::HLL: {
         return "hll";
     }
-    case TPrimitiveType::OBJECT: {
+    case TPrimitiveType::BITMAP: {
         return "bitmap";
     }
     case TPrimitiveType::JSONB: {
@@ -241,7 +241,7 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::HLL: {
         return "hll";
     }
-    case TPrimitiveType::OBJECT: {
+    case TPrimitiveType::BITMAP: {
         return "bitmap";
     }
     case TPrimitiveType::JSONB: {

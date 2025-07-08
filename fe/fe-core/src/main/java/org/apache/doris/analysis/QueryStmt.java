@@ -340,7 +340,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable, NotF
         }
 
         for (Expr expr : orderingExprs) {
-            if (expr.getType().isOnlyMetricType()) {
+            if (expr.getType().isOnlyMetricType() && !expr.getType().isArrayType()) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }
@@ -578,11 +578,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable, NotF
     }
 
 
-    public Expr getExprFromAliasSMap(Expr expr) throws AnalysisException {
-        if (!analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
-            return expr;
-        }
-        return getExprFromAliasSMapDirect(expr);
+    public Expr getExprFromAliasSMap(Expr expr) {
+        return expr;
     }
 
     // get tables used by this query.

@@ -36,10 +36,11 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class Arena;
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionArrayAggData {
-    using ElementType = T;
-    using ColVecType = ColumnVectorOrDecimal<ElementType>;
+    static constexpr PrimitiveType PType = T;
+    using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Self = AggregateFunctionArrayAggData<T>;
     MutableColumnPtr column_data;
     ColVecType* nested_column = nullptr;
@@ -139,11 +140,13 @@ struct AggregateFunctionArrayAggData {
     }
 };
 
-template <>
-struct AggregateFunctionArrayAggData<StringRef> {
+template <PrimitiveType T>
+    requires(is_string_type(T))
+struct AggregateFunctionArrayAggData<T> {
+    static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
-    using Self = AggregateFunctionArrayAggData<StringRef>;
+    using Self = AggregateFunctionArrayAggData<T>;
     MutableColumnPtr column_data;
     ColVecType* nested_column = nullptr;
     NullMap* null_map = nullptr;
@@ -238,10 +241,13 @@ struct AggregateFunctionArrayAggData<StringRef> {
     }
 };
 
-template <>
-struct AggregateFunctionArrayAggData<void> {
+template <PrimitiveType T>
+    requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
+             !is_date_type(T) && !is_ip(T))
+struct AggregateFunctionArrayAggData<T> {
+    static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
-    using Self = AggregateFunctionArrayAggData<void>;
+    using Self = AggregateFunctionArrayAggData<T>;
     MutableColumnPtr column_data;
 
     AggregateFunctionArrayAggData(const DataTypes& argument_types) {
@@ -393,17 +399,19 @@ public:
 
         for (size_t i = 0; i < num_rows; ++i) {
             col_null->get_null_map_data().push_back(col_src.get_null_map_data()[i]);
-            if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<StringRef>>) {
+            if constexpr (is_string_type(Data::PType)) {
                 auto& vec = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
                         col_null->get_nested_column());
                 const auto& vec_src = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                         col_src.get_nested_column());
                 vec.insert_from(vec_src, i);
-            } else if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
+            } else if constexpr (!is_string_type(Data::PType) && !is_int_or_bool(Data::PType) &&
+                                 !is_float_or_double(Data::PType) && !is_decimal(Data::PType) &&
+                                 !is_date_type(Data::PType) && !is_ip(Data::PType)) {
                 auto& vec = col_null->get_nested_column();
                 vec.insert_from(col_src.get_nested_column(), i);
             } else {
-                using ColVecType = ColumnVectorOrDecimal<typename Data::ElementType>;
+                using ColVecType = typename PrimitiveTypeTraits<Data::PType>::ColumnType;
                 auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
                                     col_null->get_nested_column())
                                     .get_data();

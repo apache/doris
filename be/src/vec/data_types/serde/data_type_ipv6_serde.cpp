@@ -22,12 +22,12 @@
 #include <cstddef>
 #include <string>
 
+#include "util/jsonb_writer.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <bool is_binary_format>
@@ -35,7 +35,7 @@ Status DataTypeIPv6SerDe::_write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<is_binary_format>& result,
                                                  int64_t row_idx, bool col_const,
                                                  const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnVector<IPv6>&>(column).get_data();
+    auto& data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv6Value ipv6_val(data[col_index]);
     // _nesting_level >= 2 means this datetimev2 is in complex type
@@ -71,7 +71,7 @@ Status DataTypeIPv6SerDe::write_column_to_mysql(const IColumn& column,
 }
 
 void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* str_value = static_cast<const JsonbBinaryVal*>(arg);
+    const auto* str_value = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(str_value->getBlob());
 }
 
@@ -147,27 +147,29 @@ Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& ar
     return Status::OK();
 }
 
-void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                              arrow::ArrayBuilder* array_builder, int64_t start,
-                                              int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             std::string ipv6_str = IPv6Value::to_string(col_data[i]);
-            checkArrowStatus(string_builder.Append(ipv6_str.c_str(),
-                                                   cast_set<int, size_t, false>(ipv6_str.size())),
-                             column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(
+                    string_builder.Append(ipv6_str.c_str(),
+                                          cast_set<int, size_t, false>(ipv6_str.size())),
+                    column.get_name(), array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
-void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                               int64_t start, int64_t end,
-                                               const cctz::time_zone& ctz) const {
+Status DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                 int64_t start, int64_t end,
+                                                 const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
     const auto* concrete_array = assert_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
@@ -183,9 +185,9 @@ void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
             } else {
                 IPv6 ipv6_val;
                 if (!IPv6Value::from_string(ipv6_val, raw_data, raw_data_len)) {
-                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                           "parse number fail, string: '{}'",
-                                           std::string(raw_data, raw_data_len).c_str());
+                    return Status::Error(ErrorCode::INVALID_ARGUMENT,
+                                         "parse number fail, string: '{}'",
+                                         std::string(raw_data, raw_data_len).c_str());
                 }
                 col_data.emplace_back(ipv6_val);
             }
@@ -193,6 +195,7 @@ void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
             col_data.emplace_back(0);
         }
     }
+    return Status::OK();
 }
 
 Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -203,25 +206,49 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-    INIT_MEMORY_FOR_ORC_WRITER()
-
+    // First pass: calculate total memory needed and collect serialized values
+    std::vector<std::string> serialized_values;
+    std::vector<size_t> valid_row_indices;
+    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            std::string ipv6_str = IPv6Value::to_string(col_data[row_id]);
-            size_t len = ipv6_str.size();
-
-            REALLOC_MEMORY_FOR_ORC_WRITER()
-
-            strcpy(const_cast<char*>(bufferRef.data) + offset, ipv6_str.c_str());
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
-            cur_batch->length[row_id] = len;
-            offset += len;
+            auto serialized_value = IPv6Value::to_string(col_data[row_id]);
+            serialized_values.push_back(std::move(serialized_value));
+            size_t len = serialized_values.back().length();
+            total_size += len;
+            valid_row_indices.push_back(row_id);
         }
+    }
+    // Allocate continues memory based on calculated size
+    char* ptr = (char*)malloc(total_size);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory {} error when write variant column data to orc file.", total_size);
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = total_size;
+    buffer_list.emplace_back(bufferRef);
+    // Second pass: copy data to allocated memory
+    size_t offset = 0;
+    for (size_t i = 0; i < serialized_values.size(); i++) {
+        const auto& serialized_value = serialized_values[i];
+        size_t row_id = valid_row_indices[i];
+        size_t len = serialized_value.length();
+        if (offset + len > total_size) {
+            return Status::InternalError(
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
+                    offset, len, total_size);
+        }
+        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
+        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+        cur_batch->length[row_id] = len;
+        offset += len;
     }
 
     cur_batch->numElements = end - start;
     return Status::OK();
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

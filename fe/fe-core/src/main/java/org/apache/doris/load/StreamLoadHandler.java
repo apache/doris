@@ -119,7 +119,6 @@ public class StreamLoadHandler {
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
-        ctx.setQualifiedUser(request.getUser());
         ctx.setBackendId(request.getBackendId());
         ctx.setThreadLocalInfo();
 
@@ -140,7 +139,7 @@ public class StreamLoadHandler {
             Preconditions.checkState(currentUser.size() == 1);
             ctx.setCurrentUserIdentity(currentUser.get(0));
         }
-        if (request.isSetAuthCode() && request.isSetBackendId()) {
+        if ((request.isSetToken() || request.isSetAuthCode()) && request.isSetBackendId()) {
             long backendId = request.getBackendId();
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);

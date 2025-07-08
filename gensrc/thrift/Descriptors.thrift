@@ -140,7 +140,10 @@ enum TSchemaTableType {
     SCH_FILE_CACHE_STATISTICS = 51,
     SCH_CATALOG_META_CACHE_STATISTICS = 52,
     SCH_BACKEND_KERBEROS_TICKET_CACHE = 53,
-    SCH_ROUTINE_LOAD_JOBS = 54;
+    SCH_ROUTINE_LOAD_JOBS = 54,
+    SCH_BACKEND_CONFIGURATION=55,
+    SCH_BACKEND_TABLETS = 56,
+    SCH_VIEW_DEPENDENCY = 57;
 }
 
 enum THdfsCompression {
@@ -158,6 +161,11 @@ enum TIndexType {
   INVERTED = 1,
   BLOOMFILTER = 2,
   NGRAM_BF = 3
+}
+
+enum TPartialUpdateNewRowPolicy {
+    APPEND = 0,
+    ERROR = 1
 }
 
 // Mapping from names defined by Avro to the enum.
@@ -196,6 +204,8 @@ struct TOlapTablePartition {
     10: optional bool is_default_partition;
     // only used in random distribution scenario to make data distributed even 
     11: optional i64 load_tablet_idx
+    12: optional i32 total_replica_num
+    13: optional i32 load_required_replica_num
 }
 
 struct TOlapTablePartitionParam {
@@ -260,6 +270,7 @@ struct TOlapTableSchemaParam {
     13: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V1
     14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     15: optional i32 sequence_map_col_unique_id = -1
+    16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
 }
 
 struct TTabletLocation {

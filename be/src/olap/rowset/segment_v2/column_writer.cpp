@@ -275,7 +275,7 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
     auto type = agg_state_type->get_serialized_type()->get_primitive_type();
     if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
-        type == PrimitiveType::TYPE_OBJECT) {
+        type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT || type == PrimitiveType::TYPE_BITMAP) {
         *writer = std::unique_ptr<ColumnWriter>(new ScalarColumnWriter(
                 opts, std::unique_ptr<Field>(FieldFactory::create(*column)), file_writer));
     } else if (type == PrimitiveType::TYPE_ARRAY) {
@@ -481,7 +481,7 @@ Status ScalarColumnWriter::init() {
             });
 
             RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.inverted_index_file_writer,
+                                                              _opts.index_file_writer,
                                                               _opts.inverted_index));
         } while (false);
     }
@@ -896,7 +896,7 @@ Status ArrayColumnWriter::init() {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
             RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.inverted_index_file_writer,
+                                                              _opts.index_file_writer,
                                                               _opts.inverted_index));
         }
     }

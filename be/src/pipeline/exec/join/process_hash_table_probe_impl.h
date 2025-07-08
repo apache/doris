@@ -28,7 +28,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::pipeline {
@@ -173,7 +172,7 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
 
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
-        hash_table_ctx.reset();
+        hash_table_ctx.arena.clear();
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_parent->_probe_columns.size() == 1 && null_map) {
             _parent->_probe_columns[0]->assume_mutable()->replace_column_null_data(null_map);
@@ -285,6 +284,14 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                  JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
                 hash_table_ctx.hash_table
                         ->empty_build_side(); // empty build side will return false to instead null
+
+        if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
+                      JoinOpType == TJoinOp::RIGHT_ANTI_JOIN) {
+            if (mark_join_flags.empty()) {
+                mark_join_flags.resize(hash_table_ctx.hash_table->size(), 0);
+            }
+        }
+
         return do_mark_join_conjuncts(output_block, ignore_null_map ? nullptr : null_map);
     } else if (_have_other_join_conjunct) {
         return do_other_join_conjuncts(output_block, hash_table_ctx.hash_table->get_visited());
@@ -328,9 +335,8 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
     }
 
     auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
-                                   vectorized::ColumnVector<unsigned int>& row_indexs,
-                                   int column_offset, vectorized::Block* source_block,
-                                   bool try_all_match_one) {
+                                   vectorized::ColumnOffset32& row_indexs, int column_offset,
+                                   vectorized::Block* source_block, bool try_all_match_one) {
         std::vector<int> column_ids;
         for (int i = 0; i < output_slot_flags.size(); ++i) {
             if (output_slot_flags[i] &&
@@ -491,12 +497,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
         }
     }
 
-    if constexpr (is_right_half_join) {
-        if (mark_join_flags.empty() && _build_block != nullptr) {
-            mark_join_flags.resize(_build_block->rows(), 0);
-        }
-    }
-
     auto filter_column = vectorized::ColumnUInt8::create(row_count, 0);
     auto* __restrict filter_map = filter_column->get_data().data();
     for (size_t i = 0; i != row_count; ++i) {
@@ -547,7 +547,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
             }
         }
         // For right semi/anti join, no rows will be output in probe phase.
-        output_block->clear_column_data();
+        output_block->clear();
         return Status::OK();
     } else {
         if constexpr (is_anti_join) {
@@ -721,8 +721,8 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
         if constexpr (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
             if (is_mark_join) {
-                if (mark_join_flags.empty() && _build_block != nullptr) {
-                    mark_join_flags.resize(_build_block->rows(), 0);
+                if (mark_join_flags.empty()) {
+                    mark_join_flags.resize(hash_table_ctx.hash_table->size(), 0);
                 }
 
                 // mark column is nullable

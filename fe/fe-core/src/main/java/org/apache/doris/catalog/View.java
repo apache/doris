@@ -17,21 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -40,7 +34,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
-import java.io.StringReader;
 import java.lang.ref.SoftReference;
 import java.util.List;
 
@@ -163,28 +156,7 @@ public class View extends Table implements GsonPostProcessable {
      * the SQL or if the view definition did not parse into a QueryStmt.
      */
     public synchronized QueryStmt init() throws UserException {
-        Preconditions.checkNotNull(inlineViewDef);
-        // Parse the expanded view definition SQL-string into a QueryStmt and
-        // populate a view definition.
-        SqlScanner input = new SqlScanner(new StringReader(inlineViewDef), sqlMode);
-        SqlParser parser = new SqlParser(input);
-        ParseNode node;
-        try {
-            node = (ParseNode) SqlParserUtils.getFirstStmt(parser);
-        } catch (Exception e) {
-            // Do not pass e as the exception cause because it might reveal the existence
-            // of tables that the user triggering this load may not have privileges on.
-            throw new UserException(
-                    String.format("Failed to parse view-definition statement of view: %s, stmt is %s, reason is %s",
-                            name, inlineViewDef, e.getMessage()));
-        }
-        // Make sure the view definition parses to a query statement.
-        if (!(node instanceof QueryStmt)) {
-            throw new UserException(String.format("View definition of %s "
-                    + "is not a query statement", name));
-        }
-        queryStmtRef = new SoftReference<QueryStmt>((QueryStmt) node);
-        return (QueryStmt) node;
+        return null;
     }
 
     /**
@@ -254,11 +226,6 @@ public class View extends Table implements GsonPostProcessable {
     }
 
     public static View read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            View t = new View();
-            t.readFields(in);
-            return t;
-        }
         return GsonUtils.GSON.fromJson(Text.readString(in), View.class);
     }
 
@@ -277,14 +244,5 @@ public class View extends Table implements GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         originalViewDef = "";
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        // just do not want to modify the meta version, so leave originalViewDef here but set it as empty
-        originalViewDef = Text.readString(in);
-        originalViewDef = "";
-        inlineViewDef = Text.readString(in);
     }
 }

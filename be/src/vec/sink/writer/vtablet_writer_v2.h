@@ -117,9 +117,8 @@ public:
 #ifndef BE_TEST
 private:
 #endif
-    static Status _create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
-                                      std::shared_ptr<LoadStreamMap> load_stream_map,
-                                      int num_replicas);
+    Status _create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
+                               std::shared_ptr<LoadStreamMap> load_stream_map);
 
 private:
     Status _init_row_distribution();
@@ -131,6 +130,8 @@ private:
     Status _open_streams_to_backend(int64_t dst_id, LoadStreamStubs& streams);
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
+
+    void _build_tablet_replica_info(const int64_t tablet_id, VOlapTablePartition* partition);
 
     Status _send_new_partition_batch();
 
@@ -147,7 +148,17 @@ private:
 
     void _calc_tablets_to_commit();
 
-    Status _close_wait(bool incremental);
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> _incremental_streams();
+
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> _non_incremental_streams();
+
+    Status _close_wait(std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams);
+
+    Status _check_timeout();
+
+    Status _check_streams_finish(
+            std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams, Status& status,
+            const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node);
 
     void _cancel(Status status);
 
@@ -230,6 +241,9 @@ private:
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
+
+    // tablet_id -> <total replicas num, load required replicas num>
+    std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
 };
 
 } // namespace vectorized

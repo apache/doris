@@ -97,13 +97,15 @@ public:
     // Return negative if a temporary error occurred during the check process.
     int do_delete_bitmap_inverted_check();
 
+    // version = 1 : https://github.com/apache/doris/pull/40204
     // checks if https://github.com/apache/doris/pull/40204 works as expected
     // the stale delete bitmap will be cleared in MS when BE delete expired stale rowsets
     // NOTE: stale rowsets will be lost after BE restarts, so there may be some stale delete bitmaps
     // which will not be cleared.
-    int do_delete_bitmap_storage_optimize_check();
+    // version = 2 : https://github.com/apache/doris/pull/49822
+    int do_delete_bitmap_storage_optimize_check(int version = 1);
 
-    int do_mow_compaction_key_check();
+    int do_mow_job_key_check();
 
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
@@ -126,9 +128,11 @@ private:
     int collect_tablet_rowsets(
             int64_t tablet_id,
             const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
-    int traverse_delete_bitmaps(const std::function<int(int64_t)>& check_func);
+    int get_pending_delete_bitmap_keys(int64_t tablet_id,
+                                       std::unordered_set<std::string>& pending_delete_bitmaps);
 
     int check_delete_bitmap_storage_optimize(int64_t tablet_id);
+    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, int64_t& abnormal_rowsets_num);
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;

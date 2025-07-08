@@ -17,126 +17,166 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.URI;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.HashSet;
+import java.io.UnsupportedEncodingException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Set;
 
 public class HdfsPropertiesUtils {
     private static final String URI_KEY = "uri";
+    private static final String STANDARD_HDFS_PREFIX = "hdfs://";
+    private static final String EMPTY_HDFS_PREFIX = "hdfs:///";
+    private static final String BROKEN_HDFS_PREFIX = "hdfs:/";
+    private static final String SCHEME_DELIM = "://";
+    private static final String NONSTANDARD_SCHEME_DELIM = ":/";
 
-    private static Set<String> supportSchema = new HashSet<>();
-
-    static {
-        supportSchema.add("hdfs");
-        supportSchema.add("viewfs");
-    }
-
-    /**
-     * Validates that the 'uri' property exists in the provided props map, and normalizes it.
-     *
-     * @param props the map of properties that must include a 'uri' entry
-     * @return a normalized URI string like 'hdfs://host/path'
-     * @throws UserException if the map is empty or does not contain the required 'uri' key
-     *                       <p>
-     *                       Example:
-     *                       Input: {"uri": "hdfs://namenode:9000/data/input"}
-     *                       Output: "hdfs://namenode:9000/data/input"
-     */
-    public static String validateAndGetUri(Map<String, String> props) throws UserException {
+    public static String validateAndGetUri(Map<String, String> props, String host, String defaultFs,
+                                           Set<String> supportSchemas) throws UserException {
         if (props.isEmpty()) {
             throw new UserException("props is empty");
         }
-        if (!props.containsKey(URI_KEY)) {
-            throw new UserException("props must contain uri");
-        }
-        String uriStr = props.get(URI_KEY);
-        return validateAndNormalizeUri(uriStr);
-    }
-
-    /**
-     * Validates and normalizes a raw URI string.
-     *
-     * @param uriStr the URI string to validate
-     * @return a normalized URI in the form of 'scheme://authority/path'
-     * @throws UserException if the URI is invalid or unsupported
-     *                       <p>
-     *                       Example:
-     *                       Input: "viewfs://ns1/path/to/file"
-     *                       Output: "viewfs://ns1/path/to/file"
-     */
-    public static String convertUrlToFilePath(String uriStr) throws UserException {
-        return validateAndNormalizeUri(uriStr);
-    }
-
-    /**
-     * Constructs the default filesystem URI (scheme + authority) from a full URI string in the props map.
-     *
-     * @param props the map of properties, expected to contain a valid 'uri' entry
-     * @return a URI prefix like 'hdfs://host:port', or null if the URI is missing or invalid
-     * <p>
-     * Example:
-     * Input: {"uri": "hdfs://namenode:8020/data"}
-     * Output: "hdfs://namenode:8020"
-     */
-    public static String constructDefaultFsFromUri(Map<String, String> props) {
-        if (props.isEmpty()) {
-            return null;
-        }
-        if (!props.containsKey(URI_KEY)) {
-            return null;
-        }
-        String uriStr = props.get(URI_KEY);
+        String uriStr = getUri(props);
         if (StringUtils.isBlank(uriStr)) {
-            return null;
+            throw new StoragePropertiesException("props must contain uri");
         }
-        URI uri = null;
-        try {
-            uri = URI.create(uriStr);
-        } catch (AnalysisException e) {
-            return null;
-        }
-        String schema = uri.getScheme();
-        if (StringUtils.isBlank(schema)) {
-            throw new IllegalArgumentException("Invalid uri: " + uriStr + "extract schema is null");
-        }
-        if (!supportSchema.contains(schema.toLowerCase())) {
-            throw new IllegalArgumentException("Invalid export path:"
-                    + schema + " , please use valid 'hdfs://' or 'viewfs://' path.");
-        }
-        return uri.getScheme() + "://" + uri.getAuthority();
+        return validateAndNormalizeUri(uriStr, host, defaultFs, supportSchemas);
     }
 
-    /**
-     * Internal method that validates and normalizes a URI string.
-     * Ensures it has a valid scheme and is supported (e.g., hdfs, viewfs).
-     *
-     * @param uriStr the URI string to validate
-     * @return the normalized URI string
-     * @throws AnalysisException if the URI is blank or has an unsupported scheme
-     *                           <p>
-     *                           Example:
-     *                           Input: "hdfs://host:8020/user/data"
-     *                           Output: "hdfs://host:8020/user/data"
-     */
-    private static String validateAndNormalizeUri(String uriStr) throws AnalysisException {
+    public static boolean validateUriIsHdfsUri(Map<String, String> props,
+                                               Set<String> supportSchemas) {
+        String uriStr = getUri(props);
         if (StringUtils.isBlank(uriStr)) {
-            throw new IllegalArgumentException("uri is null, pls check your params");
+            return false;
         }
         URI uri = URI.create(uriStr);
         String schema = uri.getScheme();
         if (StringUtils.isBlank(schema)) {
-            throw new IllegalArgumentException("Invalid uri: " + uriStr + "extract schema is null");
+            throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
         }
-        if (!supportSchema.contains(schema.toLowerCase())) {
-            throw new IllegalArgumentException("Invalid export path:"
-                    + schema + " , please use valid 'hdfs://' or 'viewfs://' path.");
+        return isSupportedSchema(schema, supportSchemas);
+    }
+
+    public static String extractDefaultFsFromPath(String filePath) {
+        if (StringUtils.isBlank(filePath)) {
+            return null;
         }
-        return uri.getScheme() + "://" + uri.getAuthority() + uri.getPath();
+        URI uri = URI.create(filePath);
+        return uri.getScheme() + "://" + uri.getAuthority();
+    }
+
+    public static String extractDefaultFsFromUri(Map<String, String> props, Set<String> supportSchemas) {
+        String uriStr = getUri(props);
+        if (StringUtils.isBlank(uriStr)) {
+            return null;
+        }
+        URI uri = URI.create(uriStr);
+        if (!isSupportedSchema(uri.getScheme(), supportSchemas)) {
+            return null;
+        }
+        return uri.getScheme() + "://" + uri.getAuthority();
+    }
+
+    public static String convertUrlToFilePath(String uriStr, String host,
+                                              String defaultFs, Set<String> supportSchemas) {
+        return validateAndNormalizeUri(uriStr, host, defaultFs, supportSchemas);
+    }
+
+    public static String convertUrlToFilePath(String uriStr, String host, Set<String> supportSchemas) {
+        return validateAndNormalizeUri(uriStr, host, null, supportSchemas);
+    }
+
+    /*
+     * Extracts the URI value from the given properties.
+     * If multiple URIs are specified (separated by commas), this method returns null.
+     * Note: Some storage systems may support multiple URIs (e.g., for load balancing or multi-host),
+     * but in the HDFS scenario, fs.defaultFS only supports a single URI.
+     * Therefore, such a format is considered invalid for HDFS. so, just return null.
+     */
+    private static String getUri(Map<String, String> props) {
+        String uriValue = props.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .map(Map.Entry::getValue)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (uriValue == null) {
+            return null;
+        }
+        String[] uris = uriValue.split(",");
+        if (uris.length > 1) {
+            return null;
+        }
+        return uriValue;
+    }
+
+    private static boolean isSupportedSchema(String schema, Set<String> supportSchema) {
+        return schema != null && supportSchema.contains(schema.toLowerCase());
+    }
+
+    public static String validateAndNormalizeUri(String location, Set<String> supportedSchemas) {
+        return validateAndNormalizeUri(location, null, null, supportedSchemas);
+    }
+
+    public static String validateAndNormalizeUri(String location, String host, String defaultFs,
+                                                  Set<String> supportedSchemas) {
+        if (StringUtils.isBlank(location)) {
+            throw new IllegalArgumentException("Property 'uri' is required.");
+        }
+        if (!(location.contains(SCHEME_DELIM) || location.contains(NONSTANDARD_SCHEME_DELIM))
+                && StringUtils.isNotBlank(defaultFs)) {
+            location = defaultFs + location;
+        }
+        try {
+            // Encode the location string, but keep '/' and ':' unescaped to preserve URI structure
+            String newLocation = URLEncoder.encode(location, StandardCharsets.UTF_8.name())
+                    .replace("%2F", "/")
+                    .replace("%3A", ":");
+
+            URI uri = new URI(newLocation).normalize();
+
+            boolean isSupportedSchema = isSupportedSchema(uri.getScheme(), supportedSchemas);
+            if (!isSupportedSchema) {
+                throw new IllegalArgumentException("Unsupported schema: " + uri.getScheme());
+            }
+            // compatible with 'hdfs:///' or 'hdfs:/'
+            if (StringUtils.isEmpty(uri.getHost())) {
+                newLocation = URLDecoder.decode(newLocation, StandardCharsets.UTF_8.name());
+                if (newLocation.startsWith(BROKEN_HDFS_PREFIX) && !newLocation.startsWith(STANDARD_HDFS_PREFIX)) {
+                    newLocation = newLocation.replace(BROKEN_HDFS_PREFIX, STANDARD_HDFS_PREFIX);
+                }
+                if (StringUtils.isNotEmpty(host)) {
+                    // Replace 'hdfs://key/' to 'hdfs://name_service/key/'
+                    // Or hdfs:///abc to hdfs://name_service/abc
+                    if (newLocation.startsWith(EMPTY_HDFS_PREFIX)) {
+                        return newLocation.replace(STANDARD_HDFS_PREFIX, STANDARD_HDFS_PREFIX + host);
+                    } else {
+                        return newLocation.replace(STANDARD_HDFS_PREFIX, STANDARD_HDFS_PREFIX + host + "/");
+                    }
+                } else {
+                    // 'hdfs://null/' equals the 'hdfs:///'
+                    if (newLocation.startsWith(EMPTY_HDFS_PREFIX)) {
+                        // Do not support hdfs:///location
+                        throw new RuntimeException("Invalid location with empty host: " + newLocation);
+                    } else {
+                        // Replace 'hdfs://key/' to '/key/', try access local NameNode on BE.
+                        return newLocation.replace(STANDARD_HDFS_PREFIX, "/");
+                    }
+                }
+            }
+            // Normal case: decode and return the fully-qualified URI
+            return URLDecoder.decode(newLocation, StandardCharsets.UTF_8.name());
+
+        } catch (URISyntaxException | UnsupportedEncodingException e) {
+            throw new StoragePropertiesException("Failed to parse URI: " + location, e);
+        }
     }
 }

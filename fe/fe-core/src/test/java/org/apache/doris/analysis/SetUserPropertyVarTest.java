@@ -39,10 +39,6 @@ public class SetUserPropertyVarTest {
         Assert.assertEquals("quota.normal", var.getPropertyKey());
         Assert.assertEquals("1000", var.getPropertyValue());
         Assert.assertEquals("'quota.normal' = '1000'", var.toString());
-
-        var = new SetUserPropertyVar("load_cluster.palo-dpp", "");
-        var.analyze(analyzer, true);
-        Assert.assertEquals("'load_cluster.palo-dpp' = ''", var.toString());
     }
 
     @Test(expected = AnalysisException.class)

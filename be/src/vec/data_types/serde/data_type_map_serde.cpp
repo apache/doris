@@ -21,6 +21,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -314,7 +315,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
 }
 
 void DataTypeMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
@@ -330,9 +331,9 @@ void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
     result.writeEndBinary();
 }
 
-void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                             arrow::ArrayBuilder* array_builder, int64_t start,
-                                             int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                               arrow::ArrayBuilder* array_builder, int64_t start,
+                                               int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
     const auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
@@ -348,8 +349,8 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
 
     for (size_t r = start; r < end; ++r) {
         if ((null_map && (*null_map)[r])) {
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else if (simd::contain_byte(keys_nullmap_data + offsets[r - 1],
                                       offsets[r] - offsets[r - 1], 1)) {
             // arrow do not support key is null, so we ignore the null key-value
@@ -357,31 +358,35 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
             MutableColumnPtr value_mutable_data = nested_values_column.clone_empty();
             for (size_t i = offsets[r - 1]; i < offsets[r]; ++i) {
                 if (keys_nullmap_data[i] == 1) {
-                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                           "Can not write null value of map key to arrow.");
+                    return Status::Error(ErrorCode::INVALID_ARGUMENT,
+                                         "Can not write null value of map key to arrow.");
                 }
                 key_mutable_data->insert_from(nested_keys_column, i);
                 value_mutable_data->insert_from(nested_values_column, i);
             }
-            checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
+                                             array_builder->type()->name()));
 
-            key_serde->write_column_to_arrow(*key_mutable_data, nullptr, key_builder, 0,
-                                             key_mutable_data->size(), ctz);
-            value_serde->write_column_to_arrow(*value_mutable_data, nullptr, value_builder, 0,
-                                               value_mutable_data->size(), ctz);
+            RETURN_IF_ERROR(key_serde->write_column_to_arrow(
+                    *key_mutable_data, nullptr, key_builder, 0, key_mutable_data->size(), ctz));
+            RETURN_IF_ERROR(value_serde->write_column_to_arrow(*value_mutable_data, nullptr,
+                                                               value_builder, 0,
+                                                               value_mutable_data->size(), ctz));
         } else {
-            checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
-            key_serde->write_column_to_arrow(nested_keys_column, nullptr, key_builder,
-                                             offsets[r - 1], offsets[r], ctz);
-            value_serde->write_column_to_arrow(nested_values_column, nullptr, value_builder,
-                                               offsets[r - 1], offsets[r], ctz);
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
+                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(key_serde->write_column_to_arrow(
+                    nested_keys_column, nullptr, key_builder, offsets[r - 1], offsets[r], ctz));
+            RETURN_IF_ERROR(value_serde->write_column_to_arrow(
+                    nested_values_column, nullptr, value_builder, offsets[r - 1], offsets[r], ctz));
         }
     }
+    return Status::OK();
 }
 
-void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                              int64_t start, int64_t end,
-                                              const cctz::time_zone& ctz) const {
+Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                int64_t start, int64_t end,
+                                                const cctz::time_zone& ctz) const {
     auto& column_map = static_cast<ColumnMap&>(column);
     auto& offsets_data = column_map.get_offsets();
     const auto* concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
@@ -394,10 +399,13 @@ void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Arra
         // convert to doris offset, start from offsets.back()
         offsets_data.emplace_back(prev_size + arrow_offsets->Value(i) - arrow_nested_start_offset);
     }
-    key_serde->read_column_from_arrow(column_map.get_keys(), concrete_map->keys().get(),
-                                      arrow_nested_start_offset, arrow_nested_end_offset, ctz);
-    value_serde->read_column_from_arrow(column_map.get_values(), concrete_map->items().get(),
-                                        arrow_nested_start_offset, arrow_nested_end_offset, ctz);
+    RETURN_IF_ERROR(key_serde->read_column_from_arrow(
+            column_map.get_keys(), concrete_map->keys().get(), arrow_nested_start_offset,
+            arrow_nested_end_offset, ctz));
+    RETURN_IF_ERROR(value_serde->read_column_from_arrow(
+            column_map.get_values(), concrete_map->items().get(), arrow_nested_start_offset,
+            arrow_nested_end_offset, ctz));
+    return Status::OK();
 }
 
 template <bool is_binary_format>
@@ -429,7 +437,6 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            ++options.level;
             if (is_key_string && options.wrapper_len > 0) {
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
@@ -443,7 +450,6 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                 RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result, j,
                                                                  false, options));
             }
-            --options.level;
         }
         if (0 != result.push_string(&options.map_key_delim, 1)) {
             return Status::InternalError("pack mysql buffer failed.");
@@ -453,7 +459,6 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            ++options.level;
             if (is_val_string && options.wrapper_len > 0) {
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
@@ -467,7 +472,6 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                 RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
                                                                    false, options));
             }
-            --options.level;
         }
     }
     if (0 != result.push_string("}", 1)) {

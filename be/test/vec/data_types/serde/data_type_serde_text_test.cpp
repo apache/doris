@@ -37,7 +37,8 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
     // arithmetic scala field types
     {
         // fieldType, test_string, expect_string
-        typedef std::tuple<FieldType, std::vector<string>, std::vector<string>> FieldType_RandStr;
+        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>>
+                FieldType_RandStr;
         std::vector<FieldType_RandStr> arithmetic_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-1"},
                                   {"0", "1", ""}),
@@ -153,7 +154,7 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             VectorBufferWriter buffer_writer(*ser_col.get());
 
             for (int i = 0; i < std::get<1>(type_pair).size(); ++i) {
-                string test_str = std::get<1>(type_pair)[i];
+                std::string test_str = std::get<1>(type_pair)[i];
                 std::cout << "the str : " << test_str << std::endl;
                 Slice rb_test(test_str.data(), test_str.size());
                 // deserialize
@@ -178,32 +179,42 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
 
     // date and datetime type
     {
-        typedef std::pair<FieldType, string> FieldType_RandStr;
-        std::vector<FieldType_RandStr> date_scala_field_types = {
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATEV2, "2020-01-01"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATETIME, "2020-01-01 12:00:00"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
-                                  "2020-01-01 12:00:00.666666"),
+        struct DataTestField {
+            FieldType type;
+            std::string str;
+            std::string max_str;
+            std::string min_str;
+        };
+        std::vector<DataTestField> date_scala_field_types = {
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATE,
+                               .str = "2020-01-01",
+                               .max_str = "9999-12-31",
+                               .min_str = "0001-01-01"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATE,
+                               .str = "2020-01-01",
+                               .max_str = "9999-12-31",
+                               .min_str = "0001-01-01"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATEV2,
+                               .str = "2020-01-01",
+                               .max_str = "9999-12-31",
+                               .min_str = "0001-01-01"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATETIME,
+                               .str = "2020-01-01 12:00:00",
+                               .max_str = "9999-12-31 23:59:59",
+                               .min_str = "0001-01-01 00:00:00"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+                               .str = "2020-01-01 12:00:00",
+                               .max_str = "9999-12-31 23:59:59",
+                               .min_str = "0001-01-01 00:00:00"},
         };
         for (auto pair : date_scala_field_types) {
-            auto type = pair.first;
+            auto type = pair.type;
             DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
             std::cout << "========= This type is  " << data_type_ptr->get_name() << ": "
                       << fmt::format("{}", type) << std::endl;
-
-            std::unique_ptr<WrapperField> min_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> max_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
-
-            min_wf->set_to_min();
-            max_wf->set_to_max();
-            static_cast<void>(rand_wf->from_string(pair.second, 0, 0));
-
-            string min_s = min_wf->to_string();
-            string max_s = max_wf->to_string();
-            string rand_date = rand_wf->to_string();
+            std::string min_s = pair.min_str;
+            std::string max_s = pair.max_str;
+            std::string rand_date = pair.str;
 
             Slice min_rb(min_s.data(), min_s.size());
             Slice max_rb(max_s.data(), max_s.size());
@@ -213,7 +224,6 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
             // make use c++ lib equals to wrapper field from_string behavior
             DataTypeSerDe::FormatOptions formatOptions;
-            formatOptions.date_olap_format = true;
 
             Status st = serde->deserialize_one_cell_from_json(*col, min_rb, formatOptions);
             EXPECT_EQ(st.ok(), true);
@@ -252,7 +262,7 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
 
     // ipv4 and ipv6
     {
-        typedef std::pair<FieldType, string> FieldType_RandStr;
+        typedef std::pair<FieldType, std::string> FieldType_RandStr;
         std::vector<FieldType_RandStr> ip_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "2405:9800:9800:66::2")};
@@ -270,9 +280,9 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             max_wf->set_to_max();
             static_cast<void>(rand_wf->from_string(pair.second, 0, 0));
 
-            string min_s = min_wf->to_string();
-            string max_s = max_wf->to_string();
-            string rand_ip = rand_wf->to_string();
+            std::string min_s = min_wf->to_string();
+            std::string max_s = max_wf->to_string();
+            std::string rand_ip = rand_wf->to_string();
 
             Slice min_rb(min_s.data(), min_s.size());
             Slice max_rb(max_s.data(), max_s.size());
@@ -327,7 +337,7 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
                 WrapperField::create_by_type(FieldType::OLAP_FIELD_TYPE_STRING));
         std::string test_str = generate(128);
         static_cast<void>(rand_wf->from_string(test_str, 0, 0));
-        Field string_field(test_str);
+        Field string_field = Field::create_field<TYPE_STRING>(test_str);
         ColumnPtr col = nullable_ptr->create_column_const(0, string_field);
         DataTypeSerDe::FormatOptions default_format_option;
         DataTypeSerDeSPtr serde = nullable_ptr->get_serde();
@@ -348,7 +358,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
     // array-scala
     {
         // nested type,test string, expect string(option.converted_from_string=false),expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, std::vector<string>, std::vector<string>, std::vector<string>>
+        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> nested_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL,
@@ -552,8 +563,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
 
     // map-scala-scala
     {
-        // nested key type , nested value type, test string , expect string
-        typedef std::tuple<FieldType, FieldType, std::vector<string>, std::vector<string>>
+        // nested key type , nested value type, test std::string , expect string
+        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> nested_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL,
@@ -660,7 +671,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 // from_string
                 {
                     ReadBuffer rb(rand_str.data(), rand_str.size());
-                    std::cout << "from string rb: " << rb.to_string() << std::endl;
+                    std::cout << "from std::string rb: " << rb.to_string() << std::endl;
                     Status stat = map_data_type_ptr->from_string(rb, col2.get());
                     std::cout << stat.to_json() << std::endl;
                     auto ser_col = ColumnString::create();
@@ -677,7 +688,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
         }
 
         // option with converted_with_string true
-        typedef std::tuple<FieldType, FieldType, std::vector<string>, std::vector<string>>
+        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> field_types = {
                 FieldType_RandStr(
@@ -759,8 +770,8 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
     // array-array<string>
     {
         // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, std::vector<string>, std::vector<string>, std::vector<string>,
-                           std::vector<string>>
+        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>, std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> nested_field_types = {
                 FieldType_RandStr(
@@ -888,8 +899,8 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
     // array-map<string, double>
     {
         // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, FieldType, std::vector<string>, std::vector<string>,
-                           std::vector<string>, std::vector<string>>
+        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>, std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
                 FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE,
@@ -1043,8 +1054,8 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
     // map-scala-array (map<scala,array<scala>>)
     {
         // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, FieldType, std::vector<string>, std::vector<string>,
-                           std::vector<string>, std::vector<string>>
+        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>, std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
                 // map<string,array<double>>
@@ -1261,8 +1272,8 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
     // map-scala-map (map<string,map<string,double>>)
     {
         // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, FieldType, std::vector<string>, std::vector<string>,
-                           std::vector<string>, std::vector<string>>
+        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>, std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
                 FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE,

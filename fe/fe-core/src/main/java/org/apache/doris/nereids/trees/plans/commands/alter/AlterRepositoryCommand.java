@@ -73,8 +73,7 @@ public class AlterRepositoryCommand extends AlterCommand {
             throw new UserException("alter repository only support ak/sk/token info of s3."
                 + " unsupported properties: " + copyProperties.keySet());
         }
-
-        Env.getCurrentEnv().getBackupHandler().alterRepositoryInternal(name, properties);
+        Env.getCurrentEnv().getBackupHandler(). alterRepository(name, properties, true);
     }
 
     @Override

@@ -50,6 +50,7 @@ class ClusterOptions {
     // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> feConfigs = [
         'heartbeat_interval_second=5',
+        'workload_group_check_interval_ms=1000',
     ]
 
     // don't add whitespace in beConfigs items,
@@ -58,11 +59,16 @@ class ClusterOptions {
         'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
+        'enable_java_support=false',
     ]
 
     List<String> msConfigs = []
 
     List<String> recycleConfigs = []
+
+    // host mapping(host:IP), for example: myhost:192.168.10.10
+    // just as `docker run --add-host myhost:192.168.10.10` do.
+    List<String> extraHosts = []
 
     boolean connectToFollower = false
 
@@ -162,6 +168,9 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getBasePath() {
+        return path
+    }
 }
 
 class Frontend extends ServerNode {
@@ -306,25 +315,29 @@ class SuiteCluster {
             cmd += ['--add-ms-num', String.valueOf(options.msNum)]
         }
         // TODO: need escape white space in config
-        if (options.feConfigs != null && options.feConfigs.size() > 0) {
+        if (!options.feConfigs.isEmpty()) {
             cmd += ['--fe-config']
             cmd += options.feConfigs
         }
-        if (options.beConfigs != null && options.beConfigs.size() > 0) {
+        if (!options.beConfigs.isEmpty()) {
             cmd += ['--be-config']
             cmd += options.beConfigs
         }
-        if (options.msConfigs != null && options.msConfigs.size() > 0) {
+        if (!options.msConfigs.isEmpty()) {
             cmd += ['--ms-config']
             cmd += options.msConfigs
         }
-        if (options.recycleConfigs != null && options.recycleConfigs.size() > 0) {
+        if (!options.recycleConfigs.isEmpty()) {
             cmd += ['--recycle-config']
             cmd += options.recycleConfigs
         }
         if (options.beDisks != null) {
             cmd += ['--be-disks']
             cmd += options.beDisks
+        }
+        if (!options.extraHosts.isEmpty()) {
+            cmd += ['--extra-hosts']
+            cmd += options.extraHosts
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]

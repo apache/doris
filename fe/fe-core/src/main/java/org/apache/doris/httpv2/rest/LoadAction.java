@@ -42,7 +42,6 @@ import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.loadv2.IngestionLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -304,16 +303,7 @@ public class LoadAction extends RestBaseController {
 
             TNetworkAddress redirectAddr;
             if (!isStreamLoad && !Strings.isNullOrEmpty(request.getParameter(SUB_LABEL_NAME_PARAM))) {
-                // only multi mini load need to redirect to Master, because only Master has the info of table to
-                // the Backend which the file exists.
-                if (checkForwardToMaster(request)) {
-                    return forwardToMaster(request);
-                }
-                try {
-                    redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label);
-                } catch (DdlException e) {
-                    return new RestBaseResult(e.getMessage());
-                }
+                return new RestBaseResult("Multi load is longer supported");
             } else {
                 long tableId = -1;
                 if (groupCommit) {
@@ -332,8 +322,10 @@ public class LoadAction extends RestBaseController {
                 redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
-            LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
-                    redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
+            if (LOG.isDebugEnabled()) {
+                LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
+                        redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
+            }
 
             RedirectView redirectView = redirectTo(request, redirectAddr);
             return redirectView;
@@ -435,7 +427,9 @@ public class LoadAction extends RestBaseController {
         int number = groupCommit ? -1 : 1;
         backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, number, computeGroup.getBackendList());
         if (backendIds.isEmpty()) {
-            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+            throw new LoadException(
+                    SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy + ", compute group is "
+                            + computeGroup.toString());
         }
         if (groupCommit) {
             backend = selectBackendForGroupCommit("", request, tableId);
@@ -591,7 +585,6 @@ public class LoadAction extends RestBaseController {
             ctx.setThreadLocalInfo();
             ctx.setRemoteIP(request.getRemoteAddr());
             // set user to ADMIN_USER, so that we can get the proper resource tag
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
             // cloud need
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.setThreadLocalInfo();
@@ -677,7 +670,7 @@ public class LoadAction extends RestBaseController {
         ctx.setRemoteIP(req.getRemoteAddr());
         // We set this variable to fulfill required field 'user' in
         // TMasterOpRequest(FrontendService.thrift)
-        ctx.setQualifiedUser(Auth.ADMIN_USER);
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.setThreadLocalInfo();
         if (Config.isCloudMode()) {
             ctx.setCloudCluster(clusterName);

@@ -19,8 +19,6 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CancelAlterTableStmt;
-import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
@@ -59,6 +57,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
@@ -1521,19 +1520,9 @@ public class MaterializedViewHandler extends AlterHandler {
         }
     }
 
-    @Override
-    public void processForNereids(String rawSql, List<AlterCommand> alterCommands, Database db,
-                               OlapTable olapTable)
-            throws DdlException, AnalysisException, MetaNotFoundException {
-        // TODO: convert alterClauses to alterSystemCommands for mv
-    }
-
-    @Override
-    public void cancel(CancelStmt stmt) throws DdlException {
-        CancelAlterTableStmt cancelAlterTableStmt = (CancelAlterTableStmt) stmt;
-
-        String dbName = cancelAlterTableStmt.getDbName();
-        String tableName = cancelAlterTableStmt.getTableName();
+    public void cancel(CancelAlterTableCommand command) throws DdlException {
+        String dbName = command.getDbName();
+        String tableName = command.getTableName();
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
@@ -1551,12 +1540,12 @@ public class MaterializedViewHandler extends AlterHandler {
             if (olapTable.getState() != OlapTableState.ROLLUP
                     && olapTable.getState() != OlapTableState.WAITING_STABLE) {
                 throw new DdlException("Table[" + tableName + "] is not under ROLLUP. "
-                        + "Use 'ALTER TABLE DROP ROLLUP' if you want to.");
+                    + "Use 'ALTER TABLE DROP ROLLUP' if you want to.");
             }
 
             // find from new alter jobs first
-            if (cancelAlterTableStmt.getAlterJobIdList() != null) {
-                for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
+            if (command.getAlterJobIdList() != null) {
+                for (Long jobId : command.getAlterJobIdList()) {
                     AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
                     if (alterJobV2 == null) {
                         continue;
@@ -1583,6 +1572,13 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
             }
         }
+    }
+
+    @Override
+    public void processForNereids(String rawSql, List<AlterCommand> alterCommands, Database db,
+                               OlapTable olapTable)
+            throws DdlException, AnalysisException, MetaNotFoundException {
+        // TODO: convert alterClauses to alterSystemCommands for mv
     }
 
     // just for ut

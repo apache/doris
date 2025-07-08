@@ -87,11 +87,11 @@ TEST_F(VCountByEnumTest, testEmpty) {
 TEST_F(VCountByEnumTest, testNotNullableSample) {
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
-    column_f1->insert("F");
-    column_f1->insert("F");
-    column_f1->insert("M");
-    column_f1->insert("F");
-    column_f1->insert("M");
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -127,14 +127,14 @@ TEST_F(VCountByEnumTest, testNotNullableSample) {
 TEST_F(VCountByEnumTest, testNullableSample) {
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
-    column_f1->insert("F");
-    column_f1->insert("F");
-    column_f1->insert("M");
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
     ColumnPtr column_f1_ptr = std::move(column_f1);
-    auto null_map = ColumnVector<uint8_t>::create();
+    auto null_map = ColumnUInt8::create();
     std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
     for (int i = 0; i < offs.size(); ++i) {
-        null_map->insert(offs[i]);
+        null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(offs[i]));
     }
 
     auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
@@ -173,14 +173,14 @@ TEST_F(VCountByEnumTest, testNullableSample) {
 TEST_F(VCountByEnumTest, testNoMerge) {
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
-    column_f1->insert("F");
-    column_f1->insert("F");
-    column_f1->insert("M");
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
     ColumnPtr column_f1_ptr = std::move(column_f1);
-    auto null_map = ColumnVector<uint8_t>::create();
+    auto null_map = ColumnUInt8::create();
     std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
     for (int i = 0; i < offs.size(); ++i) {
-        null_map->insert(offs[i]);
+        null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(offs[i]));
     }
 
     auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
@@ -212,14 +212,14 @@ TEST_F(VCountByEnumTest, testNoMerge) {
 TEST_F(VCountByEnumTest, testSerialize) {
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
-    column_f1->insert("F");
-    column_f1->insert("F");
-    column_f1->insert("M");
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
     ColumnPtr column_f1_ptr = std::move(column_f1);
-    auto null_map = ColumnVector<uint8_t>::create();
+    auto null_map = ColumnUInt8::create();
     std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
     for (int i = 0; i < offs.size(); ++i) {
-        null_map->insert(offs[i]);
+        null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(offs[i]));
     }
     auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
 
@@ -258,14 +258,14 @@ TEST_F(VCountByEnumTest, testSerialize) {
     EXPECT_EQ(item0["all"].GetInt(), 5);
 
     auto column_f1_2 = ColumnString::create();
-    column_f1_2->insert("F");
-    column_f1_2->insert("F");
-    column_f1_2->insert("M");
+    column_f1_2->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1_2->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
+    column_f1_2->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
     ColumnPtr column_f1_2_ptr = std::move(column_f1_2);
-    auto null_map_2 = ColumnVector<uint8_t>::create();
+    auto null_map_2 = ColumnUInt8::create();
     std::vector<uint8_t> offs_2 = {0, 0, 0, 1, 1};
     for (int i = 0; i < offs.size(); ++i) {
-        null_map_2->insert(offs_2[i]);
+        null_map_2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(offs_2[i]));
     }
     auto nullable_column_f1_2 = ColumnNullable::create(column_f1_2_ptr, std::move(null_map_2));
 

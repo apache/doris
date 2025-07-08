@@ -48,11 +48,17 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY");
         _dependency = _only_const_dependency.get();
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+                common_profile(), "WaitForDependency[" + _dependency->name() + "]Time", 1);
         _dependency->set_ready();
     }
 
     return Status::OK();
+}
+
+bool UnionSourceLocalState::must_set_shared_state() const {
+    auto& p = _parent->cast<Parent>();
+    // if this operator has no children, there is no shared state.(because no sink )
+    return p.get_child_count() != 0;
 }
 
 Status UnionSourceLocalState::open(RuntimeState* state) {

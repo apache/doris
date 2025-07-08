@@ -26,6 +26,8 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
@@ -903,6 +905,40 @@ public class AnalyticExpr extends Expr {
                 sb.append(" ");
             }
             sb.append(window.toSql());
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        if (sqlString != null) {
+            return sqlString;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(fnCall.toSql(disableTableName, needExternalSql, tableType, table)).append(" OVER (");
+        boolean needsSpace = false;
+        if (!partitionExprs.isEmpty()) {
+            sb.append("PARTITION BY ").append(exprListToSql(partitionExprs));
+            needsSpace = true;
+        }
+        if (!orderByElements.isEmpty()) {
+            List<String> orderByStrings = Lists.newArrayList();
+            for (OrderByElement e : orderByElements) {
+                orderByStrings.add(e.toSql(disableTableName, needExternalSql, tableType, table));
+            }
+            if (needsSpace) {
+                sb.append(" ");
+            }
+            sb.append("ORDER BY ").append(Joiner.on(", ").join(orderByStrings));
+            needsSpace = true;
+        }
+        if (window != null) {
+            if (needsSpace) {
+                sb.append(" ");
+            }
+            sb.append(window.toSql(disableTableName, needExternalSql, tableType, table));
         }
         sb.append(")");
         return sb.toString();

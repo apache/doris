@@ -44,25 +44,25 @@ class RuntimeProfile;
 
 namespace doris::vectorized {
 
-#define FOR_FIXED_LENGTH_TYPES(M)                                           \
-    M(PrimitiveType::TYPE_TINYINT, ColumnVector<Int8>, Int8)                \
-    M(PrimitiveType::TYPE_BOOLEAN, ColumnVector<UInt8>, UInt8)              \
-    M(PrimitiveType::TYPE_SMALLINT, ColumnVector<Int16>, Int16)             \
-    M(PrimitiveType::TYPE_INT, ColumnVector<Int32>, Int32)                  \
-    M(PrimitiveType::TYPE_BIGINT, ColumnVector<Int64>, Int64)               \
-    M(PrimitiveType::TYPE_LARGEINT, ColumnVector<Int128>, Int128)           \
-    M(PrimitiveType::TYPE_FLOAT, ColumnVector<Float32>, Float32)            \
-    M(PrimitiveType::TYPE_DOUBLE, ColumnVector<Float64>, Float64)           \
-    M(PrimitiveType::TYPE_DECIMALV2, ColumnDecimal<Decimal128V2>, Int128)   \
-    M(PrimitiveType::TYPE_DECIMAL128I, ColumnDecimal<Decimal128V3>, Int128) \
-    M(PrimitiveType::TYPE_DECIMAL32, ColumnDecimal<Decimal<Int32>>, Int32)  \
-    M(PrimitiveType::TYPE_DECIMAL64, ColumnDecimal<Decimal<Int64>>, Int64)  \
-    M(PrimitiveType::TYPE_DATE, ColumnVector<Int64>, Int64)                 \
-    M(PrimitiveType::TYPE_DATEV2, ColumnVector<UInt32>, UInt32)             \
-    M(PrimitiveType::TYPE_DATETIME, ColumnVector<Int64>, Int64)             \
-    M(PrimitiveType::TYPE_DATETIMEV2, ColumnVector<UInt64>, UInt64)         \
-    M(PrimitiveType::TYPE_IPV4, ColumnVector<IPv4>, IPv4)                   \
-    M(PrimitiveType::TYPE_IPV6, ColumnVector<IPv6>, IPv6)
+#define FOR_FIXED_LENGTH_TYPES(M)                                  \
+    M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
+    M(PrimitiveType::TYPE_BOOLEAN, ColumnUInt8, UInt8)             \
+    M(PrimitiveType::TYPE_SMALLINT, ColumnInt16, Int16)            \
+    M(PrimitiveType::TYPE_INT, ColumnInt32, Int32)                 \
+    M(PrimitiveType::TYPE_BIGINT, ColumnInt64, Int64)              \
+    M(PrimitiveType::TYPE_LARGEINT, ColumnInt128, Int128)          \
+    M(PrimitiveType::TYPE_FLOAT, ColumnFloat32, Float32)           \
+    M(PrimitiveType::TYPE_DOUBLE, ColumnFloat64, Float64)          \
+    M(PrimitiveType::TYPE_DECIMALV2, ColumnDecimal128V2, Int128)   \
+    M(PrimitiveType::TYPE_DECIMAL128I, ColumnDecimal128V3, Int128) \
+    M(PrimitiveType::TYPE_DECIMAL32, ColumnDecimal32, Int32)       \
+    M(PrimitiveType::TYPE_DECIMAL64, ColumnDecimal64, Int64)       \
+    M(PrimitiveType::TYPE_DATE, ColumnDate, Int64)                 \
+    M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
+    M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
+    M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
+    M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
+    M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
@@ -398,7 +398,7 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
                     ->get_nested_type());
     ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
 
-    int64* offsets = reinterpret_cast<int64*>(address.next_meta_as_ptr());
+    int64_t* offsets = reinterpret_cast<int64_t*>(address.next_meta_as_ptr());
     size_t origin_size = offsets_data.size();
     offsets_data.resize(origin_size + num_rows);
     size_t start_offset = offsets_data[origin_size - 1];
@@ -424,7 +424,7 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
     ColumnPtr& value_column = map.get_values_ptr();
     ColumnArray::Offsets64& map_offsets = map.get_offsets();
 
-    int64* offsets = reinterpret_cast<int64*>(address.next_meta_as_ptr());
+    int64_t* offsets = reinterpret_cast<int64_t*>(address.next_meta_as_ptr());
     size_t origin_size = map_offsets.size();
     map_offsets.resize(origin_size + num_rows);
     size_t start_offset = map_offsets[origin_size - 1];

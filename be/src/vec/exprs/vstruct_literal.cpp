@@ -38,7 +38,7 @@ namespace doris::vectorized {
 Status VStructLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                                VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
-    Field struct_field = Tuple();
+    Field struct_field = Field::create_field<TYPE_STRUCT>(Tuple());
     for (const auto& child : _children) {
         Field item;
         auto child_literal = std::dynamic_pointer_cast<const VLiteral>(child);

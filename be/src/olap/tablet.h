@@ -116,7 +116,7 @@ public:
     DataDir* data_dir() const { return _data_dir; }
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
 
-    const std::string& tablet_path() const { return _tablet_path; }
+    const std::string& tablet_path() const override { return _tablet_path; }
 
     bool set_tablet_schema_into_rowset_meta();
     Status init();
@@ -160,10 +160,8 @@ public:
     size_t num_null_columns() const;
     size_t num_short_key_columns() const;
     size_t num_rows_per_row_block() const;
-    CompressKind compress_kind() const;
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
-    size_t row_size() const;
     int64_t avg_rs_meta_serialize_size() const;
 
     // operation in rowsets
@@ -486,9 +484,6 @@ public:
 
     void set_binlog_config(BinlogConfig binlog_config);
 
-    void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
-    bool is_alter_failed() { return _alter_failed; }
-
     void set_is_full_compaction_running(bool is_full_compaction_running) {
         _is_full_compaction_running = is_full_compaction_running;
     }
@@ -640,8 +635,6 @@ private:
     // may delete compaction input rowsets.
     std::mutex _cold_compaction_lock;
     int64_t _last_failed_follow_cooldown_time = 0;
-    // `_alter_failed` is used to indicate whether the tablet failed to perform a schema change
-    std::atomic<bool> _alter_failed = false;
 
     int64_t _io_error_times = 0;
 
@@ -766,20 +759,12 @@ inline size_t Tablet::num_rows_per_row_block() const {
     return _tablet_meta->tablet_schema()->num_rows_per_row_block();
 }
 
-inline CompressKind Tablet::compress_kind() const {
-    return _tablet_meta->tablet_schema()->compress_kind();
-}
-
 inline double Tablet::bloom_filter_fpp() const {
     return _tablet_meta->tablet_schema()->bloom_filter_fpp();
 }
 
 inline size_t Tablet::next_unique_id() const {
     return _tablet_meta->tablet_schema()->next_column_unique_id();
-}
-
-inline size_t Tablet::row_size() const {
-    return _tablet_meta->tablet_schema()->row_size();
 }
 
 inline int64_t Tablet::avg_rs_meta_serialize_size() const {

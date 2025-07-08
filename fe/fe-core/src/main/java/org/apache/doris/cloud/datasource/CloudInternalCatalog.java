@@ -344,6 +344,14 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
             } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V3) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
+            } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT) {
+                if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
+                } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
+                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
+                } else {
+                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+                }
             } else {
                 throw new DdlException("invalid inverted index storage format");
             }
@@ -850,7 +858,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void removeSchemaChangeJob(long dbId, long tableId, long indexId, long newIndexId,
+    public void removeSchemaChangeJob(long jobId, long dbId, long tableId, long indexId, long newIndexId,
             long partitionId, long tabletId, long newTabletId)
             throws DdlException {
         Cloud.FinishTabletJobRequest.Builder finishTabletJobRequestBuilder = Cloud.FinishTabletJobRequest.newBuilder();
@@ -879,6 +887,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         newtabletIndexPBBuilder.setTabletId(newTabletId);
         final Cloud.TabletIndexPB newtabletIndex = newtabletIndexPBBuilder.build();
         schemaChangeJobPBBuilder.setNewTabletIdx(newtabletIndex);
+        schemaChangeJobPBBuilder.setId(String.valueOf(jobId));
         final Cloud.TabletSchemaChangeJobPB tabletSchemaChangeJobPb =
                 schemaChangeJobPBBuilder.build();
 

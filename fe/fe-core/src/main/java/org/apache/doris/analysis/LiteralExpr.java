@@ -35,11 +35,8 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -273,9 +270,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         throw new NotImplementedException("swapSign() only implemented for numeric" + "literals");
     }
 
-    public void readFields(DataInput in) throws IOException {
-    }
-
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -406,11 +400,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         } else {
             return len;
         }
-    }
-
-    @Override
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple) {
-        return true;
     }
 
     /** whether is ZERO value **/

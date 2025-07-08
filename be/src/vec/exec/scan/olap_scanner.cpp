@@ -41,6 +41,7 @@
 #include "exprs/function_filter.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/io_common.h"
+#include "olap/id_manager.h"
 #include "olap/inverted_index_profile.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
@@ -333,7 +334,7 @@ Status OlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.end_key.push_back(key_range->end_scan_range);
     }
 
-    _tablet_reader_params.profile = _local_state->profile();
+    _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
@@ -376,6 +377,8 @@ Status OlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
     }
 
+    DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
+
     if (!_state->skip_storage_engine_merge()) {
         TOlapScanNode& olap_scan_node =
                 ((pipeline::OlapScanLocalState*)_local_state)->olap_scan_node();
@@ -415,6 +418,13 @@ Status OlapScanner::_init_tablet_reader_params(
                     delayed_expired_timestamp);
             ExecEnv::GetInstance()->storage_engine().add_quering_rowset(
                     rs_reader.rs_reader->rowset());
+        }
+    }
+
+    if (tablet_schema->has_global_row_id()) {
+        auto& id_file_map = _state->get_id_file_map();
+        for (auto rs_reader : _tablet_reader_params.rs_splits) {
+            id_file_map->add_temp_rowset(rs_reader.rs_reader->rowset());
         }
     }
 
@@ -515,7 +525,6 @@ Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
         _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
         *eof = false;
     }
-    _update_realtime_counters();
     return Status::OK();
 }
 
@@ -527,17 +536,45 @@ Status OlapScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void OlapScanner::_update_realtime_counters() {
+void OlapScanner::update_realtime_counters() {
     pipeline::OlapScanLocalState* local_state =
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
-    COUNTER_UPDATE(local_state->_scan_bytes, stats.compressed_bytes_read);
-    _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
-
+    COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
-    // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
+
+    // Make sure the scan bytes and scan rows counter in audit log is the same as the counter in
+    // doris metrics.
+    // ScanBytes is the uncompressed bytes read from local + remote
+    // bytes_read_from_local is the compressed bytes read from local
+    // bytes_read_from_remote is the compressed bytes read from remote
+    // scan bytes > bytes_read_from_local + bytes_read_from_remote
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(stats.raw_rows_read);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
+            stats.uncompressed_bytes_read);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+            stats.file_cache_stats.bytes_read_from_local);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
+            stats.file_cache_stats.bytes_read_from_remote);
+
+    // In case of no cache, we still need to update the IO stats. uncompressed bytes read == local + remote
+    if (stats.file_cache_stats.bytes_read_from_local == 0 &&
+        stats.file_cache_stats.bytes_read_from_remote == 0) {
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats.compressed_bytes_read);
+    } else {
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats.file_cache_stats.bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                stats.file_cache_stats.bytes_read_from_remote);
+    }
+
+    _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
+    _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
+    _tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_local = 0;
+    _tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_remote = 0;
 }
 
 void OlapScanner::_collect_profile_before_close() {
@@ -556,7 +593,7 @@ void OlapScanner::_collect_profile_before_close() {
     auto* local_state = (pipeline::OlapScanLocalState*)_local_state;
     COUNTER_UPDATE(local_state->_io_timer, stats.io_ns);
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
-    COUNTER_UPDATE(local_state->_scan_bytes, stats.compressed_bytes_read);
+    COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_decompressor_timer, stats.decompress_ns);
     COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_block_load_timer, stats.block_load_ns);
@@ -628,6 +665,10 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_open_timer);
     COUNTER_UPDATE(local_state->_inverted_index_searcher_search_timer,
                    stats.inverted_index_searcher_search_timer);
+    COUNTER_UPDATE(local_state->_inverted_index_searcher_search_init_timer,
+                   stats.inverted_index_searcher_search_init_timer);
+    COUNTER_UPDATE(local_state->_inverted_index_searcher_search_exec_timer,
+                   stats.inverted_index_searcher_search_exec_timer);
     COUNTER_UPDATE(local_state->_inverted_index_searcher_cache_hit_counter,
                    stats.inverted_index_searcher_cache_hit);
     COUNTER_UPDATE(local_state->_inverted_index_searcher_cache_miss_counter,
@@ -682,8 +723,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.segment_iterator_init_return_column_iterators_timer_ns);
     COUNTER_UPDATE(local_state->_segment_iterator_init_bitmap_index_iterators_timer,
                    stats.segment_iterator_init_bitmap_index_iterators_timer_ns);
-    COUNTER_UPDATE(local_state->_segment_iterator_init_inverted_index_iterators_timer,
-                   stats.segment_iterator_init_inverted_index_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_index_iterators_timer,
+                   stats.segment_iterator_init_index_iterators_timer_ns);
 
     COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
                    stats.segment_create_column_readers_timer_ns);
@@ -691,16 +732,12 @@ void OlapScanner::_collect_profile_before_close() {
 
     // Update metrics
     DorisMetrics::instance()->query_scan_bytes->increment(
-            local_state->_read_compressed_counter->value());
+            local_state->_read_uncompressed_counter->value());
     DorisMetrics::instance()->query_scan_rows->increment(local_state->_scan_rows->value());
     auto& tablet = _tablet_reader_params.tablet;
-    tablet->query_scan_bytes->increment(local_state->_read_compressed_counter->value());
+    tablet->query_scan_bytes->increment(local_state->_read_uncompressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-            stats.file_cache_stats.bytes_read_from_local);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
-            stats.file_cache_stats.bytes_read_from_remote);
 }
 
 } // namespace doris::vectorized

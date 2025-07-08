@@ -41,6 +41,7 @@
 #include "olap/row_cursor.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "util/runtime_profile.h"
@@ -69,6 +70,8 @@ class BitmapIndexIterator;
 class ColumnIterator;
 class InvertedIndexIterator;
 class RowRanges;
+class IndexIterator;
+
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;
 
@@ -149,12 +152,8 @@ public:
         }
     }
 
-    std::vector<std::unique_ptr<InvertedIndexIterator>>& inverted_index_iterators() {
-        return _inverted_index_iterators;
-    }
-
-    bool has_inverted_index_in_iterators() const {
-        return std::any_of(_inverted_index_iterators.begin(), _inverted_index_iterators.end(),
+    bool has_index_in_iterators() const {
+        return std::any_of(_index_iterators.begin(), _index_iterators.end(),
                            [](const auto& iterator) { return iterator != nullptr; });
     }
 
@@ -178,7 +177,7 @@ private:
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
-    [[nodiscard]] Status _init_inverted_index_iterators();
+    [[nodiscard]] Status _init_index_iterators();
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -312,18 +311,13 @@ private:
     Status _construct_compound_expr_context();
 
     // todo(wb) remove this method after RowCursor is removed
-    void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
+    void NO_SANITIZE_UNDEFINED _convert_rowcursor_to_short_key(const RowCursor& key,
+                                                               size_t num_keys) {
         if (_short_key.size() == 0) {
             _short_key.resize(num_keys);
             for (auto cid = 0; cid < num_keys; cid++) {
                 auto* field = key.schema()->column(cid);
                 _short_key[cid] = Schema::get_column_by_field(*field);
-
-                if (field->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
-                    _short_key[cid]->set_date_type();
-                } else if (field->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
-                    _short_key[cid]->set_datetime_type();
-                }
             }
         } else {
             for (int i = 0; i < num_keys; i++) {
@@ -392,7 +386,7 @@ private:
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
-    std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
+    std::vector<std::unique_ptr<IndexIterator>> _index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan

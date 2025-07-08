@@ -63,8 +63,6 @@ public:
 
     int64_t get_memory_used();
 
-    friend class DummyWorkloadGroupTest;
-
 private:
     IntCounter* workload_group_cpu_time_sec {nullptr};           // used for metric
     IntGuage* workload_group_mem_used_bytes {nullptr};           // used for metric

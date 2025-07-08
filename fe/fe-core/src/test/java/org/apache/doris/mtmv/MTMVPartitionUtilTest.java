@@ -38,6 +38,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -91,6 +92,10 @@ public class MTMVPartitionUtilTest {
                 context.getBaseVersions();
                 minTimes = 0;
                 result = versions;
+
+                context.getBaseTableSnapshotCache();
+                minTimes = 0;
+                result = Maps.newHashMap();
 
                 mtmv.getPartitions();
                 minTimes = 0;
@@ -295,5 +300,21 @@ public class MTMVPartitionUtilTest {
         Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableName("ctl2.db1.table1"), tableNameToCheck));
         Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableName("db1"), tableNameToCheck));
         Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableName("ctl1"), tableNameToCheck));
+    }
+
+    @Test
+    public void testGetTableSnapshotFromContext() throws AnalysisException {
+        Map<BaseTableInfo, MTMVSnapshotIf> cache = Maps.newHashMap();
+        new Expectations() {
+            {
+                context.getBaseTableSnapshotCache();
+                minTimes = 0;
+                result = cache;
+            }
+        };
+        Assert.assertTrue(cache.isEmpty());
+        MTMVPartitionUtil.getTableSnapshotFromContext(baseOlapTable, context);
+        Assert.assertEquals(1, cache.size());
+        Assert.assertEquals(baseSnapshotIf, cache.values().iterator().next());
     }
 }

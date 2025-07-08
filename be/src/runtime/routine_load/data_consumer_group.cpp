@@ -156,7 +156,7 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
         }
 
         RdKafka::Message* msg;
-        bool res = _queue.blocking_get(&msg);
+        bool res = _queue.controlled_blocking_get(&msg, config::blocking_queue_cv_wait_timeout_ms);
         if (res) {
             // conf has to be deleted finally
             Defer delete_msg {[msg]() { delete msg; }};

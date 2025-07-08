@@ -385,6 +385,10 @@ public class MetaServiceProxy {
         return w.executeRequest((client) -> client.removeDeleteBitmapUpdateLock(request));
     }
 
+    /**
+     * This method is deprecated, there is no code to call it.
+     */
+    @Deprecated
     public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request)
             throws RpcException {
         return w.executeRequest((client) -> client.alterObjStoreInfo(request));

@@ -73,7 +73,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     _scan_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                  _parent->get_name() + "_DEPENDENCY");
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-            _runtime_profile, "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
+            common_profile(), "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
@@ -82,7 +82,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     RETURN_IF_ERROR(_init_profile());
     set_scan_ranges(state, info.scan_ranges);
 
-    _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
+    _wait_for_rf_timer = ADD_TIMER(common_profile(), "WaitForRuntimeFilter");
     return Status::OK();
 }
 
@@ -95,6 +95,15 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     auto& p = _parent->cast<typename Derived::Parent>();
+
+    // init id_file_map() for runtime state
+    std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
+    for (auto slot : slots) {
+        if (slot->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            state->set_id_file_map();
+        }
+    }
+
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
         RETURN_IF_ERROR(
@@ -535,9 +544,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                 _eos = true;
                 _scan_dependency->set_ready();
             }
-        } else if (const auto* bool_column =
-                           check_and_get_column<vectorized::ColumnVector<vectorized::UInt8>>(
-                                   const_col_wrapper->column_ptr.get())) {
+        } else if (const auto* bool_column = check_and_get_column<vectorized::ColumnUInt8>(
+                           const_col_wrapper->column_ptr.get())) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
@@ -877,14 +885,20 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
                          reinterpret_cast<char*>(value)));
         }
+    } else if constexpr (PrimitiveType == TYPE_HLL) {
+        if constexpr (IsFixed) {
+            func(temp_range, reinterpret_cast<StringRef*>(value));
+        } else {
+            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                 reinterpret_cast<StringRef*>(value));
+        }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
-                         (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
-                         (PrimitiveType == TYPE_DATETIMEV2) || (PrimitiveType == TYPE_TINYINT) ||
-                         (PrimitiveType == TYPE_SMALLINT) || (PrimitiveType == TYPE_INT) ||
-                         (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
-                         (PrimitiveType == TYPE_IPV4) || (PrimitiveType == TYPE_IPV6) ||
-                         (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
-                         (PrimitiveType == TYPE_DECIMAL128I) ||
+                         (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_DATETIMEV2) ||
+                         (PrimitiveType == TYPE_TINYINT) || (PrimitiveType == TYPE_SMALLINT) ||
+                         (PrimitiveType == TYPE_INT) || (PrimitiveType == TYPE_BIGINT) ||
+                         (PrimitiveType == TYPE_LARGEINT) || (PrimitiveType == TYPE_IPV4) ||
+                         (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
+                         (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
@@ -1009,6 +1023,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     // https://github.com/apache/doris/pull/44635
     const int parallism_of_scan_operator =
             p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
+
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             _scan_dependency, parallism_of_scan_operator);
@@ -1054,13 +1069,13 @@ Status ScanLocalState<Derived>::clone_conjunct_ctxs(vectorized::VExprContextSPtr
 template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
-    _rows_read_counter = ADD_COUNTER(_runtime_profile, "RowsRead", TUnit::UNIT);
-    _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
-    //_runtime_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
+    _rows_read_counter = ADD_COUNTER(custom_profile(), "RowsRead", TUnit::UNIT);
+    _num_scanners = ADD_COUNTER(custom_profile(), "NumScanners", TUnit::UNIT);
+    //custom_profile()->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("Scanner"));
-    profile()->add_child(_scanner_profile.get(), true, nullptr);
+    custom_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
@@ -1069,20 +1084,20 @@ Status ScanLocalState<Derived>::_init_profile() {
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
 
     // time of scan thread to wait for worker thread of the thread pool
-    _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
+    _scanner_wait_worker_timer = ADD_TIMER(custom_profile(), "ScannerWorkerWaitTime");
 
-    _max_scan_concurrency = ADD_COUNTER(_runtime_profile, "MaxScanConcurrency", TUnit::UNIT);
-    _min_scan_concurrency = ADD_COUNTER(_runtime_profile, "MinScanConcurrency", TUnit::UNIT);
+    _max_scan_concurrency = ADD_COUNTER(custom_profile(), "MaxScanConcurrency", TUnit::UNIT);
+    _min_scan_concurrency = ADD_COUNTER(custom_profile(), "MinScanConcurrency", TUnit::UNIT);
 
     _peak_running_scanner =
             _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
-    _scan_rows = ADD_COUNTER(_runtime_profile, "ScanRows", TUnit::UNIT);
+    _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
     // Size of data that read from storage.
     // Does not include rows that are cached by doris page cache.
-    _scan_bytes = ADD_COUNTER(_runtime_profile, "ScanBytes", TUnit::BYTES);
+    _scan_bytes = ADD_COUNTER(custom_profile(), "ScanBytes", TUnit::BYTES);
     return Status::OK();
 }
 
@@ -1092,7 +1107,7 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     std::stringstream result;
     std::copy(p.topn_filter_source_node_ids.begin(), p.topn_filter_source_node_ids.end(),
               std::ostream_iterator<int>(result, ","));
-    _runtime_profile->add_info_string("TopNFilterSourceNodeIds", result.str());
+    custom_profile()->add_info_string("TopNFilterSourceNodeIds", result.str());
 
     for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
@@ -1269,7 +1284,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-    _helper.collect_realtime_profile(profile());
+    _helper.collect_realtime_profile(custom_profile());
     return PipelineXLocalState<>::close(state);
 }
 

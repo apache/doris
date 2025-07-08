@@ -60,6 +60,11 @@ message KeyBoundsPB {
     required bytes max_key = 2;
 }
 
+message SplitSchemaPB {
+    repeated int64 split_field_ids = 1; // The split fields ids
+    optional uint64 num_split_keys = 2; // The num of split keys, used to limit the scan range.
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -109,7 +114,8 @@ message RowsetMetaPB {
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,
-    // only used in unique key data model with primary_key_index support.
+    // ATTN: segments_key_bounds may be truncated! please refer to field `segments_key_bounds_truncated`
+    // to check if these are truncated segments key bounds
     repeated KeyBoundsPB segments_key_bounds = 27;
     // tablet meta pb, for compaction
     optional TabletSchemaPB tablet_schema = 28;
@@ -121,6 +127,8 @@ message RowsetMetaPB {
     // For backup/restore, record the tablet id and rowset id of the source cluster.
     optional int64 source_tablet_id = 53;
     optional string source_rowset_id = 54;
+    // indicate that whether the segments key bounds is truncated
+    optional bool segments_key_bounds_truncated = 55;
 
     // For cloud
     // for data recycling
@@ -138,6 +146,8 @@ message RowsetMetaPB {
     optional bool enable_inverted_index_file_info = 1006;
     repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
     optional SchemaDictKeyList schema_dict_key_list = 1008; // align to cloud rowset
+
+    optional SplitSchemaPB __split_schema = 1009;  // A special field, DO NOT change it.
 }
 
 message SchemaDictKeyList {
@@ -196,7 +206,8 @@ message RowsetMetaCloudPB {
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,
-    // only used in unique key data model with primary_key_index support.
+    // ATTN: segments_key_bounds may be truncated! please refer to field `segments_key_bounds_truncated`
+    // to check if these are truncated segments key bounds
     repeated KeyBoundsPB segments_key_bounds = 27;
     // tablet meta pb, for compaction
     optional TabletSchemaCloudPB tablet_schema = 28;
@@ -210,6 +221,8 @@ message RowsetMetaCloudPB {
     // For backup/restore, record the tablet id and rowset id of the source cluster.
     optional int64 source_tablet_id = 53;
     optional string source_rowset_id = 54;
+    // indicate that whether the segments key bounds is truncated
+    optional bool segments_key_bounds_truncated = 55;
 
     // cloud
     // the field is a vector, rename it
@@ -228,6 +241,8 @@ message RowsetMetaCloudPB {
 
     optional bool enable_inverted_index_file_info = 106;
     repeated InvertedIndexFileInfo inverted_index_file_info = 107;
+
+    optional SplitSchemaPB __split_schema = 108;  // A special field, DO NOT change it.
 }
 
 message SegmentStatisticsPB {
@@ -634,6 +649,11 @@ message RowsetBinlogMetasPB {
     repeated RowsetBinlogMetaPB rowset_binlog_metas = 1;
 }
 
+enum PartialUpdateNewRowPolicyPB {
+    APPEND = 0;
+    ERROR = 1;
+}
+
 message PartialUpdateInfoPB {
     optional bool is_partial_update = 1 [default = false]; // deprecated
     repeated string partial_update_input_columns = 2;
@@ -649,4 +669,5 @@ message PartialUpdateInfoPB {
     optional int64 max_version_in_flush_phase = 12 [default = -1];
     optional int32 nano_seconds = 13 [default = 0];
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
+    optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
 }

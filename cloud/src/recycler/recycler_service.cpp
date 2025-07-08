@@ -24,11 +24,12 @@
 #include <google/protobuf/util/json_util.h>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/s3_rate_limiter.h"
-#include "meta-service/keys.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv_error.h"
 #include "recycler/checker.h"
 #include "recycler/meta_checker.h"
 #include "recycler/recycler.h"
@@ -60,14 +61,12 @@ void RecyclerServiceImpl::recycle_instance(::google::protobuf::RpcController* co
     brpc::ClosureGuard closure_guard(done);
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg = "OK";
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&code, &msg, &response, &ctrl](int*) {
-                response->mutable_status()->set_code(code);
-                response->mutable_status()->set_msg(msg);
-                LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
-                          << "recycle_instance"
-                          << " " << ctrl->remote_side() << " " << msg;
-            });
+    DORIS_CLOUD_DEFER {
+        response->mutable_status()->set_code(code);
+        response->mutable_status()->set_msg(msg);
+        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ") << "recycle_instance"
+                  << " " << ctrl->remote_side() << " " << msg;
+    };
 
     std::vector<InstanceInfoPB> instances;
     instances.reserve(request->instance_ids_size());
@@ -275,16 +274,15 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
     std::string req;
     std::string response_body;
     std::string request_body;
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&code, &msg, &status_code, &response_body, &cntl, &req](int*) {
-                status_code = std::get<0>(convert_ms_code_to_http_code(code));
-                LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ") << "http"
-                          << " " << cntl->remote_side() << " request=\n"
-                          << req << "\n ret=" << code << " msg=" << msg;
-                cntl->http_response().set_status_code(status_code);
-                cntl->response_attachment().append(response_body);
-                cntl->response_attachment().append("\n");
-            });
+    DORIS_CLOUD_DEFER {
+        status_code = std::get<0>(convert_ms_code_to_http_code(code));
+        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ") << "http"
+                  << " " << cntl->remote_side() << " request=\n"
+                  << req << "\n ret=" << code << " msg=" << msg;
+        cntl->http_response().set_status_code(status_code);
+        cntl->response_attachment().append(response_body);
+        cntl->response_attachment().append("\n");
+    };
 
     // Prepare input request info
     auto unresolved_path = cntl->http_request().unresolved_path();

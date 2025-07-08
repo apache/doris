@@ -17,10 +17,14 @@
 
 package org.apache.doris.resource.computegroup;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupKey;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import com.google.common.collect.Sets;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -92,9 +96,16 @@ public class ComputeGroup {
         return (this == obj);
     }
 
-    // todo(wb) remove getNames, and get workload group from ComputeGroup
-    public Set<String> getNames() {
-        return Sets.newHashSet(name);
+    // use wgMgr as args is just for FE UT, otherwise get wgMgr from env is hard to mock
+    public List<WorkloadGroup> getWorkloadGroup(String wgName, WorkloadGroupMgr wgMgr) throws UserException {
+        List<WorkloadGroup> wgList = Lists.newArrayList();
+        WorkloadGroup wg = wgMgr
+                .getWorkloadGroupByComputeGroup(WorkloadGroupKey.get(id, wgName));
+        if (wg == null) {
+            throw new UserException("Can not find workload group " + wgName + " in compute croup " + name);
+        }
+        wgList.add(wg);
+        return wgList;
     }
 
     private void checkInvalidComputeGroup() {

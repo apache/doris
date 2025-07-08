@@ -28,7 +28,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -43,8 +42,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -242,8 +239,49 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+        String subColumnPaths = "";
+        if (subColPath != null && !subColPath.isEmpty()) {
+            subColumnPaths = "." + String.join(".", subColPath);
+        }
+        if (tblName != null) {
+            return tblName.toSql() + "." + label + subColumnPaths;
+        } else if (label != null) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getState().isNereids()
+                    && !ConnectContext.get().getState().isQuery()
+                    && ConnectContext.get().getSessionVariable() != null
+                    && desc != null) {
+                return label + "[#" + desc.getId().asInt() + "]";
+            } else {
+                return label;
+            }
+        } else if (desc == null) {
+            // virtual slot of an alias function
+            // when we try to translate an alias function to Nereids style, the desc in the place holding slotRef
+            // is null, and we just need the name of col.
+            return "`" + col + "`";
+        } else if (desc.getSourceExprs() != null) {
+            if ((ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
+                if (desc.getId().asInt() != 1) {
+                    sb.append("<slot " + desc.getId().asInt() + ">");
+                }
+            }
+            for (Expr expr : desc.getSourceExprs()) {
+                sb.append(" ");
+                sb.append(expr.toSql());
+            }
+            return sb.toString();
+        } else {
+            return "<slot " + desc.getId().asInt() + ">" + sb.toString();
+        }
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf inputTable) {
         if (needExternalSql) {
-            return toExternalSqlImpl();
+            return toExternalSqlImpl(tableType, inputTable);
         }
 
         if (disableTableName && label != null) {
@@ -290,7 +328,7 @@ public class SlotRef extends Expr {
         }
     }
 
-    private String toExternalSqlImpl() {
+    private String toExternalSqlImpl(TableType tableType, TableIf inputTable) {
         if (col != null) {
             if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
                     .equals(TableType.ODBC)) {
@@ -439,7 +477,7 @@ public class SlotRef extends Expr {
         this.tupleId = tupleId;
     }
 
-    TupleId getTupleId() {
+    public TupleId getTupleId() {
         return tupleId;
     }
 
@@ -584,20 +622,6 @@ public class SlotRef extends Expr {
         this.col = col;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            tblName = new TableName();
-            tblName.readFields(in);
-        }
-        col = Text.readString(in);
-    }
-
-    public static SlotRef read(DataInput in) throws IOException {
-        SlotRef slotRef = new SlotRef();
-        slotRef.readFields(in);
-        return slotRef;
-    }
-
     @Override
     public boolean isNullable() {
         Preconditions.checkNotNull(desc);
@@ -623,47 +647,6 @@ public class SlotRef extends Expr {
         }
         String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
         return CreateMaterializedViewStmt.isMVColumn(name);
-    }
-
-    @Override
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple)
-            throws AnalysisException {
-        Expr originExpr = stmt.getExprFromAliasSMap(this);
-        if (!(originExpr instanceof SlotRef)) {
-            return true; // means this is alias of other expr.
-        }
-
-        SlotRef aliasExpr = (SlotRef) originExpr;
-        if (aliasExpr.getColumnName() == null) {
-            if (desc.getSourceExprs() != null) {
-                for (Expr expr : desc.getSourceExprs()) {
-                    if (!expr.matchExprs(exprs, stmt, ignoreAlias, tuple)) {
-                        return false;
-                    }
-                }
-            }
-            return true; // means this is alias of other expr.
-        }
-
-        String name = MaterializedIndexMeta.normalizeName(aliasExpr.toSqlWithoutTbl());
-        if (aliasExpr.desc != null) {
-            if (!isBound(tuple.getId()) && !tuple.getColumnNames().contains(name)) {
-                return true; // means this from other scan node.
-            }
-
-            if (!aliasExpr.desc.isMaterialized()) {
-                return true; // means this is unused field after triming.
-            }
-        }
-
-        for (Expr expr : exprs) {
-            if (CreateMaterializedViewStmt.isMVColumnNormal(name)
-                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
-                            .mvColumnBreaker(name))) {
-                return true;
-            }
-        }
-        return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
     }
 
     @Override

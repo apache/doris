@@ -31,7 +31,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -218,7 +217,7 @@ TEST_F(VAggHistogramTest, test_empty) {
     test_agg_histogram<DataTypeDate>();
     test_agg_histogram<DataTypeDateTime>();
     test_agg_histogram<DataTypeString>();
-    test_agg_histogram<DataTypeDecimal<Decimal128V2>>();
+    test_agg_histogram<DataTypeDecimalV2>();
 }
 
 TEST_F(VAggHistogramTest, test_with_data) {
@@ -238,7 +237,7 @@ TEST_F(VAggHistogramTest, test_with_data) {
     test_agg_histogram<DataTypeDateTime>(100, 5);
     test_agg_histogram<DataTypeDateTimeV2>(100, 5);
 
-    test_agg_histogram<DataTypeDecimal<Decimal128V2>>(100, 5);
+    test_agg_histogram<DataTypeDecimalV2>(100, 5);
 }
 
 } // namespace doris::vectorized

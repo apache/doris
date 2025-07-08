@@ -100,14 +100,9 @@ Status ScannerContext::init() {
                                      print_id(_state->query_id()));
     }
 
-    thread_token = _state->get_query_ctx()->get_token();
-
     if (_state->get_query_ctx()->get_scan_scheduler()) {
         _should_reset_thread_name = false;
     }
-
-    _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                    thread_token == nullptr ? "False" : "True");
 
     auto scanner = _all_scanners.front().lock();
     DCHECK(scanner != nullptr);
@@ -115,23 +110,10 @@ Status ScannerContext::init() {
     // TODO: Maybe need refactor.
     // A query could have remote scan task and local scan task at the same time.
     // So we need to compute the _scanner_scheduler in each scan operator instead of query context.
-    SimplifiedScanScheduler* simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
-    SimplifiedScanScheduler* remote_scan_task_scheduler =
-            _state->get_query_ctx()->get_remote_scan_scheduler();
     if (scanner->_scanner->get_storage_type() == TabletStorageType::STORAGE_TYPE_LOCAL) {
-        // scan_scheduler could be empty if query does not have a workload group.
-        if (simple_scan_scheduler) {
-            _scanner_scheduler = simple_scan_scheduler;
-        } else {
-            _scanner_scheduler = _scanner_scheduler_global->get_local_scan_thread_pool();
-        }
+        _scanner_scheduler = _state->get_query_ctx()->get_scan_scheduler();
     } else {
-        // remote_scan_task_scheduler could be empty if query does not have a workload group.
-        if (remote_scan_task_scheduler) {
-            _scanner_scheduler = remote_scan_task_scheduler;
-        } else {
-            _scanner_scheduler = _scanner_scheduler_global->get_remote_scan_thread_pool();
-        }
+        _scanner_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
     }
 #endif
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.

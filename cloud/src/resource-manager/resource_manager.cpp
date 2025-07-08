@@ -26,9 +26,9 @@
 #include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
 
@@ -53,11 +53,10 @@ int ResourceManager::init() {
     std::unique_ptr<RangeGetIterator> it;
 
     int num_instances = 0;
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-            (int*)0x01, [key0, key1, &num_instances](int*) {
-                LOG(INFO) << "get instances, num_instances=" << num_instances << " range=["
-                          << hex(key0) << "," << hex(key1) << "]";
-            });
+    DORIS_CLOUD_DEFER_COPY(key0, key1) {
+        LOG(INFO) << "get instances, num_instances=" << num_instances << " range=[" << hex(key0)
+                  << "," << hex(key1) << "]";
+    };
 
     //                     instance_id  instance
     std::vector<std::tuple<std::string, InstanceInfoPB>> instances;
@@ -312,8 +311,9 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
     std::string msg;
     std::stringstream ss;
 
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [&msg](int*) { LOG(INFO) << "add_cluster err=" << msg; });
+    DORIS_CLOUD_DEFER {
+        LOG(INFO) << "add_cluster err=" << msg;
+    };
 
     // just check cluster_name not empty in add_cluster
     if (!check_cluster_params_valid(cluster.cluster, &msg, true, true)) {
@@ -856,8 +856,9 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
                                           const std::vector<NodeInfo>& to_del) {
     std::string msg;
     std::stringstream ss;
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [&msg](int*) { LOG(INFO) << "modify_nodes err=" << msg; });
+    DORIS_CLOUD_DEFER {
+        LOG(INFO) << "modify_nodes err=" << msg;
+    };
 
     if ((to_add.size() && to_del.size()) || (!to_add.size() && !to_del.size())) {
         msg = "to_add and to_del both empty or both not empty";
@@ -1220,12 +1221,11 @@ std::pair<MetaServiceCode, std::string> ResourceManager::refresh_instance(
     LOG(INFO) << "begin to refresh instance, instance_id=" << instance_id << " seq=" << ++seq;
     std::pair<MetaServiceCode, std::string> ret0 {MetaServiceCode::OK, "OK"};
     auto& [code, msg] = ret0;
-    std::unique_ptr<int, std::function<void(int*)>> defer_log(
-            (int*)0x01, [&ret0, &instance_id](int*) {
-                LOG(INFO) << (std::get<0>(ret0) == MetaServiceCode::OK ? "succ to " : "failed to ")
-                          << "refresh_instance, instance_id=" << instance_id
-                          << " code=" << std::get<0>(ret0) << " msg=" << std::get<1>(ret0);
-            });
+    DORIS_CLOUD_DEFER {
+        LOG(INFO) << (std::get<0>(ret0) == MetaServiceCode::OK ? "succ to " : "failed to ")
+                  << "refresh_instance, instance_id=" << instance_id
+                  << " code=" << std::get<0>(ret0) << " msg=" << std::get<1>(ret0);
+    };
 
     std::unique_ptr<Transaction> txn0;
     TxnErrorCode err = txn_kv_->create_txn(&txn0);

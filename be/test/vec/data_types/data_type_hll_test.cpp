@@ -84,13 +84,13 @@ TEST_P(DataTypeHLLTest, MetaInfoTest) {
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = HyperLogLog::empty(),
+            .default_field = Field::create_field<TYPE_HLL>(HyperLogLog::empty()),
     };
     helper->meta_info_assert(dt_hll, hll_meta_info_to_assert);
 }
 
 TEST_P(DataTypeHLLTest, CreateColumnTest) {
-    Field default_field_hll = HyperLogLog::empty();
+    Field default_field_hll = Field::create_field<TYPE_HLL>(HyperLogLog::empty());
     helper->create_column_assert(dt_hll, default_field_hll, 17);
 }
 

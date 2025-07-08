@@ -107,7 +107,7 @@ public class CreateFunctionTest {
         List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
-        Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
+        Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
         queryStr = "select db1.id_masking(k1) from db1.tbl1";
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
@@ -144,7 +144,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, functions.size());
 
         String queryStr = "select id_masking(13888888888);";
-        testFunctionQuery(ctx, queryStr, false);
+        testFunctionQuery(ctx, queryStr, true);
 
         queryStr = "select id_masking(k1) from db2.tbl1";
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),

@@ -27,8 +27,6 @@
 #include "common/status.h"
 #include "data_type_number_serde.h"
 #include "olap/olap_common.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
@@ -36,14 +34,14 @@
 #include "vec/runtime/ipv6_value.h"
 
 namespace doris {
-class JsonbOutStream;
 
 namespace vectorized {
 class Arena;
 
-class DataTypeIPv6SerDe : public DataTypeNumberSerDe<IPv6> {
+class DataTypeIPv6SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6> {
 public:
-    DataTypeIPv6SerDe(int nesting_level = 1) : DataTypeNumberSerDe<IPv6>(nesting_level) {};
+    DataTypeIPv6SerDe(int nesting_level = 1)
+            : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6>(nesting_level) {};
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
@@ -62,11 +60,11 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
                                  Arena* mem_pool, int unique_id, int64_t row_num) const override;

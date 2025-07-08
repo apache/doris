@@ -47,6 +47,7 @@ namespace ErrorCode {
     TStatusError(IO_ERROR, true);                         \
     TStatusError(NOT_FOUND, true);                        \
     TStatusError(ALREADY_EXIST, true);                    \
+    TStatusError(DIRECTORY_NOT_EMPTY, true);              \
     TStatusError(NOT_IMPLEMENTED_ERROR, false);           \
     TStatusError(END_OF_FILE, false);                     \
     TStatusError(INTERNAL_ERROR, true);                   \
@@ -277,7 +278,7 @@ namespace ErrorCode {
     E(SEGCOMPACTION_FAILED, -3119, false);                   \
     E(ROWSET_ADD_TO_BINLOG_FAILED, -3122, true);             \
     E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123, true);      \
-    E(INVERTED_INDEX_INVALID_PARAMETERS, -6000, false);      \
+    E(INDEX_INVALID_PARAMETERS, -6000, false);               \
     E(INVERTED_INDEX_NOT_SUPPORTED, -6001, false);           \
     E(INVERTED_INDEX_CLUCENE_ERROR, -6002, false);           \
     E(INVERTED_INDEX_FILE_NOT_FOUND, -6003, false);          \
@@ -293,6 +294,7 @@ namespace ErrorCode {
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
+    E(NEW_ROWS_IN_PARTIAL_UPDATE, -7003, false);             \
     E(INVALID_TABLET_STATE, -7211, false);                   \
     E(ROWSETS_EXPIRED, -7311, false);                        \
     E(CGROUP_ERROR, -7411, false);                           \
@@ -488,6 +490,7 @@ public:
     ERROR_CTOR(IOError, IO_ERROR)
     ERROR_CTOR(NotFound, NOT_FOUND)
     ERROR_CTOR_NOSTACK(AlreadyExist, ALREADY_EXIST)
+    ERROR_CTOR_NOSTACK(DirectoryNotEmpty, DIRECTORY_NOT_EMPTY)
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
     ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)

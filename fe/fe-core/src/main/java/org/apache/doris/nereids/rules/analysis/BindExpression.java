@@ -62,11 +62,11 @@ import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFun
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -91,6 +91,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
+import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StructField;
@@ -100,7 +101,6 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.base.Preconditions;
@@ -153,7 +153,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 if (!rule.getPattern().matchRoot(plan)) {
                     return false;
                 }
-                return plan.canBind() || (plan.bound() && !isAppliedRule(rule, plan));
+                return !isAppliedRule(rule, plan);
             }
         };
 
@@ -209,16 +209,16 @@ public class BindExpression implements AnalysisRuleFactory {
             ),
             RuleType.BINDING_ONE_ROW_RELATION_SLOT.build(
                 // we should bind UnboundAlias in the UnboundOneRowRelation
-                unboundOneRowRelation().thenApply(this::bindOneRowRelation)
+                oneRowRelation().thenApply(this::bindOneRowRelation)
             ),
             RuleType.BINDING_SET_OPERATION_SLOT.build(
                 // LogicalSetOperation don't bind again if LogicalSetOperation.outputs is not empty, this is special
                 // we should not remove LogicalSetOperation::canBind, because in default case, the plan can run into
                 // bind callback if not bound or **not run into bind callback yet**.
-                logicalSetOperation().when(LogicalSetOperation::canBind).then(this::bindSetOperation)
+                logicalSetOperation().then(this::bindSetOperation)
             ),
             RuleType.BINDING_GENERATE_SLOT.build(
-                logicalGenerate().when(AbstractPlan::canBind).thenApply(this::bindGenerate)
+                logicalGenerate().thenApply(this::bindGenerate)
             ),
             RuleType.BINDING_UNBOUND_TVF_RELATION_FUNCTION.build(
                 unboundTVFRelation().thenApply(this::bindTableValuedFunction)
@@ -253,13 +253,19 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private LogicalSubQueryAlias<Plan> bindSubqueryAlias(MatchingContext<LogicalSubQueryAlias<Plan>> ctx) {
-        LogicalSubQueryAlias<Plan> subQueryAlias = ctx.root;
-        checkSameNameSlot(subQueryAlias.child(0).getOutput(), subQueryAlias.getAlias());
-        return subQueryAlias;
+        return ctx.root;
     }
 
     private LogicalPlan bindGenerate(MatchingContext<LogicalGenerate<Plan>> ctx) {
         LogicalGenerate<Plan> generate = ctx.root;
+
+        // already bounded, then fast return
+        for (Slot slot : generate.getGeneratorOutput()) {
+            if (!(slot instanceof UnboundSlot)) {
+                return generate;
+            }
+        }
+
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         Builder<Slot> outputSlots = ImmutableList.builder();
@@ -335,10 +341,13 @@ public class BindExpression implements AnalysisRuleFactory {
         Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(childrenProjectionSize);
         for (int i = 0; i < childrenProjectionSize; i++) {
             Plan newChild;
+            Plan child = setOperation.child(i);
             if (childrenProjections.get(i).stream().allMatch(SlotReference.class::isInstance)) {
-                newChild = setOperation.child(i);
+                newChild = child;
             } else {
-                newChild = new LogicalProject<>(childrenProjections.get(i), setOperation.child(i));
+                List<NamedExpression> parentProject = childrenProjections.get(i);
+                newChild = ProjectProcessor.tryProcessProject(parentProject, child)
+                        .orElseGet(() -> new LogicalProject<>(parentProject, child));
             }
             newChildren.add(newChild);
             childrenOutputs.add((List<SlotReference>) (List) newChild.getOutput());
@@ -349,8 +358,8 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     @NotNull
-    private LogicalOneRowRelation bindOneRowRelation(MatchingContext<UnboundOneRowRelation> ctx) {
-        UnboundOneRowRelation oneRowRelation = ctx.root;
+    private LogicalOneRowRelation bindOneRowRelation(MatchingContext<OneRowRelation> ctx) {
+        OneRowRelation oneRowRelation = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(oneRowRelation, cascadesContext, ImmutableList.of());
         List<NamedExpression> projects = analyzer.analyzeToList(oneRowRelation.getProjects());
@@ -817,10 +826,15 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(filter, cascadesContext, filter.children());
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
                 filter.getConjuncts().size());
+        boolean changed = false;
         for (Expression conjunct : filter.getConjuncts()) {
             Expression boundConjunct = analyzer.analyze(conjunct);
             boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);
+            changed |= boundConjunct != conjunct;
             boundConjuncts.add(boundConjunct);
+        }
+        if (!changed) {
+            return filter;
         }
         return new LogicalFilter<>(boundConjuncts.build(), filter.child());
     }
@@ -972,7 +986,7 @@ public class BindExpression implements AnalysisRuleFactory {
         for (Expression conjunct : qualify.getConjuncts()) {
             conjunct = analyzer.analyze(conjunct);
             conjunct = TypeCoercionUtils.castIfNotSameType(conjunct, BooleanType.INSTANCE);
-            boundConjuncts.add(conjunct);
+            boundConjuncts.addAll(ExpressionUtils.extractConjunctionToSet(conjunct));
         }
     }
 
@@ -1021,7 +1035,7 @@ public class BindExpression implements AnalysisRuleFactory {
         for (Expression expression : qualify.getConjuncts()) {
             Expression boundConjunct = qualifyAnalyzer.analyze(expression, rewriteContext);
             boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);
-            boundConjuncts.add(boundConjunct);
+            boundConjuncts.addAll(ExpressionUtils.extractConjunctionToSet(boundConjunct));
         }
     }
 
@@ -1316,20 +1330,6 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first);
     }
 
-    /**
-     * Check the slot in childOutputs is duplicated or not
-     * If childOutputs has duplicated column name, would throw analysis exception
-     */
-    public static void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
-        Set<String> nameSlots = new HashSet<>(childOutputs.size() * 2);
-        for (Slot s : childOutputs) {
-            if (!nameSlots.add(s.getInternalName())) {
-                throw new AnalysisException("Duplicated inline view column alias: '" + s.getName()
-                        + "'" + " in inline view: '" + subQueryAlias + "'");
-            }
-        }
-    }
-
     private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,
             List<? extends NamedExpression> output) {
         // if group_by_and_having_use_alias_first=true, we should fall back to original planner until we
@@ -1352,12 +1352,6 @@ public class BindExpression implements AnalysisRuleFactory {
             if (isGroupByContainAlias) {
                 break;
             }
-        }
-
-        if (isGroupByContainAlias
-                && ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
-            throw new AnalysisException("group_by_and_having_use_alias=true is unsupported for Nereids");
         }
     }
 

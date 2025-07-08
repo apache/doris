@@ -34,7 +34,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
-------------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) as DOUBLE))
+------------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast(0.05*avg(netpaid) as DOUBLE))
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]

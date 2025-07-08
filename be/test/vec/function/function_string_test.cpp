@@ -1477,10 +1477,10 @@ TEST(function_string_test, function_null_or_empty_test) {
 
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
-    DataSet data_set = {{{std::string("")}, uint8(true)},
-                        {{std::string("aa")}, uint8(false)},
-                        {{std::string("我")}, uint8(false)},
-                        {{Null()}, uint8(true)}};
+    DataSet data_set = {{{std::string("")}, uint8_t(true)},
+                        {{std::string("aa")}, uint8_t(false)},
+                        {{std::string("我")}, uint8_t(false)},
+                        {{Null()}, uint8_t(true)}};
 
     check_function_all_arg_comb<DataTypeUInt8, false>(func_name, input_types, data_set);
 }
@@ -1973,6 +1973,7 @@ TEST(function_string_test, function_sm3sum_test) {
 }
 
 TEST(function_string_test, function_aes_encrypt_test) {
+    //FIXME: these tests have no meaning because the result is from themselves.
     std::string func_name = "aes_encrypt";
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
@@ -1981,9 +1982,9 @@ TEST(function_string_test, function_aes_encrypt_test) {
         const char* mode = "AES_128_ECB";
         const char* key = "doris";
         const char* src[6] = {"aaaaaa", "bbbbbb", "cccccc", "dddddd", "eeeeee", ""};
-        std::string r[5];
+        std::string r[6];
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             int cipher_len = strlen(src[i]) + 16;
             std::vector<char> p(cipher_len);
 
@@ -1998,7 +1999,7 @@ TEST(function_string_test, function_aes_encrypt_test) {
                             {{std::string(src[2]), std::string(key), std::string(mode)}, r[2]},
                             {{std::string(src[3]), std::string(key), std::string(mode)}, r[3]},
                             {{std::string(src[4]), std::string(key), std::string(mode)}, r[4]},
-                            {{std::string(src[5]), std::string(key), std::string(mode)}, Null()},
+                            {{std::string(src[5]), std::string(key), std::string(mode)}, r[5]},
                             {{Null(), std::string(key), std::string(mode)}, Null()}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
@@ -2010,9 +2011,9 @@ TEST(function_string_test, function_aes_encrypt_test) {
         const char* mode = "AES_256_ECB";
         const char* key = "vectorized";
         const char* src[6] = {"aaaaaa", "bbbbbb", "cccccc", "dddddd", "eeeeee", ""};
-        std::string r[5];
+        std::string r[6];
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             int cipher_len = strlen(src[i]) + 16;
             std::vector<char> p(cipher_len);
             int iv_len = 32;
@@ -2033,8 +2034,7 @@ TEST(function_string_test, function_aes_encrypt_test) {
                 {{std::string(src[2]), std::string(key), std::string(iv), std::string(mode)}, r[2]},
                 {{std::string(src[3]), std::string(key), std::string(iv), std::string(mode)}, r[3]},
                 {{std::string(src[4]), std::string(key), std::string(iv), std::string(mode)}, r[4]},
-                {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)},
-                 Null()},
+                {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)}, r[5]},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
@@ -2116,9 +2116,9 @@ TEST(function_string_test, function_sm4_encrypt_test) {
         const char* iv = "0123456789abcdef";
         const char* mode = "SM4_128_ECB";
         const char* src[6] = {"aaaaaa", "bbbbbb", "cccccc", "dddddd", "eeeeee", ""};
-        std::string r[5];
+        std::string r[6];
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             int cipher_len = strlen(src[i]) + 16;
             std::vector<char> p(cipher_len);
             int iv_len = 32;
@@ -2139,8 +2139,7 @@ TEST(function_string_test, function_sm4_encrypt_test) {
                 {{std::string(src[2]), std::string(key), std::string(iv), std::string(mode)}, r[2]},
                 {{std::string(src[3]), std::string(key), std::string(iv), std::string(mode)}, r[3]},
                 {{std::string(src[4]), std::string(key), std::string(iv), std::string(mode)}, r[4]},
-                {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)},
-                 Null()},
+                {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)}, r[5]},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
@@ -2154,9 +2153,9 @@ TEST(function_string_test, function_sm4_encrypt_test) {
         const char* iv = "0123456789abcdef";
         const char* mode = "SM4_128_CTR";
         const char* src[6] = {"aaaaaa", "bbbbbb", "cccccc", "dddddd", "eeeeee", ""};
-        std::string r[5];
+        std::string r[6];
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             int cipher_len = strlen(src[i]) + 16;
             std::vector<char> p(cipher_len);
             int iv_len = 32;
@@ -2177,8 +2176,7 @@ TEST(function_string_test, function_sm4_encrypt_test) {
                 {{std::string(src[2]), std::string(key), std::string(iv), std::string(mode)}, r[2]},
                 {{std::string(src[3]), std::string(key), std::string(iv), std::string(mode)}, r[3]},
                 {{std::string(src[4]), std::string(key), std::string(iv), std::string(mode)}, r[4]},
-                {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)},
-                 Null()},
+                {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)}, r[5]},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);

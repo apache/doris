@@ -47,8 +47,11 @@ std::string SchemaCache::get_schema_key(int64_t tablet_id, const std::vector<TCo
     }
     std::string key = fmt::format("{}-", tablet_id);
     std::for_each(columns.begin(), columns.end(), [&](const TColumn& col) {
-        key.append(fmt::format("{}", col.col_unique_id));
-        key.append("-");
+        key.append(fmt::format("{}-", col.col_unique_id));
+        // Remove the check after we del old impl of topn materialize code
+        if (col.column_name.find("ROWID") != std::string::npos) {
+            key.append(fmt::format("{}-", col.column_name));
+        }
     });
     key.append(fmt::format("{}", version));
     return key;

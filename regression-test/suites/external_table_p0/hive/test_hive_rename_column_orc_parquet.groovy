@@ -137,9 +137,70 @@ suite("test_hive_rename_column_orc_parquet", "p0,external,hive,external_docker,e
         qt_rename_parquet_12_false """ select f,new_d,c,new_b,new_a from test_hive_rename_column_parquet order by new_b,c; """
         qt_rename_parquet_13_false """ select * from test_hive_rename_column_parquet where new_b + new_a != 31 order by new_b,c; """
 
-        
 
 
+
+        sql """ set hive_orc_use_column_names=true; """ 
+        qt_rename_orc_1_true_limit """ select  * from test_hive_rename_column_orc order by new_b,c limit 3 """;
+        qt_rename_orc_2_true_limit """ select  new_b from test_hive_rename_column_orc order by new_b,c limit 3 """;
+        qt_rename_orc_3_true_limit """ select new_b,count(*) from test_hive_rename_column_orc   group by new_b order by new_b limit 3""";
+        qt_rename_orc_4_true_limit """ select * from test_hive_rename_column_orc where new_a = 1 order by new_b,c  limit 3""";
+        qt_rename_orc_5_true_limit """ select * from test_hive_rename_column_orc where new_d is not null order by new_b,c limit 3 """
+        qt_rename_orc_6_true_limit """ select * from test_hive_rename_column_orc where new_d is null order by new_b,c limit 3; """
+        qt_rename_orc_7_true_limit """ select * from test_hive_rename_column_orc where new_b + new_a = 31 order by new_b,c limit 3; """
+        qt_rename_orc_8_true_limit """ select new_a  from test_hive_rename_column_orc where new_a = 1 order by new_b,c limit 3; """
+        qt_rename_orc_9_true_limit """ select new_b  from test_hive_rename_column_orc where new_b = 1 order by new_b limit 3; """
+        qt_rename_orc_10_true_limit """ select new_b,new_d  from test_hive_rename_column_orc where new_d +30*new_b=100  order by new_b,c limit 3; """
+        qt_rename_orc_11_true_limit """ select new_b,new_a  from test_hive_rename_column_orc order by new_b,c,new_a  limit 3;   """
+        qt_rename_orc_12_true_limit """ select f,new_d,c,new_b,new_a from test_hive_rename_column_orc order by new_b,c limit 3; """
+        qt_rename_orc_13_true_limit """ select * from test_hive_rename_column_orc where new_b + new_a != 31 order by new_b,c limit 3; """
+
+
+        sql """ set hive_orc_use_column_names=false; """ 
+        qt_rename_orc_1_false_limit """ select  * from test_hive_rename_column_orc order by new_b,c limit 3 """;
+        qt_rename_orc_2_false_limit """ select  new_b from test_hive_rename_column_orc order by new_b,c limit 3""";
+        qt_rename_orc_3_false_limit """ select new_b,count(*) from test_hive_rename_column_orc   group by new_b order by new_b limit 3""";
+        qt_rename_orc_4_false_limit """ select * from test_hive_rename_column_orc where new_a = 1 order by new_b,c  limit 3 """;
+        qt_rename_orc_5_false_limit """ select * from test_hive_rename_column_orc where new_d is not null order by new_b  limit 3"""
+        qt_rename_orc_6_false_limit """ select * from test_hive_rename_column_orc where new_d is null order by new_b,c limit 3; """
+        qt_rename_orc_7_false_limit """ select * from test_hive_rename_column_orc where new_b + new_a = 31 order by new_b,c limit 3; """
+        qt_rename_orc_8_false_limit """ select new_a  from test_hive_rename_column_orc where new_a = 1 order by new_b,c limit 3; """
+        qt_rename_orc_9_false_limit """ select new_b  from test_hive_rename_column_orc where new_b = 1 order by new_b limit 3; """
+        qt_rename_orc_10_false_limit """ select new_b,new_d  from test_hive_rename_column_orc where new_d +30*new_b=100  order by new_b,c limit 3;  """
+        qt_rename_orc_11_false_limit """ select new_b,new_a  from test_hive_rename_column_orc order by new_b,c,new_a limit 3;   """
+        qt_rename_orc_12_false_limit """ select f,new_d,c,new_b,new_a from test_hive_rename_column_orc order by new_b,c limit 3; """
+        qt_rename_orc_13_false_limit """ select * from test_hive_rename_column_orc where new_b + new_a != 31 order by new_b,c limit 3; """
+
+        sql """ set hive_parquet_use_column_names=true; """ 
+        qt_rename_parquet_1_true_limit """ select  * from test_hive_rename_column_parquet order by new_b,c  limit 3 """;
+        qt_rename_parquet_2_true_limit """ select  new_b from test_hive_rename_column_parquet order by new_b,c limit 3 """;
+        qt_rename_parquet_3_true_limit """ select new_b,count(*) from test_hive_rename_column_parquet   group by new_b order by new_b limit 3""";
+        qt_rename_parquet_4_true_limit """ select * from test_hive_rename_column_parquet where new_a = 1 order by new_b,c  limit 3""";
+        qt_rename_parquet_5_true_limit """ select * from test_hive_rename_column_parquet where new_d is not null order by new_b,c limit 3 """
+        qt_rename_parquet_6_true_limit """ select * from test_hive_rename_column_parquet where new_d is null order by new_b,c limit 3; """
+        qt_rename_parquet_7_true_limit """ select * from test_hive_rename_column_parquet where new_b + new_a = 31 order by new_b,c limit 3; """
+        qt_rename_parquet_8_true_limit """ select new_a  from test_hive_rename_column_parquet where new_a = 1 order by new_b,c limit 3; """
+        qt_rename_parquet_9_true_limit """ select new_b  from test_hive_rename_column_parquet where new_b = 1 order by new_b limit 3; """
+        qt_rename_parquet_10_true_limit """ select new_b,new_d  from test_hive_rename_column_parquet where new_d +30*new_b=100 order by new_b,c limit 3; """
+        qt_rename_parquet_11_true_limit """ select new_b,new_a  from test_hive_rename_column_parquet order by new_b,c,new_a limit 3;   """
+        qt_rename_parquet_12_true_limit """ select f,new_d,c,new_b,new_a from test_hive_rename_column_parquet order by new_b,c limit 3; """
+        qt_rename_parquet_13_true_limit """ select * from test_hive_rename_column_parquet where new_b + new_a != 31 order by new_b,c limit 3; """
+
+
+        sql """ set hive_parquet_use_column_names=false; """ 
+        qt_rename_parquet_1_false_limit """ select  * from test_hive_rename_column_parquet order by new_b,c limit 3""";
+        qt_rename_parquet_2_false_limit """ select  new_b from test_hive_rename_column_parquet order by new_b,c limit 3 """;
+        qt_rename_parquet_3_false_limit """ select new_b,count(*) from test_hive_rename_column_parquet   group by new_b order by new_b limit 3""";
+        qt_rename_parquet_4_false_limit """ select * from test_hive_rename_column_parquet where new_a = 1 order by new_b,c  limit 3""";
+        qt_rename_parquet_5_false_limit """ select * from test_hive_rename_column_parquet where new_d is not null order by new_b,c limit 3 """
+        qt_rename_parquet_6_false_limit """ select * from test_hive_rename_column_parquet where new_d is null order by new_b,c limit 3; """
+        qt_rename_parquet_7_false_limit """ select * from test_hive_rename_column_parquet where new_b + new_a = 31 order by new_b,c limit 3; """
+        qt_rename_parquet_8_false_limit """ select new_a  from test_hive_rename_column_parquet where new_a = 1 order by new_b,c limit 3; """
+        qt_rename_parquet_9_false_limit """ select new_b  from test_hive_rename_column_parquet where new_b = 1 order by new_b limit 3; """
+        qt_rename_parquet_10_false_limit """ select new_b,new_d  from test_hive_rename_column_parquet where new_d +30*new_b=100  order by new_b,c limit 3; """
+        qt_rename_parquet_11_false_limit """ select new_b,new_a  from test_hive_rename_column_parquet order by new_b,c,new_a limit 3;   """
+        qt_rename_parquet_12_false_limit """ select f,new_d,c,new_b,new_a from test_hive_rename_column_parquet order by new_b,c limit 3 ; """
+        qt_rename_parquet_13_false_limit """ select * from test_hive_rename_column_parquet where new_b + new_a != 31 order by new_b,c limit 3; """
 
     }
 }

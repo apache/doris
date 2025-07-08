@@ -802,6 +802,15 @@ public class VariableMgr {
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
                 VarContext ctx = entry.getValue();
+                VarAttr varAttr = ctx.getField().getAnnotation(VarAttr.class);
+                // not show removed variables
+                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                // not show invisible variables
+                if ((VariableMgr.INVISIBLE & varAttr.flag()) != 0) {
+                    continue;
+                }
                 List<String> row = Lists.newArrayList();
                 String varName = entry.getKey();
                 String curValue = getValue(sessionVar, ctx.getField());
@@ -1002,6 +1011,11 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.SQL_MODE,
                     String.valueOf(sqlMode));
+
+            // update from older version, use legacy behavior.
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    GlobalVariable.ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR,
+                    String.valueOf(false));
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,

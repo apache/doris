@@ -9,8 +9,7 @@
 #include <utility> // IWYU pragma: keep
 
 #include "gutil/atomicops.h"
-// IWYU pragma: no_include <butil/macros.h>
-#include "gutil/macros.h" // IWYU pragma: keep
+#include "butil/macros.h"
 #include "gutil/threading/thread_collision_warner.h"
 
 namespace doris {

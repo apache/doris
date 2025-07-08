@@ -82,7 +82,7 @@ public class ExportSink extends DataSink {
                 tExportSink.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
         }
-        tExportSink.setProperties(brokerDesc.getProperties());
+        tExportSink.setProperties(brokerDesc.getStorageProperties().getBackendConfigProperties());
         tExportSink.setHeader(header);
         result.setExportSink(tExportSink);
         return result;

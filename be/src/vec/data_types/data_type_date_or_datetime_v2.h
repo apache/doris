@@ -53,14 +53,14 @@ namespace doris::vectorized {
  * Use UInt32 as underlying type to represent DateV2 type.
  * Specifically, a dateV2 type is represented as (YYYY (23 bits), MM (4 bits), dd (5 bits)).
  */
-class DataTypeDateV2 final : public DataTypeNumberBase<UInt32> {
+class DataTypeDateV2 final : public DataTypeNumberBase<PrimitiveType::TYPE_DATEV2> {
 public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATEV2; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
     }
-    const char* get_family_name() const override { return "DateV2"; }
+    const std::string get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
@@ -71,7 +71,7 @@ public:
         DateV2Value<DateV2ValueType> value;
         if (value.from_date_str(node.date_literal.value.c_str(),
                                 cast_set<Int32>(node.date_literal.value.size()))) {
-            return value.to_date_int_val();
+            return Field::create_field<TYPE_DATEV2>(value.to_date_int_val());
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type DateV2", node.date_literal.value);
@@ -79,8 +79,8 @@ public:
     }
     bool equals(const IDataType& rhs) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<UInt32>::template to_string_batch_impl<DataTypeDateV2>(column,
-                                                                                  column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_DATEV2>::template to_string_batch_impl<
+                DataTypeDateV2>(column, column_to);
     }
 
     size_t number_length() const;
@@ -105,7 +105,7 @@ public:
  *                                                    |                  27 bits              |                         37 bits                        |
  * Specifically, a dateTimeV2 type is represented as (YYYY (18 bits), MM (4 bits), dd (5 bits), HH (5 bits), mm (6 bits), SS (6 bits), ssssss (20 bits)).
  */
-class DataTypeDateTimeV2 final : public DataTypeNumberBase<UInt64> {
+class DataTypeDateTimeV2 final : public DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2> {
 public:
     static constexpr bool is_parametric = true;
 
@@ -124,14 +124,14 @@ public:
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     }
-    const char* get_family_name() const override { return "DateTimeV2"; }
+    const std::string get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<UInt64>::template to_string_batch_impl<DataTypeDateTimeV2>(column,
-                                                                                      column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2>::template to_string_batch_impl<
+                DataTypeDateTimeV2>(column, column_to);
     }
 
     size_t number_length() const;
@@ -149,7 +149,7 @@ public:
                 node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
         if (value.from_date_str(node.date_literal.value.c_str(),
                                 cast_set<int32_t>(node.date_literal.value.size()), scale)) {
-            return value.to_date_int_val();
+            return Field::create_field<TYPE_DATETIMEV2>(value.to_date_int_val());
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type DateTimeV2({})",

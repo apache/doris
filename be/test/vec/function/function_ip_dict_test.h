@@ -24,7 +24,6 @@
 #include <string>
 #include <vector>
 
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/functions/dictionary.h"

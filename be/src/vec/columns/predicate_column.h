@@ -64,21 +64,22 @@ private:
         res_ptr->insert_many_strings_without_reserve(_refs.data(), sel_size);
     }
 
-    template <typename Y, template <typename> typename ColumnContainer>
+    template <PrimitiveType Y, template <PrimitiveType> typename ColumnContainer>
     void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
                                          ColumnContainer<Y>* res_ptr) {
         static_assert(std::is_same_v<ColumnContainer<Y>, ColumnType>);
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
         res_data.reserve(sel_size);
-        Y* y = (Y*)res_data.get_end_ptr();
+        auto* y = (typename PrimitiveTypeTraits<Y>::ColumnItemType*)res_data.get_end_ptr();
         for (size_t i = 0; i < sel_size; i++) {
-            if constexpr (std::is_same_v<Y, T>) {
+            if constexpr (std::is_same_v<typename PrimitiveTypeTraits<Y>::ColumnItemType,
+                                         typename PrimitiveTypeTraits<Y>::CppType>) {
                 y[i] = data[sel[i]];
             } else {
-                static_assert(sizeof(Y) == sizeof(T));
+                static_assert(sizeof(typename PrimitiveTypeTraits<Y>::ColumnItemType) == sizeof(T));
                 memcpy(reinterpret_cast<void*>(&y[i]), reinterpret_cast<void*>(&data[sel[i]]),
-                       sizeof(Y));
+                       sizeof(T));
             }
         }
         res_data.set_end_ptr(y + sel_size);
@@ -323,7 +324,7 @@ public:
 
     void reserve(size_t n) override { data.reserve(n); }
 
-    std::string get_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override { return type_to_string(Type); }
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
@@ -389,7 +390,8 @@ public:
                                "filter not supported in PredicateColumnType");
     }
 
-    [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    [[noreturn]] MutableColumnPtr permute(const IColumn::Permutation& perm,
+                                          size_t limit) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "permute not supported in PredicateColumnType");
     }
@@ -405,9 +407,9 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
-        if constexpr (std::is_same_v<T, StringRef>) {
+        if constexpr (is_string_type(Type)) {
             insert_string_to_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<T, bool>) {
+        } else if constexpr (Type == TYPE_BOOLEAN) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
         } else {
             insert_default_value_res_column(sel, sel_size, column);

@@ -36,24 +36,24 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
-    _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
-    _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
-    _insert_values_to_column_timer = ADD_TIMER(profile(), "InsertValuesToColumnTime");
+    _get_results_timer = ADD_TIMER(custom_profile(), "GetResultsTime");
+    _hash_table_iterate_timer = ADD_TIMER(custom_profile(), "HashTableIterateTime");
+    _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
+    _insert_values_to_column_timer = ADD_TIMER(custom_profile(), "InsertValuesToColumnTime");
 
-    _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
-    _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
+    _merge_timer = ADD_TIMER(Base::custom_profile(), "MergeTime");
+    _deserialize_data_timer = ADD_TIMER(Base::custom_profile(), "DeserializeAndMergeTime");
+    _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
+    _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
     _hash_table_input_counter =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "HashTableInputCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT, 1);
     _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _hash_table_size_counter =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "HashTableSize", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "HashTableSize", TUnit::UNIT, 1);
 
-    _memory_usage_container = ADD_COUNTER(profile(), "MemoryUsageContainer", TUnit::BYTES);
-    _memory_usage_arena = ADD_COUNTER(profile(), "MemoryUsageArena", TUnit::BYTES);
+    _memory_usage_container = ADD_COUNTER(custom_profile(), "MemoryUsageContainer", TUnit::BYTES);
+    _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
 
     auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._without_key) {
@@ -133,7 +133,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
                         agg_method.init_iterator();
                         auto& data = *agg_method.hash_table;
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
                         if (shared_state.values.size() < size + 1) {
                             shared_state.values.resize(size + 1);
@@ -257,7 +257,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                         auto& data = *agg_method.hash_table;
                         agg_method.init_iterator();
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
                         if (shared_state.values.size() < size) {
                             shared_state.values.resize(size);

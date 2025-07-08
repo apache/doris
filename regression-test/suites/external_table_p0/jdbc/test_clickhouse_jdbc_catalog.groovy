@@ -143,6 +143,75 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         order_qt_clickhouse_7_schema_tvf """ select * from query('catalog' = 'clickhouse_7_schema', 'query' = 'select * from doris_test.type;') order by 1; """
         order_qt_clickhouse_7_schema_tvf_arr """ select * from query('catalog' = 'clickhouse_7_schema', 'query' = 'select * from doris_test.arr;') order by 1; """
 
-        sql """ drop catalog if exists clickhouse_7_schema """
+        // test function rules
+        // test push down
+        sql """ drop catalog if exists clickhouse_7_catalog """
+        // test invalid config
+        test {
+            sql """ create catalog if not exists clickhouse_7_catalog properties(
+                        "type"="jdbc",
+                        "user"="default",
+                        "password"="123456",
+                        "jdbc_url" = "jdbc:clickhouse://${externalEnvIp}:${clickhouse_port}/doris_test?databaseTerm=schema",
+                        "driver_url" = "${driver_url_7}",
+                        "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver",
+                        "function_rules" = '{"pushdown" : {"supported" : [null]}}'
+            );"""
+
+            exception """Failed to parse push down rules: {"pushdown" : {"supported" : [null]}}"""
+        }
+
+        sql """ create catalog if not exists clickhouse_7_catalog properties(
+                    "type"="jdbc",
+                    "user"="default",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:clickhouse://${externalEnvIp}:${clickhouse_port}/doris_test?databaseTerm=schema",
+                    "driver_url" = "${driver_url_7}",
+                    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver",
+                    "function_rules" = '{"pushdown" : {"supported": ["abs"]}}'
+        );"""
+        sql "use clickhouse_7_catalog.doris_test"
+        explain {
+            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
+            contains """SELECT "k4" FROM "doris_test"."type" WHERE ((abs("k4") > 0)) AND ((toUnixTimestamp("k4") > 0))"""
+            contains """PREDICATES: ((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+        }
+        sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '');"""
+        explain {
+            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
+            contains """QUERY: SELECT "k4" FROM "doris_test"."type" WHERE ((toUnixTimestamp("k4") > 0))"""
+            contains """PREDICATES: ((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+        }
+
+        sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}}')"""         
+        explain {
+            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
+            contains """SELECT "k4" FROM "doris_test"."type" WHERE ((abs("k4") > 0)) AND ((toUnixTimestamp("k4") > 0))"""
+            contains """PREDICATES: ((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+        }
+
+        // test rewrite
+        sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}, "rewrite" : {"unix_timestamp" : "rewrite_func"}}')"""
+        explain {
+            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
+            contains """QUERY: SELECT "k4" FROM "doris_test"."type" WHERE ((abs("k4") > 0)) AND ((rewrite_func("k4") > 0))"""
+            contains """((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+        }
+
+        // reset function rules
+        sql """alter catalog clickhouse_7_catalog set properties("function_rules" = '');"""
+        explain {
+            sql("select k4 from type where abs(k4) > 0 and unix_timestamp(k4) > 0")
+            contains """QUERY: SELECT "k4" FROM "doris_test"."type" WHERE ((toUnixTimestamp("k4") > 0))"""
+            contains """PREDICATES: ((abs(CAST(k4[#3] AS double)) > 0) AND (unix_timestamp(k4[#3]) > 0))"""
+        }
+
+        // test invalid config
+        test {
+            sql """alter catalog clickhouse_7_catalog set properties("function_rules" = 'invalid_json')"""
+            exception """Failed to parse push down rules: invalid_json"""
+        }
+
+        // sql """ drop catalog if exists clickhouse_7_schema """
     }
 }

@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "runtime/primitive_type.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
@@ -42,20 +43,20 @@ template <typename Element>
 Field getValueAsField(const Element& element) {
     // bool will convert to type FiledType::UInt64
     if (element.isBool()) {
-        return element.getBool();
+        return Field::create_field<TYPE_BOOLEAN>(element.getBool());
     }
     if (element.isInt64()) {
-        return element.getInt64();
+        return Field::create_field<TYPE_BIGINT>(element.getInt64());
     }
     // doris only support signed integers at present
     if (element.isUInt64()) {
-        return element.getInt64();
+        return Field::create_field<TYPE_BIGINT>(element.getInt64());
     }
     if (element.isDouble()) {
-        return element.getDouble();
+        return Field::create_field<TYPE_DOUBLE>(element.getDouble());
     }
     if (element.isString()) {
-        return element.getString();
+        return Field::create_field<TYPE_STRING>(String(element.getString()));
     }
     if (element.isNull()) {
         return Field();
@@ -123,6 +124,13 @@ enum class ExtractType {
 
 struct ParseConfig {
     bool enable_flatten_nested = false;
+};
+/// Result of parsing of a document.
+/// Contains all paths extracted from document
+/// and values which are related to them.
+struct ParseResult {
+    std::vector<PathInData> paths;
+    std::vector<Field> values;
 };
 template <typename ParserImpl>
 class JSONDataParser {

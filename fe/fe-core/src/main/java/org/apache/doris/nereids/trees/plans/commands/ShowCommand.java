@@ -19,6 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSetMetaData;
@@ -26,8 +30,10 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -56,6 +62,42 @@ public abstract class ShowCommand extends Command implements Redirect {
     }
 
     public abstract ShowResultSetMetaData getMetaData();
+
+    /**
+     * get order by pairs in show command
+     */
+    public ArrayList<OrderByPair> getOrderByPairs(List<OrderKey> orderKeys,
+                                                      ImmutableList<String> titles) throws AnalysisException {
+        ArrayList<OrderByPair> orderByPairs = null;
+        if (orderKeys != null && !orderKeys.isEmpty()) {
+            orderByPairs = new ArrayList<>();
+            for (OrderKey orderKey : orderKeys) {
+                if (!(orderKey.getExpr() instanceof UnboundSlot)) {
+                    throw new AnalysisException("Should order by column");
+                }
+
+                UnboundSlot slot = (UnboundSlot) orderKey.getExpr();
+                if (slot != null) {
+                    String colName = slot.getName();
+
+                    // analyze column
+                    int index = -1;
+                    for (String title : titles) {
+                        if (title.equalsIgnoreCase(colName)) {
+                            index = titles.indexOf(title);
+                        }
+                    }
+                    if (index == -1) {
+                        throw new AnalysisException("Title name[" + colName + "] does not exist");
+                    }
+
+                    OrderByPair orderByPair = new OrderByPair(index, !orderKey.isAsc());
+                    orderByPairs.add(orderByPair);
+                }
+            }
+        }
+        return orderByPairs;
+    }
 
     /**
      * apply limit and offset in show command

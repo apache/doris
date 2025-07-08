@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -31,8 +32,10 @@ import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -74,8 +77,8 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             Collection<Slot> operativeSlots) {
         super(relationId, type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
-        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
-        this.operativeSlots = ImmutableList.copyOf(operativeSlots);
+        this.qualifier = Utils.fastToImmutableList(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.operativeSlots = Utils.fastToImmutableList(operativeSlots);
     }
 
     @Override
@@ -108,12 +111,14 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     @Override
     public List<Slot> computeOutput() {
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(table, col, qualified()))
+                .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
     public List<String> getQualifier() {
         return qualifier;
     }
@@ -188,7 +193,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                 continue;
             }
             SlotReference slotRef = (SlotReference) slot;
-            if (slotRef.getColumn().isPresent() && columns.contains(slotRef.getColumn().get())) {
+            if (slotRef.getOriginalColumn().isPresent() && columns.contains(slotRef.getOriginalColumn().get())) {
                 slotSet.add(slotRef);
             }
         }
@@ -204,5 +209,4 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     public void computeFd(DataTrait.Builder builder) {
         // don't generate any equal pair
     }
-
 }

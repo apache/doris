@@ -17,8 +17,6 @@
 
 package org.apache.doris.journal.bdbje;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -48,18 +46,7 @@ public class Timestamp implements Writable {
     }
 
     public static Timestamp read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_134) {
-            Timestamp timestamp = new Timestamp();
-            timestamp.readFields(in);
-            return timestamp;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Timestamp.class);
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        timestamp = in.readLong();
+        return GsonUtils.GSON.fromJson(Text.readString(in), Timestamp.class);
     }
 
     public String toString() {

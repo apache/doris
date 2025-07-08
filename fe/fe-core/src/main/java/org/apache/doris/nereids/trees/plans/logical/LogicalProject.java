@@ -18,12 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.analyzer.Unbound;
-import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -43,6 +41,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -57,7 +56,7 @@ import java.util.Set;
  * Logical project plan.
  */
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements Project, OutputPrunable {
+        implements Project, OutputPrunable, ProjectMergeable {
 
     private final List<NamedExpression> projects;
     private final Supplier<Set<NamedExpression>> projectsSet;
@@ -88,7 +87,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this.projects = projects.isEmpty()
                 ? ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)))
                 : projects;
-        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
+        this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
         this.isDistinct = isDistinct;
     }
 
@@ -103,6 +102,11 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
+    public List<Slot> getOutput() {
+        return Lists.transform(this.projects, NamedExpression::toSlot);
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         Builder<Slot> slots = ImmutableList.builderWithExpectedSize(projects.size());
         for (NamedExpression project : projects) {
@@ -113,9 +117,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalProject[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalProject[" + id.asInt() + "]",
                 "distinct", isDistinct,
-                "projects", projects
+                "projects", projects,
+                "stats", statistics
         );
     }
 
@@ -138,13 +143,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             return false;
         }
         LogicalProject<?> that = (LogicalProject<?>) o;
-        boolean equal = projectsSet.get().equals(that.projectsSet.get())
-                && isDistinct == that.isDistinct;
-        // TODO: should add exprId for UnBoundStar and BoundStar for equality comparison
-        if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)) {
-            equal = child().getLogicalProperties().equals(that.child().getLogicalProperties());
-        }
-        return equal;
+        return projectsSet.get().equals(that.projectsSet.get()) && isDistinct == that.isDistinct;
     }
 
     @Override
@@ -286,5 +285,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             }
             builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
         }
+    }
+
+    @Override
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return canMergeParentProjections(parentProjects);
     }
 }

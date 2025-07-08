@@ -21,11 +21,9 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_writer.h"
 
 namespace doris {
 class PValues;
-class JsonbValue;
 
 namespace vectorized {
 class IColumn;
@@ -35,6 +33,8 @@ class DataTypeNullableSerDe : public DataTypeSerDe {
 public:
     DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
             : DataTypeSerDe(nesting_level), nested_serde(_nested_serde) {}
+
+    std::string get_name() const override { return "Nullable(" + nested_serde->get_name() + ")"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -72,11 +72,11 @@ public:
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
@@ -93,6 +93,9 @@ public:
         DataTypeSerDe::set_return_object_as_string(value);
         nested_serde->set_return_object_as_string(value);
     }
+
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
 
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,

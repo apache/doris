@@ -29,14 +29,10 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // IWYU pragma: keep
 
-namespace doris {
-namespace vectorized {
-template <typename T>
-class ColumnVector;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+
+template <PrimitiveType T>
+class ColumnVector;
 
 size_t count_bytes_in_filter(const IColumn::Filter& filt) {
     size_t count = 0;

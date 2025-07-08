@@ -42,11 +42,11 @@ class IColumn;
 
 namespace doris::vectorized {
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionBitmapAggData {
     BitmapValue value;
 
-    void add(const T& value_) { value.add(value_); }
+    void add(const typename PrimitiveTypeTraits<T>::CppType& value_) { value.add(value_); }
 
     void reset() { value.reset(); }
 
@@ -57,12 +57,12 @@ struct AggregateFunctionBitmapAggData {
     void read(BufferReadable& buf) { DataTypeBitMap::deserialize_as_stream(value, buf); }
 };
 
-template <bool arg_nullable, typename T>
+template <bool arg_nullable, PrimitiveType T>
 class AggregateFunctionBitmapAgg final
         : public IAggregateFunctionDataHelper<AggregateFunctionBitmapAggData<T>,
                                               AggregateFunctionBitmapAgg<arg_nullable, T>> {
 public:
-    using ColVecType = ColumnVector<T>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Data = AggregateFunctionBitmapAggData<T>;
 
     AggregateFunctionBitmapAgg(const DataTypes& argument_types_)
@@ -96,7 +96,7 @@ public:
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
             const auto& column =
                     assert_cast<const ColVecType&>(nullable_column.get_nested_column());
-            std::vector<T> values;
+            std::vector<typename PrimitiveTypeTraits<T>::CppType> values;
             for (int i = 0; i < batch_size; ++i) {
                 if (!nullable_column.is_null_at(i)) {
                     values.push_back(column.get_data()[i]);

@@ -22,14 +22,17 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule;
 import org.apache.doris.nereids.trees.TableSample;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -39,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -239,8 +243,16 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         }
         // NOTE: embed version info avoid mismatching under data maintaining
         // TODO: more efficient way to ignore the ignorable data maintaining
+        long version = 0;
+        try {
+            version = getTable().getVisibleVersion();
+        } catch (RpcException e) {
+            String errMsg = "table " + getTable().getName() + "in cloud getTableVisibleVersion error";
+            LOG.warn(errMsg, e);
+            throw new IllegalStateException(errMsg);
+        }
         return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
-                + "#" + getRelationId() + "@" + getTable().getVisibleVersion()
+                + "#" + getRelationId() + "@" + version
                 + "@" + getTable().getVisibleVersionTime());
     }
 
@@ -252,12 +264,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalOlapScan",
+        return Utils.toSqlStringSkipNull("LogicalOlapScan",
                 "qualified", qualifiedName(),
                 "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
                 "selectedIndexId", selectedIndexId,
                 "preAgg", preAggStatus,
-                "operativeCol", operativeSlots
+                "operativeCol", operativeSlots,
+                "stats", statistics
         );
     }
 
@@ -285,9 +298,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), selectedIndexId, indexSelected, preAggStatus, cacheSlotWithSlotName,
-                selectedTabletIds, partitionPruned, manuallySpecifiedTabletIds, manuallySpecifiedPartitions,
-                selectedPartitionIds, hints, tableSample);
+        return relationId.asInt();
     }
 
     @Override
@@ -439,6 +450,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
 
         Builder<Slot> slots = ImmutableList.builder();
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (int i = 0; i < baseSchema.size(); i++) {
             final int index = i;
             Column col = baseSchema.get(i);
@@ -449,7 +461,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 for (List<String> subPath : colToSubPathsMap.get(key.getValue())) {
                     if (!subPath.isEmpty()) {
                         SlotReference slotReference = SlotReference.fromColumn(
-                                table, baseSchema.get(i), qualified()).withSubPath(subPath);
+                                exprIdGenerator.getNextId(), table, baseSchema.get(i), qualified()
+                        ).withSubPath(subPath);
                         slots.add(slotReference);
                         subPathToSlotMap.computeIfAbsent(slot, k -> Maps.newHashMap())
                                 .put(subPath, slotReference);
@@ -471,26 +484,30 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         // when we have a partitioned table without any partition, visible index is empty
         List<Column> schema = olapTable.getIndexMetaByIndexId(indexId).getSchema();
         List<Slot> slots = Lists.newArrayListWithCapacity(schema.size());
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (Column c : schema) {
             slots.addAll(generateUniqueSlot(
-                    olapTable, c, indexId == ((OlapTable) table).getBaseIndexId(), indexId));
+                    olapTable, c, indexId == ((OlapTable) table).getBaseIndexId(), indexId, exprIdGenerator
+            ));
         }
         return slots;
     }
 
-    private List<Slot> generateUniqueSlot(OlapTable table, Column column, boolean isBaseIndex, long indexId) {
+    private List<Slot> generateUniqueSlot(OlapTable table, Column column, boolean isBaseIndex, long indexId,
+            IdGenerator<ExprId> exprIdIdGenerator) {
         String name = isBaseIndex || directMvScan ? column.getName()
                 : AbstractSelectMaterializedIndexRule.parseMvColumnToMvName(column.getName(),
                         column.isAggregated() ? Optional.of(column.getAggregationType().toSql()) : Optional.empty());
         Pair<Long, String> key = Pair.of(indexId, name);
         Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k ->
-                SlotReference.fromColumn(table, column, name, qualified()));
+                SlotReference.fromColumn(exprIdIdGenerator.getNextId(), table, column, name, qualified()));
         List<Slot> slots = Lists.newArrayList(slot);
         if (colToSubPathsMap.containsKey(key.getValue())) {
             for (List<String> subPath : colToSubPathsMap.get(key.getValue())) {
                 if (!subPath.isEmpty()) {
-                    SlotReference slotReference
-                            = SlotReference.fromColumn(table, column, name, qualified()).withSubPath(subPath);
+                    SlotReference slotReference = SlotReference.fromColumn(
+                            exprIdIdGenerator.getNextId(), table, column, name, qualified()
+                    ).withSubPath(subPath);
                     slots.add(slotReference);
                     subPathToSlotMap.computeIfAbsent(slot, k -> Maps.newHashMap())
                             .put(subPath, slotReference);
@@ -530,8 +547,10 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     private List<SlotReference> createSlotsVectorized(List<Column> columns) {
         List<String> qualified = qualified();
         SlotReference[] slots = new SlotReference[columns.size()];
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (int i = 0; i < columns.size(); i++) {
-            slots[i] = SlotReference.fromColumn(table, columns.get(i), qualified);
+            ExprId nextId = exprIdGenerator.getNextId();
+            slots[i] = SlotReference.fromColumn(nextId, table, columns.get(i), qualified);
         }
         return Arrays.asList(slots);
     }
@@ -608,7 +627,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                     continue;
                 }
                 SlotReference slotRef = (SlotReference) slot;
-                if (slotRef.getColumn().isPresent() && slotRef.getColumn().get().isKey()) {
+                if (slotRef.getOriginalColumn().isPresent() && slotRef.getOriginalColumn().get().isKey()) {
                     uniqSlots.add(slot);
                 }
             }

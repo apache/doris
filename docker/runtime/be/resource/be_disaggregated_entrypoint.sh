@@ -270,6 +270,53 @@ function make_dir_for_workloadgroup() {
     fi
 }
 
+mount_kerberos_config()
+{
+    if [[ ! -n "$KRB5_MOUNT_PATH" ]]; then
+        return
+    fi
+
+    KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
+    # If the krb5 directory does not exist, need to create it.
+    if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
+        log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
+        mkdir -p "$KRB5_CONFIG_DIR"
+    fi
+
+    log_stderr "[info] Creating krb5 symlinks for each file from $KRB5_MOUNT_PATH to $KRB5_CONFIG_DIR"
+    # The files under KRB5_MONT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KRB5_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating krb5 symlink for $filename"
+            ln -sf "$file" "$KRB5_CONFIG_DIR/$filename"
+        fi
+    done
+
+    if [[ "$KEYTAB_MOUNT_PATH" == "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] KEYTAB_MOUNT_PATH is same as KEYTAB_FINAL_USED_PATH, skip creating symlinks"
+        return
+    fi
+
+    # If the keytab directory does not exist, need to create it.
+    if [[ ! -d "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] Creating keytab directory: $KEYTAB_FINAL_USED_PATH"
+        mkdir -p "$KEYTAB_FINAL_USED_PATH"
+    fi
+
+    log_stderr "[info] Creating keytab symlinks for each file from $KEYTAB_MOUNT_PATH to $KEYTAB_FINAL_USED_PATH"
+    # The files under KEYTAB_MOUNT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KEYTAB_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating keytab symlink for $filename"
+            ln -sf "$file" "$KEYTAB_FINAL_USED_PATH/$filename"
+        fi
+    done
+}
+
+
+# scripts start position.
 fe_addrs=$1
 if [[ "x$fe_addrs" == "x" ]]; then
     echo "need fe address as paramter!"
@@ -292,6 +339,7 @@ fi
 
 update_conf_from_configmap
 add_workloadgroup_config
+mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 collect_env_info
@@ -300,6 +348,5 @@ check_and_register $fe_addrs
 ./doris-debug --component be
 log_stderr "run start_be.sh"
 # the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal
-# befor doris 2.0.2 ,doris start with : start_xx.sh
 # sine doris 2.0.2 ,doris start with : start_xx.sh --console  doc: https://doris.apache.org/docs/dev/install/standard-deployment/#version--202
 $DORIS_HOME/bin/start_be.sh --console

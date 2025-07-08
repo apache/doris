@@ -88,7 +88,7 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
 
     // 4. processlist
     List<List<Object>> processlist_res_1 = sql """ 
-            select LOGIN_TIME from information_schema.processlist where INFO like "%information_schema.processlist%"
+            select LOGINTIME from information_schema.processlist where INFO like "%information_schema.processlist%"
             """
     logger.info("processlist_res_1 = " + processlist_res_1);
     
@@ -171,7 +171,7 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
 
     // 4. processlist
     List<List<Object>> processlist_res_2 = sql """ 
-            select LOGIN_TIME from information_schema.processlist where INFO like "%information_schema.processlist%"
+            select LOGINTIME from information_schema.processlist where INFO like "%information_schema.processlist%"
             """
     logger.info("processlist_res_2 = " + processlist_res_2);
     assertEquals(true, isEightHoursDiff(processlist_res_1[0][0], processlist_res_2[0][0]))

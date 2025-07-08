@@ -17,12 +17,9 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -31,7 +28,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -185,11 +185,7 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     boolean enableAutoAnalyze();
 
-    void createDb(CreateDbStmt stmt) throws DdlException;
-
-    default void dropDb(DropDbStmt stmt) throws DdlException {
-        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
-    }
+    void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException;
 
     void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
 
@@ -199,14 +195,12 @@ public interface CatalogIf<T extends DatabaseIf> {
      */
     boolean createTable(CreateTableStmt stmt) throws UserException;
 
-    void dropTable(DropTableStmt stmt) throws DdlException;
-
     void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
                    boolean force) throws DdlException;
 
-    void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException;
-
-    void truncateTable(TruncateTableCommand truncateTableCommand) throws DdlException;
+    void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
+            String rawTruncateSql)
+            throws DdlException;
 
     // Convert from remote database name to local database name, overridden by subclass if necessary
     default String fromRemoteDatabaseName(String remoteDatabaseName) {
@@ -216,5 +210,28 @@ public interface CatalogIf<T extends DatabaseIf> {
     // Convert from remote table name to local table name, overridden by subclass if necessary
     default String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
         return remoteTableName;
+    }
+
+    // Create or replace branch operations, overridden by subclass if necessary
+    default void createOrReplaceBranch(TableIf dorisTable, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        throw new UserException("Not support create or replace branch operation");
+    }
+
+    // Create or replace tag operation, overridden by subclass if necessary
+    default void createOrReplaceTag(TableIf dorisTable, CreateOrReplaceTagInfo tagInfo) throws UserException {
+        throw new UserException("Not support create or replace tag operation");
+    }
+
+    default void replayOperateOnBranchOrTag(String dbName, String tblName) {
+
+    }
+
+    default void dropBranch(TableIf dorisTable, DropBranchInfo branchInfo) throws UserException {
+        throw new UserException("Not support drop branch operation");
+    }
+
+    default void dropTag(TableIf dorisTable, DropTagInfo tagInfo) throws UserException {
+        throw new UserException("Not support drop tag operation");
     }
 }

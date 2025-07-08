@@ -64,7 +64,7 @@ public:
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
     bool is_materialized() const { return _is_materialized; }
-    bool is_nullable() const { return _type->is_nullable(); }
+    bool is_nullable() const;
     vectorized::DataTypePtr get_data_type_ptr() const;
 
     const std::string& col_name() const { return _col_name; }
@@ -87,7 +87,7 @@ public:
     bool is_sequence_col() const { return _col_name == SEQUENCE_COL; }
 
     const std::string& col_default_value() const { return _col_default_value; }
-    PrimitiveType col_type() const { return _type->get_primitive_type(); }
+    PrimitiveType col_type() const;
 
 private:
     friend class DescriptorTbl;
@@ -103,7 +103,7 @@ private:
     MOCK_REMOVE(const) vectorized::DataTypePtr _type;
     const TupleId _parent;
     const int _col_pos;
-    const std::string _col_name;
+    MOCK_REMOVE(const) std::string _col_name;
     const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;

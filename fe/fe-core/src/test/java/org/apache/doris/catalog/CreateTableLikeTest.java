@@ -18,12 +18,14 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
@@ -74,9 +76,9 @@ public class CreateTableLikeTest {
     }
 
     private static void createTableLike(String sql) throws Exception {
-        CreateTableLikeStmt createTableLikeStmt =
-                (CreateTableLikeStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTableLike(createTableLikeStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateTableLikeCommand command = (CreateTableLikeCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     private static void checkTableEqual(Table newTable, Table existedTable, int rollupSize) {

@@ -55,8 +55,8 @@ public:
     Status _execute_tablet_migration(TabletSharedPtr tablet, DataDir* dest_store);
 
     Status _check_param(HttpRequest* req, int64_t& tablet_id, int32_t& schema_hash,
-                        string& dest_disk, string& goal);
-    Status _check_migrate_request(int64_t tablet_id, int32_t schema_hash, string dest_disk,
+                        std::string& dest_disk, std::string& goal);
+    Status _check_migrate_request(int64_t tablet_id, int32_t schema_hash, std::string dest_disk,
                                   TabletSharedPtr& tablet, DataDir** dest_store);
 
 private:

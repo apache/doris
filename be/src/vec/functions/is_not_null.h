@@ -31,7 +31,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -78,8 +77,8 @@ public:
             block.replace_by_position(result, std::move(res_column));
         } else {
             /// Since no element is nullable, return a constant one.
-            block.get_by_position(result).column =
-                    DataTypeUInt8().create_column_const(elem.column->size(), 1u);
+            block.get_by_position(result).column = DataTypeUInt8().create_column_const(
+                    elem.column->size(), Field::create_field<TYPE_BOOLEAN>(1));
         }
         return Status::OK();
     }
@@ -87,15 +86,15 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         if (iterators.empty() || iterators[0] == nullptr) {
             return Status::OK();
         }
-        auto* inverted_index_iter = iterators[0];
-        if (inverted_index_iter->has_null()) {
+        auto* index_iter = iterators[0];
+        if (index_iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-            RETURN_IF_ERROR(inverted_index_iter->read_null_bitmap(&null_bitmap_cache_handle));
+            RETURN_IF_ERROR(index_iter->read_null_bitmap(&null_bitmap_cache_handle));
             std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
             // only inverted index has null bitmap, so we can calculate
             if (null_bitmap) {

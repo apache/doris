@@ -17,54 +17,18 @@
 
 #include "vec/aggregate_functions/aggregate_function_covar.h"
 
-#include <fmt/format.h>
-
-#include <string>
-
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <template <typename> class Function, template <typename> class Data>
+template <template <typename> class Function, template <PrimitiveType> class Data>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
                                                   const bool result_is_nullable) {
-    switch (argument_types[0]->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create<Function<Data<UInt8>>>(argument_types,
-                                                                   result_is_nullable);
-    case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create<Function<Data<Int8>>>(argument_types,
-                                                                  result_is_nullable);
-    case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create<Function<Data<Int16>>>(argument_types,
-                                                                   result_is_nullable);
-    case PrimitiveType::TYPE_INT:
-        return creator_without_type::create<Function<Data<Int32>>>(argument_types,
-                                                                   result_is_nullable);
-    case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create<Function<Data<Int64>>>(argument_types,
-                                                                   result_is_nullable);
-    case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create<Function<Data<Int128>>>(argument_types,
-                                                                    result_is_nullable);
-    case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create<Function<Data<Float32>>>(argument_types,
-                                                                     result_is_nullable);
-    case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create<Function<Data<Float64>>>(argument_types,
-                                                                     result_is_nullable);
-    default:
-        LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
-                                    argument_types[0]->get_name());
-    }
-
-    return nullptr;
+    return creator_with_numeric_type::create<Function, Data>(argument_types, result_is_nullable);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,

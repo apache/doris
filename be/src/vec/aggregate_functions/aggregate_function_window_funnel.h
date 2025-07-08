@@ -37,7 +37,6 @@
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/sort_block.h"
 #include "vec/core/types.h"
@@ -75,7 +74,7 @@ WindowFunnelMode string_to_window_funnel_mode(const String& string) {
 }
 
 struct DataValue {
-    using TimestampEvent = std::vector<ColumnVector<UInt8>::Container>;
+    using TimestampEvent = std::vector<ColumnUInt8::Container>;
     std::vector<UInt64> dt;
     TimestampEvent event_columns_data;
     bool operator<(const DataValue& other) const { return dt < other.dt; }
@@ -128,12 +127,11 @@ struct WindowFunnelState {
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;
         window_funnel_mode = enable_mode ? mode : WindowFunnelMode::DEFAULT;
-        events_list.dt.emplace_back(
-                assert_cast<const ColumnVector<NativeType>&>(*arg_columns[2]).get_data()[row_num]);
+        events_list.dt.emplace_back(assert_cast<const ColumnVector<PrimitiveType>&>(*arg_columns[2])
+                                            .get_data()[row_num]);
         for (int i = 0; i < event_count; i++) {
             events_list.event_columns_data[i].emplace_back(
-                    assert_cast<const ColumnVector<UInt8>&>(*arg_columns[3 + i])
-                            .get_data()[row_num]);
+                    assert_cast<const ColumnUInt8&>(*arg_columns[3 + i]).get_data()[row_num]);
         }
     }
 
@@ -372,8 +370,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& window =
-                assert_cast<const ColumnVector<Int64>&>(*columns[0]).get_data()[row_num];
+        const auto& window = assert_cast<const ColumnInt64&>(*columns[0]).get_data()[row_num];
         StringRef mode = columns[1]->get_data_at(row_num);
         this->data(place).add(columns, row_num, window,
                               string_to_window_funnel_mode(mode.to_string()));

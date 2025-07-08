@@ -48,6 +48,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -104,8 +105,10 @@ public class Dictionary extends Table {
 
     // not record this. whenever restart FE or switch Master, it will be reset. then lead to reload dictionary.
     private long srcVersion = 0;
+    // if srcVersion same with this, we could skip automatically update.
+    private long latestInvalidVersion = 0;
 
-    private List<DictionaryDistribution> dataDistributions; // every time update, reset with a new list
+    private volatile List<DictionaryDistribution> dataDistributions; // every time update, reset with a new list
     private String lastUpdateResult;
 
     // we need this to call Table's constructor with no args which construct new rwLock and more.
@@ -181,7 +184,8 @@ public class Dictionary extends Table {
         List<String> qualifiedName = Lists.newArrayList();
         if (Strings.isNullOrEmpty(sourceCtlName) || Strings.isNullOrEmpty(sourceDbName)
                 || Strings.isNullOrEmpty(sourceTableName)) {
-            throw new IllegalArgumentException("dictionary's source name is not completed");
+            throw new IllegalArgumentException(
+                    "dictionary's source name " + qualifiedName.toString() + "is not completed");
         }
         qualifiedName.add(sourceCtlName);
         qualifiedName.add(sourceDbName);
@@ -264,21 +268,24 @@ public class Dictionary extends Table {
     /**
      * @return true if source table's version is newer than this dictionary's version(need update dictionary).
      */
-    public Boolean hasNewerSourceVersion() {
-        TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv());
+    public boolean hasNewerSourceVersion() {
+        TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv(), Optional.empty());
         if (tableIf == null) {
             throw new RuntimeException(getName() + "'s source table not found");
         }
         if (tableIf instanceof MTMVRelatedTableIf) { // include OlapTable and some External tables
             long tableVersionNow = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
             if (LOG.isDebugEnabled()) {
-                LOG.debug("src's now version is " + tableVersionNow + ", old is " + srcVersion);
+                LOG.debug("Dictionary " + getName() + " src's now version is " + tableVersionNow + ", old is "
+                        + srcVersion);
             }
             if (tableVersionNow < srcVersion) {
                 // maybe drop and recreate. but if so, this dictionary should be dropped as well.
                 // so should not happen.
-                throw new RuntimeException("source table's version is smaller than dictionary's");
-            } else if (tableVersionNow > srcVersion) {
+                throw new RuntimeException("Dictionary " + getName() + "'s source table's version " + tableVersionNow
+                        + " is smaller than dictionary's " + srcVersion);
+            } else if (tableVersionNow > srcVersion && tableVersionNow != latestInvalidVersion) {
+                // if src is a illegal version, we can skip it.
                 return true;
             } else {
                 return false;
@@ -295,6 +302,34 @@ public class Dictionary extends Table {
 
     public long getSrcVersion() {
         return srcVersion;
+    }
+
+    public void updateLatestInvalidVersion(long value) {
+        if (value < latestInvalidVersion) {
+            throw new RuntimeException("latestInvalidVersion of " + getName() + " should be greater than "
+                    + latestInvalidVersion + ", but got " + value);
+        }
+        latestInvalidVersion = value;
+    }
+
+    /**
+     * if has latestInvalidVersion and the base table's data not changed, we can skip update.
+     */
+    public boolean checkBaseDataValid() {
+        TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv(), Optional.empty());
+        if (tableIf == null) {
+            throw new RuntimeException(getName() + "'s source table not found");
+        }
+        if (tableIf instanceof MTMVRelatedTableIf) { // include OlapTable and some External tables
+            long tableVersionNow = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Dictionary " + getName() + ": src's now version is " + tableVersionNow + ", old is "
+                        + srcVersion);
+            }
+            // if not the known invalid version, maybe valid. so return true. otherwise we skip it.
+            return tableVersionNow != latestInvalidVersion;
+        }
+        return true;
     }
 
     public DictionaryStatus getStatus() {
@@ -352,6 +387,10 @@ public class Dictionary extends Table {
         return "{" + StringUtils.join(dataDistributions, ", ") + "}";
     }
 
+    public void setDataDistributions(List<DictionaryDistribution> dataDistributions) {
+        this.dataDistributions = dataDistributions;
+    }
+
     public List<DictionaryDistribution> getDataDistributions() {
         return dataDistributions;
     }
@@ -388,7 +427,8 @@ public class Dictionary extends Table {
         if (dataDistributions == null || dataDistributions.isEmpty()) {
             // only called when do partial load. it bases on collection of data distributions.
             // so dataDistributions should not be null.
-            LOG.warn("dataDistributions is null or empty. should not happen");
+            LOG.warn("dataDistributions of " + getName() + " is " + (dataDistributions == null ? "null" : "empty")
+                    + ". should not happen");
             return backends;
         }
         Set<Long> validBEs = Sets.newHashSet();

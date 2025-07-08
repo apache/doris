@@ -34,7 +34,7 @@ import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
-import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadExprTransformUtils;
 import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
@@ -169,7 +169,7 @@ public class BrokerLoadJobTest {
             }
         };
 
-        new MockUp<Load>() {
+        new MockUp<LoadExprTransformUtils>() {
             @Mock
             public void checkAndCreateSource(Database db, DataDescription dataDescription,
                                              Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) {

@@ -19,23 +19,18 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
-public class AutoIncrementGenerator implements Writable, GsonPostProcessable {
+public class AutoIncrementGenerator implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(AutoIncrementGenerator.class);
 
     // _MIN_BATCH_SIZE = 4064 in load task
@@ -99,18 +94,6 @@ public class AutoIncrementGenerator implements Writable, GsonPostProcessable {
         LOG.info("[auto-inc] getAutoIncrementRange result, db_id={}, table_id={}, column_id={}, start={}, length:{}",
                 dbId, tableId, columnId, startId, length);
         return Pair.of(startId, length);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static AutoIncrementGenerator read(DataInput in) throws IOException {
-        AutoIncrementGenerator res = GsonUtils.GSON.fromJson(Text.readString(in), AutoIncrementGenerator.class);
-        LOG.info("[auto-inc] read AutoIncrementGenerator db_id={}, table_id={}, column_id={}, nextId={}, "
-                + "batchEndId={}", res.dbId, res.tableId, res.columnId, res.nextId, res.batchEndId);
-        return res;
     }
 
     @Override

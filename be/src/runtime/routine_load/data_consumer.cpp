@@ -243,7 +243,8 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                 // ignore msg with length 0.
                 // put empty msg into queue will cause the load process shutting down.
                 break;
-            } else if (!queue->blocking_put(msg.get())) {
+            } else if (!queue->controlled_blocking_put(msg.get(),
+                                                       config::blocking_queue_cv_wait_timeout_ms)) {
                 // queue is shutdown
                 done = true;
             } else {
@@ -270,7 +271,8 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             VLOG_NOTICE << "consumer meet partition eof: " << _id
                         << " partition offset: " << msg->offset();
             _consuming_partition_ids.erase(msg->partition());
-            if (!queue->blocking_put(msg.get())) {
+            if (!queue->controlled_blocking_put(msg.get(),
+                                                config::blocking_queue_cv_wait_timeout_ms)) {
                 done = true;
             } else if (_consuming_partition_ids.size() <= 0) {
                 LOG(INFO) << "all partitions meet eof: " << _id;
@@ -418,6 +420,10 @@ Status KafkaDataConsumer::get_offsets_for_times(const std::vector<PIntegerPair>&
 Status KafkaDataConsumer::get_latest_offsets_for_partitions(
         const std::vector<int32_t>& partition_ids, std::vector<PIntegerPair>* offsets,
         int timeout) {
+    DBUG_EXECUTE_IF("KafkaDataConsumer.get_latest_offsets_for_partitions.timeout", {
+        // sleep 60s
+        std::this_thread::sleep_for(std::chrono::seconds(60));
+    });
     MonotonicStopWatch watch;
     watch.start();
     for (int32_t partition_id : partition_ids) {

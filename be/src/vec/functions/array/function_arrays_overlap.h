@@ -30,7 +30,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/string_ref.h"
@@ -165,7 +164,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -175,8 +174,7 @@ public:
             return Status::OK();
         }
         auto data_type_with_name = data_type_with_names[0];
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+        if (iter->get_reader()->is_fulltext_index()) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, FULLTEXT reader can not support "
                     "array_overlap");
@@ -212,19 +210,24 @@ public:
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         const Array& query_val = param_value.get<Array>();
+
+        InvertedIndexParam param;
+        param.column_name = data_type_with_name.first;
+        param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+        param.num_rows = num_rows;
         for (auto nested_query_val : query_val) {
             // any element inside array is NULL, return NULL
             // by current arrays_overlap execute logic.
             if (nested_query_val.is_null()) {
                 return Status::OK();
             }
-            std::shared_ptr<roaring::Roaring> single_res = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     nested_param_type, &nested_query_val, query_param));
-            RETURN_IF_ERROR(iter->read_from_inverted_index(
-                    data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res));
-            *roaring |= *single_res;
+            param.query_value = query_param->get_value();
+            param.roaring = std::make_shared<roaring::Roaring>();
+            ;
+            RETURN_IF_ERROR(iter->read_from_index(&param));
+            *roaring |= *param.roaring;
         }
 
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
@@ -262,8 +265,8 @@ public:
             return ret;
         }
         // prepare return column
-        auto dst_nested_col = ColumnVector<UInt8>::create(input_rows_count, 0);
-        auto dst_null_map = ColumnVector<UInt8>::create(input_rows_count, 0);
+        auto dst_nested_col = ColumnUInt8::create(input_rows_count, 0);
+        auto dst_null_map = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map_data = dst_null_map->get_data().data();
 
         RETURN_IF_ERROR(_execute_nullable(left_exec_data, dst_null_map_data));

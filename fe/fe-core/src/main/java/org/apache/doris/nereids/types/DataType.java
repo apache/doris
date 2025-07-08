@@ -85,6 +85,7 @@ public abstract class DataType {
             .add(DateType.class, () -> ImmutableList.of(
                     DateTimeType.INSTANCE, DateV2Type.INSTANCE, StringType.INSTANCE))
             .add(DateV2Type.class, () -> ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
+            .add(TimeV2Type.class, () -> ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE))
             .build();
 
     /**
@@ -250,7 +251,17 @@ public abstract class DataType {
                 dataType = DateV2Type.INSTANCE;
                 break;
             case "time":
-                dataType = TimeType.INSTANCE;
+            case "timev2":
+                switch (types.size()) {
+                    case 1:
+                        dataType = TimeV2Type.INSTANCE;
+                        break;
+                    case 2:
+                        dataType = TimeV2Type.of(Integer.parseInt(types.get(1)));
+                        break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
                 break;
             case "datetime":
                 switch (types.size()) {
@@ -347,8 +358,8 @@ public abstract class DataType {
             case DATETIME: return DateTimeType.INSTANCE;
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;
-            case TIMEV2: return TimeV2Type.INSTANCE;
-            case TIME: return TimeType.INSTANCE;
+            case TIME: return TimeV2Type.INSTANCE;
+            case TIMEV2: return TimeV2Type.of(((ScalarType) type).getScalarScale());
             case HLL: return HllType.INSTANCE;
             case BITMAP: return BitmapType.INSTANCE;
             case QUANTILE_STATE: return QuantileStateType.INSTANCE;
@@ -525,15 +536,7 @@ public abstract class DataType {
     }
 
     public boolean isTimeType() {
-        return this instanceof TimeType;
-    }
-
-    public boolean isTimeV2Type() {
         return this instanceof TimeV2Type;
-    }
-
-    public boolean isTimeLikeType() {
-        return isTimeType() || isTimeV2Type();
     }
 
     public boolean isNullType() {
@@ -630,6 +633,10 @@ public abstract class DataType {
 
     public boolean isOnlyMetricType() {
         return isObjectType() || isComplexType() || isJsonType() || isVariantType();
+    }
+
+    public boolean isArrayTypeNestedBaseType() {
+        return isArrayType() && !((ArrayType) this).getItemType().isOnlyMetricType();
     }
 
     public boolean isObjectType() {

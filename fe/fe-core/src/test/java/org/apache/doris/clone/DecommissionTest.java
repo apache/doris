@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Env;
@@ -25,13 +24,18 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -140,11 +144,12 @@ public class DecommissionTest {
         checkBalance(1, totalReplicaNum, 4);
 
         Backend backend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList().get(0);
-        String decommissionStmtStr = "alter system decommission backend \"" + backend.getHost()
-                + ":" + backend.getHeartbeatPort() + "\"";
-        AlterSystemStmt decommissionStmt =
-                (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(decommissionStmtStr, connectContext);
-        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
+
+        // "alter system decommission backend \"" + backend.getHost() + ":" + backend.getHeartbeatPort() + "\"";
+        String hostPort = backend.getHost() + ":" + backend.getHeartbeatPort();
+        DecommissionBackendOp op = new DecommissionBackendOp(ImmutableList.of(hostPort));
+        AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
         Assert.assertEquals(true, backend.isDecommissioned());
 

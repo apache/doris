@@ -19,11 +19,12 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
+#include "common/defer.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service_http.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
 
 using namespace doris::cloud;
 
@@ -95,8 +96,9 @@ v v             v                                 v                 v           
 
     // test empty body branch
     auto sp = doris::SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        doris::SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("process_http_encode_key::empty_body", [](auto&& args) {
         auto* body = doris::try_any_cast<std::string*>(args[0]);
         body->clear();
@@ -137,6 +139,9 @@ static auto test_inputs = std::array {
             TxnLabelPB pb;
             pb.add_txn_ids(123456789);
             auto val = pb.SerializeAsString();
+            uint32_t offset = val.size();
+            val.append(10, '\x00'); // 10 bytes for versionstamp
+            val.append((const char*)&offset, 4);
             MemTxnKv::gen_version_timestamp(123456790, 0, &val);
             return {val};
         },
@@ -610,7 +615,7 @@ TEST(HttpGetValueTest, process_http_get_value_test_cover_all_template) {
 
     for (auto&& input : test_inputs) {
         auto url = gen_url(input, true);
-        // std::cout << url.str() << std::endl;
+        // std::cout << url << std::endl;
         ASSERT_EQ(uri.SetHttpURL(url), 0); // clear and set query string
         auto http_res = process_http_get_value(txn_kv.get(), uri);
         EXPECT_EQ(http_res.status_code, 200);
@@ -618,7 +623,7 @@ TEST(HttpGetValueTest, process_http_get_value_test_cover_all_template) {
         EXPECT_EQ(http_res.body, input.value);
         // Key mode
         url = gen_url(input, false);
-        // std::cout << url.str() << std::endl;
+        // std::cout << url << std::endl;
         ASSERT_EQ(uri.SetHttpURL(url), 0); // clear and set query string
         http_res = process_http_get_value(txn_kv.get(), uri);
         EXPECT_EQ(http_res.status_code, 200);

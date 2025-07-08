@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -27,8 +29,6 @@ import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Preconditions;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 // PlaceHolderExpr is a reference class point to real LiteralExpr
@@ -160,10 +160,6 @@ public class PlaceHolderExpr extends LiteralExpr {
         return false;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        Preconditions.checkState(false, "should not implement this in derived class. " + this.type.toSql());
-    }
-
     @Override
     public boolean isNullable() {
         return this.lExpr instanceof NullLiteral;
@@ -181,6 +177,15 @@ public class PlaceHolderExpr extends LiteralExpr {
             return "?";
         }
         return "_placeholder_(" + this.lExpr.toSqlImpl() + ")";
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        if (this.lExpr == null) {
+            return "?";
+        }
+        return "_placeholder_(" + this.lExpr.toSqlImpl(disableTableName, needExternalSql, tableType, table) + ")";
     }
 
     // @Override

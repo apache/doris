@@ -22,6 +22,7 @@
 
 #include <functional>
 
+#include "runtime/primitive_type.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 
@@ -61,7 +62,7 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     }
 }
 
-ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
+ColumnStruct::MutablePtr ColumnStruct::create(const Columns& columns) {
     for (const auto& column : columns) {
         if (is_column_const(*column)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -74,7 +75,7 @@ ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
     return column_struct;
 }
 
-ColumnStruct::Ptr ColumnStruct::create(const TupleColumns& tuple_columns) {
+ColumnStruct::MutablePtr ColumnStruct::create(const TupleColumns& tuple_columns) {
     for (const auto& column : tuple_columns) {
         if (is_column_const(*column)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -114,7 +115,7 @@ Field ColumnStruct::operator[](size_t n) const {
 void ColumnStruct::get(size_t n, Field& res) const {
     const size_t tuple_size = columns.size();
 
-    res = Tuple();
+    res = Field::create_field<TYPE_STRUCT>(Tuple());
     Tuple& res_tuple = res.get<Tuple&>();
     res_tuple.reserve(tuple_size);
 
@@ -292,7 +293,7 @@ size_t ColumnStruct::filter(const Filter& filter) {
     return result_size;
 }
 
-ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);
 

@@ -31,7 +31,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -51,16 +51,18 @@ struct FunctionAttr {
     bool enable_decimal256 {false};
 };
 
-#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                               \
-    bool is_nullable = false;                                                    \
-    bool is_datev2 = false;                                                      \
-    for (auto it : arguments) {                                                  \
-        is_nullable = is_nullable || it.type->is_nullable();                     \
-        is_datev2 = is_datev2 || it.type->get_primitive_type() == TYPE_DATEV2 || \
-                    it.type->get_primitive_type() == TYPE_DATETIMEV2;            \
-    }                                                                            \
-    return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())   \
-                                     : std::make_shared<TYPE>();
+#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                             \
+    bool is_nullable = false;                                                                  \
+    bool is_datev2 = false;                                                                    \
+    for (auto it : arguments) {                                                                \
+        is_nullable = is_nullable || it.type->is_nullable();                                   \
+        is_datev2 = is_datev2 || it.type->get_primitive_type() == TYPE_DATEV2 ||               \
+                    it.type->get_primitive_type() == TYPE_DATETIMEV2;                          \
+    }                                                                                          \
+    return is_nullable || !is_datev2                                                           \
+                   ? make_nullable(                                                            \
+                             std::make_shared<typename PrimitiveTypeTraits<TYPE>::DataType>()) \
+                   : std::make_shared<typename PrimitiveTypeTraits<TYPE>::DataType>();
 
 #define SET_NULLMAP_IF_FALSE(EXPR) \
     if (!EXPR) [[unlikely]] {      \
@@ -189,17 +191,20 @@ public:
         return Status::OK();
     }
 
-    /// TODO: make const
-    virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           uint32_t result, size_t input_rows_count, bool dry_run = false) const {
-        return prepare(context, block, arguments, result)
-                ->execute(context, block, arguments, result, input_rows_count, dry_run);
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count, bool dry_run = false) const {
+        try {
+            return prepare(context, block, arguments, result)
+                    ->execute(context, block, arguments, result, input_rows_count, dry_run);
+        } catch (const Exception& e) {
+            return e.to_status();
+        }
     }
 
     virtual Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return Status::OK();
     }
@@ -457,7 +462,7 @@ protected:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
                                                  num_rows, bitmap_result);
@@ -525,7 +530,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& args,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
                                                  bitmap_result);

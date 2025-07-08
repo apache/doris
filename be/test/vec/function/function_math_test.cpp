@@ -381,8 +381,8 @@ TEST(MathFunctionTest, positive_test) {
                 {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
         };
 
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 5, 11>(
-                func_name, input_types, data_set));
+        static_cast<void>(
+                check_function<DataTypeDecimal64, false, 5, 11>(func_name, input_types, data_set));
     }
     // negative case
     {
@@ -393,8 +393,8 @@ TEST(MathFunctionTest, positive_test) {
                 {{DECIMAL64(12345, 123, 3)}, {DECIMAL64(12345, 12300, 5)}},
         };
 
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 5, 11>(
-                func_name, input_types, data_set, false, true));
+        static_cast<void>(check_function<DataTypeDecimal64, false, 5, 11>(func_name, input_types,
+                                                                          data_set, false, true));
     }
     // negative case
     {
@@ -404,8 +404,8 @@ TEST(MathFunctionTest, positive_test) {
                 {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
         };
 
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 6, 12>(
-                func_name, input_types, data_set, false, true));
+        static_cast<void>(check_function<DataTypeDecimal64, false, 6, 12>(func_name, input_types,
+                                                                          data_set, false, true));
     }
 }
 

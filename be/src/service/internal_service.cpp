@@ -92,6 +92,8 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "service/backend_options.h"
 #include "service/point_query_executor.h"
 #include "util/arrow/row_batch.h"
@@ -117,6 +119,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/text/text_reader.h"
 #include "vec/functions/dictionary_factory.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -845,6 +848,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
+        // file_slots is no use, but the lifetime should be longer than reader
+        std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
         case TFileFormatType::FORMAT_CSV_PLAIN:
         case TFileFormatType::FORMAT_CSV_GZ:
@@ -854,10 +859,13 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
-            reader = vectorized::CsvReader::create_unique(profile.get(), params, range, file_slots,
-                                                          &io_ctx);
+            reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
+                                                          range, file_slots, &io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_TEXT: {
+            reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
+                                                           range, file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
@@ -869,17 +877,13 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
                                                               file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
@@ -888,6 +892,12 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             st.to_protobuf(result->mutable_status());
             return;
         }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to create reader, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        st = reader->init_schema_reader();
         if (!st.ok()) {
             LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
@@ -1800,8 +1810,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     brpc::ClosureGuard closure_guard(done);
     const RowsetMetaPB& rowset_meta_pb = request->rowset_meta();
     const std::string& rowset_path = request->rowset_path();
-    google::protobuf::Map<int64, int64> segments_size = request->segments_size();
-    google::protobuf::Map<int64, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
+    google::protobuf::Map<int64_t, int64_t> segments_size = request->segments_size();
+    google::protobuf::Map<int64_t, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
             request->inverted_indices_size();
     std::string host = request->host();
     int64_t http_port = request->http_port();
@@ -2081,6 +2091,50 @@ void PInternalService::multiget_data(google::protobuf::RpcController* controller
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
         return;
+    }
+}
+
+void PInternalService::multiget_data_v2(google::protobuf::RpcController* controller,
+                                        const PMultiGetRequestV2* request,
+                                        PMultiGetResponseV2* response,
+                                        google::protobuf::Closure* done) {
+    std::vector<uint64_t> id_set;
+    id_set.push_back(request->wg_id());
+    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(id_set);
+    Status st = Status::OK();
+
+    if (!wg) [[unlikely]] {
+        brpc::ClosureGuard closure_guard(done);
+        st = Status::Error<TStatusCode::CANCELLED>("fail to find wg: wg id:" +
+                                                   std::to_string(request->wg_id()));
+        st.to_protobuf(response->mutable_status());
+        return;
+    }
+
+    doris::pipeline::TaskScheduler* exec_sched = nullptr;
+    vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
+    vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
+    wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
+    DCHECK(remote_scan_sched);
+
+    st = remote_scan_sched->submit_scan_task(vectorized::SimplifiedScanTask(
+            [request, response, done]() {
+                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+                signal::set_signal_task_id(request->query_id());
+                // multi get data by rowid
+                MonotonicStopWatch watch;
+                watch.start();
+                brpc::ClosureGuard closure_guard(done);
+                response->mutable_status()->set_status_code(0);
+                Status st = RowIdStorageReader::read_by_rowids(*request, response);
+                st.to_protobuf(response->mutable_status());
+                LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+            },
+            nullptr));
+
+    if (!st.ok()) {
+        brpc::ClosureGuard closure_guard(done);
+        st.to_protobuf(response->mutable_status());
     }
 }
 

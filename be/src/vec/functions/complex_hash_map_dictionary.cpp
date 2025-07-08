@@ -20,7 +20,7 @@
 #include <type_traits>
 #include <vector>
 
-#include "vec/columns/columns_number.h"
+#include "common/status.h"
 #include "vec/functions/dictionary.h"
 
 namespace doris::vectorized {
@@ -85,7 +85,8 @@ void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns, const Da
                            if (input_rows < rows) {
                                throw doris::Exception(
                                        ErrorCode::INVALID_ARGUMENT,
-                                       "The key has duplicate data in HashMapDictionary");
+                                       DICT_DATA_ERROR_TAG +
+                                               "The key has duplicate data in HashMapDictionary");
                            }
                        }},
                _hash_map_method.method_variant);
@@ -123,7 +124,7 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
         const ColumnPtrs& key_columns, const DataTypes& key_types) const {
     if (have_nullable(attribute_types) || have_nullable(key_types)) {
         throw doris::Exception(
-                ErrorCode::INVALID_ARGUMENT,
+                ErrorCode::INTERNAL_ERROR,
                 "ComplexHashMapDictionary get_column attribute_type or key_type must "
                 "not nullable type");
     }

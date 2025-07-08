@@ -21,7 +21,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
@@ -70,24 +69,4 @@ public class PlannerContext {
     public TQueryOptions getQueryOptions() {
         return queryOptions;
     } // getRootAnalyzer().getQueryOptions(); }
-
-    public Analyzer getRootAnalyzer() {
-        return analyzer;
-    } // analysisResult_.getAnalyzer(); }
-
-    public boolean isSingleNodeExec() {
-        return getQueryOptions().num_nodes == 1;
-    }
-
-    public PlanNodeId getNextNodeId() {
-        return nodeIdGenerator.getNextId();
-    }
-
-    public PlanFragmentId getNextFragmentId() {
-        return fragmentIdGenerator.getNextId();
-    }
-
-    public boolean isInsert() {
-        return statement instanceof InsertStmt;
-    }
 }

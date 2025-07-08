@@ -81,7 +81,7 @@ Status CloudRowsetBuilder::init() {
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
 
-    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta()));
+    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), ""));
 
     _is_init = true;
     return Status::OK();
@@ -90,12 +90,14 @@ Status CloudRowsetBuilder::init() {
 Status CloudRowsetBuilder::check_tablet_version_count() {
     int64_t version_count = cloud_tablet()->fetch_add_approximate_num_rowsets(0);
     // TODO(plat1ko): load backoff algorithm
-    if (version_count > config::max_tablet_version_num) {
+    int32_t max_version_config = cloud_tablet()->max_version_config();
+    if (version_count > max_version_config) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
                 "tablet: {}. Please reduce the frequency of loading data or adjust the "
-                "max_tablet_version_num in be.conf to a larger value.",
-                version_count, config::max_tablet_version_num, _tablet->tablet_id());
+                "max_tablet_version_num or time_series_max_tablet_version_numin be.conf to a "
+                "larger value.",
+                version_count, max_version_config, _tablet->tablet_id());
     }
     return Status::OK();
 }

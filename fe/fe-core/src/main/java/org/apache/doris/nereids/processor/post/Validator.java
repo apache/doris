@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -26,14 +27,15 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
-import org.apache.doris.nereids.util.PlanUtils;
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.nereids.util.LazyCompute;
 
 import com.google.common.base.Preconditions;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -83,15 +85,33 @@ public class Validator extends PlanPostProcessor {
         if (plan instanceof Aggregate) {
             return Optional.empty();
         }
-        Set<Slot> childOutputSet = Utils.fastToImmutableSet(PlanUtils.fastGetChildrenOutputs(plan.children()));
-        Set<Slot> inputSlots = plan.getInputSlots();
-        for (Slot slot : inputSlots) {
-            if (slot.getName().startsWith("mv") || slot instanceof SlotNotFromChildren) {
-                continue;
+
+        Supplier<BitSet> childrenOutputIds = LazyCompute.of(() -> {
+            BitSet ids = new BitSet();
+            for (Plan child : plan.children()) {
+                for (Slot slot : child.getOutput()) {
+                    ids.set(slot.getExprId().asInt());
+                }
             }
-            if (!(childOutputSet.contains(slot))) {
-                return Optional.of(slot);
-            }
+            return ids;
+        });
+
+        for (Expression expression : plan.getExpressions()) {
+            AtomicReference<Slot> invalidSlot = new AtomicReference<>();
+            expression.anyMatch(e -> {
+                if (e instanceof Slot) {
+                    Slot slot = (Slot) e;
+                    if (slot.getName().startsWith("mv") || slot instanceof SlotNotFromChildren) {
+                        return false;
+                    }
+                    if (!childrenOutputIds.get().get(slot.getExprId().asInt())) {
+                        invalidSlot.set(slot);
+                        return true;
+                    }
+                }
+                return false;
+            });
+            return Optional.ofNullable(invalidSlot.get());
         }
         return Optional.empty();
     }

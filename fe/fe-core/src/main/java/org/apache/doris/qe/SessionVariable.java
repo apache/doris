@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -340,8 +341,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
+    public static final String ENABLE_VISITOR_REWRITER_DEPTH_THRESHOLD = "enable_visitor_rewriter_depth_threshold";
     public static final String DISABLE_NEREIDS_EXPRESSION_RULES = "disable_nereids_expression_rules";
-    public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
     public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
     public static final String NEREIDS_TIMEOUT_SECOND = "nereids_timeout_second";
@@ -411,8 +412,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
 
     public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
-
-    public static final String INTERNAL_SESSION = "internal_session";
 
     public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
 
@@ -539,6 +538,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
 
+    public static final String PARTIAL_UPDATE_NEW_KEY_BEHAVIOR = "partial_update_new_key_behavior";
+
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
@@ -578,6 +579,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
     public static final String PARTITION_SAMPLE_COUNT = "partition_sample_count";
     public static final String PARTITION_SAMPLE_ROW_COUNT = "partition_sample_row_count";
+    public static final String FETCH_HIVE_ROW_COUNT_SYNC = "fetch_hive_row_count_sync";
 
     // for spill to disk
     public static final String ENABLE_SPILL = "enable_spill";
@@ -736,6 +738,15 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
     public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
+
+    public static final String ENABLE_SCHEMA_SCAN_FROM_MASTER_FE = "enable_schema_scan_from_master_fe";
+
+    public static final String SHOW_COLUMN_COMMENT_IN_DESCRIBE = "show_column_comment_in_describe";
+
+    public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
+
+    public static final String PREFER_UDF_OVER_BUILTIN = "prefer_udf_over_builtin";
+    public static final String ENABLE_ADD_INDEX_FOR_NEW_DATA = "enable_add_index_for_new_data";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1184,7 +1195,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private int parallelScanMaxScannersCount = 48;
+    private int parallelScanMaxScannersCount = 0;
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1307,6 +1318,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true, fuzzy = true)
     private boolean enableSyncRuntimeFilterSize = true;
 
+    @VariableMgr.VarAttr(name = "runtime_filter_max_build_row_count", needForward = true, fuzzy = false)
+    public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
+
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = false;
 
@@ -1325,6 +1339,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
+
+    @VariableMgr.VarAttr(name = "enable_topn_lazy_materialization", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public boolean enableTopnLazyMaterialization = true;
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
@@ -1544,14 +1563,19 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
     public String enableNereidsRules = "";
 
+    @VariableMgr.VarAttr(name = ENABLE_VISITOR_REWRITER_DEPTH_THRESHOLD, needForward = true, description = {
+            "当查询计划的深度小于或等于这个阈值时，使用visitor rewriter去加速改写，否则使用stack rewriter去改写，"
+                    + "防止StackOverflowError",
+            "When the depth of the query plan is less than or equal to this threshold, use visitor rewriter to "
+                    + "speed up rewriting, otherwise use stack rewriter to rewrite to prevent StackOverflowError"
+    })
+    public int enableVisitorRewriterDepthThreshold = 100;
+
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_EXPRESSION_RULES, needForward = true,
             setter = "setDisableNereidsExpressionRules")
     private String disableNereidsExpressionRules = "";
 
     private BitSet disableNereidsExpressionRuleSet = new BitSet();
-
-    @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
-    private boolean enableNewCostModel = false;
 
     @VariableMgr.VarAttr(name = "filter_cost_factor", needForward = true)
     public double filterCostFactor = 0.0001;
@@ -1715,9 +1739,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
-
-    @VariableMgr.VarAttr(name = INTERNAL_SESSION)
-    public boolean internalSession = false;
 
     @VariableMgr.VarAttr(name = PARTITION_PRUNING_EXPAND_THRESHOLD, fuzzy = true)
     public int partitionPruningExpandThreshold = 10;
@@ -2063,6 +2084,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
+    @VariableMgr.VarAttr(name = PARTIAL_UPDATE_NEW_KEY_BEHAVIOR, needForward = true, description = {
+            "用于设置部分列更新中对于新插入的行的行为",
+            "Used to set the behavior for newly inserted rows in partial update."
+            }, checker = "checkPartialUpdateNewKeyBehavior", options = {"APPEND", "ERROR"})
+    public String partialUpdateNewKeyPolicy = "APPEND";
+
     @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
             "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
             "Used to test whether the query cache is hit. "
@@ -2073,7 +2100,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_AUTO_ANALYZE,
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
-    public boolean enableAutoAnalyze = true;
+    public volatile boolean enableAutoAnalyze = true;
 
     @VariableMgr.VarAttr(name = FORCE_SAMPLE_ANALYZE, needForward = true,
             description = {"是否将 full analyze 自动转换成 sample analyze", "Set true to force sample analyze"},
@@ -2173,6 +2200,10 @@ public class SessionVariable implements Serializable, Writable {
                     "大分区表采样的行数上限",
                     "The upper limit of the number of rows for sampling large partitioned tables.\n"})
     public long partitionSampleRowCount = 3_000_000_000L;
+
+    @VariableMgr.VarAttr(name = FETCH_HIVE_ROW_COUNT_SYNC,
+            description = {"同步获取Hive外表行数", "Fetch Hive external table row count synchronously"})
+    public boolean fetchHiveRowCountSync = true;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = {"是否开启基于结构信息的物化视图透明改写",
@@ -2594,6 +2625,37 @@ public class SessionVariable implements Serializable, Writable {
             })
     public String enableSqlConvertorFeatures = "";
 
+    // The default value is true,
+    // which throughs reducing rpc call from follower node to meta service to improve query performance
+    // for getting version is memory operation in master node,
+    // but it will slightly increase the pressure on the FE master.
+    @VariableMgr.VarAttr(name = ENABLE_SCHEMA_SCAN_FROM_MASTER_FE, description = {
+            "在follower节点查询时, 是否允许从master节点扫描information_schema.tables的结果",
+            "Whether to allow scanning information_schema.tables from the master node"
+    })
+    public boolean enableSchemaScanFromMasterFe = true;
+
+    @VariableMgr.VarAttr(name = SHOW_COLUMN_COMMENT_IN_DESCRIBE, needForward = true,
+            description = {
+                    "是否在 DESCRIBE TABLE 语句中显示列注释",
+                    "whether to show column comments in DESCRIBE TABLE statement"
+            })
+    public boolean showColumnCommentInDescribe = false;
+
+    @VariableMgr.VarAttr(name = SQL_CONVERTOR_CONFIG, needForward = true,
+            description = {
+                    "SQL 转换器的相关配置，使用 Json 格式。以 {} 为根元素。",
+                    "SQL convertor config, use Json format. The root element is {}"
+            })
+    public String sqlConvertorConfig = "{}";
+
+    @VariableMgr.VarAttr(name = PREFER_UDF_OVER_BUILTIN, needForward = true,
+            description = {
+                    "是否优先查找 UDF 而不是内置函数",
+                    "Whether to prefer UDF over builtin functions"
+            })
+    public boolean preferUdfOverBuiltin = false;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -2601,6 +2663,14 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isEnableESParallelScroll() {
         return enableESParallelScroll;
     }
+
+    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, fuzzy = true, description = {
+            "是否启用仅对新数据生效的索引添加模式，开启时新建索引只对后续写入的数据生效，关闭时对全部数据重建索引",
+            "Whether to enable add index mode that only affects new data, "
+                    + "when enabled new indexes only affect subsequently written data, "
+                    + "when disabled rebuild indexes for all data"
+    })
+    public boolean enableAddIndexForNewData = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2614,12 +2684,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        // This will cause be dead loop, disable it first
-        // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
-        this.enableParallelResultSink = random.nextBoolean();
 
         // 4KB = 4 * 1024 bytes
         int minBytes = 4 * 1024;
@@ -3543,6 +3610,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableSqlConvertorFeatures.split(",");
     }
 
+    public String getSqlConvertorConfig() {
+        return sqlConvertorConfig;
+    }
+
     public Dialect getSqlParseDialect() {
         return Dialect.getByName(sqlDialect);
     }
@@ -3788,14 +3859,6 @@ public class SessionVariable implements Serializable, Writable {
         return disableNereidsExpressionRuleSet;
     }
 
-    public void setEnableNewCostModel(boolean enable) {
-        this.enableNewCostModel = enable;
-    }
-
-    public boolean getEnableNewCostModel() {
-        return this.enableNewCostModel;
-    }
-
     public void setDisableNereidsRules(String disableNereidsRules) {
         this.disableNereidsRules = disableNereidsRules;
     }
@@ -4016,6 +4079,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableUniqueKeyPartialUpdate(boolean enableUniqueKeyPartialUpdate) {
         this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
+    }
+
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return parsePartialUpdateNewKeyBehavior(partialUpdateNewKeyPolicy);
     }
 
     public int getLoadStreamPerNode() {
@@ -4391,6 +4458,7 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * The sessionContext is as follows:
      * "k1:v1;k2:v2;..."
+     * eg: set session_context="trace_id:123456"
      * Here we want to get value with key named "trace_id",
      * Return empty string is not found.
      *
@@ -4549,6 +4617,29 @@ public class SessionVariable implements Serializable, Writable {
             UnsupportedOperationException exception =
                     new UnsupportedOperationException("Generate stats factor " + value + " should greater than 0");
             LOG.warn("Check generate stats factor failed", exception);
+            throw exception;
+        }
+    }
+
+    public TPartialUpdateNewRowPolicy parsePartialUpdateNewKeyBehavior(String behavior) {
+        if (behavior == null) {
+            return null;
+        } else if (behavior.equalsIgnoreCase("APPEND")) {
+            return TPartialUpdateNewRowPolicy.APPEND;
+        } else if (behavior.equalsIgnoreCase("ERROR")) {
+            return TPartialUpdateNewRowPolicy.ERROR;
+        }
+        return null;
+    }
+
+    public void checkPartialUpdateNewKeyBehavior(String partialUpdateNewKeyBehavior) {
+        TPartialUpdateNewRowPolicy policy = parsePartialUpdateNewKeyBehavior(partialUpdateNewKeyBehavior);
+        if (policy == null) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(PARTIAL_UPDATE_NEW_KEY_BEHAVIOR
+                            + " should be one of {'APPEND', 'ERROR'}, but found "
+                                    + partialUpdateNewKeyBehavior);
+            LOG.warn("Check " + PARTIAL_UPDATE_NEW_KEY_BEHAVIOR + " failed", exception);
             throw exception;
         }
     }
@@ -4843,4 +4934,11 @@ public class SessionVariable implements Serializable, Writable {
         return enableProfile() && getProfileLevel() > 1;
     }
 
+    public boolean isEnableAddIndexForNewData() {
+        return enableAddIndexForNewData;
+    }
+
+    public void setEnableAddIndexForNewData(boolean enableAddIndexForNewData) {
+        this.enableAddIndexForNewData = enableAddIndexForNewData;
+    }
 }

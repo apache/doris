@@ -34,27 +34,23 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
-
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionAvgWeightedData {
-    void add(const T& data_val, double weight_val) {
+    using DataType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    void add(const DataType& data_val, double weight_val) {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        if constexpr (IsDecimalV2<T>) {
+        if constexpr (is_decimal(T)) {
             DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
             data_sum = data_sum + (double(value) * weight_val);
         } else {
@@ -92,16 +88,17 @@ struct AggregateFunctionAvgWeightedData {
     double weight_sum = 0.0;
 };
 
-template <typename T>
+template <PrimitiveType type>
 class AggregateFunctionAvgWeight final
-        : public IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<T>,
-                                              AggregateFunctionAvgWeight<T>> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<type>,
+                                              AggregateFunctionAvgWeight<type>> {
 public:
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    using T = typename PrimitiveTypeTraits<type>::CppType;
+    using ColVecType = typename PrimitiveTypeTraits<type>::ColumnType;
 
     AggregateFunctionAvgWeight(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<T>,
-                                           AggregateFunctionAvgWeight<T>>(argument_types_) {}
+            : IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<type>,
+                                           AggregateFunctionAvgWeight<type>>(argument_types_) {}
 
     String get_name() const override { return "avg_weighted"; }
 

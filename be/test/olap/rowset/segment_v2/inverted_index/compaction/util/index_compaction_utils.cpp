@@ -33,8 +33,8 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_factory.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/storage_engine.h"
 
 namespace doris {
@@ -146,12 +146,12 @@ class IndexCompactionUtils {
     }
 
     static bool query_bkd(const TabletIndex* index,
-                          std::shared_ptr<InvertedIndexFileReader>& inverted_index_file_reader,
+                          std::shared_ptr<IndexFileReader>& index_file_reader,
                           const std::vector<int>& query_data,
                           const std::vector<int>& query_result) {
-        const auto& idx_reader = BkdIndexReader::create_shared(index, inverted_index_file_reader);
+        const auto& idx_reader = BkdIndexReader::create_shared(index, index_file_reader);
         const auto& index_searcher_builder = std::make_unique<BKDIndexSearcherBuilder>();
-        auto dir = inverted_index_file_reader->open(index);
+        auto dir = index_file_reader->open(index);
         EXPECT_TRUE(dir.has_value());
         auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().release());
         EXPECT_TRUE(searcher_result.has_value());
@@ -162,14 +162,16 @@ class IndexCompactionUtils {
         idx_reader->_value_key_coder = get_key_coder(idx_reader->_type_info->type());
 
         for (int i = 0; i < query_data.size(); i++) {
-            vectorized::Field param_value = int32_t(query_data[i]);
+            vectorized::Field param_value =
+                    vectorized::Field::create_field<TYPE_INT>(int32_t(query_data[i]));
             std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
             EXPECT_TRUE(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                                 PrimitiveType::TYPE_INT, &param_value, query_param)
                                 .ok());
             auto result = std::make_shared<roaring::Roaring>();
+            OlapReaderStatistics stats;
             EXPECT_TRUE(idx_reader
-                                ->invoke_bkd_query(query_param->get_value(),
+                                ->invoke_bkd_query(nullptr, &stats, query_param->get_value(),
                                                    InvertedIndexQueryType::EQUAL_QUERY,
                                                    *bkd_searcher, result)
                                 .ok());
@@ -179,14 +181,14 @@ class IndexCompactionUtils {
     }
 
     static bool query_string(const TabletIndex* index,
-                             std::shared_ptr<InvertedIndexFileReader>& inverted_index_file_reader,
+                             std::shared_ptr<IndexFileReader>& index_file_reader,
                              const std::string& column_name,
                              const std::vector<std::string>& query_data,
                              const std::vector<int>& query_result) {
         const auto& idx_reader =
-                StringTypeInvertedIndexReader::create_shared(index, inverted_index_file_reader);
+                StringTypeInvertedIndexReader::create_shared(index, index_file_reader);
         const auto& index_searcher_builder = std::make_unique<FulltextIndexSearcherBuilder>();
-        auto dir = inverted_index_file_reader->open(index);
+        auto dir = index_file_reader->open(index);
         EXPECT_TRUE(dir.has_value());
         auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().release());
         EXPECT_TRUE(searcher_result.has_value());
@@ -201,7 +203,7 @@ class IndexCompactionUtils {
             EXPECT_TRUE(query != nullptr);
             InvertedIndexQueryInfo query_info;
             query_info.field_name = column_name_ws;
-            query_info.terms.emplace_back(query_data[i]);
+            query_info.term_infos.emplace_back(query_data[i], 0);
             query->add(query_info);
             auto result = std::make_shared<roaring::Roaring>();
             query->search(*result);
@@ -211,14 +213,13 @@ class IndexCompactionUtils {
     }
 
     static bool query_fulltext(const TabletIndex* index,
-                               std::shared_ptr<InvertedIndexFileReader>& inverted_index_file_reader,
+                               std::shared_ptr<IndexFileReader>& index_file_reader,
                                const std::string& column_name,
                                const std::vector<std::string>& query_data,
                                const std::vector<int>& query_result) {
-        const auto& idx_reader =
-                FullTextIndexReader::create_shared(index, inverted_index_file_reader);
+        const auto& idx_reader = FullTextIndexReader::create_shared(index, index_file_reader);
         const auto& index_searcher_builder = std::make_unique<FulltextIndexSearcherBuilder>();
-        auto dir = inverted_index_file_reader->open(index);
+        auto dir = index_file_reader->open(index);
         EXPECT_TRUE(dir.has_value());
         auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().release());
         EXPECT_TRUE(searcher_result.has_value());
@@ -233,7 +234,7 @@ class IndexCompactionUtils {
             EXPECT_TRUE(query != nullptr);
             InvertedIndexQueryInfo query_info;
             query_info.field_name = column_name_ws;
-            query_info.terms.emplace_back(query_data[i]);
+            query_info.term_infos.emplace_back(query_data[i], 0);
             query->add(query_info);
             auto result = std::make_shared<roaring::Roaring>();
             query->search(*result);
@@ -243,7 +244,7 @@ class IndexCompactionUtils {
     }
 
     static void check_terms_stats(lucene::store::Directory* dir, std::ostream& os = std::cout) {
-        IndexReader* r = IndexReader::open(dir);
+        lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
         os << "Max Docs: " << r->maxDoc() << "\n";
         os << "Num Docs: " << r->numDocs() << "\n";
@@ -483,7 +484,7 @@ class IndexCompactionUtils {
     }
 
     static RowsetSharedPtr create_delete_predicate_rowset(const TabletSchemaSPtr& schema,
-                                                          std::string pred, int64& inc_id) {
+                                                          std::string pred, int64_t& inc_id) {
         DeletePredicatePB del_pred;
         del_pred.add_sub_predicates(pred);
         del_pred.set_version(1);
@@ -564,11 +565,11 @@ class IndexCompactionUtils {
         EXPECT_TRUE(seg_path.has_value());
         const auto& index_file_path_prefix =
                 InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value());
-        auto inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
+        auto index_file_reader = std::make_shared<IndexFileReader>(
                 fs, std::string(index_file_path_prefix),
                 tablet_schema->get_inverted_index_storage_format(), index_info);
-        EXPECT_TRUE(inverted_index_file_reader->init().ok());
-        const auto& dirs = inverted_index_file_reader->get_all_directories();
+        EXPECT_TRUE(index_file_reader->init().ok());
+        const auto& dirs = index_file_reader->get_all_directories();
         EXPECT_TRUE(dirs.has_value());
         EXPECT_EQ(dirs.value().size(), 4);
 
@@ -583,25 +584,24 @@ class IndexCompactionUtils {
                 for (const auto& data : query_data.first) {
                     query_data_int.push_back(std::stoi(data));
                 }
-                EXPECT_TRUE(query_bkd(index, inverted_index_file_reader, query_data_int,
-                                      query_data.second));
+                EXPECT_TRUE(query_bkd(index, index_file_reader, query_data_int, query_data.second));
             } else if (col_uid == 1) {
                 // String index
-                EXPECT_TRUE(query_string(index, inverted_index_file_reader, std::to_string(col_uid),
+                EXPECT_TRUE(query_string(index, index_file_reader, std::to_string(col_uid),
                                          query_data.first, query_data.second));
             } else if (col_uid == 2) {
                 // Fulltext index
-                EXPECT_TRUE(query_fulltext(index, inverted_index_file_reader,
-                                           std::to_string(col_uid), query_data.first,
-                                           query_data.second));
+                EXPECT_TRUE(query_fulltext(index, index_file_reader, std::to_string(col_uid),
+                                           query_data.first, query_data.second));
             }
         }
     }
 
     static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>& data_dir,
                                                      const TabletSchemaSPtr& schema,
-                                                     const std::string& tablet_path, int64& inc_id,
-                                                     int64 max_rows_per_segment = 200) {
+                                                     const std::string& tablet_path,
+                                                     int64_t& inc_id,
+                                                     int64_t max_rows_per_segment = 200) {
         RowsetWriterContext context;
         RowsetId rowset_id;
         rowset_id.init(inc_id);
@@ -621,10 +621,10 @@ class IndexCompactionUtils {
     static void build_rowsets(const std::unique_ptr<DataDir>& data_dir,
                               const TabletSchemaSPtr& schema, const TabletSharedPtr& tablet,
                               StorageEngine* engine_ref, std::vector<RowsetSharedPtr>& rowsets,
-                              const std::vector<std::string>& data_files, int64& inc_id,
+                              const std::vector<std::string>& data_files, int64_t& inc_id,
                               const std::function<void(const int32_t&)> custom_check = nullptr,
                               const bool& is_performance = false,
-                              int64 max_rows_per_segment = 200) {
+                              int64_t max_rows_per_segment = 200) {
         std::vector<std::vector<T>> data;
         for (const auto& file : data_files) {
             data.emplace_back(read_data<T>(file));
@@ -642,19 +642,25 @@ class IndexCompactionUtils {
             auto columns = block.mutate_columns();
             for (const auto& row : data[i]) {
                 if constexpr (std::is_same_v<T, DataRow>) {
-                    vectorized::Field key = int32_t(row.key);
-                    vectorized::Field v1(row.word);
-                    vectorized::Field v2(row.url);
-                    vectorized::Field v3 = int32_t(row.num);
+                    vectorized::Field key =
+                            vectorized::Field::create_field<TYPE_INT>(int32_t(row.key));
+                    vectorized::Field v1 = vectorized::Field::create_field<TYPE_STRING>(row.word);
+                    vectorized::Field v2 = vectorized::Field::create_field<TYPE_STRING>(row.url);
+                    vectorized::Field v3 =
+                            vectorized::Field::create_field<TYPE_INT>(int32_t(row.num));
                     columns[0]->insert(key);
                     columns[1]->insert(v1);
                     columns[2]->insert(v2);
                     columns[3]->insert(v3);
                 } else if constexpr (std::is_same_v<T, WikiDataRow>) {
-                    vectorized::Field title(row.title);
-                    vectorized::Field content(row.content);
-                    vectorized::Field redirect(row.redirect);
-                    vectorized::Field space(row.space);
+                    vectorized::Field title =
+                            vectorized::Field::create_field<TYPE_STRING>(row.title);
+                    vectorized::Field content =
+                            vectorized::Field::create_field<TYPE_STRING>(row.content);
+                    vectorized::Field redirect =
+                            vectorized::Field::create_field<TYPE_STRING>(row.redirect);
+                    vectorized::Field space =
+                            vectorized::Field::create_field<TYPE_STRING>(row.space);
                     columns[0]->insert(title);
                     if (is_performance) {
                         columns[1]->insert(content);
@@ -710,12 +716,12 @@ class IndexCompactionUtils {
                 EXPECT_TRUE(seg_path.has_value());
                 const auto& index_file_path_prefix =
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value());
-                auto inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
+                auto index_file_reader = std::make_shared<IndexFileReader>(
                         fs, std::string(index_file_path_prefix),
                         schema->get_inverted_index_storage_format(), index_info);
-                st = inverted_index_file_reader->init();
+                st = index_file_reader->init();
                 EXPECT_TRUE(st.ok()) << st.to_string();
-                const auto& dirs = inverted_index_file_reader->get_all_directories();
+                const auto& dirs = index_file_reader->get_all_directories();
                 EXPECT_TRUE(dirs.has_value());
                 if (custom_check) {
                     custom_check(dirs.value().size());
@@ -724,18 +730,18 @@ class IndexCompactionUtils {
         }
     }
 
-    static std::shared_ptr<InvertedIndexFileReader> init_index_file_reader(
+    static std::shared_ptr<IndexFileReader> init_index_file_reader(
             const RowsetSharedPtr& output_rowset, const std::string& seg_path,
             const InvertedIndexStorageFormatPB& index_storage_format) {
         const auto& index_file_path_prefix =
                 InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
-        auto inverted_index_file_reader_index = std::make_shared<InvertedIndexFileReader>(
+        auto index_file_reader = std::make_shared<IndexFileReader>(
                 output_rowset->_rowset_meta->fs(), std::string(index_file_path_prefix),
                 index_storage_format);
-        auto st = inverted_index_file_reader_index->init();
+        auto st = index_file_reader->init();
         EXPECT_TRUE(st.ok()) << st.to_string();
 
-        return inverted_index_file_reader_index;
+        return index_file_reader;
     }
 };
 

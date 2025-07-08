@@ -18,6 +18,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <future>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -50,7 +51,15 @@ class TabletIndexPB;
 using StorageVaultInfos = std::vector<
         std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
 
+// run tasks in bthread with concurrency and wait until all tasks done
+// it stops running tasks if there are any tasks return !ok, leaving some tasks untouched
+// return OK if all tasks successfully done, otherwise return the result of the failed task
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency);
+
+// An async wrap of `bthread_fork_join` declared previously using promise-future
+// return OK if fut successfully created, otherwise return error
+Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency,
+                         std::future<Status>* fut);
 
 class CloudMetaMgr {
 public:
@@ -69,10 +78,10 @@ public:
             CloudTablet* tablet, std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
             const SyncOptions& options = {}, SyncRowsetStats* sync_stats = nullptr);
 
-    Status prepare_rowset(const RowsetMeta& rs_meta,
+    Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta& rs_meta,
+    Status commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
@@ -100,24 +109,20 @@ public:
 
     Status lease_tablet_job(const TabletJobInfoPB& job);
 
-    Status update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema);
-
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
                                 DeleteBitmap* delete_bitmap, int64_t txn_id = -1,
                                 bool is_explicit_txn = false, int64_t next_visible_version = -1);
 
-    Status cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
-                                                   DeleteBitmap* delete_bitmap);
+    Status cloud_update_delete_bitmap_without_lock(
+            const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
+            std::map<std::string, int64_t>& rowset_to_versions,
+            int64_t pre_rowset_agg_start_version = 0, int64_t pre_rowset_agg_end_version = 0);
 
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);
 
     void remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id, int64_t initiator,
                                           int64_t tablet_id);
-
-    Status remove_old_version_delete_bitmap(
-            int64_t tablet_id,
-            const std::vector<std::tuple<std::string, uint64_t, uint64_t>>& to_delete);
 
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,

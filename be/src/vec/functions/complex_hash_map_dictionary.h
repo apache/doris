@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -90,7 +91,7 @@ inline DictionaryPtr create_complex_hash_map_dict_from_column(
     DataTypes key_types;
     for (const auto& key : key_data) {
         if (key.column->is_nullable()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "ComplexHashMapDictionary key column should not be nullable");
         }
         key_columns.push_back(key.column);
@@ -100,5 +101,4 @@ inline DictionaryPtr create_complex_hash_map_dict_from_column(
                                                                        values_data);
     return dict;
 }
-
 } // namespace doris::vectorized

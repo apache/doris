@@ -37,13 +37,17 @@ import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
@@ -649,7 +653,12 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testCreateRepository() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "create repository a with S3 on location 's3://xxx' properties('k'='v')";
+        String sql = "create repository a with S3 on location 's3://s3-repo' "
+                + "properties("
+                + "'AWS_ENDPOINT' = 'http://s3.us-east-1.amazonaws.com',"
+                + "'AWS_ACCESS_KEY' = 'akk',"
+                + "'AWS_SECRET_KEY'='skk',"
+                + "'AWS_REGION' = 'us-east-1')";
         nereidsParser.parseSingle(sql);
     }
 
@@ -700,6 +709,56 @@ public class NereidsParserTest extends ParserTestBase {
 
         for (String sql : sqls) {
             nereidsParser.parseSingle(sql);
+        }
+    }
+
+    @Test
+    void testQueryOrganization() {
+        NereidsParser nereidsParser = new NereidsParser();
+        // legacy behavior
+        GlobalVariable.enable_ansi_query_organization_behavior = false;
+        checkQueryTopPlanClass("SELECT 1 ORDER BY 1",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT 1 LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("SELECT 1 UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("(SELECT 1 UNION ALL SELECT 1) LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("SELECT 1 UNION ALL (SELECT 1 LIMIT 1)",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("SELECT 1 ORDER BY 1 UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("(SELECT 1 ORDER BY 1) UNION ALL (SELECT 1 LIMIT 1)",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("(SELECT 1 ORDER BY 1) UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalUnion.class);
+
+        GlobalVariable.enable_ansi_query_organization_behavior = true;
+        checkQueryTopPlanClass("SELECT 1 ORDER BY 1",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT 1 LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("SELECT 1 UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("(SELECT 1 UNION ALL SELECT 1) LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("SELECT 1 UNION ALL (SELECT 1 LIMIT 1)",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("SELECT 1 ORDER BY 1 UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, null);
+        checkQueryTopPlanClass("(SELECT 1 ORDER BY 1) UNION ALL (SELECT 1 LIMIT 1)",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("(SELECT 1 ORDER BY 1) UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+    }
+
+    private void checkQueryTopPlanClass(String sql, NereidsParser parser, Class<?> clazz) {
+        if (clazz == null) {
+            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
+        } else {
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertInstanceOf(clazz, logicalPlan.child(0));
         }
     }
 

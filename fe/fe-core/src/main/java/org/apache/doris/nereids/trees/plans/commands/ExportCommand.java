@@ -269,6 +269,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         exportJob.setPartitionNames(this.partitionsNames);
         // set where expression
         exportJob.setWhereExpression(this.expr);
+        exportJob.setWhereStr(this.expr.isPresent() ? this.expr.get().toSql() : "");
         // set path
         exportJob.setExportPath(this.path);
 
@@ -379,6 +380,10 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
 
     public List<String> getNameParts() {
         return this.nameParts;
+    }
+
+    public Optional<Expression> getExpr() {
+        return expr;
     }
 
     @Override

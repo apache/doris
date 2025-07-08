@@ -43,8 +43,12 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
@@ -242,7 +246,11 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterClause instanceof ModifyColumnOp
                     || alterClause instanceof ReorderColumnsOp
                     || alterClause instanceof ModifyEngineOp
-                    || alterClause instanceof ModifyTablePropertiesOp) {
+                    || alterClause instanceof ModifyTablePropertiesOp
+                    || alterClause instanceof CreateOrReplaceBranchOp
+                    || alterClause instanceof CreateOrReplaceTagOp
+                    || alterClause instanceof DropBranchOp
+                    || alterClause instanceof DropTagOp) {
                 alterTableOps.add(alterClause);
             } else {
                 throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] "

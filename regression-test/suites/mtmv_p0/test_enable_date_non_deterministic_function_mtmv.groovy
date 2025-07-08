@@ -123,7 +123,7 @@ suite("test_enable_date_non_deterministic_function_mtmv","mtmv") {
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT * FROM ${tableName} where now() > k3 and current_time() > k3;
+                SELECT * FROM ${tableName} where now() > k3;
         """
         Assert.fail();
     } catch (Exception e) {

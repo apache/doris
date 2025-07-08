@@ -24,8 +24,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -106,7 +106,7 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("GroupCommitTvfBroker", StorageType.STREAM, locationProperties);
+        return new BrokerDesc("GroupCommitTvfBroker", StorageType.STREAM, processedParams);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

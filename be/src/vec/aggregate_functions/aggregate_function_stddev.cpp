@@ -31,34 +31,34 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <template <typename> class Function, typename Name,
-          template <typename, typename, bool> class Data, bool is_stddev>
+          template <PrimitiveType, typename, bool> class Data, bool is_stddev>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
                                                   const bool result_is_nullable) {
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create<Function<Data<UInt8, Name, is_stddev>>>(
+        return creator_without_type::create<Function<Data<TYPE_BOOLEAN, Name, is_stddev>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create<Function<Data<Int8, Name, is_stddev>>>(
+        return creator_without_type::create<Function<Data<TYPE_TINYINT, Name, is_stddev>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create<Function<Data<Int16, Name, is_stddev>>>(
+        return creator_without_type::create<Function<Data<TYPE_SMALLINT, Name, is_stddev>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_INT:
-        return creator_without_type::create<Function<Data<Int32, Name, is_stddev>>>(
+        return creator_without_type::create<Function<Data<TYPE_INT, Name, is_stddev>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create<Function<Data<Int64, Name, is_stddev>>>(
+        return creator_without_type::create<Function<Data<TYPE_BIGINT, Name, is_stddev>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create<Function<Data<Int128, Name, is_stddev>>>(
+        return creator_without_type::create<Function<Data<TYPE_LARGEINT, Name, is_stddev>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create<Function<Data<Float32, Name, is_stddev>>>(
+        return creator_without_type::create<Function<Data<TYPE_FLOAT, Name, is_stddev>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create<Function<Data<Float64, Name, is_stddev>>>(
+        return creator_without_type::create<Function<Data<TYPE_DOUBLE, Name, is_stddev>>>(
                 argument_types, result_is_nullable);
     default:
         LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
@@ -105,6 +105,7 @@ void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFact
     factory.register_alias("variance", "variance_pop");
     factory.register_function_both("stddev", create_aggregate_function_stddev_pop);
     factory.register_alias("stddev", "stddev_pop");
+    factory.register_alias("stddev", "std");
 }
 
 void register_aggregate_function_stddev_variance_samp_old(AggregateFunctionSimpleFactory& factory) {

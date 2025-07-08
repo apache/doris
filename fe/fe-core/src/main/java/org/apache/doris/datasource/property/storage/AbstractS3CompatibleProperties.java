@@ -20,9 +20,14 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.base.Strings;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -80,6 +85,12 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Getter
     protected String forceParsingByStandardUrl = "false";
 
+    @Getter
+    @ConnectorProperty(names = {"s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of S3.")
+    protected String sessionToken = "";
+
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.
      *
@@ -135,6 +146,9 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         s3Props.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
         s3Props.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         s3Props.put("use_path_style", usePathStyle);
+        if (StringUtils.isNotBlank(getSessionToken())) {
+            s3Props.put("AWS_TOKEN", getSessionToken());
+        }
         return s3Props;
     }
 
@@ -143,9 +157,21 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         return generateBackendS3Configuration();
     }
 
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
+        if (StringUtils.isNotBlank(getAccessKey()) && StringUtils.isNotBlank(getSecretKey())) {
+            if (Strings.isNullOrEmpty(sessionToken)) {
+                return StaticCredentialsProvider.create(AwsBasicCredentials.create(getAccessKey(), getSecretKey()));
+            } else {
+                return StaticCredentialsProvider.create(AwsSessionCredentials.create(getAccessKey(), getSecretKey(),
+                        sessionToken));
+            }
+        }
+        return null;
+    }
+
 
     @Override
-    protected void initNormalizeAndCheckProps() throws UserException {
+    protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfNotSet();
         if (!isValidEndpoint(getEndpoint())) {
@@ -168,7 +194,15 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         }
         Matcher matcher = endpointPattern().matcher(endpoint.toLowerCase());
         if (matcher.find()) {
-            String region = matcher.group(1);
+            // Check all possible groups for region (group 1, 2, or 3)
+            String region = null;
+            for (int i = 1; i <= matcher.groupCount(); i++) {
+                String group = matcher.group(i);
+                if (StringUtils.isNotBlank(group)) {
+                    region = group;
+                    break;
+                }
+            }
             if (StringUtils.isBlank(region)) {
                 throw new IllegalArgumentException("Invalid endpoint format: " + endpoint);
             }
@@ -184,7 +218,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         return endpointPattern().matcher(endpoint).matches();
     }
 
-    private void setEndpointIfNotSet() throws UserException {
+    private void setEndpointIfNotSet() {
         if (StringUtils.isNotBlank(getEndpoint())) {
             return;
         }

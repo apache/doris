@@ -25,6 +25,7 @@ import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -38,12 +39,12 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     protected String endpoint = "";
 
     @Getter
-    @ConnectorProperty(names = {"obs.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+    @ConnectorProperty(names = {"obs.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
             description = "The access key of OBS.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"obs.secret_key", "secret_key", "s3.secret_key"},
+    @ConnectorProperty(names = {"obs.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
             description = "The secret key of OBS.")
     protected String secretKey = "";
 
@@ -80,13 +81,13 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
                 .orElse(null);
 
         if (!Strings.isNullOrEmpty(value)) {
-            return ENDPOINT_PATTERN.matcher(value).matches();
+            return value.contains("myhuaweicloud.com");
         }
-        if (!origProps.containsKey("uri")) {
-            return false;
-        }
-        // Check if the uri property contains "myhuaweicloud.com"
-        return origProps.get("uri").contains("myhuaweicloud.com");
+        Optional<String> uriValue = origProps.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        return uriValue.isPresent() && uriValue.get().contains("myhuaweicloud.com");
     }
 
     @Override

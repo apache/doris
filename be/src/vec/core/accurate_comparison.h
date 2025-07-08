@@ -23,6 +23,7 @@
 #include <cmath>
 #include <limits>
 
+#include "runtime/primitive_type.h"
 #include "util/binary_cast.hpp"
 #include "vec/common/nan_utils.h"
 #include "vec/common/string_ref.h"
@@ -350,100 +351,128 @@ inline bool convertNumeric(From value, To& result) {
 
 namespace doris::vectorized {
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct EqualsOp {
     /// An operation that gives the same result, if arguments are passed in reverse order.
     using SymmetricOp = EqualsOp<B, A>;
-    static UInt8 apply(A a, B b) { return accurate::equalsOp(a, b); }
+    using NativeTypeA =
+            std::conditional_t<A == TYPE_BOOLEAN, typename PrimitiveTypeTraits<A>::ColumnItemType,
+                               typename PrimitiveTypeTraits<A>::CppNativeType>;
+    using NativeTypeB =
+            std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
+                               typename PrimitiveTypeTraits<B>::CppNativeType>;
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::equalsOp(a, b); }
 };
 
 template <>
-struct EqualsOp<DecimalV2Value, DecimalV2Value> {
+struct EqualsOp<TYPE_DECIMALV2, TYPE_DECIMALV2> {
     static UInt8 apply(const Int128& a, const Int128& b) { return a == b; }
 };
 
 template <>
-struct EqualsOp<StringRef, StringRef> {
+struct EqualsOp<TYPE_STRING, TYPE_STRING> {
     static UInt8 apply(const StringRef& a, const StringRef& b) { return a == b; }
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct NotEqualsOp {
     using SymmetricOp = NotEqualsOp<B, A>;
-    static UInt8 apply(A a, B b) { return accurate::notEqualsOp(a, b); }
+    using NativeTypeA =
+            std::conditional_t<A == TYPE_BOOLEAN, typename PrimitiveTypeTraits<A>::ColumnItemType,
+                               typename PrimitiveTypeTraits<A>::CppNativeType>;
+    using NativeTypeB =
+            std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
+                               typename PrimitiveTypeTraits<B>::CppNativeType>;
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::notEqualsOp(a, b); }
 };
 
 template <>
-struct NotEqualsOp<DecimalV2Value, DecimalV2Value> {
-    static UInt8 apply(const Int128& a, const Int128& b) { return a != b; }
+struct NotEqualsOp<TYPE_DECIMALV2, TYPE_DECIMALV2> {
+    static UInt8 apply(const DecimalV2Value& a, const DecimalV2Value& b) { return a != b; }
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct GreaterOp;
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct LessOp {
     using SymmetricOp = GreaterOp<B, A>;
-    static UInt8 apply(A a, B b) { return accurate::lessOp(a, b); }
+    using NativeTypeA =
+            std::conditional_t<A == TYPE_BOOLEAN, typename PrimitiveTypeTraits<A>::ColumnItemType,
+                               typename PrimitiveTypeTraits<A>::CppNativeType>;
+    using NativeTypeB =
+            std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
+                               typename PrimitiveTypeTraits<B>::CppNativeType>;
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::lessOp(a, b); }
 };
 
 template <>
-struct LessOp<DecimalV2Value, DecimalV2Value> {
-    static UInt8 apply(Int128 a, Int128 b) {
-        return binary_cast<Int128, DecimalV2Value>(a) < binary_cast<Int128, DecimalV2Value>(b);
-    }
+struct LessOp<TYPE_DECIMALV2, TYPE_DECIMALV2> {
+    static UInt8 apply(Int128 a, Int128 b) { return a < b; }
 };
 
 template <>
-struct LessOp<StringRef, StringRef> {
+struct LessOp<TYPE_STRING, TYPE_STRING> {
     static UInt8 apply(StringRef a, StringRef b) { return a < b; }
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct GreaterOp {
     using SymmetricOp = LessOp<B, A>;
-    static UInt8 apply(A a, B b) { return accurate::greaterOp(a, b); }
+    using NativeTypeA =
+            std::conditional_t<A == TYPE_BOOLEAN, typename PrimitiveTypeTraits<A>::ColumnItemType,
+                               typename PrimitiveTypeTraits<A>::CppNativeType>;
+    using NativeTypeB =
+            std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
+                               typename PrimitiveTypeTraits<B>::CppNativeType>;
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::greaterOp(a, b); }
 };
 
 template <>
-struct GreaterOp<DecimalV2Value, DecimalV2Value> {
-    static UInt8 apply(Int128 a, Int128 b) {
-        return binary_cast<Int128, DecimalV2Value>(a) > binary_cast<Int128, DecimalV2Value>(b);
-    }
+struct GreaterOp<TYPE_DECIMALV2, TYPE_DECIMALV2> {
+    static UInt8 apply(Int128 a, Int128 b) { return a > b; }
 };
 
 template <>
-struct GreaterOp<StringRef, StringRef> {
+struct GreaterOp<TYPE_STRING, TYPE_STRING> {
     static UInt8 apply(StringRef a, StringRef b) { return a > b; }
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct GreaterOrEqualsOp;
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct LessOrEqualsOp {
     using SymmetricOp = GreaterOrEqualsOp<B, A>;
-    static UInt8 apply(A a, B b) { return accurate::lessOrEqualsOp(a, b); }
+    using NativeTypeA =
+            std::conditional_t<A == TYPE_BOOLEAN, typename PrimitiveTypeTraits<A>::ColumnItemType,
+                               typename PrimitiveTypeTraits<A>::CppNativeType>;
+    using NativeTypeB =
+            std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
+                               typename PrimitiveTypeTraits<B>::CppNativeType>;
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::lessOrEqualsOp(a, b); }
 };
 
 template <>
-struct LessOrEqualsOp<DecimalV2Value, DecimalV2Value> {
-    static UInt8 apply(Int128 a, Int128 b) {
-        return binary_cast<Int128, DecimalV2Value>(a) <= binary_cast<Int128, DecimalV2Value>(b);
-    }
+struct LessOrEqualsOp<TYPE_DECIMALV2, TYPE_DECIMALV2> {
+    static UInt8 apply(DecimalV2Value a, DecimalV2Value b) { return a <= b; }
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct GreaterOrEqualsOp {
     using SymmetricOp = LessOrEqualsOp<B, A>;
-    static UInt8 apply(A a, B b) { return accurate::greaterOrEqualsOp(a, b); }
+    using NativeTypeA =
+            std::conditional_t<A == TYPE_BOOLEAN, typename PrimitiveTypeTraits<A>::ColumnItemType,
+                               typename PrimitiveTypeTraits<A>::CppNativeType>;
+    using NativeTypeB =
+            std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
+                               typename PrimitiveTypeTraits<B>::CppNativeType>;
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::greaterOrEqualsOp(a, b); }
 };
 
 template <>
-struct GreaterOrEqualsOp<DecimalV2Value, DecimalV2Value> {
-    static UInt8 apply(Int128 a, Int128 b) {
-        return binary_cast<Int128, DecimalV2Value>(a) >= binary_cast<Int128, DecimalV2Value>(b);
-    }
+struct GreaterOrEqualsOp<TYPE_DECIMALV2, TYPE_DECIMALV2> {
+    static UInt8 apply(DecimalV2Value a, DecimalV2Value b) { return a >= b; }
 };
 
 } // namespace doris::vectorized

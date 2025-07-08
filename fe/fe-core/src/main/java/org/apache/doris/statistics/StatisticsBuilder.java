@@ -34,7 +34,7 @@ public class StatisticsBuilder {
     private boolean isFromHbo = false;
 
     public StatisticsBuilder() {
-        expressionToColumnStats = new HashMap<>();
+        this.expressionToColumnStats = new HashMap<>();
     }
 
     public StatisticsBuilder(Statistics statistics) {

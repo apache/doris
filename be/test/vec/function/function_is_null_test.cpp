@@ -18,7 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/storage_engine.h"
 #include "vec/functions/is_not_null.h"
 #include "vec/functions/is_null.h"
@@ -160,9 +160,9 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
     Block block = _tablet_schema->create_block();
     auto columns = block.mutate_columns();
 
-    vectorized::Field key = 10;
-    vectorized::Field v1 = "v1";
-    vectorized::Field null_field = Null();
+    vectorized::Field key = vectorized::Field::create_field<TYPE_INT>(10);
+    vectorized::Field v1 = vectorized::Field::create_field<TYPE_STRING>("v1");
+    vectorized::Field null_field = vectorized::Field();
     columns[0]->insert(key);
     columns[0]->insert(null_field);
     columns[0]->insert(key);
@@ -180,14 +180,14 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         read_options.stats = &stats;
         RuntimeState runtime_state;
         read_options.runtime_state = &runtime_state;
-        std::unique_ptr<InvertedIndexIterator> iter;
+        std::unique_ptr<IndexIterator> iter;
         EXPECT_TRUE(reader->new_iterator(read_options.io_ctx, read_options.stats,
                                          read_options.runtime_state, &iter)
                             .ok());
         EXPECT_TRUE(iter);
         ColumnsWithTypeAndName arguments;
         std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
-        std::vector<segment_v2::InvertedIndexIterator*> iterators;
+        std::vector<segment_v2::IndexIterator*> iterators;
         iterators.push_back(iter.get());
         segment_v2::InvertedIndexResultBitmap bitmap_result;
 
@@ -215,7 +215,7 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         EXPECT_TRUE(segment_path.has_value());
         std::string index_prefix = std::string(
                 InvertedIndexDescriptor::get_index_file_path_prefix(segment_path.value()));
-        auto index_file_reader = std::make_shared<InvertedIndexFileReader>(
+        auto index_file_reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_prefix, InvertedIndexStorageFormatPB::V2);
         EXPECT_TRUE(index_file_reader->init().ok());
         auto index_meta = _tablet_schema->inverted_index(0);

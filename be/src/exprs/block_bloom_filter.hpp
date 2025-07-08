@@ -23,11 +23,9 @@
 #include "vec/common/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
-
-#include "gutil/macros.h"
 #endif
+
 #include "common/status.h"
-#include "fmt/format.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 
@@ -82,7 +80,7 @@ public:
 
 #ifdef __AVX2__
 
-    static inline ATTRIBUTE_ALWAYS_INLINE __attribute__((__target__("avx2"))) __m256i make_mark(
+    static __attribute__((always_inline, __target__("avx2"))) __m256i make_mark(
             const uint32_t hash) {
         const __m256i ones = _mm256_set1_epi32(1);
         const __m256i rehash = _mm256_setr_epi32(BLOOM_HASH_CONSTANTS);

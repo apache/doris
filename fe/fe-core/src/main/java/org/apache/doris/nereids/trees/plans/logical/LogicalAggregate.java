@@ -186,10 +186,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalAggregate[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalAggregate[" + id.asInt() + "]",
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
-                "hasRepeat", sourceRepeat.isPresent()
+                "hasRepeat", sourceRepeat.isPresent(),
+                "stats", statistics
         );
     }
 
@@ -197,7 +198,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     public String getFingerprint() {
         StringBuilder builder = new StringBuilder();
         // logical agg is mapped to physical GLOBAL
-        String aggPhase = "Aggregate" + "(GLOBAL)";
+        String aggPhase = "Aggregate(GLOBAL)";
         List<Object> groupByExpressionsArgs = Lists.newArrayList(
                 "groupByExpr", groupByExpressions);
         builder.append(Utils.toSqlString(aggPhase, groupByExpressionsArgs.toArray()));
@@ -237,6 +238,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     @Override
     public List<? extends Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()
+                .addAll(groupByExpressions)
                 .addAll(outputExpressions)
                 .build();
     }

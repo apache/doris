@@ -188,11 +188,10 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         }
     }
 
-    public void createWorkloadSchedPolicy(CreateWorkloadSchedPolicyStmt createStmt) throws UserException {
-        String policyName = createStmt.getPolicyName();
-
+    public void createWorkloadSchedPolicy(String policyName, boolean isIfNotExists,
+            List<WorkloadConditionMeta> originConditions, List<WorkloadActionMeta> originActions,
+            Map<String, String> propMap) throws UserException {
         // 1 create condition
-        List<WorkloadConditionMeta> originConditions = createStmt.getConditions();
         List<WorkloadCondition> policyConditionList = new ArrayList<>();
         for (WorkloadConditionMeta cm : originConditions) {
             WorkloadCondition cond = WorkloadCondition.createWorkloadCondition(cm);
@@ -201,7 +200,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         boolean feCondition = checkPolicyCondition(policyConditionList);
 
         // 2 create action
-        List<WorkloadActionMeta> originActions = createStmt.getActions();
         List<WorkloadAction> policyActionList = new ArrayList<>();
         for (WorkloadActionMeta workloadActionMeta : originActions) {
             // todo(wb) support move action
@@ -215,7 +213,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         }
 
         // 3 create policy
-        Map<String, String> propMap = createStmt.getProperties();
         if (propMap == null) {
             propMap = new HashMap<>();
         }
@@ -225,8 +222,8 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         }
         writeLock();
         try {
-            if (nameToPolicy.containsKey(createStmt.getPolicyName())) {
-                if (createStmt.isIfNotExists()) {
+            if (nameToPolicy.containsKey(policyName)) {
+                if (isIfNotExists) {
                     return;
                 } else {
                     throw new UserException("workload schedule policy " + policyName + " already exists ");
@@ -247,6 +244,16 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         } finally {
             writeUnlock();
         }
+    }
+
+    public void createWorkloadSchedPolicy(CreateWorkloadSchedPolicyStmt createStmt) throws UserException {
+        String policyName = createStmt.getPolicyName();
+        List<WorkloadConditionMeta> originConditions = createStmt.getConditions();
+        List<WorkloadActionMeta> originActions = createStmt.getActions();
+        Map<String, String> propMap = createStmt.getProperties();
+        boolean isIfNotExists = createStmt.isIfNotExists();
+
+        createWorkloadSchedPolicy(policyName, isIfNotExists, originConditions, originActions, propMap);
     }
 
     private boolean checkPolicyCondition(List<WorkloadCondition> conditionList) throws UserException {

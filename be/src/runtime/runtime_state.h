@@ -49,7 +49,6 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "vec/columns/columns_number.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -69,6 +68,7 @@ class Dependency;
 class DescriptorTbl;
 class ObjectPool;
 class ExecEnv;
+class IdFileMap;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
@@ -86,13 +86,18 @@ public:
                  ExecEnv* exec_env, QueryContext* ctx,
                  const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker = nullptr);
 
-    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32_t fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
     // Used by pipeline. This runtime state is only used for setup.
-    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+    RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
+
+    // Only used in the materialization phase of delayed materialization,
+    // when there may be no corresponding QueryContext.
+    RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
@@ -657,6 +662,10 @@ public:
 
     int profile_level() const { return _profile_level; }
 
+    std::shared_ptr<IdFileMap>& get_id_file_map() { return _id_file_map; }
+
+    void set_id_file_map();
+
 private:
     Status create_error_log_file();
 
@@ -783,6 +792,9 @@ private:
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
     std::mutex _s3_error_log_file_lock;
+
+    // used for encoding the global lazy materialize
+    std::shared_ptr<IdFileMap> _id_file_map = nullptr;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

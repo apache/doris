@@ -151,7 +151,7 @@ template <FieldType item_type>
 void common_test_array(CollectionValue src_val) {
     TabletColumn list_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
                              FieldType::OLAP_FIELD_TYPE_ARRAY);
-    int32 item_length = 0;
+    int32_t item_length = 0;
     if (item_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
         item_type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         item_length = 10;
@@ -236,6 +236,44 @@ TEST(ArrayTypeTest, copy_and_equal) {
     common_test_array<FieldType::OLAP_FIELD_TYPE_CHAR>(CollectionValue(char_array, 3, null_signs));
     common_test_array<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
             CollectionValue(char_array, 3, null_signs));
+}
+
+TEST(TypesTest, has_char_type) {
+    // Test basic types
+    TabletColumn char_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_CHAR);
+    EXPECT_TRUE(char_column.has_char_type());
+
+    TabletColumn int_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT);
+    EXPECT_FALSE(int_column.has_char_type());
+
+    // Test array type with char element
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn array_element(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                               FieldType::OLAP_FIELD_TYPE_CHAR);
+    array_column.add_sub_column(array_element);
+    EXPECT_TRUE(array_column.has_char_type());
+
+    // Test array type with non-char element
+    TabletColumn array_column2(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                               FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn array_element2(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                FieldType::OLAP_FIELD_TYPE_INT);
+    array_column2.add_sub_column(array_element2);
+    EXPECT_FALSE(array_column2.has_char_type());
+
+    // Test nested array with char element
+    TabletColumn nested_array(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn inner_array(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn char_element(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_CHAR);
+    inner_array.add_sub_column(char_element);
+    nested_array.add_sub_column(inner_array);
+    EXPECT_TRUE(nested_array.has_char_type());
 }
 
 } // namespace doris

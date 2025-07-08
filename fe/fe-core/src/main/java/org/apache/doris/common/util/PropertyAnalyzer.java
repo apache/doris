@@ -1200,6 +1200,13 @@ public class PropertyAnalyzer {
         return storagePolicy;
     }
 
+    public static boolean hasStoragePolicy(Map<String, String> properties) {
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            return true;
+        }
+        return false;
+    }
+
     public static String analyzeStorageVaultName(Map<String, String> properties) {
         String storageVaultName = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
@@ -1235,7 +1242,7 @@ public class PropertyAnalyzer {
             } else {
                 // continue to check default vault
                 Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
-                if (info == null) {
+                if (info == null || Strings.isNullOrEmpty(info.first) || Strings.isNullOrEmpty(info.second)) {
                     throw new AnalysisException("No default storage vault."
                             + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
                             + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");

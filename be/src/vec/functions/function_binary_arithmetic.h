@@ -54,23 +54,23 @@ namespace doris::vectorized {
 
 // TODO: vector_constant optimization not work on decimal type now
 
-template <typename, typename>
+template <PrimitiveType, PrimitiveType>
 struct PlusImpl;
-template <typename, typename>
+template <PrimitiveType, PrimitiveType>
 struct MinusImpl;
-template <typename, typename>
+template <PrimitiveType, PrimitiveType>
 struct MultiplyImpl;
-template <typename, typename>
+template <PrimitiveType, PrimitiveType>
 struct DivideFloatingImpl;
-template <typename, typename>
+template <PrimitiveType, PrimitiveType>
 struct DivideIntegralImpl;
-template <typename, typename>
+template <PrimitiveType, PrimitiveType>
 struct ModuloImpl;
 
-template <template <typename, typename> typename Operation, typename OpA = UInt8,
-          typename OpB = UInt8>
+template <template <PrimitiveType, PrimitiveType> typename Operation,
+          PrimitiveType OpA = TYPE_BOOLEAN, PrimitiveType OpB = TYPE_BOOLEAN>
 struct OperationTraits {
-    using T = UInt8;
+    static constexpr PrimitiveType T = TYPE_BOOLEAN;
     using Op = Operation<T, T>;
     static constexpr bool is_plus_minus =
             std::is_same_v<Op, PlusImpl<T, T>> || std::is_same_v<Op, MinusImpl<T, T>>;
@@ -85,55 +85,62 @@ struct OperationTraits {
             std::is_same_v<Op, DivideIntegralImpl<T, T>>;
     static constexpr bool can_overflow =
             (is_plus_minus || is_multiply) &&
-            (IsDecimalV2<OpA> || IsDecimalV2<OpB> || IsDecimal128V3<OpA> || IsDecimal128V3<OpB> ||
-             IsDecimal256<OpA> || IsDecimal256<OpB>);
+            (OpA == TYPE_DECIMALV2 || OpB == TYPE_DECIMALV2 || OpA == TYPE_DECIMAL128I ||
+             OpB == TYPE_DECIMAL128I || OpA == TYPE_DECIMAL256 || OpB == TYPE_DECIMAL256);
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Op>()))>;
 };
 
-template <typename A, typename B, typename Op, typename ResultType = typename Op::ResultType>
+template <PrimitiveType A, PrimitiveType B, typename Op, PrimitiveType ResultType = Op::ResultType>
 struct BinaryOperationImplBase {
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
-    using ColumnVectorResult =
-            std::conditional_t<IsDecimalNumber<ResultType>, ColumnDecimal<ResultType>,
-                               ColumnVector<ResultType>>;
+    using ColumnVectorResult = typename PrimitiveTypeTraits<ResultType>::ColumnType;
+    using DataItemA = typename PrimitiveTypeTraits<A>::ColumnItemType;
+    using DataItemB = typename PrimitiveTypeTraits<B>::ColumnItemType;
+    using ResultDataItem = typename PrimitiveTypeTraits<ResultType>::ColumnItemType;
 
-    static void vector_vector(const PaddedPODArray<A>& a, const PaddedPODArray<B>& b,
-                              PaddedPODArray<ResultType>& c) {
+    static void vector_vector(const PaddedPODArray<DataItemA>& a,
+                              const PaddedPODArray<DataItemB>& b,
+                              PaddedPODArray<ResultDataItem>& c) {
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
             c[i] = Op::template apply<ResultType>(a[i], b[i]);
         }
     }
 
-    static void vector_vector(const PaddedPODArray<A>& a, const PaddedPODArray<B>& b,
-                              PaddedPODArray<ResultType>& c, PaddedPODArray<UInt8>& null_map) {
+    static void vector_vector(const PaddedPODArray<DataItemA>& a,
+                              const PaddedPODArray<DataItemB>& b, PaddedPODArray<ResultDataItem>& c,
+                              PaddedPODArray<UInt8>& null_map) {
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
             c[i] = Op::template apply<ResultType>(a[i], b[i], null_map[i]);
         }
     }
 
-    static void vector_constant(const PaddedPODArray<A>& a, B b, PaddedPODArray<ResultType>& c) {
+    static void vector_constant(const PaddedPODArray<DataItemA>& a, DataItemB b,
+                                PaddedPODArray<ResultDataItem>& c) {
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
             c[i] = Op::template apply<ResultType>(a[i], b);
         }
     }
 
-    static void vector_constant(const PaddedPODArray<A>& a, B b, PaddedPODArray<ResultType>& c,
+    static void vector_constant(const PaddedPODArray<DataItemA>& a, DataItemB b,
+                                PaddedPODArray<ResultDataItem>& c,
                                 PaddedPODArray<UInt8>& null_map) {
         Op::template apply<ResultType>(a, b, c, null_map);
     }
 
-    static void constant_vector(A a, const PaddedPODArray<B>& b, PaddedPODArray<ResultType>& c) {
+    static void constant_vector(DataItemA a, const PaddedPODArray<DataItemB>& b,
+                                PaddedPODArray<ResultDataItem>& c) {
         size_t size = b.size();
         for (size_t i = 0; i < size; ++i) {
             c[i] = Op::template apply<ResultType>(a, b[i]);
         }
     }
 
-    static void constant_vector(A a, const PaddedPODArray<B>& b, PaddedPODArray<ResultType>& c,
+    static void constant_vector(DataItemA a, const PaddedPODArray<DataItemB>& b,
+                                PaddedPODArray<ResultDataItem>& c,
                                 PaddedPODArray<UInt8>& null_map) {
         size_t size = b.size();
         for (size_t i = 0; i < size; ++i) {
@@ -141,19 +148,24 @@ struct BinaryOperationImplBase {
         }
     }
 
-    static ResultType constant_constant(A a, B b) { return Op::template apply<ResultType>(a, b); }
+    static typename PrimitiveTypeTraits<ResultType>::ColumnItemType constant_constant(DataItemA a,
+                                                                                      DataItemB b) {
+        return Op::template apply<ResultType>(a, b);
+    }
 
-    static ResultType constant_constant(A a, B b, UInt8& is_null) {
+    static typename PrimitiveTypeTraits<ResultType>::ColumnItemType constant_constant(
+            DataItemA a, DataItemB b, UInt8& is_null) {
         return Op::template apply<ResultType>(a, b, is_null);
     }
 };
 
-template <typename A, typename B, typename Op, bool is_to_null_type,
-          typename ResultType = typename Op::ResultType>
+template <PrimitiveType A, PrimitiveType B, typename Op, bool is_to_null_type,
+          PrimitiveType ResultType = Op::ResultType>
 struct BinaryOperationImpl {
     using Base = BinaryOperationImplBase<A, B, Op, ResultType>;
 
-    static ColumnPtr adapt_normal_constant_constant(A a, B b) {
+    static ColumnPtr adapt_normal_constant_constant(typename Base::DataItemA a,
+                                                    typename Base::DataItemB b) {
         auto column_result = Base::ColumnVectorResult::create(1);
 
         if constexpr (is_to_null_type) {
@@ -166,7 +178,8 @@ struct BinaryOperationImpl {
         }
     }
 
-    static ColumnPtr adapt_normal_vector_constant(ColumnPtr column_left, B b) {
+    static ColumnPtr adapt_normal_vector_constant(ColumnPtr column_left,
+                                                  typename Base::DataItemB b) {
         auto column_left_ptr =
                 check_and_get_column<typename Base::Traits::ColumnVectorA>(column_left.get());
         auto column_result = Base::ColumnVectorResult::create(column_left->size());
@@ -183,7 +196,8 @@ struct BinaryOperationImpl {
         }
     }
 
-    static ColumnPtr adapt_normal_constant_vector(A a, ColumnPtr column_right) {
+    static ColumnPtr adapt_normal_constant_vector(typename Base::DataItemA a,
+                                                  ColumnPtr column_right) {
         auto column_right_ptr =
                 check_and_get_column<typename Base::Traits::ColumnVectorB>(column_right.get());
         auto column_result = Base::ColumnVectorResult::create(column_right->size());
@@ -231,19 +245,22 @@ struct BinaryOperationImpl {
 /// +|- scale one of args (which scale factor is not 1). ScaleR = oneof(Scale1, Scale2);
 /// *   no agrs scale. ScaleR = Scale1 + Scale2;
 /// /   first arg scale. ScaleR = Scale1 (scale_a = DecimalType<B>::get_scale()).
-template <typename LeftDataType, typename RightDataType, typename ResultDataType,
-          template <typename, typename> typename Operation, typename Name, typename ResultType,
-          bool is_to_null_type, bool check_overflow>
+template <PrimitiveType LeftDataPType, PrimitiveType RightDataPType, typename ResultDataType,
+          template <PrimitiveType, PrimitiveType> typename Operation, typename Name,
+          PrimitiveType ResultPType, bool is_to_null_type, bool check_overflow>
 struct DecimalBinaryOperation {
+    using LeftDataType = typename PrimitiveTypeTraits<LeftDataPType>::DataType;
+    using RightDataType = typename PrimitiveTypeTraits<RightDataPType>::DataType;
     using A = typename LeftDataType::FieldType;
     using B = typename RightDataType::FieldType;
-    using OpTraits = OperationTraits<Operation, A, B>;
+    using OpTraits = OperationTraits<Operation, LeftDataPType, RightDataPType>;
 
-    using NativeResultType = typename NativeType<ResultType>::Type;
-    using Op = Operation<NativeResultType, NativeResultType>;
+    using Op = Operation<ResultPType, ResultPType>;
 
-    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
-    using ArrayC = typename ColumnDecimal<ResultType>::Container;
+    using ResultType = typename PrimitiveTypeTraits<ResultPType>::ColumnItemType;
+    using Traits = NumberTraits::BinaryOperatorTraits<LeftDataPType, RightDataPType>;
+    using ArrayC = typename ColumnDecimal<ResultPType>::Container;
+    using NativeResultType = typename PrimitiveTypeTraits<ResultPType>::CppNativeType;
 
 private:
     template <typename T>
@@ -416,12 +433,13 @@ public:
                                                      const ResultType& scale_diff_multiplier,
                                                      DataTypePtr res_data_type) {
         auto type_result =
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type);
-        auto column_result = ColumnDecimal<ResultType>::create(
-                1, assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
-                           *res_data_type)
-                           .get_scale());
+        auto column_result = ColumnDecimal<ResultType::PType>::create(
+                1,
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
+                        *res_data_type)
+                        .get_scale());
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
@@ -448,13 +466,13 @@ public:
                                                    const ResultType& scale_diff_multiplier,
                                                    DataTypePtr res_data_type) {
         auto type_result =
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type);
         auto column_left_ptr =
                 check_and_get_column<typename Traits::ColumnVectorA>(column_left.get());
-        auto column_result = ColumnDecimal<ResultType>::create(
+        auto column_result = ColumnDecimal<ResultType::PType>::create(
                 column_left->size(),
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type)
                         .get_scale());
         DCHECK(column_left_ptr != nullptr);
@@ -484,13 +502,13 @@ public:
                                                    const ResultType& scale_diff_multiplier,
                                                    DataTypePtr res_data_type) {
         auto type_result =
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type);
         auto column_right_ptr =
                 check_and_get_column<typename Traits::ColumnVectorB>(column_right.get());
-        auto column_result = ColumnDecimal<ResultType>::create(
+        auto column_result = ColumnDecimal<ResultType::PType>::create(
                 column_right->size(),
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type)
                         .get_scale());
         DCHECK(column_right_ptr != nullptr);
@@ -525,9 +543,10 @@ public:
         auto column_right_ptr =
                 check_and_get_column<typename Traits::ColumnVectorB>(column_right.get());
 
-        const auto& type_result = assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
-        auto column_result =
-                ColumnDecimal<ResultType>::create(column_left->size(), type_result.get_scale());
+        const auto& type_result =
+                assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
+        auto column_result = ColumnDecimal<ResultType::PType>::create(column_left->size(),
+                                                                      type_result.get_scale());
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
         if constexpr (check_overflow && !is_to_null_type &&
@@ -578,19 +597,18 @@ private:
             NativeResultType res;
             if constexpr (OpTraits::can_overflow && check_overflow) {
                 // TODO handle overflow gracefully
-                if (UNLIKELY(Op::template apply<NativeResultType>(a, b, res))) {
+                if (UNLIKELY(Op::template apply<ResultPType>(a, b, res))) {
                     if constexpr (OpTraits::is_plus_minus) {
-                        auto result_str =
-                                DataTypeDecimal<Decimal256> {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                             type_result.get_scale()}
-                                        .to_string(Decimal256(res));
+                        auto result_str = DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
+                                                              type_result.get_scale()}
+                                                  .to_string(Decimal256(res));
                         THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                                 type_left.to_string(A(a)), Name::name, type_right.to_string(B(b)),
                                 result_str, type_result.get_name());
                     }
                     // multiply
                     if constexpr (std::is_same_v<NativeResultType, __int128>) {
-                        wide::Int256 res256 = Op::template apply<wide::Int256>(a, b);
+                        wide::Int256 res256 = Op::template apply<TYPE_DECIMAL256>(a, b);
                         if constexpr (OpTraits::is_multiply && need_adjust_scale) {
                             if (res256 > 0) {
                                 res256 = (res256 + scale_diff_multiplier.value / 2) /
@@ -605,8 +623,8 @@ private:
                         if (res256 > wide::Int256(max_result_number.value) ||
                             res256 < wide::Int256(-max_result_number.value)) {
                             auto result_str =
-                                    DataTypeDecimal<Decimal256> {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                                 type_result.get_scale()}
+                                    DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
+                                                        type_result.get_scale()}
                                             .to_string(Decimal256(res256));
                             THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                                     type_left.to_string(A(a)), Name::name,
@@ -615,10 +633,9 @@ private:
                             res = res256;
                         }
                     } else {
-                        auto result_str =
-                                DataTypeDecimal<Decimal256> {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                             type_result.get_scale()}
-                                        .to_string(Decimal256(res));
+                        auto result_str = DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
+                                                              type_result.get_scale()}
+                                                  .to_string(Decimal256(res));
                         THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                                 type_left.to_string(A(a)), Name::name, type_right.to_string(B(b)),
                                 result_str, type_result.get_name());
@@ -635,10 +652,9 @@ private:
                         }
                     }
                     if (res > max_result_number.value || res < -max_result_number.value) {
-                        auto result_str =
-                                DataTypeDecimal<Decimal256> {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                             type_result.get_scale()}
-                                        .to_string(Decimal256(res));
+                        auto result_str = DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
+                                                              type_result.get_scale()}
+                                                  .to_string(Decimal256(res));
                         THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                                 type_left.to_string(A(a)), Name::name, type_right.to_string(B(b)),
                                 result_str, type_result.get_name());
@@ -646,7 +662,7 @@ private:
                 }
                 return res;
             } else {
-                res = Op::template apply<NativeResultType>(a, b);
+                res = Op::template apply<ResultPType>(a, b);
                 if constexpr (OpTraits::is_multiply && need_adjust_scale) {
                     if (res >= 0) {
                         res = (res + scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
@@ -699,13 +715,15 @@ private:
             memcpy(&result, &ans, std::min(sizeof(result), sizeof(ans)));
             return result;
         } else {
-            return Op::template apply<NativeResultType>(a, b, is_null);
+            return Op::template apply<ResultPType>(a, b, is_null);
         }
     }
 };
 
 /// Used to indicate undefined operation
-struct InvalidType;
+struct InvalidType {
+    static constexpr PrimitiveType PType = INVALID_TYPE;
+};
 
 template <bool V, typename T>
 struct Case : std::bool_constant<V> {
@@ -731,34 +749,25 @@ inline constexpr bool IsIntegral<DataTypeInt64> = true;
 template <>
 inline constexpr bool IsIntegral<DataTypeInt128> = true;
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 constexpr bool UseLeftDecimal = false;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal32>> =
-        true;
+inline constexpr bool UseLeftDecimal<TYPE_DECIMAL256, TYPE_DECIMAL32> = true;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal64>> =
-        true;
+inline constexpr bool UseLeftDecimal<TYPE_DECIMAL256, TYPE_DECIMAL64> = true;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal128V3>> =
-        true;
+inline constexpr bool UseLeftDecimal<TYPE_DECIMAL256, TYPE_DECIMAL128I> = true;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128V3>, DataTypeDecimal<Decimal32>> =
-        true;
+inline constexpr bool UseLeftDecimal<TYPE_DECIMAL128I, TYPE_DECIMAL32> = true;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128V3>, DataTypeDecimal<Decimal64>> =
-        true;
+inline constexpr bool UseLeftDecimal<TYPE_DECIMAL128I, TYPE_DECIMAL64> = true;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal64>, DataTypeDecimal<Decimal32>> = true;
+inline constexpr bool UseLeftDecimal<TYPE_DECIMAL64, TYPE_DECIMAL32> = true;
 
-template <typename T>
-using DataTypeFromFieldType =
-        std::conditional_t<std::is_same_v<T, NumberTraits::Error>, InvalidType, DataTypeNumber<T>>;
-
-template <template <typename, typename> class Operation, typename LeftDataType,
+template <template <PrimitiveType, PrimitiveType> class Operation, typename LeftDataType,
           typename RightDataType>
 struct BinaryOperationTraits {
-    using Op = Operation<typename LeftDataType::FieldType, typename RightDataType::FieldType>;
+    using Op = Operation<LeftDataType::PType, RightDataType::PType>;
     using OpTraits = OperationTraits<Operation>;
     /// Appropriate result type for binary operator on numeric types. "Date" can also mean
     /// DateTime, but if both operands are Dates, their type must be the same (e.g. Date - DateTime is invalid).
@@ -773,7 +782,7 @@ struct BinaryOperationTraits {
                           !IsDataTypeDecimalV2<LeftDataType>),
                  InvalidType>,
             Case<IsDataTypeDecimal<LeftDataType> && IsDataTypeDecimal<RightDataType> &&
-                         UseLeftDecimal<LeftDataType, RightDataType>,
+                         UseLeftDecimal<LeftDataType::PType, RightDataType::PType>,
                  LeftDataType>,
             Case<IsDataTypeDecimal<LeftDataType> && IsDataTypeDecimal<RightDataType>,
                  RightDataType>,
@@ -792,26 +801,29 @@ struct BinaryOperationTraits {
                  InvalidType>,
             /// number <op> number -> see corresponding impl
             Case<!IsDataTypeDecimal<LeftDataType> && !IsDataTypeDecimal<RightDataType>,
-                 DataTypeFromFieldType<typename Op::ResultType>>>;
+                 typename PrimitiveTypeTraits<Op::ResultType>::DataType>>;
 };
 
-template <typename LeftDataType, typename RightDataType, typename FEResultDataType,
-          template <typename, typename> class Operation, typename Name, bool is_to_null_type,
-          bool check_overflow_for_decimal>
+template <PrimitiveType LeftPType, PrimitiveType RightPType, PrimitiveType FEResultDataPType,
+          template <PrimitiveType, PrimitiveType> class Operation, typename Name,
+          bool is_to_null_type, bool check_overflow_for_decimal>
 struct ConstOrVectorAdapter {
+    using LeftDataType = typename PrimitiveTypeTraits<LeftPType>::DataType;
+    using RightDataType = typename PrimitiveTypeTraits<RightPType>::DataType;
     static constexpr bool result_is_decimal =
             IsDataTypeDecimal<LeftDataType> || IsDataTypeDecimal<RightDataType>;
-    using ResultDataType = FEResultDataType;
+    using ResultDataType = typename PrimitiveTypeTraits<FEResultDataPType>::DataType;
     using ResultType = typename ResultDataType::FieldType;
     using A = typename LeftDataType::FieldType;
     using B = typename RightDataType::FieldType;
-    using OpTraits = OperationTraits<Operation, A, B>;
+    using OpTraits = OperationTraits<Operation, LeftPType, RightPType>;
 
     using OperationImpl = std::conditional_t<
             IsDataTypeDecimal<ResultDataType>,
-            DecimalBinaryOperation<LeftDataType, RightDataType, ResultDataType, Operation, Name,
-                                   ResultType, is_to_null_type, check_overflow_for_decimal>,
-            BinaryOperationImpl<A, B, Operation<A, B>, is_to_null_type, ResultType>>;
+            DecimalBinaryOperation<LeftPType, RightPType, ResultDataType, Operation, Name,
+                                   FEResultDataPType, is_to_null_type, check_overflow_for_decimal>,
+            BinaryOperationImpl<LeftPType, RightPType, Operation<LeftPType, RightPType>,
+                                is_to_null_type, FEResultDataPType>>;
 
     static ColumnPtr execute(ColumnPtr column_left, ColumnPtr column_right,
                              const LeftDataType& type_left, const RightDataType& type_right,
@@ -836,18 +848,18 @@ private:
     // is {p1 + p2, s1 + s2}, but if the precision or scale is overflow, FE will adjust
     // the result precsion and scale to the values specified in type_result, so
     // we need to adjust the multiply result accordingly.
+    template <PrimitiveType PT>
     static std::pair<ResultType, ResultType> get_max_and_multiplier(
             const LeftDataType& type_left, const RightDataType& type_right,
-            const DataTypeDecimal<ResultType>& type_result) {
+            const DataTypeDecimal<PT>& type_result) {
         auto max_result_number =
-                DataTypeDecimal<ResultType>::get_max_digits_number(type_result.get_precision());
+                DataTypeDecimal<PT>::get_max_digits_number(type_result.get_precision());
 
         auto orig_result_scale = type_left.get_scale() + type_right.get_scale();
         auto result_scale = type_result.get_scale();
         DCHECK(orig_result_scale >= result_scale);
         auto scale_diff_multiplier =
-                DataTypeDecimal<ResultType>::get_scale_multiplier(orig_result_scale - result_scale)
-                        .value;
+                DataTypeDecimal<PT>::get_scale_multiplier(orig_result_scale - result_scale).value;
         return {ResultType(max_result_number), ResultType(scale_diff_multiplier)};
     }
 
@@ -862,7 +874,7 @@ private:
 
         if constexpr (result_is_decimal) {
             const auto& type_result =
-                    assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
+                    assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
             auto max_and_multiplier = get_max_and_multiplier(type_left, type_right, type_result);
 
             column_result = OperationImpl::adapt_decimal_constant_constant(
@@ -887,7 +899,7 @@ private:
 
         if constexpr (result_is_decimal) {
             const auto& type_result =
-                    assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
+                    assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
             auto max_and_multiplier = get_max_and_multiplier(type_left, type_right, type_result);
             return OperationImpl::adapt_decimal_vector_constant(
                     column_left->get_ptr(), column_right_ptr->template get_value<B>(), type_left,
@@ -906,7 +918,7 @@ private:
 
         if constexpr (result_is_decimal) {
             const auto& type_result =
-                    assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
+                    assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
             auto max_and_multiplier = get_max_and_multiplier(type_left, type_right, type_result);
             return OperationImpl::adapt_decimal_constant_vector(
                     column_left_ptr->template get_value<A>(), column_right->get_ptr(), type_left,
@@ -922,7 +934,7 @@ private:
                                    DataTypePtr res_data_type) {
         if constexpr (result_is_decimal) {
             const auto& type_result =
-                    assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
+                    assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
             auto max_and_multiplier = get_max_and_multiplier(type_left, type_right, type_result);
             return OperationImpl::adapt_decimal_vector_vector(
                     column_left->get_ptr(), column_right->get_ptr(), type_left, type_right,
@@ -941,7 +953,8 @@ struct BinaryArithmeticState {
     DataTypePtr result_type;
 };
 
-template <template <typename, typename> class Operation, typename Name, bool is_to_null_type>
+template <template <PrimitiveType, PrimitiveType> class Operation, typename Name,
+          bool is_to_null_type>
 class FunctionBinaryArithmetic : public IFunction {
     using OpTraits = OperationTraits<Operation>;
 
@@ -951,9 +964,9 @@ class FunctionBinaryArithmetic : public IFunction {
     static bool cast_type(const IDataType* type, F&& f) {
         return cast_type_to_either<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32,
                                    DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
-                                   DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
-                                   DataTypeDecimal<Decimal128V2>, DataTypeDecimal<Decimal128V3>,
-                                   DataTypeDecimal<Decimal256>>(type, std::forward<F>(f));
+                                   DataTypeDecimal32, DataTypeDecimal64, DataTypeDecimalV2,
+                                   DataTypeDecimal128, DataTypeDecimal256>(type,
+                                                                           std::forward<F>(f));
     }
 
     template <typename F>
@@ -1001,14 +1014,15 @@ public:
                 arguments[0].get(), arguments[1].get(), [&](const auto& left, const auto& right) {
                     using LeftDataType = std::decay_t<decltype(left)>;
                     using RightDataType = std::decay_t<decltype(right)>;
-                    using ResultDataType =
-                            typename BinaryOperationTraits<Operation, LeftDataType,
-                                                           RightDataType>::ResultDataType;
-                    if constexpr (!std::is_same_v<ResultDataType, InvalidType>) {
+                    constexpr PrimitiveType ResultDataType =
+                            BinaryOperationTraits<Operation, LeftDataType,
+                                                  RightDataType>::ResultDataType::PType;
+                    if constexpr (ResultDataType != INVALID_TYPE) {
                         need_replace_null_data_to_default_ =
-                                IsDataTypeDecimal<ResultDataType> ||
+                                is_decimal(ResultDataType) ||
                                 (get_name() == "pow" &&
-                                 std::is_floating_point_v<typename ResultDataType::FieldType>);
+                                 std::is_floating_point_v<typename PrimitiveTypeTraits<
+                                         ResultDataType>::DataType::FieldType>);
                         if constexpr (IsDataTypeDecimal<LeftDataType> &&
                                       IsDataTypeDecimal<RightDataType>) {
                             type_res = decimal_result_type(left, right, OpTraits::is_multiply,
@@ -1020,10 +1034,12 @@ public:
                         } else if constexpr (IsDataTypeDecimal<RightDataType>) {
                             type_res = std::make_shared<RightDataType>(right.get_precision(),
                                                                        right.get_scale());
-                        } else if constexpr (IsDataTypeDecimal<ResultDataType>) {
-                            type_res = std::make_shared<ResultDataType>(27, 9);
+                        } else if constexpr (is_decimal(ResultDataType)) {
+                            type_res = std::make_shared<
+                                    typename PrimitiveTypeTraits<ResultDataType>::DataType>(27, 9);
                         } else {
-                            type_res = std::make_shared<ResultDataType>();
+                            type_res = std::make_shared<
+                                    typename PrimitiveTypeTraits<ResultDataType>::DataType>();
                         }
                         return true;
                     }
@@ -1086,11 +1102,13 @@ public:
                                       !OpTraits::is_multiply && !OpTraits::is_plus_minus),
                                     "cannot check overflow with decimal for function");
 
-                            state->impl = execute_with_type<LeftDataType, RightDataType,
-                                                            FEResultDataType, true>;
+                            state->impl =
+                                    execute_with_type<LeftDataType::PType, RightDataType::PType,
+                                                      FEResultDataType::PType, true>;
                         } else {
-                            state->impl = execute_with_type<LeftDataType, RightDataType,
-                                                            FEResultDataType, false>;
+                            state->impl =
+                                    execute_with_type<LeftDataType::PType, RightDataType::PType,
+                                                      FEResultDataType::PType, false>;
                         }
 
                         return true;
@@ -1116,27 +1134,30 @@ public:
         return state->impl(context, block, arguments, result, input_rows_count);
     }
 
-    template <typename LeftDataType, typename RightDataType, typename FEResultDataType,
-              bool check_overflow_for_decimal>
+    template <PrimitiveType LeftDataType, PrimitiveType RightDataType,
+              PrimitiveType FEResultDataType, bool check_overflow_for_decimal>
     static Status execute_with_type(FunctionContext* context, Block& block,
                                     const ColumnNumbers& arguments, uint32_t result,
                                     size_t input_rows_count) {
         const auto& left_type =
-                assert_cast<const LeftDataType&>(*block.get_by_position(arguments[0]).type);
+                assert_cast<const typename PrimitiveTypeTraits<LeftDataType>::DataType&>(
+                        *block.get_by_position(arguments[0]).type);
         const auto& right_type =
-                assert_cast<const RightDataType&>(*block.get_by_position(arguments[1]).type);
+                assert_cast<const typename PrimitiveTypeTraits<RightDataType>::DataType&>(
+                        *block.get_by_position(arguments[1]).type);
 
-        using BEResultDataType = typename BinaryOperationTraits<Operation, LeftDataType,
-                                                                RightDataType>::ResultDataType;
-
-        using ExpectedResultDataType = std::conditional_t<IsDataTypeDecimal<FEResultDataType>,
-                                                          FEResultDataType, BEResultDataType>;
-        auto column_result =
-                ConstOrVectorAdapter<LeftDataType, RightDataType, ExpectedResultDataType, Operation,
-                                     Name, is_to_null_type, check_overflow_for_decimal>::
-                        execute(block.get_by_position(arguments[0]).column,
-                                block.get_by_position(arguments[1]).column, left_type, right_type,
-                                remove_nullable(block.get_by_position(result).type));
+        auto column_result = ConstOrVectorAdapter < LeftDataType, RightDataType,
+             is_decimal(FEResultDataType)
+                     ? FEResultDataType
+                     : BinaryOperationTraits<
+                               Operation, typename PrimitiveTypeTraits<LeftDataType>::DataType,
+                               typename PrimitiveTypeTraits<RightDataType>::DataType>::
+                               ResultDataType::PType,
+             Operation, Name, is_to_null_type,
+             check_overflow_for_decimal >
+                     ::execute(block.get_by_position(arguments[0]).column,
+                               block.get_by_position(arguments[1]).column, left_type, right_type,
+                               remove_nullable(block.get_by_position(result).type));
         block.replace_by_position(result, std::move(column_result));
 
         return Status::OK();

@@ -45,7 +45,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -140,7 +139,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public Object getPartitionMetaVersion(CatalogRelation scan) {
+    public Object getPartitionMetaVersion(CatalogRelation scan) throws RpcException {
         return getVisibleVersion();
     }
 
@@ -1420,19 +1419,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return partition;
     }
 
-    public void getVersionInBatchForCloudMode(Collection<Long> partitionIds) {
-        if (Config.isCloudMode()) { // do nothing for non-cloud mode
-            List<CloudPartition> partitions = partitionIds.stream()
-                    .sorted()
-                    .map(this::getPartition)
-                    .map(partition -> (CloudPartition) partition)
-                    .collect(Collectors.toList());
-            try {
-                CloudPartition.getSnapshotVisibleVersion(partitions);
-            } catch (RpcException e) {
-                throw new RuntimeException(e);
-            }
+    public void getVersionInBatchForCloudMode(Collection<Long> partitionIds) throws RpcException {
+        if (Config.isNotCloudMode()) {
+            return;
         }
+        List<CloudPartition> partitions = partitionIds.stream()
+                .sorted()
+                .map(this::getPartition)
+                .map(partition -> (CloudPartition) partition)
+                .collect(Collectors.toList());
+        CloudPartition.getSnapshotVisibleVersion(partitions);
     }
 
     // select the non-empty partition ids belonging to this table.
@@ -1909,127 +1905,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        this.state = OlapTableState.valueOf(Text.readString(in));
-
-        // indices's schema
-        int counter = in.readInt();
-        // tmp index meta list
-        List<MaterializedIndexMeta> tmpIndexMetaList = Lists.newArrayList();
-        for (int i = 0; i < counter; i++) {
-            String indexName = Text.readString(in);
-            long indexId = in.readLong();
-            this.indexNameToId.put(indexName, indexId);
-            MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
-            indexIdToMeta.put(indexId, indexMeta);
-
-            // HACK: the index id in MaterializedIndexMeta is not equals to the index id
-            // saved in OlapTable, because the table restore from snapshot is not reset
-            // the MaterializedIndexMeta correctly.
-            if (indexMeta.getIndexId() != indexId) {
-                LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
-                        + " to the index saved in table {} ({}), reset it to {}",
-                        indexMeta.getIndexId(), indexName, name, id, indexId);
-                indexMeta.resetIndexIdForRestore(indexId, null, null);
-            }
-        }
-
-        // partition and distribution info
-        keysType = KeysType.valueOf(Text.readString(in));
-
-        // useless code see pr 3036
-        // add the correct keys type in tmp index meta
-        for (MaterializedIndexMeta indexMeta : tmpIndexMetaList) {
-            indexMeta.setKeysType(keysType);
-            indexIdToMeta.put(indexMeta.getIndexId(), indexMeta);
-        }
-
-        PartitionType partType = PartitionType.valueOf(Text.readString(in));
-        if (partType == PartitionType.UNPARTITIONED) {
-            partitionInfo = SinglePartitionInfo.read(in);
-        } else if (partType == PartitionType.RANGE) {
-            partitionInfo = RangePartitionInfo.read(in);
-        } else if (partType == PartitionType.LIST) {
-            partitionInfo = ListPartitionInfo.read(in);
-        } else {
-            throw new IOException("invalid partition type: " + partType);
-        }
-
-        DistributionInfoType distriType = DistributionInfoType.valueOf(Text.readString(in));
-        if (distriType == DistributionInfoType.HASH) {
-            defaultDistributionInfo = HashDistributionInfo.read(in);
-        } else if (distriType == DistributionInfoType.RANDOM) {
-            defaultDistributionInfo = RandomDistributionInfo.read(in);
-        } else {
-            throw new IOException("invalid distribution type: " + distriType);
-        }
-
-        int partitionCount = in.readInt();
-        for (int i = 0; i < partitionCount; ++i) {
-            Partition partition = Partition.read(in);
-            idToPartition.put(partition.getId(), partition);
-            nameToPartition.put(partition.getName(), partition);
-        }
-
-        if (in.readBoolean()) {
-            int bfColumnCount = in.readInt();
-            bfColumns = Sets.newHashSet();
-            for (int i = 0; i < bfColumnCount; i++) {
-                bfColumns.add(Text.readString(in));
-            }
-
-            bfFpp = in.readDouble();
-        }
-
-        if (in.readBoolean()) {
-            colocateGroup = Text.readString(in);
-        }
-        baseIndexId = in.readLong();
-
-        // read indexes
-        if (in.readBoolean()) {
-            this.indexes = TableIndexes.read(in);
-        }
-        // tableProperty
-        if (in.readBoolean()) {
-            tableProperty = TableProperty.read(in);
-        }
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124) {
-            // autoIncrementGenerator
-            if (in.readBoolean()) {
-                autoIncrementGenerator = AutoIncrementGenerator.read(in);
-                autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
-            }
-        }
-
-        if (isAutoBucket()) {
-            defaultDistributionInfo.markAutoBucket();
-        }
-
-        // temp partitions
-        tempPartitions = TempPartitions.read(in);
-        RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
-        if (tempRangeInfo != null) {
-            for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
-                this.partitionInfo.addPartition(partitionId, true,
-                        tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
-                        tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId),
-                        tempRangeInfo.getIsMutable(partitionId));
-            }
-        }
-        tempPartitions.unsetPartitionInfo();
-
-        // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
-        // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
-        // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
-        rebuildFullSchema();
-    }
-
     @Override
     public void gsonPostProcess() throws IOException {
 
@@ -2053,8 +1928,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             nameToPartition.put(partition.getName(), partition);
         }
 
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124
-                    && autoIncrementGenerator != null) {
+        if (autoIncrementGenerator != null) {
             autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
         }
         if (isAutoBucket()) {
@@ -2161,11 +2035,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public static OlapTable read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            OlapTable t = new OlapTable();
-            t.readFields(in);
-            return t;
-        }
         return GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
     }
 
@@ -2556,8 +2425,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildMinLoadReplicaNum();
     }
 
+    public int getPartitionTotalReplicasNum(long partitionId) {
+        return partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+    }
+
     public int getLoadRequiredReplicaNum(long partitionId) {
-        int totalReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+        int totalReplicaNum = getPartitionTotalReplicasNum(partitionId);
         int minLoadReplicaNum = getMinLoadReplicaNum();
         if (minLoadReplicaNum > 0) {
             return Math.min(minLoadReplicaNum, totalReplicaNum);
@@ -3158,6 +3031,30 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void getColumnDesc(long selectedIndexId, List<TColumn> columnsDesc, List<String> keyColumnNames,
+            List<TPrimitiveType> keyColumnTypes, Set<String> materializedColumnNames) {
+        if (selectedIndexId != -1) {
+            for (Column col : this.getSchemaByIndexId(selectedIndexId, true)) {
+                // if (!materializedColumnNames.contains(col.getName())) {
+                //     continue;
+                // }
+                TColumn tColumn = col.toThrift();
+                col.setIndexFlag(tColumn, this);
+                if (columnsDesc != null) {
+                    columnsDesc.add(tColumn);
+                }
+                if ((Util.showHiddenColumns() || (!Util.showHiddenColumns() && col.isVisible())) && col.isKey()) {
+                    if (keyColumnNames != null) {
+                        keyColumnNames.add(col.getName());
+                    }
+                    if (keyColumnTypes != null) {
+                        keyColumnTypes.add(col.getDataType().toThrift());
+                    }
+                }
+            }
+        }
+    }
+
+    public void getColumnDesc(long selectedIndexId, List<TColumn> columnsDesc, List<String> keyColumnNames,
             List<TPrimitiveType> keyColumnTypes) {
         if (selectedIndexId != -1) {
             for (Column col : this.getSchemaByIndexId(selectedIndexId, true)) {
@@ -3296,18 +3193,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // During `getNextVersion` and `updateVisibleVersionAndTime` period,
     // the write lock on the table should be held continuously
     public long getNextVersion() {
-        if (!Config.isCloudMode()) {
+        if (Config.isNotCloudMode()) {
             return tableAttributes.getNextVersion();
-        } else {
-            // cloud mode should not reach here
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("getNextVersion in Cloud mode in OlapTable {} ", getName());
-            }
+        }
+        // cloud mode should not reach here
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getNextVersion in Cloud mode in OlapTable {} ", getName());
+        }
+        try {
             return getVisibleVersion() + 1;
+        } catch (RpcException e) {
+            LOG.warn("getNextVersion in Cloud mode in OlapTable {}", getName(), e);
+            throw new RuntimeException(e);
         }
     }
 
-    public long getVisibleVersion() {
+    public long getVisibleVersion() throws RpcException {
         if (Config.isNotCloudMode()) {
             return tableAttributes.getVisibleVersion();
         }
@@ -3337,28 +3238,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
             return version;
         } catch (RpcException e) {
-            throw new RuntimeException("get version from meta service failed", e);
+            LOG.warn("get version from meta service failed", e);
+            throw e;
         }
-    }
-
-    // Get the table versions in batch.
-    public static List<Long> getVisibleVersionByTableIds(Collection<Long> tableIds) {
-        List<OlapTable> tables = new ArrayList<>();
-
-        InternalCatalog catalog = Env.getCurrentEnv().getInternalCatalog();
-        for (long tableId : tableIds) {
-            Table table = catalog.getTableByTableId(tableId);
-            if (table == null) {
-                throw new RuntimeException("get table visible version failed, no such table " + tableId + " exists");
-            }
-            if (table.getType() != TableType.OLAP) {
-                throw new RuntimeException(
-                        "get table visible version failed, table " + tableId + " is not a OLAP table");
-            }
-            tables.add((OlapTable) table);
-        }
-
-        return getVisibleVersionInBatch(tables);
     }
 
     // Get the table versions in batch.
@@ -3443,7 +3325,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // return version rather than time because:
         //  1. they are all incremental
         //  2. more reasonable for UnassignedAllBEJob to compare version this time we plan and last succeed refresh.
-        return tableAttributes.getVisibleVersion();
+        try {
+            return getVisibleVersion(); // for both cloud and non-cloud mode
+        } catch (RpcException e)  {
+            LOG.warn("get visible version, table {}", getName(), e);
+            return 0;
+        }
     }
 
     @Override
@@ -3497,7 +3384,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
+            throws AnalysisException {
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
         if (tableVersions.containsKey(id)) { // hits cache
             return new MTMVVersionSnapshot(tableVersions.get(id), id);
@@ -3507,8 +3395,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) {
-        return new MTMVVersionSnapshot(getVisibleVersion(), id);
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        try {
+            return new MTMVVersionSnapshot(getVisibleVersion(), id);
+        } catch (RpcException e) {
+            LOG.warn("getVisibleVersion failed", e);
+            throw new AnalysisException("getVisibleVersion failed " + e.getMessage());
+        }
     }
 
     @Override

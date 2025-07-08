@@ -198,7 +198,7 @@ TEST_F(AggregateDataContainerTest, LargeData) {
 }
 
 TEST_F(AggregatedDataVariantsTest, TestWithoutKey) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeUInt32>()};
+    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
     _variants->init(types, HashKeyType::without_key);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(_variants->method_variant));
 }
@@ -222,7 +222,7 @@ TEST_F(AggregatedDataVariantsTest, TestStringKey) {
 }
 
 TEST_F(AggregatedDataVariantsTest, TestNumericKeys) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeUInt32>()};
+    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
 
     // Test int8 key
     _variants->init(types, HashKeyType::int8_key);
@@ -283,7 +283,7 @@ TEST_F(AggregatedDataVariantsTest, TestNumericKeys) {
 
 TEST_F(AggregatedDataVariantsTest, TestNullableKeys) {
     auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(
-            std::make_shared<vectorized::DataTypeUInt32>());
+            std::make_shared<vectorized::DataTypeInt32>());
     std::vector<vectorized::DataTypePtr> types {nullable_type};
 
     // Test nullable int32
@@ -302,8 +302,8 @@ TEST_F(AggregatedDataVariantsTest, TestNullableKeys) {
 }
 
 TEST_F(AggregatedDataVariantsTest, TestFixedKeys) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeUInt32>(),
-                                                std::make_shared<vectorized::DataTypeUInt32>()};
+    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>(),
+                                                std::make_shared<vectorized::DataTypeInt32>()};
 
     // Test fixed64
     _variants->init(types, HashKeyType::fixed64);
@@ -327,7 +327,7 @@ TEST_F(AggregatedDataVariantsTest, TestFixedKeys) {
 }
 
 TEST_F(AggregatedDataVariantsTest, TestInvalidKeyType) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeUInt32>()};
+    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
     ASSERT_THROW(_variants->init(types, static_cast<HashKeyType>(-1)), Exception);
 }
 

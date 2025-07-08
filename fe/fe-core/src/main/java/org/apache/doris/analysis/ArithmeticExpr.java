@@ -26,10 +26,11 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
@@ -40,8 +41,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 
@@ -266,6 +265,17 @@ public class ArithmeticExpr extends Expr {
             return op.toString() + " " + getChild(0).toSql();
         } else {
             return "(" + getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql() + ")";
+        }
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        if (children.size() == 1) {
+            return op.toString() + " " + getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
+        } else {
+            return "(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString()
+                    + " " + getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + ")";
         }
     }
 
@@ -637,20 +647,5 @@ public class ArithmeticExpr extends Expr {
         if (t1.isDecimalV3() || t2.isDecimalV3()) {
             analyzeDecimalV3Op(t1, t2);
         }
-    }
-
-    public static ArithmeticExpr read(DataInput in) throws IOException {
-        Operator op = Operator.valueOf(Text.readString(in));
-        int childNum = in.readInt();
-        Preconditions.checkState(childNum <= 2, childNum);
-        Expr child1 = null;
-        Expr child2 = null;
-        if (childNum > 0) {
-            child1 = Expr.readIn(in);
-        }
-        if (childNum > 1) {
-            child2 = Expr.readIn(in);
-        }
-        return new ArithmeticExpr(op, child1, child2);
     }
 }

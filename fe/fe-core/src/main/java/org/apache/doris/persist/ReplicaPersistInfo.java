@@ -17,8 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -308,13 +306,7 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
     }
 
     public static ReplicaPersistInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            ReplicaPersistInfo replicaInfo = new ReplicaPersistInfo();
-            replicaInfo.readFields(in);
-            return replicaInfo;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), ReplicaPersistInfo.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), ReplicaPersistInfo.class);
     }
 
     @Override
@@ -327,32 +319,6 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
         if (opType == null) {
             throw new IOException("could not parse operation type from replica info");
         }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partitionId = in.readLong();
-        indexId = in.readLong();
-        tabletId = in.readLong();
-        backendId = in.readLong();
-        replicaId = in.readLong();
-        version = in.readLong();
-        versionHash = in.readLong();
-        dataSize = in.readLong();
-        rowCount = in.readLong();
-        opType = ReplicaOperationType.DEFAULT_OP;
-        opType = ReplicaOperationType.findByValue(in.readInt());
-        if (opType == null) {
-            throw new IOException("could not parse operation type from replica info");
-        }
-        lastFailedVersion = in.readLong();
-        lastFailedVersionHash = in.readLong();
-        lastSuccessVersion = in.readLong();
-        lastSuccessVersionHash = in.readLong();
-        schemaHash = in.readInt();
     }
 
     @Override

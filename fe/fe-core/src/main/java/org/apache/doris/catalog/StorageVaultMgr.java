@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.cloud.proto.Cloud;
@@ -28,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -60,13 +60,13 @@ public class StorageVaultMgr {
         this.systemInfoService = systemInfoService;
     }
 
-    public void createStorageVaultResource(CreateStorageVaultStmt stmt) throws Exception {
-        switch (stmt.getStorageVaultType()) {
+    public void createStorageVaultResource(CreateStorageVaultCommand command) throws Exception {
+        switch (command.getVaultType()) {
             case HDFS:
-                createHdfsVault(StorageVault.fromStmt(stmt));
+                createHdfsVault(StorageVault.fromCommand(command));
                 break;
             case S3:
-                createS3Vault(StorageVault.fromStmt(stmt));
+                createS3Vault(StorageVault.fromCommand(command));
                 break;
             case UNKNOWN:
             default:

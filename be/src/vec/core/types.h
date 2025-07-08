@@ -92,128 +92,17 @@ inline constexpr bool IsNumber<Float32> = true;
 template <>
 inline constexpr bool IsNumber<Float64> = true;
 
-template <typename T>
-struct TypeName;
-
-// only used at predicate_column
-template <>
-struct TypeName<bool> {
-    static const char* get() { return "bool"; }
-};
-template <>
-struct TypeName<decimal12_t> {
-    static const char* get() { return "decimal12_t"; }
-};
-template <>
-struct TypeName<uint24_t> {
-    static const char* get() { return "uint24_t"; }
-};
-template <>
-struct TypeName<StringRef> {
-    static const char* get() { return "StringRef"; }
-};
-
-template <>
-struct TypeName<UInt8> {
-    static const char* get() { return "UInt8"; }
-};
-template <>
-struct TypeName<UInt16> {
-    static const char* get() { return "UInt16"; }
-};
-template <>
-struct TypeName<UInt32> {
-    static const char* get() { return "UInt32"; }
-};
-template <>
-struct TypeName<UInt64> {
-    static const char* get() { return "UInt64"; }
-};
-template <>
-struct TypeName<Int8> {
-    static const char* get() { return "Int8"; }
-};
-template <>
-struct TypeName<Int16> {
-    static const char* get() { return "Int16"; }
-};
-template <>
-struct TypeName<Int32> {
-    static const char* get() { return "Int32"; }
-};
-template <>
-struct TypeName<Int64> {
-    static const char* get() { return "Int64"; }
-};
-template <>
-struct TypeName<Float32> {
-    static const char* get() { return "Float32"; }
-};
-template <>
-struct TypeName<Float64> {
-    static const char* get() { return "Float64"; }
-};
-template <>
-struct TypeName<String> {
-    static const char* get() { return "String"; }
-};
-template <>
-struct TypeName<BitmapValue> {
-    static const char* get() { return "BitMap"; }
-};
-template <>
-struct TypeName<HyperLogLog> {
-    static const char* get() { return "HLL"; }
-};
-
-template <>
-struct TypeName<QuantileState> {
-    static const char* get() { return "QuantileState"; }
-};
-
-template <>
-struct TypeName<DecimalV2Value> {
-    static const char* get() { return "decimalv2"; }
-};
-
-template <>
-struct TypeName<VecDateTimeValue> {
-    static const char* get() { return "Datetime"; }
-};
-
-template <>
-struct TypeName<DateV2Value<DateV2ValueType>> {
-    static const char* get() { return "DateV2"; }
-};
-
-template <>
-struct TypeName<DateV2Value<DateTimeV2ValueType>> {
-    static const char* get() { return "DatetimeV2"; }
-};
-
 /// Not a data type in database, defined just for convenience.
 using Strings = std::vector<String>;
 
 template <>
 inline constexpr bool IsNumber<IPv6> = true;
-template <>
-struct TypeName<IPv6> {
-    static const char* get() { return "IPv6"; }
-};
 using Int128 = __int128;
 
 template <>
 inline constexpr bool IsNumber<Int128> = true;
 template <>
-struct TypeName<Int128> {
-    static const char* get() { return "Int128"; }
-};
-template <>
 inline constexpr bool IsNumber<wide::Int256> = true;
-template <>
-struct TypeName<wide::Int256> {
-    static const char* get() { return "Int256"; }
-};
 
 using Date = Int64;
 using DateTime = Int64;
@@ -404,6 +293,10 @@ struct Decimal128V3;
 template <DecimalNativeTypeConcept T>
 struct Decimal {
     using NativeType = T;
+    static constexpr PrimitiveType PType = std::is_same_v<T, Int32>    ? TYPE_DECIMAL32
+                                           : std::is_same_v<T, Int64>  ? TYPE_DECIMAL64
+                                           : std::is_same_v<T, Int128> ? TYPE_DECIMALV2
+                                                                       : TYPE_DECIMAL256;
 
     static constexpr bool IsInt256 = std::is_same_v<T, wide::Int256>;
 
@@ -569,6 +462,7 @@ inline Decimal<T> operator%(const Decimal<T>& x, const Decimal<T>& y) {
 }
 
 struct Decimal128V3 : public Decimal<Int128> {
+    static constexpr PrimitiveType PType = TYPE_DECIMAL128I;
     Decimal128V3() = default;
 
 #define DECLARE_NUMERIC_CTOR(TYPE) \
@@ -612,28 +506,6 @@ inline bool operator>=(const Decimal256& x, const Decimal256& y) {
     return x.value >= y.value;
 }
 
-template <>
-struct TypeName<Decimal32> {
-    static const char* get() { return "Decimal32"; }
-};
-template <>
-struct TypeName<Decimal64> {
-    static const char* get() { return "Decimal64"; }
-};
-template <>
-struct TypeName<Decimal128V2> {
-    static const char* get() { return "Decimal128V2"; }
-};
-template <>
-struct TypeName<Decimal128V3> {
-    static const char* get() { return "Decimal128V3"; }
-};
-
-template <>
-struct TypeName<Decimal256> {
-    static const char* get() { return "Decimal256"; }
-};
-
 template <typename T>
 constexpr bool IsDecimalNumber = false;
 template <>
@@ -644,6 +516,8 @@ template <>
 inline constexpr bool IsDecimalNumber<Decimal128V2> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal128V3> = true;
+template <>
+inline constexpr bool IsDecimalNumber<DecimalV2Value> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal256> = true;
 
@@ -674,14 +548,6 @@ inline constexpr bool IsDecimal256<Decimal256> = true;
 
 template <typename T>
 constexpr bool IsDecimalV2 = IsDecimal128V2<T> && !IsDecimal128V3<T>;
-
-template <typename T, typename U>
-using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
-                                          std::conditional_t<IsDecimalNumber<T>, Decimal128V3, U>>;
-
-template <typename T, typename U>
-using DisposeDecimal256 = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
-                                             std::conditional_t<IsDecimalNumber<T>, Decimal256, U>>;
 
 template <typename T>
 constexpr bool IsFloatNumber = false;

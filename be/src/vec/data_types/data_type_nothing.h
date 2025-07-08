@@ -36,13 +36,9 @@
 #include "vec/data_types/serde/data_type_nothing_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
-class IColumn;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+
+class IColumn;
 
 /** Data type that cannot have any values.
   * Used to represent NULL of unknown type as Nullable(Nothing),
@@ -50,7 +46,8 @@ namespace doris::vectorized {
   */
 class DataTypeNothing final : public IDataType {
 public:
-    const char* get_family_name() const override { return "Nothing"; }
+    static constexpr PrimitiveType PType = INVALID_TYPE;
+    const std::string get_family_name() const override { return "Nothing"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::INVALID_TYPE; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -77,13 +74,11 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method get_default() is not implemented for data type {}.",
                                get_name());
-        __builtin_unreachable();
     }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for Nothing");
-        __builtin_unreachable();
     }
 
     bool have_subtypes() const override { return false; }

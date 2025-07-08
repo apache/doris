@@ -20,7 +20,6 @@ package org.apache.doris.utframe;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -32,6 +31,9 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -120,12 +122,15 @@ public class DorisAssert {
 
     // Add materialized view to the schema
     public DorisAssert withMaterializedView(String sql) throws Exception {
-        CreateMaterializedViewStmt createMaterializedViewStmt =
-                (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Env.getCurrentEnv().createMaterializedView(createMaterializedViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        if (parsed instanceof CreateMaterializedViewCommand) {
+            ((CreateMaterializedViewCommand) parsed).run(ctx, stmtExecutor);
+        }
         checkAlterJob();
         // waiting table state to normal
-        Thread.sleep(1000);
+        Thread.sleep(100);
         return this;
     }
 

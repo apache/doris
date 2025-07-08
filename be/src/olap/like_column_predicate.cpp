@@ -19,7 +19,6 @@
 
 #include "runtime/define_primitive_type.h"
 #include "udf/udf.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
 #include "vec/functions/like.h"
@@ -35,7 +34,7 @@ LikeColumnPredicate<T>::LikeColumnPredicate(bool opposite, uint32_t column_id,
                   "TYPE_STRING");
     _state = reinterpret_cast<StateType*>(
             fn_ctx->get_function_state(doris::FunctionContext::THREAD_LOCAL));
-    static_cast<void>(_state->search_state.clone(_like_state));
+    THROW_IF_ERROR(_state->search_state.clone(_like_state));
 }
 
 template <PrimitiveType T>
@@ -59,18 +58,15 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
         auto& nested_col = nullable_col->get_nested_column();
         if (nested_col.is_column_dictionary()) {
-            auto* nested_col_ptr = vectorized::check_and_get_column<
-                    vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::ColumnDictI32>(nested_col);
             auto& data_array = nested_col_ptr->get_data();
+            const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
             if (!nullable_col->has_null()) {
                 for (uint16_t i = 0; i != size; i++) {
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
-                    StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
-                    unsigned char flag = 0;
-                    static_cast<void>((_state->scalar_function)(
-                            const_cast<vectorized::LikeSearchState*>(&_like_state),
-                            StringRef(cell_value.data, cell_value.size), pattern, &flag));
+                    unsigned char flag = dict_res[data_array[idx]];
                     new_size += _opposite ^ flag;
                 }
             } else {
@@ -81,12 +77,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                         new_size += _opposite;
                         continue;
                     }
-
-                    StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
-                    unsigned char flag = 0;
-                    static_cast<void>((_state->scalar_function)(
-                            const_cast<vectorized::LikeSearchState*>(&_like_state),
-                            StringRef(cell_value.data, cell_value.size), pattern, &flag));
+                    unsigned char flag = dict_res[data_array[idx]];
                     new_size += _opposite ^ flag;
                 }
             }
@@ -99,7 +90,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
                     unsigned char flag = 0;
-                    static_cast<void>((_state->scalar_function)(
+                    THROW_IF_ERROR((_state->scalar_function)(
                             const_cast<vectorized::LikeSearchState*>(&_like_state),
                             str_col->get_data_at(idx), pattern, &flag));
                     new_size += _opposite ^ flag;
@@ -115,7 +106,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
 
                     StringRef cell_value = str_col->get_data_at(idx);
                     unsigned char flag = 0;
-                    static_cast<void>((_state->scalar_function)(
+                    THROW_IF_ERROR((_state->scalar_function)(
                             const_cast<vectorized::LikeSearchState*>(&_like_state),
                             StringRef(cell_value.data, cell_value.size), pattern, &flag));
                     new_size += _opposite ^ flag;
@@ -124,17 +115,14 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
         }
     } else {
         if (column.is_column_dictionary()) {
-            auto* nested_col_ptr = vectorized::check_and_get_column<
-                    vectorized::ColumnDictionary<vectorized::Int32>>(column);
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
+            const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
             auto& data_array = nested_col_ptr->get_data();
             for (uint16_t i = 0; i != size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
-                StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
-                unsigned char flag = 0;
-                static_cast<void>((_state->scalar_function)(
-                        const_cast<vectorized::LikeSearchState*>(&_like_state),
-                        StringRef(cell_value.data, cell_value.size), pattern, &flag));
+                unsigned char flag = dict_res[data_array[idx]];
                 new_size += _opposite ^ flag;
             }
         } else {
@@ -146,7 +134,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 unsigned char flag = 0;
-                static_cast<void>((_state->scalar_function)(
+                THROW_IF_ERROR((_state->scalar_function)(
                         const_cast<vectorized::LikeSearchState*>(&_like_state),
                         str_col->get_data_at(idx), pattern, &flag));
                 new_size += _opposite ^ flag;

@@ -46,6 +46,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -56,7 +57,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -74,6 +74,7 @@ import org.apache.doris.thrift.TOlapTablePartitionParam;
 import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloNodesInfo;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
@@ -110,6 +111,7 @@ public class OlapTableSink extends DataSink {
     // partial update input columns
     private TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
     private HashSet<String> partialUpdateInputColumns;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     // set after init called
     protected TDataSink tDataSink;
@@ -217,6 +219,10 @@ public class OlapTableSink extends DataSink {
         TOlapTableSink tSink = tDataSink.getOlapTableSink();
         tOlapTableSchemaParam = createSchema(tSink.getDbId(), dstTable);
         tOlapTablePartitionParam = createPartition(tSink.getDbId(), dstTable);
+        for (TOlapTablePartition partition : tOlapTablePartitionParam.getPartitions()) {
+            partition.setTotalReplicaNum(dstTable.getPartitionTotalReplicasNum(partition.getId()));
+            partition.setLoadRequiredReplicaNum(dstTable.getLoadRequiredReplicaNum(partition.getId()));
+        }
         tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
 
         tSink.setTableId(dstTable.getId());
@@ -246,8 +252,12 @@ public class OlapTableSink extends DataSink {
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
             int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
             long txnExpirationS, TUniqueKeyUpdateMode uniquekeyUpdateMode,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             HashSet<String> partialUpdateInputColumns) throws UserException {
         setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
+        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            setPartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
+        }
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
                 isStrictMode, txnExpirationS);
         for (Long partitionId : partitionIds) {
@@ -263,6 +273,10 @@ public class OlapTableSink extends DataSink {
         TOlapTableSink tSink = tDataSink.getOlapTableSink();
         tOlapTableSchemaParam = createSchema(tSink.getDbId(), dstTable);
         tOlapTablePartitionParam = createPartition(tSink.getDbId(), dstTable);
+        for (TOlapTablePartition partition : tOlapTablePartitionParam.getPartitions()) {
+            partition.setTotalReplicaNum(dstTable.getPartitionTotalReplicasNum(partition.getId()));
+            partition.setLoadRequiredReplicaNum(dstTable.getLoadRequiredReplicaNum(partition.getId()));
+        }
         tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
 
         tSink.setTableId(dstTable.getId());
@@ -306,6 +320,10 @@ public class OlapTableSink extends DataSink {
         }
     }
 
+    public void setPartialUpdateNewRowPolicy(TPartialUpdateNewRowPolicy policy) {
+        this.partialUpdateNewKeyPolicy = policy;
+    }
+
     public void updateLoadId(TUniqueId newLoadId) {
         tDataSink.getOlapTableSink().setLoadId(newLoadId);
     }
@@ -342,7 +360,12 @@ public class OlapTableSink extends DataSink {
         tSink.setNumReplicas(numReplicas);
         tSink.setNeedGenRollup(dstTable.shouldLoadToNewRollup());
         tSink.setSchema(createSchema(tSink.getDbId(), dstTable, analyzer));
-        tSink.setPartition(createPartition(tSink.getDbId(), dstTable, analyzer));
+        TOlapTablePartitionParam tOlapTablePartitionParam = createPartition(tSink.getDbId(), dstTable, analyzer);
+        for (TOlapTablePartition partition : tOlapTablePartitionParam.getPartitions()) {
+            partition.setTotalReplicaNum(dstTable.getPartitionTotalReplicasNum(partition.getId()));
+            partition.setLoadRequiredReplicaNum(dstTable.getLoadRequiredReplicaNum(partition.getId()));
+        }
+        tSink.setPartition(tOlapTablePartitionParam);
         List<TOlapTableLocationParam> locationParams = createLocation(tSink.getDbId(), dstTable);
         tSink.setLocation(locationParams.get(0));
         if (singleReplicaLoad) {
@@ -364,11 +387,13 @@ public class OlapTableSink extends DataSink {
         boolean isPartialUpdate = uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT;
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
         if (isPartialUpdate) {
+            strBuilder.append("\n");
             if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
                 strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: UPDATE_FIXED_COLUMNS");
             } else {
                 strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: UPDATE_FLEXIBLE_COLUMNS");
             }
+            strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_KEY_BEHAVIOR: " + partialUpdateNewKeyPolicy);
         }
         return strBuilder.toString();
     }
@@ -443,33 +468,7 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
-        // for backward compatibility
-        schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
-        schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
-        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
-            if (table.getState() == OlapTable.OlapTableState.ROLLUP
-                    || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
-                throw new AnalysisException("Can't do partial update when table is doing schema change.");
-            }
-
-        }
-        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && table.getSequenceMapCol() != null) {
-            Column seqMapCol = table.getFullSchema().stream()
-                    .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
-                    .findFirst().get();
-            schemaParam.setSequenceMapColUniqueId(seqMapCol.getUniqueId());
-        }
-        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
-            for (String s : partialUpdateInputColumns) {
-                schemaParam.addToPartialUpdateInputColumns(s);
-            }
-            for (Column col : table.getFullSchema()) {
-                if (col.isAutoInc()) {
-                    schemaParam.setAutoIncrementColumn(col.getName());
-                    schemaParam.setAutoIncrementColumnUniqueId(col.getUniqueId());
-                }
-            }
-        }
+        setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;
     }
@@ -519,7 +518,7 @@ public class OlapTableSink extends DataSink {
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
                 if (expr == null) {
-                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSql()));
+                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSqlWithoutTbl()));
                 }
                 indexSchema.setWhereClause(expr.treeToThrift());
             }
@@ -527,6 +526,13 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
+        setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
+        schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
+        return schemaParam;
+    }
+
+    private void setPartialUpdateInfoForParam(TOlapTableSchemaParam schemaParam, OlapTable table,
+            TUniqueKeyUpdateMode uniqueKeyUpdateMode) throws AnalysisException {
         // for backward compatibility
         schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
         schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
@@ -535,6 +541,7 @@ public class OlapTableSink extends DataSink {
                     || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
                 throw new AnalysisException("Can't do partial update when table is doing schema change.");
             }
+            schemaParam.setPartialUpdateNewKeyPolicy(partialUpdateNewKeyPolicy);
         }
         if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && table.getSequenceMapCol() != null) {
             Column seqMapCol = table.getFullSchema().stream()
@@ -553,8 +560,6 @@ public class OlapTableSink extends DataSink {
                 }
             }
         }
-        schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
-        return schemaParam;
     }
 
     private List<String> getDistColumns(DistributionInfo distInfo) throws UserException {
@@ -984,23 +989,22 @@ public class OlapTableSink extends DataSink {
         }
         for (int i = 0; i < table.getIndexNumber(); i++) {
             // only one fake tablet here
+            Long[] nodes = aliveBe.toArray(new Long[0]);
+            Random random = new SecureRandom();
+            int nodeIndex = random.nextInt(nodes.length);
             if (singleReplicaLoad) {
-                Long[] nodes = aliveBe.toArray(new Long[0]);
                 List<Long> slaveBe = aliveBe;
-
-                Random random = new SecureRandom();
-                int masterNode = random.nextInt(nodes.length);
                 locationParam.addToTablets(new TTabletLocation(fakeTabletId,
-                        Arrays.asList(nodes[masterNode])));
+                        Arrays.asList(nodes[nodeIndex])));
 
-                slaveBe.remove(masterNode);
+                slaveBe.remove(nodeIndex);
                 slaveLocationParam.addToTablets(new TTabletLocation(fakeTabletId,
                         slaveBe));
             } else {
                 locationParam.addToTablets(new TTabletLocation(fakeTabletId,
-                        Arrays.asList(aliveBe.get(0)))); // just one fake location is enough
+                        Arrays.asList(nodes[nodeIndex]))); // just one fake location is enough
 
-                LOG.info("created dummy location tablet_id={}, be_id={}", fakeTabletId, aliveBe.get(0));
+                LOG.info("created dummy location tablet_id={}, be_id={}", fakeTabletId, nodes[nodeIndex]);
             }
         }
 
@@ -1016,31 +1020,30 @@ public class OlapTableSink extends DataSink {
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
-        List<Partition> partitions = partitionIds.stream().map(partitionId -> table.getPartition(partitionId))
-                .collect(Collectors.toList());
-        List<Long> visibleVersions = null;
-        try {
-            visibleVersions = Partition.getVisibleVersions(partitions);
-        } catch (RpcException e) {
-            throw new UserException("OlapTableSink get partition visible version failed", e);
-        }
-        for (int i = 0; i < partitions.size(); i++) {
-            Partition partition = partitions.get(i);
-            long visibleVersion = visibleVersions.get(i);
+        for (long partitionId : partitionIds) {
+            Partition partition = table.getPartition(partitionId);
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {
-                    String errMsg = "";
+                    StringBuilder errMsgBuilder = new StringBuilder();
                     Multimap<Long, Long> bePathsMap = HashMultimap.create();
                     try {
                         bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
-                            errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
-                                    + " < load required replica num " + loadRequiredReplicaNum
-                                    + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
-                                    + ", detail: " + tablet.getDetailsStatusForQuery(visibleVersion);
+                            errMsgBuilder.append("tablet ").append(tablet.getId())
+                                    .append(" alive replica num ").append(bePathsMap.keySet().size())
+                                    .append(" < load required replica num ").append(loadRequiredReplicaNum)
+                                    .append(", alive backends: [")
+                                    .append(StringUtils.join(bePathsMap.keySet(), ","))
+                                    .append("]");
+                            if (!Config.isCloudMode()) {
+                                // in cloud mode, partition get visible version is a rpc,
+                                // and each cluster has only one replica, no need to detail the replicas in cloud mode.
+                                errMsgBuilder.append(", detail: ")
+                                        .append(tablet.getDetailsStatusForQuery(partition.getVisibleVersion()));
+                            }
                             long now = System.currentTimeMillis();
                             long lastLoadFailedTime = tablet.getLastLoadFailedTime();
                             tablet.setLastLoadFailedTime(now);
@@ -1048,15 +1051,16 @@ public class OlapTableSink extends DataSink {
                                 Env.getCurrentEnv().getTabletScheduler().tryAddRepairTablet(
                                         tablet, dbId, table, partition, index, 0);
                             }
-                            throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
+                            throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsgBuilder.toString());
                         }
                     } catch (ComputeGroupException e) {
                         LOG.warn("failed to get replica backend path for tablet " + tablet.getId(), e);
-                        errMsg += e.toString();
-                        throw new UserException(InternalErrorCode.INTERNAL_ERR, errMsg);
+                        errMsgBuilder.append(", ").append(e.toString());
+                        throw new UserException(InternalErrorCode.INTERNAL_ERR, errMsgBuilder.toString());
                     }
-
-                    debugWriteRandomChooseSink(tablet, visibleVersion, bePathsMap);
+                    if (!Config.isCloudMode()) {
+                        debugWriteRandomChooseSink(tablet, partition.getVisibleVersion(), bePathsMap);
+                    }
                     if (bePathsMap.keySet().isEmpty()) {
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
                                 "tablet " + tablet.getId() + " no available replica");

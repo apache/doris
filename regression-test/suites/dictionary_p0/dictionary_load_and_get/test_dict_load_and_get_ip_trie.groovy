@@ -63,6 +63,7 @@ suite("test_dict_load_and_get_ip_trie") {
                 logger.info("refresh dictionary dc_single_key_with_duplicate failed: " + e.getMessage())
             }
         }
+        assertTrue(_ < 30, "refresh dictionary dc_single_key_with_duplicate failed")
         sleep(1000)
     }
 

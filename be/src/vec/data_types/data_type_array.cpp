@@ -57,7 +57,7 @@ MutableColumnPtr DataTypeArray::create_column() const {
 Field DataTypeArray::get_default() const {
     Array a;
     a.push_back(nested->get_default());
-    return a;
+    return Field::create_field<TYPE_ARRAY>(a);
 }
 
 bool DataTypeArray::equals(const IDataType& rhs) const {
@@ -119,7 +119,7 @@ char* DataTypeArray::serialize(const IColumn& column, char* buf, int be_exec_ver
         const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
 
         // row num
-        *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
+        unaligned_store<ColumnArray::Offset64>(buf, column.size());
         buf += sizeof(ColumnArray::Offset64);
         // offsets
         memcpy(buf, data_column.get_offsets().data(),
@@ -153,7 +153,7 @@ const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column
         auto& offsets = data_column->get_offsets();
 
         // row num
-        ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
+        auto row_num = unaligned_load<ColumnArray::Offset64>(buf);
         buf += sizeof(ColumnArray::Offset64);
         // offsets
         offsets.resize(row_num);

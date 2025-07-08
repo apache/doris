@@ -84,13 +84,13 @@ TEST_P(DataTypeQuantileStateTest, MetaInfoTest) {
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = QuantileState(),
+            .default_field = Field::create_field<TYPE_QUANTILE_STATE>(QuantileState()),
     };
     helper->meta_info_assert(datatype_quantile_state, quantile_state_meta_info_to_assert);
 }
 
 TEST_P(DataTypeQuantileStateTest, CreateColumnTest) {
-    Field default_field_quantile_state = QuantileState();
+    Field default_field_quantile_state = Field::create_field<TYPE_QUANTILE_STATE>(QuantileState());
     helper->create_column_assert(datatype_quantile_state, default_field_quantile_state, 17);
 }
 

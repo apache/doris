@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
@@ -216,6 +217,29 @@ Status DataTypeArraySerDe::serialize_one_cell_to_hive_text(
     return Status::OK();
 }
 
+Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                     JsonbWriter& writer) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(from_column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t start = offsets[row_num - 1];
+    size_t end = offsets[row_num];
+    const IColumn& nested_column = data_column.get_data();
+
+    if (!writer.writeStartArray()) {
+        return Status::InternalError("writeStartArray failed");
+    }
+
+    for (size_t i = start; i < end; ++i) {
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(nested_column, i, writer));
+    }
+    if (!writer.writeEndArray()) {
+        return Status::InternalError("writeEndArray failed");
+    }
+
+    return Status::OK();
+}
+
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                  Arena* mem_pool, int32_t col_id,
                                                  int64_t row_num) const {
@@ -232,20 +256,24 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
                                                   Arena& mem_pool, int64_t row_num) const {
-    // Use allocator instead of stack memory, since rapidjson hold the reference of String value
-    // otherwise causes stack use after free
-    const auto& column_array = static_cast<const ColumnArray&>(column);
-    if (row_num > column_array.size()) {
-        return Status::InternalError("row num {} out of range {}!", row_num, column_array.size());
-    }
-    // void* mem = allocator.Malloc(sizeof(vectorized::Field));
-    void* mem = mem_pool.alloc(sizeof(vectorized::Field));
-    if (!mem) {
-        return Status::InternalError("Malloc failed");
-    }
-    auto* array = new (mem) vectorized::Field(column_array[row_num]);
+    auto res = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = res.first;
+    row_num = res.second;
 
-    convert_field_to_rapidjson(*array, result, allocator);
+    const auto& data_column = assert_cast<const ColumnArray&>(*ptr);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+
+    const IColumn& nested_column = data_column.get_data();
+    result.SetArray();
+    for (size_t i = offset; i < next_offset; ++i) {
+        rapidjson::Value val;
+        RETURN_IF_ERROR(
+                nested_serde->write_one_cell_to_json(nested_column, val, allocator, mem_pool, i));
+        result.PushBack(val, allocator);
+    }
     return Status::OK();
 }
 
@@ -267,13 +295,13 @@ Status DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
 }
 
 void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
-void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                               arrow::ArrayBuilder* array_builder, int64_t start,
-                                               int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                 arrow::ArrayBuilder* array_builder, int64_t start,
+                                                 int64_t end, const cctz::time_zone& ctz) const {
     const auto& array_column = static_cast<const ColumnArray&>(column);
     const auto& offsets = array_column.get_offsets();
     const auto& nested_data = array_column.get_data();
@@ -281,19 +309,22 @@ void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Null
     auto* nested_builder = builder.value_builder();
     for (size_t array_idx = start; array_idx < end; ++array_idx) {
         if (null_map && (*null_map)[array_idx]) {
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
             continue;
         }
-        checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
-        nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
-                                            offsets[array_idx - 1], offsets[array_idx], ctz);
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
+                                         array_builder->type()->name()));
+        RETURN_IF_ERROR(nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
+                                                            offsets[array_idx - 1],
+                                                            offsets[array_idx], ctz));
     }
+    return Status::OK();
 }
 
-void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                int64_t start, int64_t end,
-                                                const cctz::time_zone& ctz) const {
+Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                  int64_t start, int64_t end,
+                                                  const cctz::time_zone& ctz) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
     const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
@@ -341,7 +372,6 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            ++options.level;
             if (is_nested_string && options.wrapper_len > 0) {
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
@@ -355,7 +385,6 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                 RETURN_IF_ERROR(
                         nested_serde->write_column_to_mysql(data, result, j, false, options));
             }
-            --options.level;
         }
     }
     if (0 != result.push_string("]", 1)) {

@@ -22,6 +22,8 @@ import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -36,7 +38,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -298,7 +300,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
                 BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
                 Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
-                        cascadesContext.getConnectContext().getStatementContext());
+                        cascadesContext.getStatementContext(), queryStructInfo.getRelationIdBitSet());
                 Set<String> relateTableUsedPartitions = queryUsedPartitions.get(relatedTableInfo.toList());
                 if (relateTableUsedPartitions == null) {
                     materializationContext.recordFailReason(queryStructInfo,
@@ -408,7 +410,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getCteChildrenRewriter(childContext,
-                                ImmutableList.of(Rewriter.bottomUp(new MergeProjects()))).execute();
+                                ImmutableList.of(Rewriter.bottomUp(new MergeProjectable()))
+                        ).execute();
                         return childContext.getRewritePlan();
                     }, rewrittenPlan, queryPlan);
             if (!isOutputValid(queryPlan, rewrittenPlan)) {
@@ -419,6 +422,18 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         + " properties = %s,\n groupOutput logical properties = %s",
                                 logicalProperties, queryPlan.getLogicalProperties()));
                 continue;
+            }
+            // need to collect table partition again, because the rewritten plan would contain new relation
+            // and the rewritten plan would part in rewritten later , the table used partition info is needed
+            // for later rewrite
+            long startTimeMs = TimeUtils.getStartTimeMs();
+            try {
+                MaterializedViewUtils.collectTableUsedPartitions(rewrittenPlan, cascadesContext);
+            } finally {
+                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
+                if (summaryProfile != null) {
+                    summaryProfile.addCollectTablePartitionTime(TimeUtils.getElapsedTimeMs(startTimeMs));
+                }
             }
             trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);

@@ -37,7 +37,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionLinearHistogramData {
     // bucket key limits
     const static int32_t MIN_BUCKET_KEY = std::numeric_limits<int32_t>::min();
@@ -67,10 +67,10 @@ public:
     }
 
     // add
-    void add(const T& value, UInt32 scale) {
+    void add(const typename PrimitiveTypeTraits<T>::ColumnItemType& value, UInt32 scale) {
         double val = 0;
-        if constexpr (IsDecimalNumber<T>) {
-            using NativeType = typename T::NativeType;
+        if constexpr (is_decimal(T)) {
+            using NativeType = typename PrimitiveTypeTraits<T>::ColumnItemType::NativeType;
             val = static_cast<double>(value.value) /
                   static_cast<double>(decimal_scale_multiplier<NativeType>(scale));
         } else {
@@ -183,12 +183,12 @@ public:
     const static std::string NAME;
 };
 
-template <typename T, typename Data, bool has_offset>
+template <PrimitiveType T, typename Data, bool has_offset>
 class AggregateFunctionLinearHistogram final
         : public IAggregateFunctionDataHelper<
                   Data, AggregateFunctionLinearHistogram<T, Data, has_offset>> {
 public:
-    using ColVecType = ColumnVectorOrDecimal<T>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
 
     AggregateFunctionLinearHistogram(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data,

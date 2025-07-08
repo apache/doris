@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
@@ -70,6 +71,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             return true;
         }
         if (originalType instanceof CharacterType && !(targetType instanceof PrimitiveType)) {
+            return true;
+        }
+        if (originalType instanceof AggStateType && targetType instanceof CharacterType) {
             return true;
         }
         if (originalType instanceof ArrayType && targetType instanceof ArrayType) {
@@ -125,7 +129,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (targetType.isNullType()) {
             return false;
         }
-        if (targetType.isTimeLikeType() && !(originalType.isIntegralType()
+        // only allowed [integer, float, string] cast to time
+        if (targetType.isTimeType() && !(originalType.isIntegralType()
                 || originalType.isStringLikeType() || originalType.isFloatLikeType())) {
             return false;
         }

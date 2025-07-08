@@ -162,7 +162,6 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                     tmpContext.setCloudCluster(clusterName);
                 }
                 tmpContext.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
-                tmpContext.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
 
                 String wgName = routineLoadJob.getWorkloadGroup();
                 if (!StringUtils.isEmpty(wgName)) {

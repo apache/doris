@@ -63,7 +63,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         this(DateType.INSTANCE, s);
     }
 
-    protected DateLiteral(DateLikeType dataType, String s) throws AnalysisException {
+    public DateLiteral(DateLikeType dataType, String s) throws AnalysisException {
         super(dataType);
         init(s);
     }

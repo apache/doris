@@ -21,8 +21,8 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.info.SimpleTableInfo;
-import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -48,7 +48,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 public class IcebergTransaction implements Transaction {
@@ -56,7 +55,6 @@ public class IcebergTransaction implements Transaction {
     private static final Logger LOG = LogManager.getLogger(IcebergTransaction.class);
 
     private final IcebergMetadataOps ops;
-    private SimpleTableInfo tableInfo;
     private Table table;
 
 
@@ -73,15 +71,22 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    public void beginInsert(SimpleTableInfo tableInfo) {
-        this.tableInfo = tableInfo;
-        this.table = getNativeTable(tableInfo);
-        this.transaction = table.newTransaction();
+    public void beginInsert(ExternalTable dorisTable) throws UserException {
+        try {
+            ops.getPreExecutionAuthenticator().execute(() -> {
+                // create and start the iceberg transaction
+                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                this.transaction = table.newTransaction();
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName(), e);
+        }
+
     }
 
-    public void finishInsert(SimpleTableInfo tableInfo, Optional<InsertCommandContext> insertCtx) {
+    public void finishInsert(NameMapping nameMapping, Optional<InsertCommandContext> insertCtx) {
         if (LOG.isDebugEnabled()) {
-            LOG.info("iceberg table {} insert table finished!", tableInfo);
+            LOG.info("iceberg table {} insert table finished!", nameMapping.getFullLocalName());
         }
         try {
             ops.getPreExecutionAuthenticator().execute(() -> {
@@ -96,7 +101,7 @@ public class IcebergTransaction implements Transaction {
                 return null;
             });
         } catch (Exception e) {
-            LOG.warn("Failed to finish insert for iceberg table {}.", tableInfo, e);
+            LOG.warn("Failed to finish insert for iceberg table {}.", nameMapping.getFullLocalName(), e);
             throw new RuntimeException(e);
         }
 
@@ -138,16 +143,9 @@ public class IcebergTransaction implements Transaction {
         return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
     }
 
-
-    private synchronized Table getNativeTable(SimpleTableInfo tableInfo) {
-        Objects.requireNonNull(tableInfo);
-        ExternalCatalog externalCatalog = ops.getExternalCatalog();
-        return IcebergUtils.getRemoteTable(externalCatalog, tableInfo);
-    }
-
     private void commitAppendTxn(Table table, List<WriteResult> pendingResults) {
         // commit append files.
-        AppendFiles appendFiles = table.newAppend();
+        AppendFiles appendFiles = table.newAppend().scanManifestsWith(ops.getThreadPoolWithPreAuth());
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files for append.");
@@ -163,7 +161,7 @@ public class IcebergTransaction implements Transaction {
             // 1. if dst_tb is a partitioned table, it will return directly.
             // 2. if dst_tb is an unpartitioned table, the `dst_tb` table will be emptied.
             if (!table.spec().isPartitioned()) {
-                OverwriteFiles overwriteFiles = table.newOverwrite();
+                OverwriteFiles overwriteFiles = table.newOverwrite().scanManifestsWith(ops.getThreadPoolWithPreAuth());
                 try (CloseableIterable<FileScanTask> fileScanTasks = table.newScan().planFiles()) {
                     fileScanTasks.forEach(f -> overwriteFiles.deleteFile(f.file()));
                 } catch (IOException e) {

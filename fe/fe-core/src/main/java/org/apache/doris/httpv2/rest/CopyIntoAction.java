@@ -17,8 +17,6 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.analysis.CopyStmt;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
@@ -37,6 +35,9 @@ import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -186,7 +187,6 @@ public class CopyIntoAction extends RestBaseController {
             // 2. call RemoteBase to get pre-signedUrl
             RemoteBase rb = RemoteBase.newInstance(new ObjectInfo(objPb));
             String signedUrl = rb.getPresignedUrl(fileName);
-            LOG.info("get internal stage remote info: {}, and signedUrl: {}", rb.toString(), signedUrl);
             long elapseMs = System.currentTimeMillis() - startTime;
             MetricRepo.HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY.update(elapseMs);
             return redirectToObj(signedUrl);
@@ -235,8 +235,8 @@ public class CopyIntoAction extends RestBaseController {
             }
 
             String clusterName = (String) jsonObject.getOrDefault("cluster", "");
-            StatementBase copyIntoStmt = StatementSubmitter.analyzeStmt(copyIntoSql);
-            if (!(copyIntoStmt instanceof CopyStmt)) {
+            LogicalPlan logicalPlan = analyzeStmt(copyIntoSql);
+            if (!(logicalPlan instanceof CopyIntoCommand)) {
                 return ResponseEntityBuilder.badRequest("just support copy into sql: " + copyIntoSql);
             }
 
@@ -282,5 +282,10 @@ public class CopyIntoAction extends RestBaseController {
             LOG.warn("failed to execute stmt {}", copyIntoStmt, e);
             return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
         }
+    }
+
+    public static LogicalPlan analyzeStmt(String stmtStr) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        return nereidsParser.parseSingle(stmtStr);
     }
 }

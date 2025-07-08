@@ -37,24 +37,20 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
+
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
-
 struct AggregateFunctionBitmapUnionOp {
     static constexpr auto name = "bitmap_union";
 
     template <typename T>
     static void add(BitmapValue& res, const T& data, bool& is_first) {
         res.add(data);
+        is_first = false;
     }
 
     static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) {
@@ -68,6 +64,9 @@ struct AggregateFunctionBitmapUnionOp {
 
     static void add_batch(BitmapValue& res, std::vector<const BitmapValue*>& data, bool& is_first) {
         res.fastunion(data);
+        // after fastunion, res myabe have many datas, so is_first should be false
+        // then call add function will not reset res
+        is_first = false;
     }
 
     static void merge(BitmapValue& res, const BitmapValue& data, bool& is_first) {
@@ -319,7 +318,7 @@ class AggregateFunctionBitmapCount final
                   AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>> {
 public:
     // using ColVecType = ColumnBitmap;
-    using ColVecResult = ColumnVector<Int64>;
+    using ColVecResult = ColumnInt64;
     using AggFunctionData = AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>;
 
     AggregateFunctionBitmapCount(const DataTypes& argument_types_)

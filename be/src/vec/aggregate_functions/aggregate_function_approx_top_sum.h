@@ -32,7 +32,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/space_saving.h"
 #include "vec/common/string_ref.h"
@@ -50,7 +49,7 @@ struct AggregateFunctionTopKGenericData {
     Set value;
 };
 
-template <typename T, typename TResult, typename Data>
+template <PrimitiveType T, typename TResult, typename Data>
 class AggregateFunctionApproxTopSum final
         : public IAggregateFunctionDataHelper<Data,
                                               AggregateFunctionApproxTopSum<T, TResult, Data>>,
@@ -58,9 +57,9 @@ class AggregateFunctionApproxTopSum final
 private:
     using State = AggregateFunctionTopKGenericData;
 
-    using ResultDataType = DataTypeNumber<TResult>;
-    using ColVecType = ColumnVector<T>;
-    using ColVecResult = ColumnVector<TResult>;
+    using ResultDataType = DataTypeNumber<T>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using ColVecResult = typename PrimitiveTypeTraits<T>::ColumnType;
 
 public:
     AggregateFunctionApproxTopSum(const std::vector<std::string>& column_names,
@@ -232,14 +231,14 @@ public:
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct TopSumSimple {
-    using ResultType = T;
+    using ResultType = typename PrimitiveTypeTraits<T>::CppType;
     using AggregateDataType = AggregateFunctionTopKGenericData;
     using Function = AggregateFunctionApproxTopSum<T, ResultType, AggregateDataType>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFunctionApproxTopSumSimple = typename TopSumSimple<T>::Function;
 
 } // namespace doris::vectorized
