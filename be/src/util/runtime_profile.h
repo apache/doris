@@ -301,12 +301,7 @@ public:
         }
 
         PProfileCounter to_proto_peak(const std::string& name) const {
-            PProfileCounter counter;
-            counter.set_name(name);
-            counter.set_value(this->value());
-            counter.set_type(unit_to_proto(this->type()));
-            counter.set_level(this->value());
-            return counter;
+            return Counter::to_proto(name);
         }
 
         virtual void pretty_print(std::ostream* s, const std::string& prefix,
