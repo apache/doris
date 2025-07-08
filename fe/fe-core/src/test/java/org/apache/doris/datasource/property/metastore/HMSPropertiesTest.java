@@ -37,7 +37,7 @@ public class HMSPropertiesTest {
     public void testHiveConfDirNotExist() {
         Map<String, String> params = new HashMap<>();
         params.put("hive.conf.resources", "/opt/hive-site.xml");
-        params.put("metastore.type", "hms");
+        params.put("hive.metastore.type", "hms");
         Map<String, String> finalParams = params;
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(finalParams));
     }
@@ -48,7 +48,7 @@ public class HMSPropertiesTest {
         Config.hadoop_config_dir = hiveFileUrl.getPath().toString();
         Map<String, String> params = new HashMap<>();
         params.put("hive.conf.resources", "/hive-conf/hive1/hive-site.xml");
-        params.put("metastore.type", "hms");
+        params.put("type", "hms");
         HMSProperties hmsProperties;
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params));
         params.put("hive.metastore.uris", "thrift://default:9083");
@@ -61,7 +61,7 @@ public class HMSPropertiesTest {
     @Test
     public void testBasicParamsTest() throws UserException {
         Map<String, String> notValidParams = new HashMap<>();
-        notValidParams.put("metastore.type", "hms");
+        notValidParams.put("hive.metastore.type", "hms");
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(notValidParams));
         // Step 1: Set up initial parameters for HMSProperties
         Map<String, String> params = createBaseParams();
@@ -93,7 +93,7 @@ public class HMSPropertiesTest {
 
     private Map<String, String> createBaseParams() {
         Map<String, String> params = new HashMap<>();
-        params.put("metastore.type", "hms");
+        params.put("type", "hms");
         params.put("hive.metastore.uris", "thrift://127.0.0.1:9083");
         params.put("hive.metastore.authentication.type", "simple");
         return params;
