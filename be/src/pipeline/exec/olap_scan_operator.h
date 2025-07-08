@@ -101,6 +101,7 @@ private:
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     std::vector<SyncRowsetStats> _sync_statistics;
+    std::vector<std::function<Status()>> _tasks;
     int64_t _duration_ns = 0;
     std::vector<std::shared_ptr<Dependency>> _cloud_tablet_dependencies;
     std::future<Status> _cloud_tablet_future;
