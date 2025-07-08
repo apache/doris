@@ -234,6 +234,11 @@ public:
     virtual size_t approximate_bytes() const = 0;
 
     /**
+     * @brief return the num get keys submitted to this txn.
+     **/
+    virtual size_t num_get_keys() const = 0;
+
+    /**
      * @brief return the num delete keys submitted to this txn.
      **/
     virtual size_t num_del_keys() const = 0;
@@ -565,6 +570,8 @@ public:
 
     size_t approximate_bytes() const override { return approximate_bytes_; }
 
+    size_t num_get_keys() const override { return num_get_keys_; }
+
     size_t num_del_keys() const override { return num_del_keys_; }
 
     size_t num_put_keys() const override { return num_put_keys_; }
@@ -579,6 +586,7 @@ private:
     bool aborted_ = false;
     FDBTransaction* txn_ = nullptr;
 
+    size_t num_get_keys_ {0};
     size_t num_del_keys_ {0};
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};
