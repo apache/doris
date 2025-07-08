@@ -53,7 +53,7 @@ TEST(ColumnBaseTest, TestCompare_internal) {
     column_array1->compare_internal(0, *column_array2, 0, 1, cmp_res, filter.data());
 
     EXPECT_EQ(cmp_res.size(), 1);
-    std::cout << cmp_res[0] << std::endl;
+    EXPECT_EQ(cmp_res[0], 1);
 }
 
 TEST(ColumnBaseTest, TestCompare_internal2) {
@@ -84,6 +84,6 @@ TEST(ColumnBaseTest, TestCompare_internal2) {
     column_array1->compare_internal(0, *column_array2, 0, -1, cmp_res, filter.data());
 
     EXPECT_EQ(cmp_res.size(), 1);
-    std::cout << cmp_res[0] << std::endl;
+    EXPECT_EQ(cmp_res[0], 1);
 }
 } // namespace doris::vectorized
