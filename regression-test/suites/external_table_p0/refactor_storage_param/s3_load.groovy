@@ -86,7 +86,7 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
             LOAD LABEL `${label}` (
            data infile ("${objFilePath}")
            into table ${s3table}
-            COLUMNS TERMINATED BY "\\\t"
+            COLUMNS TERMINATED BY "\t"
             FORMAT AS "CSV"
              (
                 user_id,
