@@ -159,9 +159,17 @@ public class BaseTableInfo {
                 + '}';
     }
 
-    public void compatible(CatalogMgr catalogMgr) {
+    public void compatible(CatalogMgr catalogMgr) throws Exception {
         if (!StringUtils.isEmpty(ctlName)) {
             return;
+        }
+        // should not get meta from external catalog when replay, because the timeout period may be very long
+        if (ctlId != InternalCatalog.INTERNAL_CATALOG_ID) {
+            String msg = String.format(
+                    "Can not compatibility external table, ctlId: %s, dbId: %s, tableId: %s",
+                    ctlId, dbId, tableId);
+            LOG.warn(msg);
+            throw new Exception(msg);
         }
         try {
             CatalogIf catalog = catalogMgr.getCatalogOrAnalysisException(ctlId);
@@ -171,7 +179,11 @@ public class BaseTableInfo {
             this.dbName = db.getFullName();
             this.tableName = table.getName();
         } catch (AnalysisException e) {
-            LOG.warn("MTMV compatible failed, ctlId: {}, dbId: {}, tableId: {}", ctlId, dbId, tableId, e);
+            String msg = String.format(
+                    "Failed to get name based on id during compatibility process, ctlId: %s, dbId: %s, tableId: %s",
+                    ctlId, dbId, tableId);
+            LOG.warn(msg, e);
+            throw new Exception(msg);
         }
     }
 
