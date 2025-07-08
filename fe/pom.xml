@@ -225,7 +225,7 @@ under the License.
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.0</avro.version>
         <parquet.version>1.15.2</parquet.version>
-        <spark.version>3.4.3</spark.version>
+        <spark.version>3.5.6</spark.version>
         <hudi.version>0.15.0</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
@@ -277,7 +277,7 @@ under the License.
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.110.Final</netty-all.version>
+        <netty-all.version>4.1.112.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -286,7 +286,7 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.63.0</grpc.version>
         <check.freamework.version>3.43.0</check.freamework.version>
-        <protobuf.version>3.24.3</protobuf.version>
+        <protobuf.version>4.31.1</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -342,11 +342,11 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
-        <hadoop.version>3.3.6</hadoop.version>
+        <hadoop.version>3.4.1</hadoop.version>
         <re2j.version>1.8</re2j.version>
-        <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
+        <hadoop.thirdparty.guava.version>1.4.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_7.version>1.1.1</hadoop.thirdparty.protobuf_3_7.version>
-        <hbase.version>2.4.9</hbase.version>
+        <hbase.version>2.6.2</hbase.version>
         <hbase-shaded-gson.version>4.1.7</hbase-shaded-gson.version>
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
@@ -356,7 +356,7 @@ under the License.
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
-        <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
+        <ranger-plugins-common.version>2.6.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
