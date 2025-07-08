@@ -290,7 +290,8 @@ public class InternalSchemaInitializer extends Thread {
                         + ") ENGINE = olap\n"
                         + "UNIQUE KEY(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)\n"
                         + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
-                        + "DISTRIBUTED BY HASH(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)\n"
+                        + "DISTRIBUTED BY HASH(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, "
+                        + "`part_name`, `part_id`, `col_id`)\n"
                         + "BUCKETS 7\n"
                         + "PROPERTIES (\"replication_num\"  =  \"1\")";
         return template.replace("{COLUMN_DEFINITIONS}",
