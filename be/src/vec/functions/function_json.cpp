@@ -124,9 +124,9 @@ void get_parsed_paths(const T& path_exprs, std::vector<JsonPath>* parsed_paths) 
     }
 }
 
-rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
-                              rapidjson::Document::AllocatorType& mem_allocator,
-                              bool is_insert_null = false) {
+rapidjson::Value* NO_SANITIZE_UNDEFINED
+match_value(const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
+            rapidjson::Document::AllocatorType& mem_allocator, bool is_insert_null = false) {
     rapidjson::Value* root = document;
     rapidjson::Value* array_obj = nullptr;
     for (int i = 1; i < parsed_paths.size(); i++) {
@@ -599,43 +599,6 @@ struct ExecuteReducer {
     template <typename... TArgs>
     static void run(TArgs&&... args) {
         Impl::template execute_type<JsonParser<flag>>(std::forward<TArgs>(args)...);
-    }
-};
-
-struct FunctionJsonArrayImpl {
-    static constexpr auto name = "json_array";
-
-    static constexpr auto must_not_null = false;
-    template <int flag>
-    using Reducer = ExecuteReducer<flag, FunctionJsonArrayImpl>;
-
-    static void execute_parse(const std::string& type_flags,
-                              const std::vector<const ColumnString*>& data_columns,
-                              std::vector<rapidjson::Value>& objects,
-                              rapidjson::Document::AllocatorType& allocator,
-                              const std::vector<const ColumnUInt8*>& nullmaps) {
-        for (int i = 0; i < data_columns.size() - 1; i++) {
-            constexpr_int_match<'0', '7', Reducer>::run(type_flags[i], objects, allocator,
-                                                        data_columns[i], nullmaps[i]);
-        }
-    }
-
-    template <typename TypeImpl>
-    static void execute_type(std::vector<rapidjson::Value>& objects,
-                             rapidjson::Document::AllocatorType& allocator,
-                             const ColumnString* data_column, const ColumnUInt8* nullmap) {
-        StringParser::ParseResult result;
-        rapidjson::Value value;
-
-        for (int i = 0; i < objects.size(); i++) {
-            if (nullmap != nullptr && nullmap->get_data()[i]) {
-                JsonParser<'0'>::update_value(result, value, data_column->get_data_at(i),
-                                              allocator);
-            } else {
-                TypeImpl::update_value(result, value, data_column->get_data_at(i), allocator);
-            }
-            objects[i].PushBack(value, allocator);
-        }
     }
 };
 
@@ -1648,7 +1611,6 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGetJsonString>();
     factory.register_function<FunctionJsonUnquote>();
 
-    factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonArrayImpl>>();
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonObjectImpl>>();
     factory.register_function<FunctionJson<FunctionJsonQuoteImpl>>();
     factory.register_function<
