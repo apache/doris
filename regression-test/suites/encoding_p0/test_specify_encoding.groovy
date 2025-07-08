@@ -17,6 +17,16 @@
 
 suite("test_specify_encoding")  {
     sql """
+        admin set frontend config("enable_specify_column_encoding" = "false");
+    """
+    def encodingDisable = "encoding_disable"
+    sql """ DROP TABLE IF EXISTS ${encodingDisable} """
+    test {
+        sql """CREATE TABLE IF NOT EXISTS ${encodingDisable} (`tiny_default` tinyint encoding "default" NULL)"""
+        exception "do not support specify column encoding because fe config enable_specify_column_encoding is false"
+    }
+
+    sql """
         admin set frontend config("enable_specify_column_encoding" = "true");
     """
 
@@ -288,4 +298,6 @@ suite("test_specify_encoding")  {
         ) 
 """
     qt_select_default "SELECT * FROM ${defaultTableName}"
+
+
 }
