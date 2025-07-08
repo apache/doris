@@ -16,12 +16,13 @@
 // under the License.
 
 #pragma once
+#include "common/factory_creator.h"
 #include "olap/wal/wal_reader.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/format/generic_reader.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 struct ScannerCounter;
 class WalReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(WalReader);
@@ -52,5 +53,5 @@ private:
     int64_t _column_id_count;
     uint32_t _version = 0;
 };
-} // namespace vectorized
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::vectorized

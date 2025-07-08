@@ -27,6 +27,7 @@
 #include "vec/exec/jni_connector.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
@@ -54,4 +55,5 @@ public:
 private:
     const TLakeSoulFileDesc& _lakesoul_params;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

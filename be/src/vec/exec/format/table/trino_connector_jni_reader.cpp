@@ -18,7 +18,6 @@
 #include "trino_connector_jni_reader.h"
 
 #include <map>
-#include <ostream>
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
@@ -35,7 +34,7 @@ class Block;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
 
 TrinoConnectorJniReader::TrinoConnectorJniReader(
@@ -115,4 +114,5 @@ Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

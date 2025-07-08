@@ -64,7 +64,7 @@ Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int r
 
 Status DataTypeHLLSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
-                                                             int* num_deserialized,
+                                                             uint64_t* num_deserialized,
                                                              const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -124,8 +124,8 @@ void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValu
 }
 
 void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                             arrow::ArrayBuilder* array_builder, int start, int end,
-                                             const cctz::time_zone& ctz) const {
+                                             arrow::ArrayBuilder* array_builder, int64_t start,
+                                             int64_t end, const cctz::time_zone& ctz) const {
     const auto& col = assert_cast<const ColumnHLL&>(column);
     auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
