@@ -32,6 +32,16 @@ public abstract class AbstractHMSProperties extends MetastoreProperties {
     @Getter
     protected HiveConf hiveConf;
 
+    /**
+     * Hadoop authenticator responsible for handling authentication with HDFS/HiveMetastore.
+     *
+     * By default, it uses simple authentication (HadoopSimpleAuthenticator with SimpleAuthenticationConfig).
+     * If Kerberos is required (e.g., when connecting to secure Hive or HDFS clusters), this field must be
+     * replaced with a proper Kerberos-based implementation during initialization.
+     *
+     * Note: In certain environments (such as AWS Glue, which doesn't require Kerberos), the default simple
+     * implementation is sufficient and no replacement is needed.
+     */
     @Getter
     protected HadoopAuthenticator hdfsAuthenticator = new HadoopSimpleAuthenticator(new SimpleAuthenticationConfig());
 

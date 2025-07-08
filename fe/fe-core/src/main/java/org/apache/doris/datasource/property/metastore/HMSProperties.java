@@ -183,6 +183,24 @@ public class HMSProperties extends AbstractHMSProperties {
 
     }
 
+    /**
+     * Helper class for initializing the Hadoop authenticator (HadoopAuthenticator).
+     * <p>
+     * Authentication initialization logic:
+     * 1. First, check the Hive Metastore authentication type (hiveMetastoreAuthenticationType):
+     * - If set to "kerberos", use the Hive Metastore principal and keytab for Kerberos authentication;
+     * - If set to "simple", use the simple authentication method;
+     * 2. If Hive Metastore configuration does not match, fallback to checking HDFS Kerberos
+     * configuration (hdfsAuthenticationType):
+     * - If set to "kerberos", use the HDFS principal and keytab for Kerberos authentication;
+     * - Note: This branch exists purely for backward compatibility — using HDFS keytab is a
+     * workaround, not the preferred approach;
+     * 3. If none of the above conditions are met, fall back to simple authentication as the default.
+     * <p>
+     * The overall design prioritizes Hive Metastore's authentication settings.
+     * HDFS Kerberos usage is retained for legacy compatibility, but unification under Hive configuration is
+     * strongly recommended.
+     */
     private void initHadoopAuthenticator() {
         if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("kerberos")) {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
