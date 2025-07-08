@@ -158,10 +158,12 @@ Status InvertedIndexColumnWriterImpl<field_type>::create_field(lucene::document:
     field_config |= _should_analyzer ? int32_t(lucene::document::Field::INDEX_TOKENIZED)
                                      : int32_t(lucene::document::Field::INDEX_UNTOKENIZED);
     *field = new lucene::document::Field(_field_name.c_str(), field_config);
-    (*field)->setOmitTermFreqAndPositions(
-            !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
-              INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
-    (*field)->setOmitNorms(false);
+    if (_should_analyzer) {
+        (*field)->setOmitTermFreqAndPositions(
+                !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
+                  INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
+        (*field)->setOmitNorms(false);
+    }
     DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::create_field_v3", {
         if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::V3) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(

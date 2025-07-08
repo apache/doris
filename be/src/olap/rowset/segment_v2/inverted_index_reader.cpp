@@ -316,11 +316,11 @@ Status InvertedIndexReader::match_index_search(
                     "query type " + query_type_to_string(query_type) + ", query is nullptr");
         }
         {
-            SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_init_timer);
+            SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_init_timer);
             query->add(query_info);
         }
         {
-            SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_exec_timer);
+            SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
             query->search(*term_match_bitmap);
         }
     } catch (const CLuceneError& e) {

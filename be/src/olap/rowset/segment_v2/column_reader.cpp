@@ -685,6 +685,7 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
         } else if (is_numeric_type(type)) {
             try {
                 _index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
+            } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create BkdIndexReader error: {}", e.what());
             }

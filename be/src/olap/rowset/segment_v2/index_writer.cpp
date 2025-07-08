@@ -18,6 +18,7 @@
 #include "common/exception.h"
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/ann_index_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 
 namespace doris::segment_v2 {
 
