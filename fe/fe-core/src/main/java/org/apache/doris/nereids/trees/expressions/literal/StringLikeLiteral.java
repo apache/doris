@@ -51,19 +51,19 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             + "|(?<hour2>\\d{2})(?:(?<minute2>\\d{2})(?:(?<second2>\\d{2})(?<fraction2>\\.\\d*)?)?)?)"
             // <offset> ::= (( "+" | "-" ) <hour-offset> [ ":"? <minute-offset> ]) | (<tz-name>)
             + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
-            + "|(?i)(?:CST|UTC|GMT|ZULU|Z|[A-Za-z_]+/[A-Za-z_]+)))?"
+            + "|(?i)[A-Za-z]+\\S+))?"
             + ")?)"
             + "|"
             // <digit>{14} <fraction>? <whitespace>* <offset>?
             + "((?<timestamp>\\d{14})(?<fraction3>\\.\\d*)?\\s*"
-            + "(?:\\s*(?<tz1>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)(?:CST|UTC|GMT|ZULU|Z|[A-Za-z_]+/[A-Za-z_]+)))?)";
+            + "(?:\\s*(?<tz1>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)([A-Za-z]+\\S+)))?)";
     public static final String toDateUnStrictRegex
             = "^\\s*((?<year>\\d{2,4})[^a-zA-Z\\d](?<month>\\d{1,2})[^a-zA-Z\\d](?<date>\\d{1,2}))"
             + "(?:[ T]"
             + "(?<hour>\\d{1,2})[^a-zA-Z\\d](?<minute>\\d{1,2})[^a-zA-Z\\d](?<"
             + "second>\\d{1,2})(?<fraction>\\.\\d*)?"
             + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
-            + "|(?i)(?:CST|UTC|GMT|ZULU|Z|[A-Za-z_]+/[A-Za-z_]+)))?"
+            + "|(?i)([A-Za-z]+\\S+)))?"
             + ")?\\s*$";
     public static final String toDoubleRegex
             = "^\\s*[+-]?(?:(?:[0-9]+|[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|(?"
