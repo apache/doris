@@ -125,7 +125,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new OneRowRelationExtractAggregate(),
                     new AdjustAggregateNullableForEmptySet()
             ),
-            custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
+            // custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
             topDown(
                     new FillUpMissingSlots(),
                     // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
