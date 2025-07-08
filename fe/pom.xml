@@ -286,7 +286,7 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.63.0</grpc.version>
         <check.freamework.version>3.43.0</check.freamework.version>
-        <protobuf.version>4.31.1</protobuf.version>
+        <protobuf.version>3.24.3</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -1420,6 +1420,11 @@ under the License.
                 <artifactId>lombok</artifactId>
                 <version>${lombok.version}</version>
                 <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-fileupload2-javax</artifactId>
+                <version>${commons-fileupload2-javax.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/hu.webarticum/tree-printer -->
             <dependency>
