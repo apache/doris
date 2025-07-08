@@ -75,11 +75,11 @@ fs::path caches_dir = fs::current_path() / "lru_cache_test";
 std::string cache_base_path = caches_dir / "cache1" / "";
 std::string tmp_file = caches_dir / "tmp_file";
 
-constexpr unsigned long long operator"" _mb(unsigned long long m) {
+constexpr unsigned long long operator""_mb(unsigned long long m) {
     return m * 1024 * 1024;
 }
 
-constexpr unsigned long long operator"" _kb(unsigned long long m) {
+constexpr unsigned long long operator""_kb(unsigned long long m) {
     return m * 1024;
 }
 

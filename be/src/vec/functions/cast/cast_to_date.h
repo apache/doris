@@ -86,8 +86,8 @@ public:
                 block.get_by_position(arguments[0]).column.get());
 
         auto to_type = block.get_by_position(result).type;
-        auto* concrete_serde = assert_cast<typename ToDataType::SerDeType*>(
-                remove_nullable(to_type)->get_serde().get());
+        auto concrete_serde = std::dynamic_pointer_cast<typename ToDataType::SerDeType>(
+                remove_nullable(to_type)->get_serde());
         MutableColumnPtr column_to;
 
         if constexpr (CastMode == CastModeType::StrictMode) {
@@ -221,6 +221,7 @@ public:
                 VecDateTimeValue dtv; // datetime by default
                 dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->timezone_obj());
+                dtv.reset_time_part();
 
                 auto time_value = col_from->get_data()[i];
                 int32_t hour = TimeValue::hour(time_value);
@@ -242,6 +243,7 @@ public:
                 dtmv2.from_unixtime(context->state()->timestamp_ms() / 1000,
                                     context->state()->nano_seconds(),
                                     context->state()->timezone_obj(), scale);
+                dtmv2.reset_time_part();
 
                 auto time_value = col_from->get_data()[i];
                 int32_t hour = TimeValue::hour(time_value);
@@ -304,7 +306,10 @@ public:
                                             type->to_string(*col_from, i), type->get_name(),
                                             to_type->get_name());
                                 } else {
-                                    col_nullmap->get_data()[i] = 1;
+                                    col_nullmap->get_data()[i] = true;
+                                    col_to->get_data()[i] =
+                                            binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(
+                                                    MIN_DATETIME_V2);
                                 }
                             }
                         } else {
@@ -323,8 +328,46 @@ public:
                 // from Datetime to Time
                 auto dtmv2 = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
                         col_from->get_data()[i]);
-                auto time = TimeValue::limit_with_bound(TimeValue::make_time(
-                        dtmv2.hour(), dtmv2.minute(), dtmv2.second(), dtmv2.microsecond()));
+
+                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
+                        block.get_by_position(arguments[0]).type.get());
+                auto scale = type->get_scale();
+                const auto* to_type = assert_cast<const DataTypeTimeV2*>(
+                        block.get_by_position(result).type.get());
+                UInt32 to_scale = to_type->get_scale();
+
+                uint32_t hour = dtmv2.hour();
+                uint32_t minute = dtmv2.minute();
+                uint32_t second = dtmv2.second();
+                uint32_t microseconds = dtmv2.microsecond();
+                if (to_scale < scale) { // need to round
+                    // e.g. scale reduce to 4, means we need to round the last 2 digits
+                    // 999956: 56 > 100/2, then round up to 1000000
+                    uint32_t divisor = common::exp10_i64(6 - to_scale);
+                    uint32_t remainder = microseconds % divisor;
+                    microseconds = (microseconds / divisor) * divisor;
+                    if (remainder >= divisor / 2) {
+                        // do rounding up
+                        microseconds += divisor;
+                    }
+                }
+
+                // carry on if microseconds >= 1000000
+                if (microseconds >= 1000000) {
+                    microseconds -= 1000000;
+                    second += 1;
+                    if (second >= 60) {
+                        second -= 60;
+                        minute += 1;
+                        if (minute >= 60) {
+                            minute -= 60;
+                            hour += 1;
+                        }
+                    }
+                }
+
+                auto time = TimeValue::limit_with_bound(
+                        TimeValue::make_time(hour, minute, second, microseconds));
                 col_to->get_data()[i] = time;
             } else if constexpr (IsDateTimeType<FromDataType> && IsTimeV2Type<ToDataType>) {
                 auto dtmv1 = binary_cast<Int64, VecDateTimeValue>(col_from->get_data()[i]);

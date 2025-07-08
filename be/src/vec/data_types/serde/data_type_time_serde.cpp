@@ -211,7 +211,7 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
 
                     if (length > _scale) { // _scale is up to 6
                         // round off to at most `_scale` digits
-                        if (*(start + _scale) - '0' >= 5) {
+                        if (*(ms_start + _scale) - '0' >= 5) {
                             frac_literal++;
                             DCHECK(frac_literal <= 1000000);
                             if (frac_literal == common::exp10_i32(_scale)) {
@@ -286,7 +286,7 @@ Status DataTypeTimeV2SerDe::_from_string(const std::string& str, double& res) co
 
                 if (length > _scale) { // _scale is up to 6
                     // round off to at most `_scale` digits
-                    if (*(start + _scale) - '0' >= 5) {
+                    if (*(ms_start + _scale) - '0' >= 5) {
                         frac_literal++;
                         DCHECK(frac_literal <= 1000000);
                         if (frac_literal == common::exp10_i32(_scale)) {
@@ -421,7 +421,7 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
 
                     if (length > _scale) { // _scale is up to 6
                         // round off to at most `_scale` digits
-                        if (*(start + _scale) - '0' >= 5) {
+                        if (*(ms_start + _scale) - '0' >= 5) {
                             frac_literal++;
                             DCHECK(frac_literal <= 1000000);
                             if (frac_literal == common::exp10_i32(_scale)) {
@@ -496,7 +496,7 @@ Status DataTypeTimeV2SerDe::_from_string_strict_mode(const std::string& str, dou
 
                 if (length > _scale) { // _scale is up to 6
                     // round off to at most `_scale` digits
-                    if (*(start + _scale) - '0' >= 5) {
+                    if (*(ms_start + _scale) - '0' >= 5) {
                         frac_literal++;
                         DCHECK(frac_literal <= 1000000);
                         if (frac_literal == common::exp10_i32(_scale)) {
@@ -552,31 +552,41 @@ static Status from_int(int64_t int_val, int length, double& val) {
     return Status::OK();
 }
 
-[[nodiscard]] static bool init_microsecond(int64_t frac_part, uint32_t float_scale, double& val) {
-    // normalize the fractional part to microseconds(6 digits)
-    if (float_scale > 0) {
-        if (float_scale > 6) {
-            int ms = int(frac_part / common::exp10_i64(float_scale - 6));
-            // if scale > 6, we need to round the fractional part
-            int digit7 = frac_part % common::exp10_i32(float_scale - 6) /
-                         common::exp10_i32(float_scale - 7);
-            if (digit7 >= 5) {
-                ms++;
-                DCHECK(ms <= 1000000);
-                if (ms == 1000000) {
+[[nodiscard]] static bool init_microsecond(int64_t frac_input, uint32_t frac_length, double& val,
+                                           uint32_t target_scale) {
+    if (frac_length > 0) {
+        int sign = 1;
+        // time type accept negative input.
+        if (frac_input < 0) {
+            frac_input = -frac_input;
+            sign = -1;
+        }
+
+        // align to `target_scale` digits
+        auto in_scale_part =
+                (frac_length > target_scale)
+                        ? (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale))
+                        : (uint32_t)(frac_input * common::exp10_i64(target_scale - frac_length));
+
+        if (frac_length > target_scale) { // _scale is up to 6
+            // round off to at most `_scale` digits
+            auto digit_next =
+                    (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale - 1)) % 10;
+            if (digit_next >= 5) {
+                in_scale_part++;
+                DCHECK(in_scale_part <= 1000000);
+                if (in_scale_part == common::exp10_i32(target_scale)) {
                     // overflow, round up to next second
-                    val += TimeValue::ONE_SECOND_MICROSECONDS;
+                    val += sign * TimeValue::ONE_SECOND_MICROSECONDS;
                     if (val >= TimeValue::MAX_TIME) [[unlikely]] {
                         return false; // overflow
                     }
-                    ms = 0;
+                    in_scale_part = 0;
                 }
             }
-            val = TimeValue::init_microsecond(val, ms);
-        } else { // scale <= 6
-            val = TimeValue::init_microsecond(
-                    val, (uint32_t)frac_part * common::exp10_i32(6 - (int)float_scale));
         }
+        val = TimeValue::init_microsecond(
+                val, sign * (uint32_t)in_scale_part * common::exp10_i32(6 - (int)target_scale));
     }
     return true;
 }
@@ -657,7 +667,7 @@ Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& fl
         double val;
         if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
             int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-            if (init_microsecond(ms_part_7, 7, val)) [[likely]] {
+            if (init_microsecond(ms_part_7, 7, val, _scale)) [[likely]] {
                 col_data.get_data()[i] = val;
                 col_nullmap.get_data()[i] = false;
             } else {
@@ -693,7 +703,7 @@ Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(const FloatDataType::Co
         RETURN_IF_ERROR(from_int(int_part, length, val));
 
         int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-        if (!init_microsecond(ms_part_7, 7, val)) [[unlikely]] {
+        if (!init_microsecond(ms_part_7, 7, val, _scale)) [[unlikely]] {
             return Status::InvalidArgument("time overflow after carry on microsecond {}",
                                            ms_part_7);
         }
@@ -724,7 +734,7 @@ Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType
         double val;
         if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
             if (init_microsecond((int64_t)decimal_col.get_fractional_part(i),
-                                 decimal_col.get_scale(), val)) [[likely]] {
+                                 decimal_col.get_scale(), val, _scale)) [[likely]] {
                 col_data.get_data()[i] = val;
                 col_nullmap.get_data()[i] = false;
             } else {
@@ -759,7 +769,7 @@ Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
         double val;
         RETURN_IF_ERROR(from_int(int_part, length, val));
         if (!init_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(),
-                              val)) [[unlikely]] {
+                              val, _scale)) [[unlikely]] {
             return Status::InvalidArgument("time overflow after carry on microsecond {}",
                                            decimal_col.get_fractional_part(i));
         }

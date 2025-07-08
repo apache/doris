@@ -504,8 +504,14 @@ Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
             const char sign = *ptr;
             ++ptr;
             uint32_t hour_offset, minute_offset = 0;
+
+            uint32_t length = count_digits(ptr, end);
             // hour
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, hour_offset)));
+            if (length == 1 || length == 3) {
+                RETURN_IF_ERROR((consume_digit<UInt32, 1>(ptr, end, hour_offset)));
+            } else {
+                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, hour_offset)));
+            }
             RETURN_INVALID_ARG_IF_NOT(hour_offset <= 14, "invalid hour offset {}", hour_offset);
             if (assert_within_bound(ptr, end, 0).ok()) {
                 if (*ptr == ':') {
@@ -530,13 +536,8 @@ Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
         } else {
             // timezone name
             const auto* start = ptr;
-            // area of area/location, or just a short tz name.
+            // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
             RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-            if (ptr != end && !is_whitespace_ascii(*ptr)) {
-                // /location of area/location
-                RETURN_IF_ERROR(skip_one_slash(ptr, end));
-                RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-            }
 
             RETURN_INVALID_ARG_IF_NOT(
                     TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
@@ -773,8 +774,14 @@ FRAC:
             const char sign = *ptr;
             ++ptr;
             part[1] = 0;
+
+            uint32_t length = count_digits(ptr, end);
             // hour
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
+            if (length == 1 || length == 3) {
+                RETURN_IF_ERROR((consume_digit<UInt32, 1>(ptr, end, part[0])));
+            } else {
+                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+            }
             RETURN_INVALID_ARG_IF_NOT(part[0] <= 14, "invalid hour offset {}", part[0]);
             if (assert_within_bound(ptr, end, 0).ok()) {
                 if (*ptr == ':') {
@@ -797,13 +804,8 @@ FRAC:
         } else {
             // timezone name
             const auto* start = ptr;
-            // area of area/location, or just a short tz name.
+            // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
             RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-            if (ptr != end && !is_whitespace_ascii(*ptr)) {
-                // /location of area/location
-                RETURN_IF_ERROR(skip_one_slash(ptr, end));
-                RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-            }
 
             RETURN_INVALID_ARG_IF_NOT(
                     TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),

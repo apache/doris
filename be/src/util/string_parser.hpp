@@ -103,6 +103,10 @@ inline bool is_whitespace_ascii(char c) {
            UNLIKELY(c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r');
 }
 
+inline bool is_not_whitespace_ascii(char c) {
+    return !is_whitespace_ascii(c);
+}
+
 // skip leading and trailing ascii whitespaces,
 // return the pointer to the first non-whitespace char,
 // and update the len to the new length, which does not include
@@ -174,9 +178,24 @@ Status skip_qualified_char(const char*& s, const char* end) {
 
 inline auto skip_any_whitespace = skip_qualified_char<0, is_whitespace_ascii>;
 inline auto skip_any_digit = skip_qualified_char<0, is_numeric_ascii>;
-inline auto skip_tz_name_part = skip_qualified_char<-1, is_tz_name_part_ascii>;
+inline auto skip_tz_name_part = skip_qualified_char<-1, is_not_whitespace_ascii>;
 inline auto skip_one_slash = skip_qualified_char<1, is_slash_ascii>;
 inline auto skip_one_non_alnum = skip_qualified_char<1, is_non_alnum>;
+
+inline bool is_delimiter(char c) {
+    return c == ' ' || c == 'T';
+}
+inline auto consume_one_delimiter = skip_qualified_char<1, is_delimiter>;
+
+inline bool is_bar(char c) {
+    return c == '-';
+}
+inline auto consume_one_bar = skip_qualified_char<1, is_bar>;
+
+inline bool is_colon(char c) {
+    return c == ':';
+}
+inline auto consume_one_colon = skip_qualified_char<1, is_colon>;
 
 // only consume a string of digit, not include sign.
 // when has MAX_LEN > 0, do greedy match but at most MAX_LEN.
@@ -188,7 +207,7 @@ Status consume_digit(const char*& s, const char* end, T& out) {
         out = 0;
         for (int i = 0; i < MAX_LEN; ++i, ++s) {
             if ((s == end || !is_numeric_ascii(*s))) [[unlikely]] {
-                if (i < LEN) {
+                if (i < LEN) [[unlikely]] {
                     return Status::InvalidArgument(
                             "StringParser: got \"{}\" before get at least {} digit",
                             std::string {s, end}, LEN - i);
@@ -219,22 +238,20 @@ Status consume_digit(const char*& s, const char* end, T& out) {
     return Status::OK();
 }
 
-inline bool is_delimiter(char c) {
-    return c == ' ' || c == 'T';
+template <bool (*Pred)(char)>
+uint32_t count_valid_length(const char* s, const char* end) {
+    DCHECK(s <= end) << "s: " << s << ", end: " << end;
+    uint32_t count = 0;
+    while (s != end && Pred(*s)) {
+        ++count;
+        ++s;
+    }
+    return count;
 }
-inline auto consume_one_delimiter = skip_qualified_char<1, is_delimiter>;
 
-inline bool is_bar(char c) {
-    return c == '-';
-}
-inline auto consume_one_bar = skip_qualified_char<1, is_bar>;
+inline auto count_digits = count_valid_length<is_numeric_ascii>;
 
-inline bool is_colon(char c) {
-    return c == ':';
-}
-inline auto consume_one_colon = skip_qualified_char<1, is_colon>;
-
-inline std::string combine_tz_offset(char sign, uint32_t hour_offset, uint32_t minute_offset) {
+inline PURE std::string combine_tz_offset(char sign, uint32_t hour_offset, uint32_t minute_offset) {
     std::string result(6, '0');
     result[0] = sign;
     result[1] = '0' + (hour_offset / 10);

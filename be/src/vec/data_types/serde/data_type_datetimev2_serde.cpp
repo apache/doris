@@ -283,8 +283,14 @@ Status DataTypeDateTimeV2SerDe::_from_string(const std::string& str,
             const char sign = *ptr;
             ++ptr;
             uint32_t hour_offset, minute_offset = 0;
+
+            uint32_t length = count_digits(ptr, end);
             // hour
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, hour_offset)));
+            if (length == 1 || length == 3) {
+                RETURN_IF_ERROR((consume_digit<UInt32, 1>(ptr, end, hour_offset)));
+            } else {
+                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, hour_offset)));
+            }
             RETURN_INVALID_ARG_IF_NOT(hour_offset <= 14, "invalid hour offset {}", hour_offset);
             if (assert_within_bound(ptr, end, 0).ok()) {
                 if (*ptr == ':') {
@@ -309,13 +315,8 @@ Status DataTypeDateTimeV2SerDe::_from_string(const std::string& str,
         } else {
             // timezone name
             const auto* start = ptr;
-            // area of area/location, or just a short tz name.
+            // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
             RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-            if (ptr != end && !is_whitespace_ascii(*ptr)) {
-                // /location of area/location
-                RETURN_IF_ERROR(skip_one_slash(ptr, end));
-                RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-            }
 
             RETURN_INVALID_ARG_IF_NOT(
                     TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
@@ -611,8 +612,14 @@ FRAC:
             const char sign = *ptr;
             ++ptr;
             part[1] = 0;
+
+            uint32_t length = count_digits(ptr, end);
             // hour
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
+            if (length == 1 || length == 3) {
+                RETURN_IF_ERROR((consume_digit<UInt32, 1>(ptr, end, part[0])));
+            } else {
+                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
+            }
             RETURN_INVALID_ARG_IF_NOT(part[0] <= 14, "invalid hour offset {}", part[0]);
             if (assert_within_bound(ptr, end, 0).ok()) {
                 if (*ptr == ':') {
@@ -635,13 +642,8 @@ FRAC:
         } else {
             // timezone name
             const auto* start = ptr;
-            // area of area/location, or just a short tz name.
+            // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
             RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-            if (ptr != end && !is_whitespace_ascii(*ptr)) {
-                // /location of area/location
-                RETURN_IF_ERROR(skip_one_slash(ptr, end));
-                RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-            }
 
             RETURN_INVALID_ARG_IF_NOT(
                     TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
@@ -726,32 +728,34 @@ static Status from_int(uint64_t uint_val, int length, DateV2Value<DateTimeV2Valu
     return Status::OK();
 }
 
-[[nodiscard]] static bool add_microsecond(int64_t frac_part, uint32_t float_scale,
-                                          DateV2Value<DateTimeV2ValueType>& val) {
-    // normalize the fractional part to microseconds(6 digits)
-    if (float_scale > 0) {
-        if (float_scale > 6) {
-            int ms = int(frac_part / common::exp10_i64(float_scale - 6));
-            // if scale > 6, we need to round the fractional part
-            int digit7 = frac_part % common::exp10_i32(float_scale - 6) /
-                         common::exp10_i32(float_scale - 7);
-            if (digit7 >= 5) {
-                ms++;
-                DCHECK(ms <= 1000000);
-                if (ms == 1000000) {
+[[nodiscard]] static bool init_microsecond(int64_t frac_input, uint32_t frac_length,
+                                           DateV2Value<DateTimeV2ValueType>& val,
+                                           uint32_t target_scale) {
+    if (frac_length > 0) {
+        // align to `target_scale` digits
+        auto in_scale_part =
+                (frac_length > target_scale)
+                        ? (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale))
+                        : (uint32_t)(frac_input * common::exp10_i64(target_scale - frac_length));
+
+        if (frac_length > target_scale) { // _scale is up to 6
+            // round off to at most `_scale` digits
+            auto digit_next =
+                    (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale - 1)) % 10;
+            if (digit_next >= 5) {
+                in_scale_part++;
+                DCHECK(in_scale_part <= 1000000);
+                if (in_scale_part == common::exp10_i32(target_scale)) {
                     // overflow, round up to next second
-                    if (!val.date_add_interval<TimeUnit::SECOND>(
-                                TimeInterval {TimeUnit::SECOND, 1, false})) [[unlikely]] {
-                        return false;
-                    }
-                    ms = 0;
+                    RETURN_INVALID_ARG_IF_NOT(val.date_add_interval<TimeUnit::SECOND>(
+                                                      TimeInterval {TimeUnit::SECOND, 1, false}),
+                                              "datetime overflow when rounding up to next second");
+                    in_scale_part = 0;
                 }
             }
-            val.unchecked_set_time_unit<TimeUnit::MICROSECOND>(ms);
-        } else { // scale <= 6
-            val.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
-                    (uint32_t)frac_part * common::exp10_i32(6 - (int)float_scale));
         }
+        val.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
+                (uint32_t)in_scale_part * common::exp10_i32(6 - (int)target_scale));
     }
     return true;
 }
@@ -844,7 +848,7 @@ Status DataTypeDateTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType
         DateV2Value<DateTimeV2ValueType> val;
         if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
             int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-            if (add_microsecond(ms_part_7, 7, val)) [[likely]] {
+            if (init_microsecond(ms_part_7, 7, val, _scale)) [[likely]] {
                 col_data.get_data()[i] = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(val);
                 col_nullmap.get_data()[i] = false;
             } else {
@@ -882,7 +886,7 @@ Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch(
         RETURN_IF_ERROR(from_int(int_part, length, val));
 
         int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-        if (!add_microsecond(ms_part_7, 7, val)) [[unlikely]] {
+        if (!init_microsecond(ms_part_7, 7, val, _scale)) [[unlikely]] {
             return Status::InvalidArgument("datetime overflow after carry on microsecond {}",
                                            float_value);
         }
@@ -919,8 +923,8 @@ Status DataTypeDateTimeV2SerDe::from_decimal_batch(const DecimalDataType::Column
 
         DateV2Value<DateTimeV2ValueType> val;
         if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
-            if (add_microsecond((int64_t)decimal_col.get_fractional_part(i),
-                                decimal_col.get_scale(), val)) [[likely]] {
+            if (init_microsecond((int64_t)decimal_col.get_fractional_part(i),
+                                 decimal_col.get_scale(), val, _scale)) [[likely]] {
                 col_data.get_data()[i] = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(val);
                 col_nullmap.get_data()[i] = false;
             } else {
@@ -960,8 +964,8 @@ Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch(
 
         DateV2Value<DateTimeV2ValueType> val;
         RETURN_IF_ERROR(from_int(int_part, length, val));
-        if (!add_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(),
-                             val)) [[unlikely]] {
+        if (!init_microsecond((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(),
+                              val, _scale)) [[unlikely]] {
             return Status::InvalidArgument("datetime overflow after carry on microsecond {}",
                                            decimal_col.get_fractional_part(i));
         }

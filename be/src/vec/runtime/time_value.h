@@ -85,7 +85,7 @@ public:
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Microsecond must be in the range [0, 999999]");
         }
-        DCHECK(std::signbit(time) == std::signbit(microsecond) || time || microsecond)
+        DCHECK(std::signbit(time) == std::signbit(microsecond) || !time || !microsecond)
                 << "Time and microsecond must have the same sign but got " << time << " and "
                 << microsecond;
 
@@ -129,12 +129,6 @@ public:
     // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
     // the time value between '-838:59:59' and '838:59:59'
     static TimeType limit_with_bound(TimeType time) {
-        // cast(-4562632 as time)
-        // -456:26:32
-        // hour(cast(-4562632 as time))
-        // 456
-        // second(cast(-4562632 as time))
-        // 32
         if (time > MAX_TIME) {
             return MAX_TIME;
         }
