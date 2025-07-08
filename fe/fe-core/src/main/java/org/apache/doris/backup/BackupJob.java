@@ -59,6 +59,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -70,10 +71,12 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 
@@ -115,6 +118,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     private BackupMeta backupMeta;
     // job info file content
     private BackupJobInfo jobInfo;
+    // tablets that have been dropped during backup
+    @SerializedName("dt")
+    private Set<Long> droppedTablets = Sets.newConcurrentHashSet();
 
     // save the local dir of this backup job
     // after job is done, this dir should be deleted
@@ -140,7 +146,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Env env, long repoId, long commitSeq) {
+            BackupContent content, Env env, long repoId, long commitSeq) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
@@ -204,7 +210,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 return false;
             }
 
-            //clear old task
+            // clear old task
             AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getSignature());
             unfinishedTaskIds.remove(task.getSignature());
             taskProgress.remove(task.getSignature());
@@ -219,7 +225,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     task.getSchemaHash(), timeoutMs, false /* not restore task */);
             unfinishedTaskIds.put(signature, beId);
 
-            //send task
+            // send task
             AgentBatchTask batchTask = new AgentBatchTask(newTask);
             AgentTaskQueue.addTask(newTask);
             AgentTaskExecutor.submit(batchTask);
@@ -245,16 +251,25 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 cancelInternal();
             }
 
-            if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING
-                    && !tryNewTabletSnapshotTask(task)) {
-                status = new Status(ErrCode.NOT_FOUND,
-                        "make snapshot failed, failed to ge tablet, table will be dropped or truncated");
-                cancelInternal();
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING) {
+                if (isTabletDropped(task)) {
+                    droppedTablets.add(task.getTabletId());
+                    taskProgress.remove(task.getSignature());
+                    taskErrMsg.remove(task.getSignature());
+                    Long oldValue = unfinishedTaskIds.remove(task.getSignature());
+                    LOG.info("Tablet {} is dropped during backup, mark as successful. {}",
+                            task.getTabletId(), this);
+                    return oldValue != null;
+                } else if (!tryNewTabletSnapshotTask(task)) {
+                    status = new Status(ErrCode.NOT_FOUND,
+                            "make snapshot failed, failed to ge tablet, table will be dropped or truncated");
+                    cancelInternal();
+                }
             }
 
             if (request.getTaskStatus().getStatusCode() == TStatusCode.NOT_IMPLEMENTED_ERROR) {
                 status = new Status(ErrCode.COMMON_ERROR,
-                    "make snapshot failed, currently not support backup tablet with cooldowned remote data");
+                        "make snapshot failed, currently not support backup tablet with cooldowned remote data");
                 cancelInternal();
             }
 
@@ -297,7 +312,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         Map<Long, List<String>> tabletFileMap = request.getTabletFiles();
         if (tabletFileMap.isEmpty()) {
             LOG.warn("upload snapshot files failed because nothing is uploaded. be: {}. {}",
-                     task.getBackendId(), this);
+                    task.getBackendId(), this);
             return false;
         }
 
@@ -317,15 +332,15 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
             if (tabletFiles.size() != uploadedFiles.size()) {
                 LOG.warn("upload snapshot files failed because file num is wrong. "
-                        + "expect: {}, actual:{}, tablet: {}, be: {}. {}",
-                         tabletFiles.size(), uploadedFiles.size(), tabletId, task.getBackendId(), this);
+                                + "expect: {}, actual:{}, tablet: {}, be: {}. {}",
+                        tabletFiles.size(), uploadedFiles.size(), tabletId, task.getBackendId(), this);
                 return false;
             }
 
             if (!Collections2.filter(tabletFiles, Predicates.not(Predicates.in(uploadedFiles))).isEmpty()) {
                 LOG.warn("upload snapshot files failed because file is different. "
-                        + "expect: [{}], actual: [{}], tablet: {}, be: {}. {}",
-                         tabletFiles, uploadedFiles, tabletId, task.getBackendId(), this);
+                                + "expect: [{}], actual: [{}], tablet: {}, be: {}. {}",
+                        tabletFiles, uploadedFiles, tabletId, task.getBackendId(), this);
                 return false;
             }
 
@@ -538,8 +553,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // Limit the max num of tablets involved in a backup job, to avoid OOM.
         if (unfinishedTaskIds.size() > Config.max_backup_tablets_per_job) {
             String msg = String.format("the num involved tablets %d exceeds the limit %d, "
-                    + "which might cause the FE OOM, change config `max_backup_tablets_per_job` "
-                    + "to change this limitation",
+                            + "which might cause the FE OOM, change config `max_backup_tablets_per_job` "
+                            + "to change this limitation",
                     unfinishedTaskIds.size(), Config.max_backup_tablets_per_job);
             LOG.warn(msg);
             status = new Status(ErrCode.COMMON_ERROR, msg);
@@ -575,7 +590,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     }
                 }
             }
-        }  finally {
+        } finally {
             olapTable.readUnlock();
         }
     }
@@ -667,7 +682,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
-                                                          List<Table> copiedTables) {
+            List<Table> copiedTables) {
         // only copy visible indexes
         List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
                 : tableRef.getPartitionNames().getPartitionNames();
@@ -819,7 +834,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // local job dir: backup/repo__repo_id/label__createtime/
         // Add repo_id to isolate jobs from different repos.
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
-                                    "repo__" + repoId, label + "__" + createTimeStr).normalize();
+                "repo__" + repoId, label + "__" + createTimeStr).normalize();
 
         try {
             // 1. create local job dir of this backup job
@@ -834,7 +849,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 return;
             }
 
-            // 2. save meta info file
+            // 2. remove dropped tablets from backup metadata before saving
+            removeDroppedTabletsFromBackup();
+
+            // 3. save meta info file
             File metaInfoFile = new File(jobDir, Repository.FILE_META_INFO);
             if (!metaInfoFile.createNewFile()) {
                 status = new Status(ErrCode.COMMON_ERROR,
@@ -844,7 +862,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             backupMeta.writeToFile(metaInfoFile);
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
 
-            // 3. save job info file
+            // 4. save job info file
             Map<Long, Long> tableCommitSeqMap = Maps.newHashMap();
             // iterate properties, convert key, value from string to long
             // key is "${TABLE_COMMIT_SEQ_PREFIX}{tableId}", only need tableId to long
@@ -894,7 +912,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // log
         env.getEditLog().logBackupJob(this);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
-                 localMetaInfoFilePath, localJobInfoFilePath, this);
+                localMetaInfoFilePath, localJobInfoFilePath, this);
     }
 
     private void releaseSnapshots() {
@@ -978,6 +996,135 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             }
         }
         return null;
+    }
+
+    /**
+     * Check if tablet has been dropped by verifying the existence of table, partition, index, and tablet
+     */
+    private boolean isTabletDropped(SnapshotTask task) {
+        Database db = env.getInternalCatalog().getDbNullable(task.getDbId());
+        if (db == null) {
+            // db is dropped
+            return true;
+        }
+
+        db.readLock();
+
+        try {
+            Table table = db.getTableNullable(task.getTableId());
+            if (table == null || !(table instanceof OlapTable)) {
+                // table is dropped or not olap table
+                return true;
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.readLock();
+
+            try {
+                Partition partition = olapTable.getPartition(task.getPartitionId());
+                if (partition == null) {
+                    // partition is dropped
+                    return true;
+                }
+
+                MaterializedIndex index = partition.getIndex(task.getIndexId());
+                if (index == null) {
+                    // index is dropped
+                    return true;
+                }
+
+                Tablet tablet = index.getTablet(task.getTabletId());
+                if (tablet == null) {
+                    // tablet is dropped
+                    return true;
+                }
+
+                return false;
+            } finally {
+                olapTable.readUnlock();
+            }
+        } finally {
+            db.readUnlock();
+        }
+    }
+
+    /**
+     * Remove dropped tablets from backup metadata and snapshot infos
+     */
+    private void removeDroppedTabletsFromBackup() {
+        if (droppedTablets.isEmpty()) {
+            return;
+        }
+
+        LOG.info("Removing {} dropped tablets from backup metadata: {}",
+                droppedTablets.size(), droppedTablets);
+
+        // Remove from snapshot infos
+        for (Long tabletId : droppedTablets) {
+            snapshotInfos.remove(tabletId);
+        }
+
+        // Remove tablets from backup meta tables
+        if (backupMeta != null) {
+            Map<String, Table> tables = backupMeta.getTables();
+            Set<String> tablesToRemove = Sets.newHashSet();
+
+            for (Map.Entry<String, Table> entry : tables.entrySet()) {
+                String tableName = entry.getKey();
+                Table table = entry.getValue();
+
+                if (!(table instanceof OlapTable)) {
+                    continue;
+                }
+
+                OlapTable olapTable = (OlapTable) table;
+                boolean tableHasValidTablets = false;
+
+                // Check each partition
+                Collection<Partition> partitions = olapTable.getPartitions();
+                Set<Long> partitionsToRemove = Sets.newHashSet();
+
+                for (Partition partition : partitions) {
+                    boolean partitionHasValidTablets = false;
+
+                    // Check each index
+                    for (MaterializedIndex index : partition.getMaterializedIndices(
+                            MaterializedIndex.IndexExtState.VISIBLE)) {
+                        List<Tablet> tablets = index.getTablets();
+                        // Remove dropped tablets from the tablet list
+                        tablets.removeIf(tablet -> droppedTablets.contains(tablet.getId()));
+
+                        if (!tablets.isEmpty()) {
+                            partitionHasValidTablets = true;
+                            tableHasValidTablets = true;
+                        }
+                    }
+
+                    // If partition has no valid tablets, mark it for removal
+                    if (!partitionHasValidTablets) {
+                        partitionsToRemove.add(partition.getId());
+                    }
+                }
+
+                // Remove empty partitions from the copied table
+                for (Long partitionId : partitionsToRemove) {
+                    Partition partitionToRemove = olapTable.getPartition(partitionId);
+                    if (partitionToRemove != null) {
+                        olapTable.dropPartitionAndReserveTablet(partitionToRemove.getName());
+                    }
+                }
+
+                // If table has no valid tablets, mark it for removal
+                if (!tableHasValidTablets) {
+                    tablesToRemove.add(tableName);
+                }
+            }
+
+            // Remove empty tables
+            for (String tableName : tablesToRemove) {
+                tables.remove(tableName);
+            }
+        }
     }
 
     private void cancelInternal() {

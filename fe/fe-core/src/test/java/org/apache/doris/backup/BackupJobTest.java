@@ -393,4 +393,40 @@ public class BackupJobTest {
         in.close();
         Files.delete(path);
     }
+
+    @Test
+    public void testDroppedTabletHandling() {
+        // 1. setup job and start backup
+        Assert.assertEquals(BackupJobState.PENDING, job.getState());
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
+
+        // 2. get the snapshot task
+        AgentTask task = AgentTaskQueue.getTask(backendId, TTaskType.MAKE_SNAPSHOT, id.get() - 1);
+        Assert.assertTrue(task instanceof SnapshotTask);
+        SnapshotTask snapshotTask = (SnapshotTask) task;
+
+        // 3. simulate tablet missing error (tablet was dropped during backup)
+        TStatus taskStatus = new TStatus(TStatusCode.TABLET_MISSING);
+        taskStatus.addToErrorMsgs("Tablet not found");
+        TBackend tBackend = new TBackend("", 0, 1);
+        TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
+                snapshotTask.getSignature(), taskStatus);
+        new Exception() {
+            {
+                catalog.getDbNullable(anyLong);
+                result = null;
+            }
+        };
+
+        Assert.assertTrue(job.finishTabletSnapshotTask(snapshotTask, request));
+        Assert.assertTrue("Dropped tablets should contain the tablet ID",
+                Deencapsulation.getField(job, "droppedTablets").toString()
+                        .contains(String.valueOf(tabletId)));
+
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.UPLOAD_SNAPSHOT, job.getState());
+    }
 }
