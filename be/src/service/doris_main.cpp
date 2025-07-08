@@ -593,12 +593,12 @@ int main(int argc, char** argv) {
     std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
             std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
     status = flight_server->init(doris::config::arrow_flight_sql_port);
+    stop_work_if_error(
+            status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
 
     // 6. start daemon thread to do clean or gc jobs
     doris::Daemon daemon;
     daemon.start();
-    stop_work_if_error(
-            status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
 
     exec_env->storage_engine().notify_listeners();
 
