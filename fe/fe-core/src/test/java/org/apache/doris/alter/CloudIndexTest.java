@@ -332,35 +332,24 @@ public class CloudIndexTest {
         analyzer = new Analyzer(masterEnv, ctx);
 
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
-        // Mock addCloudCluster to avoid EditLog issues
-        new MockUp<CloudSystemInfoService>() {
-            @Mock
-            public void addCloudCluster(String clusterName, String clusterId) {
-                // Create backend manually for test
-                Backend backend = new Backend(10001L, "host1", 123);
-                backend.setAlive(true);
-                backend.setBePort(456);
-                backend.setHttpPort(789);
-                backend.setBrpcPort(321);
-                backend.setTagMap(Maps.newHashMap());
-                backend.getTagMap().put("cloud_cluster_id", "test_id");
-                backend.getTagMap().put("cloud_unique_id", "test_cloud");
-                backend.getTagMap().put("cloud_cluster_name", "test_group");
-                backend.getTagMap().put("cloud_cluster_status", "NORMAL");
-                backend.getTagMap().put("location", "default");
-                backend.getTagMap().put("cloud_cluster_private_endpoint", "");
-                backend.getTagMap().put("cloud_cluster_public_endpoint", "");
-                CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
-                systemInfo.addBackend(backend);
-            }
-        };
-        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster("test_group", "");
-        List<Backend> backends =
-                ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName("test_group");
-        Assert.assertEquals(1, backends.size());
-        Assert.assertEquals("host1", backends.get(0).getHost());
-        backends.get(0).setAlive(true);
-
+        CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        ComputeGroup pcg1 = new ComputeGroup("test_id", "test_group", ComputeGroup.ComputeTypeEnum.COMPUTE);
+        systemInfo.addComputeGroup("test_id", pcg1);
+        Backend backend = new Backend(10001L, "host1", 123);
+        backend.setAlive(true);
+        backend.setBePort(456);
+        backend.setHttpPort(789);
+        backend.setBrpcPort(321);
+        Map<String, String> newTagMap = org.apache.doris.resource.Tag.DEFAULT_BACKEND_TAG.toMap();
+        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_STATUS, "NORMAL");
+        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_NAME, "test_cluster");
+        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_ID, "test_id");
+        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, "");
+        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, "");
+        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_UNIQUE_ID, "test_cloud");
+        backend.setTagMap(newTagMap);
+        List<Backend> backends = Lists.newArrayList(backend);
+        systemInfo.updateCloudClusterMapNoLock(backends, new ArrayList<>());
         db = new Database(CatalogTestUtil.testDbId1, CatalogTestUtil.testDb1);
         masterEnv.unprotectCreateDb(db);
 
