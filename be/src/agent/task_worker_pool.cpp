@@ -646,7 +646,7 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskReq
                 }
             }
             // 如果存在高优队列，不需要任何操作
-            LOG(INFO) << "exit already.";
+            LOG_INFO("task has already existed in high prior queue.").tag("signature", signature);
         }
     } while (true);
 

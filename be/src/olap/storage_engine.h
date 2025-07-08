@@ -524,7 +524,6 @@ private:
     // key: tabletId
     std::unordered_map<int64_t, TReplicaInfo> _peer_replica_infos;
     std::string _token;
-    std::map<int64_t, std::vector<::doris::TReplicaInfo>> _tablet_replica_infos;
 
     std::atomic<int32_t> _wakeup_producer_flag {0};
 
@@ -567,6 +566,8 @@ private:
 
     // thread to check tablet delete bitmap count tasks
     scoped_refptr<Thread> _check_delete_bitmap_score_thread;
+
+    int64_t _last_get_peers_replica_backends_time_ms {0};
 };
 
 // lru cache for create tabelt round robin in disks

@@ -211,8 +211,15 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             task.__set_task_type(TTaskType::CLONE);
             task.__set_clone_req(req);
             task.__set_priority(TPriority::HIGH);
+            task.__set_signature(_tablet->tablet_id());
             PriorTaskWorkerPool* thread_pool =
                     ExecEnv::GetInstance()->storage_engine().to_local().missing_rowset_thread_pool;
+            LOG_INFO("cumulative compaction submit missing rowset clone task.")
+                    .tag("tablet_id", _tablet->tablet_id())
+                    .tag("version", missing_versions.back().first)
+                    .tag("replica_id", tablet()->replica_id())
+                    .tag("partition_id", _tablet->partition_id())
+                    .tag("table_id", _tablet->table_id());
             RETURN_IF_ERROR(thread_pool->submit_high_prior_and_cancel_low(task));
         }
     }

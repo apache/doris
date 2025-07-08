@@ -51,6 +51,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "gen_cpp/FrontendService.h"
 #include "io/fs/local_file_system.h"
 #include "olap/binlog.h"
 #include "olap/data_dir.h"
@@ -69,6 +70,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
+#include "runtime/client_cache.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
@@ -76,6 +78,7 @@
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
 
@@ -1508,9 +1511,42 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
         return false;
     }
+    int64_t cur_time = UnixMillis();
+    if (cur_time - _last_get_peers_replica_backends_time_ms < 10000) {
+        LOG_WARNING("failed to get peers replica backens.")
+                .tag("last time", _last_get_peers_replica_backends_time_ms)
+                .tag("cur time", cur_time);
+        return false;
+    }
+    LOG_INFO("start get peers replica backends info.").tag("tablet id", tablet_id);
+    ClusterInfo* cluster_info = ExecEnv::GetInstance()->cluster_info();
+    if (cluster_info == nullptr) {
+        LOG(WARNING) << "Have not get FE Master heartbeat yet";
+        return false;
+    }
+    TNetworkAddress master_addr = cluster_info->master_fe_addr;
+    if (master_addr.hostname.empty() || master_addr.port == 0) {
+        LOG(WARNING) << "Have not get FE Master heartbeat yet";
+        return false;
+    }
+    TGetTabletReplicaInfosRequest request;
+    TGetTabletReplicaInfosResult result;
+    request.tablet_ids.emplace_back(tablet_id);
+    Status rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->getTabletReplicaInfos(result, request);
+            });
+
+    if (!rpc_st.ok()) {
+        LOG(WARNING) << "Failed to get tablet replica infos, encounter rpc failure, "
+                        "tablet id: "
+                     << tablet_id;
+        return false;
+    }
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-    if (_tablet_replica_infos.contains(tablet_id)) {
-        std::vector<TReplicaInfo> reps = _tablet_replica_infos[tablet_id];
+    if (result.tablet_replica_infos.contains(tablet_id)) {
+        std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
         DCHECK_NE(reps.size(), 0);
         for (const auto& rep : reps) {
             if (rep.replica_id != tablet->replica_id()) {
@@ -1526,8 +1562,17 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
                     backend.__set_id(rep.backend_id);
                 }
                 backends->emplace_back(backend);
+                std::stringstream backend_string;
+                backend.printTo(backend_string);
+                LOG_INFO("get 1 peer replica backend info.")
+                        .tag("tablet id", tablet_id)
+                        .tag("backend info", backend_string.str());
             }
         }
+        _last_get_peers_replica_backends_time_ms = UnixMillis();
+        LOG_INFO("succeed get peers replica backends info.")
+                .tag("tablet id", tablet_id)
+                .tag("replica num", backends->size());
         return true;
     }
     return false;

@@ -91,9 +91,9 @@ DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
-DEFINE_mBool(enable_compaction_clone_missing_rowset, "true");
+DEFINE_mBool(enable_compaction_clone_missing_rowset, "false");
 
-DEFINE_mBool(enable_mow_publish_clone_missing_rowset, "true");
+DEFINE_mBool(enable_mow_publish_clone_missing_rowset, "false");
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

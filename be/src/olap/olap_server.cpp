@@ -779,7 +779,6 @@ void StorageEngine::_update_replica_infos_callback() {
             }
 
             std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-            _tablet_replica_infos = result.tablet_replica_infos;
             for (const auto& it : result.tablet_replica_infos) {
                 auto tablet_id = it.first;
                 auto tablet = _tablet_manager->get_tablet(tablet_id);

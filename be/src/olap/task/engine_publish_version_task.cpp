@@ -217,7 +217,7 @@ Status EnginePublishVersionTask::execute() {
                         continue;
                     }
                     auto handle_version_not_continuous = [&]() {
-                        if (config::enable_compaction_clone_missing_rowset) {
+                        if (config::enable_mow_publish_clone_missing_rowset) {
                             std::vector<TBackend> backends;
                             if (!_engine.get_peers_replica_backends(tablet->tablet_id(),
                                                                     &backends)) {
@@ -236,10 +236,17 @@ Status EnginePublishVersionTask::execute() {
                             task.__set_task_type(TTaskType::CLONE);
                             task.__set_clone_req(req);
                             task.__set_priority(TPriority::HIGH);
+                            task.__set_signature(tablet->tablet_id());
                             PriorTaskWorkerPool* thread_pool = ExecEnv::GetInstance()
                                                                        ->storage_engine()
                                                                        .to_local()
                                                                        .missing_rowset_thread_pool;
+                            LOG_INFO("cumulative compaction submit missing rowset clone task.")
+                                    .tag("tablet_id", tablet->tablet_id())
+                                    .tag("version", version.first - 1)
+                                    .tag("replica_id", tablet->replica_id())
+                                    .tag("partition_id", tablet->partition_id())
+                                    .tag("table_id", tablet->table_id());
                             auto st = thread_pool->submit_high_prior_and_cancel_low(task);
                             if (!st.ok()) {
                                 LOG_WARNING("mow clone missing rowset fail");
