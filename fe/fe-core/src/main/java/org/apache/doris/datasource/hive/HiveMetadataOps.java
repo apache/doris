@@ -40,6 +40,8 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -363,6 +365,18 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             db.setLastUpdateTime(System.currentTimeMillis());
             db.setUnInitialized(true);
         }
+    }
+
+    @Override
+    public void createOrReplaceBranchImpl(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        throw new UserException("Not support create or replace branch in hive catalog.");
+    }
+
+    @Override
+    public void createOrReplaceTagImpl(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
+            throws UserException {
+        throw new UserException("Not support create or replace tag in hive catalog.");
     }
 
     @Override

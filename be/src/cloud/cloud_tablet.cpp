@@ -979,7 +979,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
             txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE));
 
-    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update &&
+    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update() &&
         rowset_writer->num_rows() > 0) {
         DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.update_tmp_rowset.error", {
             return Status::InternalError<false>("injected update_tmp_rowset error.");

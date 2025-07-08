@@ -23,8 +23,6 @@
 #include <rapidjson/rapidjson.h>
 #include <simdjson/common_defs.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
-#include <stddef.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
@@ -43,19 +41,13 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/simd_json_parser.h"
 
-namespace simdjson {
-namespace fallback {
-namespace ondemand {
+namespace simdjson::fallback::ondemand {
 class object;
-} // namespace ondemand
-} // namespace fallback
-} // namespace simdjson
+} // namespace simdjson::fallback::ondemand
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class SlotDescriptor;
 class RuntimeState;
 class TFileRangeDesc;
@@ -209,6 +201,14 @@ private:
     Status _fill_missing_column(SlotDescriptor* slot_desc, DataTypeSerDeSPtr serde,
                                 vectorized::IColumn* column_ptr, bool* valid);
 
+    // fe will add skip_bitmap_col to _file_slot_descs iff the target olap table has skip_bitmap_col
+    // and the current load is a flexible partial update
+    // flexible partial update can not be used when user specify jsonpaths, so we just fill the skip bitmap
+    // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
+    bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
+    void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
+    void _process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
+                                   size_t cur_row_count, bool* valid);
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
@@ -228,10 +228,10 @@ private:
     bool _skip_first_line;
 
     std::string _line_delimiter;
-    int _line_delimiter_length;
+    size_t _line_delimiter_length;
 
-    int _next_row;
-    int _total_rows;
+    uint32_t _next_row;
+    size_t _total_rows;
 
     std::string _jsonpaths;
     std::string _json_root;
@@ -293,6 +293,8 @@ private:
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
 
+    int32_t skip_bitmap_col_idx {-1};
+
     //Used to indicate whether it is a stream load. When loading, only data will be inserted into columnString.
     //If an illegal value is encountered during the load process, `_append_error_msg` should be called
     //instead of directly returning `Status::DataQualityError`
@@ -315,4 +317,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

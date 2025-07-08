@@ -33,10 +33,17 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
+import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -335,6 +342,117 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void truncateTableImpl(String dbName, String tblName, List<String> partitions) {
         throw new UnsupportedOperationException("Truncate Iceberg table is not supported.");
+    }
+
+    @Override
+    public void createOrReplaceBranchImpl(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisCatalog, dbName, tblName);
+        BranchOptions branchOptions = branchInfo.getBranchOptions();
+
+        Long snapshotId = branchOptions.getSnapshotId()
+                .orElse(
+                        // use current snapshot
+                        Optional.ofNullable(icebergTable.currentSnapshot()).map(Snapshot::snapshotId).orElse(null));
+
+        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+        String branchName = branchInfo.getBranchName();
+        boolean refExists = null != icebergTable.refs().get(branchName);
+        boolean create = branchInfo.getCreate();
+        boolean replace = branchInfo.getReplace();
+        boolean ifNotExists = branchInfo.getIfNotExists();
+
+        Runnable safeCreateBranch = () -> {
+            if (snapshotId == null) {
+                manageSnapshots.createBranch(branchName);
+            } else {
+                manageSnapshots.createBranch(branchName, snapshotId);
+            }
+        };
+
+        if (create && replace && !refExists) {
+            safeCreateBranch.run();
+        } else if (replace) {
+            if (snapshotId == null) {
+                // Cannot perform a replace operation on an empty table
+                throw new UserException(
+                        "Cannot complete replace branch operation on " + icebergTable.name()
+                                + " , main has no snapshot");
+            }
+            manageSnapshots.replaceBranch(branchName, snapshotId);
+        } else {
+            if (refExists && ifNotExists) {
+                return;
+            }
+            safeCreateBranch.run();
+        }
+
+        branchOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxSnapshotAgeMs(branchName, n));
+        branchOptions.getNumSnapshots().ifPresent(n -> manageSnapshots.setMinSnapshotsToKeep(branchName, n));
+        branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
+
+        try {
+            preExecutionAuthenticator.execute(() -> manageSnapshots.commit());
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Failed to create or replace branch: " + branchName + " in table: " + icebergTable.name()
+                            + ", error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void afterCreateOrReplaceBranchOrTag(String dbName, String tblName) {
+        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
+        if (db != null) {
+            ExternalTable tbl = db.getTableNullable(tblName);
+            if (tbl != null) {
+                tbl.unsetObjectCreated();
+            }
+        }
+    }
+
+    @Override
+    public void createOrReplaceTagImpl(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
+            throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisCatalog, dbName, tblName);
+        TagOptions tagOptions = tagInfo.getTagOptions();
+        Long snapshotId = tagOptions.getSnapshotId()
+                .orElse(
+                        // use current snapshot
+                        Optional.ofNullable(icebergTable.currentSnapshot()).map(Snapshot::snapshotId).orElse(null));
+
+        if (snapshotId == null) {
+            // Creating tag for empty tables is not allowed
+            throw new UserException(
+                    "Cannot complete replace branch operation on " + icebergTable.name() + " , main has no snapshot");
+        }
+
+        String tagName = tagInfo.getTagName();
+        boolean create = tagInfo.getCreate();
+        boolean replace = tagInfo.getReplace();
+        boolean ifNotExists = tagInfo.getIfNotExists();
+        boolean refExists = null != icebergTable.refs().get(tagName);
+
+        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+        if (create && replace && !refExists) {
+            manageSnapshots.createTag(tagName, snapshotId);
+        } else if (replace) {
+            manageSnapshots.replaceTag(tagName, snapshotId);
+        } else {
+            if (refExists && ifNotExists) {
+                return;
+            }
+            manageSnapshots.createTag(tagName, snapshotId);
+        }
+
+        tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
+        try {
+            preExecutionAuthenticator.execute(() -> manageSnapshots.commit());
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Failed to create or replace tag: " + tagName + " in table: " + icebergTable.name()
+                            + ", error message is: " + e.getMessage(), e);
+        }
     }
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {

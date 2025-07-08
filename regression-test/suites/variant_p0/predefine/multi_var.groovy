@@ -16,14 +16,13 @@
 // under the License.
 
 suite("regression_test_variant_predefine_multi_var", "variant_type"){
-    // int max_subcolumns_count = Math.floor(Math.random() * 7) 
-    int max_subcolumns_count = 3
+    int max_subcolumns_count = Math.floor(Math.random() * 7) + 1
     def table_name = "multi_variants"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double, 'k5' : array<array<int>>>,
+            v variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double>,
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
@@ -33,9 +32,9 @@ suite("regression_test_variant_predefine_multi_var", "variant_type"){
     sql """INSERT INTO ${table_name} SELECT *, '{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}' FROM numbers("number" = "203") where number > 100"""
     sql """INSERT INTO ${table_name} SELECT *, '{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}' FROM numbers("number" = "411") where number > 200"""
     trigger_and_wait_compaction(table_name, "cumulative")
-    sql "alter table ${table_name} add column v2 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double, 'k5' : array<array<int>>> default null"
+    sql "alter table ${table_name} add column v2 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double> default null"
     sql """INSERT INTO ${table_name} select k, v, v from ${table_name}"""
-    sql "alter table ${table_name} add column v3 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double, 'k5' : array<array<int>>> default null"
+    sql "alter table ${table_name} add column v3 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double> default null"
     sql """INSERT INTO ${table_name} select k, v, v, v from ${table_name}"""
     sql "alter table ${table_name} add column ss string default null"
     sql """INSERT INTO ${table_name} select k, v, v, v, v from ${table_name}"""

@@ -25,6 +25,7 @@
 #include "vec/exec/format/table/table_format_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
@@ -121,4 +122,5 @@ public:
                 not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     }
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -117,6 +117,7 @@ import org.apache.doris.persist.SetReplicaVersionOperationLog;
 import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
+import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
@@ -970,6 +971,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_INDEX_POLICY: {
                 data = DropIndexPolicyLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BRANCH_OR_TAG: {
+                data = TableBranchOrTagInfo.read(in);
                 isRead = true;
                 break;
             }

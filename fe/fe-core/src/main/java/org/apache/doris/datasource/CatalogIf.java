@@ -31,6 +31,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -206,5 +208,20 @@ public interface CatalogIf<T extends DatabaseIf> {
     // Convert from remote table name to local table name, overridden by subclass if necessary
     default String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
         return remoteTableName;
+    }
+
+    // Create or replace branch operations, overridden by subclass if necessary
+    default void createOrReplaceBranch(String db, String tbl, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        throw new UserException("Not support create or replace branch operation");
+    }
+
+    // Create or replace tag operation, overridden by subclass if necessary
+    default void createOrReplaceTag(String db, String tbl, CreateOrReplaceTagInfo tagInfo) throws UserException {
+        throw new UserException("Not support create or replace tag operation");
+    }
+
+    default void replayCreateOrReplaceBranchOrTag(String dbName, String tblName) {
+
     }
 }

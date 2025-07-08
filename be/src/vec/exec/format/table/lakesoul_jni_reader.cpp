@@ -18,15 +18,14 @@
 #include "lakesoul_jni_reader.h"
 
 #include <map>
-#include <ostream>
 
-#include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/jni_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 
@@ -41,7 +40,7 @@ LakeSoulJniReader::LakeSoulJniReader(const TLakeSoulFileDesc& lakesoul_params,
                                      RuntimeState* state, RuntimeProfile* profile)
         : JniReader(file_slot_descs, state, profile), _lakesoul_params(lakesoul_params) {
     std::vector<std::string> required_fields;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         required_fields.emplace_back(desc->col_name());
     }
 
@@ -63,4 +62,5 @@ Status LakeSoulJniReader::init_reader(
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

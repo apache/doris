@@ -599,8 +599,6 @@ private:
     mutable std::map<RowsetId, std::map<SegmentId, Version>> _rowset_cache_version;
 };
 
-static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
-
 inline TabletUid TabletMeta::tablet_uid() const {
     return _tablet_uid;
 }

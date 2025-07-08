@@ -796,7 +796,7 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_schema,
                                bool with_seq_col, bool with_rowid, RowLocation* row_location,
-                               OlapReaderStatistics* stats) {
+                               OlapReaderStatistics* stats, std::string* encoded_seq_value) {
     RETURN_IF_ERROR(load_pk_index_and_bf(stats));
     bool has_seq_col = latest_schema->has_sequence_col();
     bool has_rowid = !latest_schema->cluster_key_idxes().empty();
@@ -845,6 +845,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     Slice sought_key_without_seq = Slice(
             sought_key.get_data(),
             sought_key.get_size() - (segment_has_seq_col ? seq_col_length : 0) - rowid_length);
+
     if (has_seq_col) {
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
@@ -882,6 +883,16 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                                                       (uint8_t*)&row_location->row_id));
     }
 
+    if (encoded_seq_value) {
+        if (!segment_has_seq_col) {
+            *encoded_seq_value = std::string {};
+        } else {
+            // include marker
+            *encoded_seq_value =
+                    Slice(sought_key.get_data() + sought_key_without_seq.get_size(), seq_col_length)
+                            .to_string();
+        }
+    }
     return Status::OK();
 }
 
@@ -948,6 +959,10 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         TabletColumn column = TabletColumn::create_materialized_variant_column(
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
                 slot->col_unique_id(), slot->type().max_subcolumns_count());
+        // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
+        // if segment cache miss, column reader will be created to make sure the variant column result not coredump
+        RETURN_IF_ERROR(_create_column_readers_once(&stats));
+
         auto storage_type = get_data_type_of(column, false);
         vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
         DCHECK(storage_type != nullptr);

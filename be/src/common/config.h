@@ -1210,6 +1210,8 @@ DECLARE_mBool(inverted_index_compaction_enable);
 DECLARE_mBool(debug_inverted_index_compaction);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
+// wheather index by RAM directory when base compaction
+DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1272,6 +1274,9 @@ DECLARE_mString(kerberos_ccache_path);
 DECLARE_mString(kerberos_krb5_conf_path);
 // the interval for renew kerberos ticket cache
 DECLARE_mInt32(kerberos_refresh_interval_second);
+
+// JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
+DECLARE_mBool(jdk_process_reaper_use_default_stack_size);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);

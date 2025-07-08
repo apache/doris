@@ -29,14 +29,13 @@
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
-
 namespace vectorized {
 class Block;
 } // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc,
                                          const TMaxComputeFileDesc& max_compute_params,
                                          const std::vector<SlotDescriptor*>& file_slot_descs,
@@ -50,7 +49,7 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
     std::ostringstream columns_types;
     std::vector<std::string> column_names;
     int index = 0;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         std::string type = JniConnector::get_jni_type(desc->type());
         column_names.emplace_back(field);
@@ -92,4 +91,5 @@ Status MaxComputeJniReader::init_reader(
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

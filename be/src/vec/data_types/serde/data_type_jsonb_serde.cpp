@@ -101,7 +101,7 @@ Status DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int
 
 Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
-                                                               int* num_deserialized,
+                                                               uint64_t* num_deserialized,
                                                                const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -118,8 +118,8 @@ Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice
 }
 
 void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                               arrow::ArrayBuilder* array_builder, int start,
-                                               int end, const cctz::time_zone& ctz) const {
+                                               arrow::ArrayBuilder* array_builder, int64_t start,
+                                               int64_t end, const cctz::time_zone& ctz) const {
     const auto& string_column = assert_cast<const ColumnString&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
