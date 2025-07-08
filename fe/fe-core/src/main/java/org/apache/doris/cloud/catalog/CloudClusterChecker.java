@@ -155,7 +155,7 @@ public class CloudClusterChecker extends MasterDaemon {
         );
     }
 
-    private void updateStatus(List<Backend> currentBes, List<Cloud.NodeInfoPB> expectedBes) {
+    private void updateStatus(List<Backend> currentBes, List<Cloud.NodeInfoPB> expectedBes, ClusterPB remoteClusterPb) {
         Map<String, Backend> currentMap = new HashMap<>();
         for (Backend be : currentBes) {
             String endpoint = be.getHost() + ":" + be.getHeartbeatPort();
@@ -200,6 +200,33 @@ public class CloudClusterChecker extends MasterDaemon {
                 // edit log
                 Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
             }
+            updateIfComputeNodeEndpointChanged(remoteClusterPb, be);
+        }
+    }
+
+    private void updateIfComputeNodeEndpointChanged(ClusterPB remoteClusterPb, Backend be) {
+        // check PublicEndpoint、PrivateEndpoint is changed?
+        boolean netChanged = false;
+        String remotePublicEndpoint = remoteClusterPb.getPublicEndpoint();
+        String localPublicEndpoint = be.getTagMap().get(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT);
+        if (!localPublicEndpoint.equals(remotePublicEndpoint)) {
+            LOG.info("be {} has changed public_endpoint from {} to {}",
+                    be, localPublicEndpoint, remotePublicEndpoint);
+            be.getTagMap().put(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, remotePublicEndpoint);
+            netChanged = true;
+        }
+
+        String remotePrivateEndpoint = remoteClusterPb.getPrivateEndpoint();
+        String localPrivateEndpoint = be.getTagMap().get(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT);
+        if (!localPrivateEndpoint.equals(remotePrivateEndpoint)) {
+            LOG.info("be {} has changed private_endpoint from {} to {}",
+                    be, localPrivateEndpoint, remotePrivateEndpoint);
+            be.getTagMap().put(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, remotePrivateEndpoint);
+            netChanged = true;
+        }
+        if (netChanged) {
+            // edit log
+            Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
         }
     }
 
@@ -278,13 +305,12 @@ public class CloudClusterChecker extends MasterDaemon {
             LOG.info("get cloud cluster, clusterId={} local nodes={} remote nodes={}", cid,
                     currentBeEndpoints, remoteBeEndpoints);
 
-            updateStatus(currentBes, expectedBes);
+            updateStatus(currentBes, expectedBes, remoteClusterIdToPB.get(cid));
 
             diffNodes(toAdd, toDel, () -> {
                 Map<String, Backend> currentMap = new HashMap<>();
                 for (Backend be : currentBes) {
-                    String endpoint = be.getHost() + ":" + be.getHeartbeatPort()
-                            + be.getCloudPublicEndpoint() + be.getCloudPrivateEndpoint();
+                    String endpoint = be.getHost() + ":" + be.getHeartbeatPort();
                     currentMap.put(endpoint, be);
                 }
                 return currentMap;
@@ -296,9 +322,7 @@ public class CloudClusterChecker extends MasterDaemon {
                         LOG.warn("cant get valid add from ms {}", node);
                         continue;
                     }
-                    String endpoint = host + ":" + node.getHeartbeatPort()
-                            + remoteClusterIdToPB.get(cid).getPublicEndpoint()
-                            + remoteClusterIdToPB.get(cid).getPrivateEndpoint();
+                    String endpoint = host + ":" + node.getHeartbeatPort();
                     Backend b = new Backend(Env.getCurrentEnv().getNextId(), host, node.getHeartbeatPort());
                     if (node.hasIsSmoothUpgrade()) {
                         b.setSmoothUpgradeDst(node.getIsSmoothUpgrade());
@@ -463,10 +487,6 @@ public class CloudClusterChecker extends MasterDaemon {
                     continue;
                 }
                 Cloud.NodeInfoPB.NodeType type = node.getNodeType();
-                // ATTN: just allow to add follower or observer
-                if (Cloud.NodeInfoPB.NodeType.FE_MASTER.equals(type)) {
-                    LOG.warn("impossible !!!,  get fe node {} type equal master from ms", node);
-                }
                 FrontendNodeType role = type == Cloud.NodeInfoPB.NodeType.FE_OBSERVER
                         ? FrontendNodeType.OBSERVER :  FrontendNodeType.FOLLOWER;
                 Frontend fe = new Frontend(role,
