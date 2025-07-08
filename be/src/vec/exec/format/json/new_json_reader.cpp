@@ -1688,8 +1688,8 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
                                               "partial update, missing key column: {}",
                                               slot_desc->col_name(), valid));
                     // remove this line in block
-                    for (int i = 0; i < block.columns(); ++i) {
-                        auto column = block.get_by_position(i).column->assume_mutable();
+                    for (int index = 0; index < block.columns(); ++index) {
+                        auto column = block.get_by_position(index).column->assume_mutable();
                         if (column->size() != cur_row_count) {
                             DCHECK(column->size() == cur_row_count + 1);
                             column->pop_back(1);
