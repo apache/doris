@@ -27,27 +27,6 @@
 
 namespace doris {
 
-// origin bit_unpack function
-template <typename T>
-void bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output) {
-    unsigned char in_mask = 0x80;
-    int bit_index = 0;
-    while (in_num > 0) {
-        *output = 0;
-        for (int i = 0; i < bit_width; i++) {
-            if (bit_index > 7) {
-                input++;
-                bit_index = 0;
-            }
-            *output |= ((T)((*input & (in_mask >> bit_index)) >> (7 - bit_index)))
-                       << (bit_width - i - 1);
-            bit_index++;
-        }
-        output++;
-        in_num--;
-    }
-}
-
 class TestForCoding : public testing::Test {
 public:
     static void test_frame_of_reference_encode_decode(int32_t element_size) {
