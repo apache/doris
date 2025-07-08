@@ -157,4 +157,25 @@ int decode_tailing_versionstamp(std::string_view* in, Versionstamp* vs) {
     return 0;
 }
 
+void encode_versionstamp_end(std::string* b) {
+    b->push_back(static_cast<char>(EncodingTag::VERSIONSTAMP_END_TAG));
+}
+
+int decode_versionstamp_end(std::string_view* in) {
+    if (in->empty() || static_cast<unsigned char>(in->at(0)) != EncodingTag::VERSIONSTAMP_END_TAG) {
+        return -1; // Invalid end tag
+    }
+    in->remove_prefix(1); // Remove the end tag
+    return 0;
+}
+
+int decode_tailing_versionstamp_end(std::string_view* in) {
+    if (in->empty() ||
+        static_cast<unsigned char>(in->back()) != EncodingTag::VERSIONSTAMP_END_TAG) {
+        return -1; // Invalid end tag
+    }
+    in->remove_suffix(1); // Remove the end tag
+    return 0;
+}
+
 } // namespace doris::cloud
