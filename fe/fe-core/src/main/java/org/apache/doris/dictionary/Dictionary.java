@@ -297,6 +297,9 @@ public class Dictionary extends Table {
 
     // when refresh success, update srcVersion.
     public void updateSrcVersion(long value) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Dictionary " + getName() + ": update srcVersion from " + srcVersion + " to " + value);
+        }
         srcVersion = value;
     }
 
