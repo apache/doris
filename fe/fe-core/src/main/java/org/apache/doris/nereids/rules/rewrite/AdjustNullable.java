@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -151,9 +153,6 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         } else {
             needCheckHashConjuncts = true;
         }
-        for (Slot slot : join.getOutput()) {
-            replaceMap.put(slot.getExprId(), slot);
-        }
         if (needCheckHashConjuncts) {
             // hashConjuncts is not empty, mark join conjuncts are processed like other join conjuncts
             Preconditions.checkState(
@@ -163,6 +162,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap);
         }
         Optional<List<Expression>> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap);
+        for (Slot slot : join.getOutput()) {
+            replaceMap.put(slot.getExprId(), slot);
+        }
         if (!hashConjuncts.isPresent() && !markConjuncts.isPresent() && !otherConjuncts.isPresent()) {
             return join;
         }
@@ -415,6 +417,10 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                         changed.set(true);
                         newSlotReference = slotReference.withNullable(replacedSlot.nullable());
                     }
+                }
+                if (!slotReference.nullable() && newSlotReference.nullable()
+                        && ConnectContext.get().getSessionVariable().feDebug) {
+                    throw new AnalysisException("Slot " + slotReference + " convert to nullable");
                 }
                 return newSlotReference;
             } else {
