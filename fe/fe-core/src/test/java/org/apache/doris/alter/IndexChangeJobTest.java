@@ -722,7 +722,7 @@ public class IndexChangeJobTest {
         Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
         Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
 
-        cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, tableName);
+        cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.COLUMN, tableName);
         cancelAlterTableStmt.analyze(analyzer);
         schemaChangeHandler.cancel(cancelAlterTableStmt);
 
