@@ -1472,26 +1472,6 @@ Status VTabletWriter::_incremental_open_node_channel(
     return Status::OK();
 }
 
-static Status cancel_channel_and_check_intolerable_failure(Status status,
-                                                           const std::string& err_msg,
-                                                           IndexChannel& ich, VNodeChannel& nch) {
-    LOG(WARNING) << nch.channel_info() << ", close channel failed, err: " << err_msg;
-    ich.mark_as_failed(&nch, err_msg, -1);
-    // cancel the node channel in best effort
-    nch.cancel(err_msg);
-
-    // check if index has intolerable failure
-    Status index_st = ich.check_intolerable_failure();
-    if (!index_st.ok()) {
-        status = std::move(index_st);
-    } else if (Status st = ich.check_tablet_received_rows_consistency(); !st.ok()) {
-        status = std::move(st);
-    } else if (Status st = ich.check_tablet_filtered_rows_consistency(); !st.ok()) {
-        status = std::move(st);
-    }
-    return status;
-}
-
 void VTabletWriter::_cancel_all_channel(Status status) {
     for (const auto& index_channel : _channels) {
         index_channel->for_each_node_channel([&status](const std::shared_ptr<VNodeChannel>& ch) {
