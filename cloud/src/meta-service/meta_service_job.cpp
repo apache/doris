@@ -1457,7 +1457,6 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
         recorded_job.ParseFromString(job_val);
         VLOG_DEBUG << "get tablet job, tablet_id=" << tablet_id
                    << " job=" << proto_to_json(recorded_job);
-        FinishTabletJobRequest_Action action = request->action();
 
         if (!request->job().compaction().empty()) {
             // Process compaction commit
@@ -1473,14 +1472,6 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
-                if (action == FinishTabletJobRequest::COMMIT) {
-                    g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter << 1;
-                } else if (action == FinishTabletJobRequest::LEASE) {
-                    g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter << 1;
-                } else if (action == FinishTabletJobRequest::ABORT) {
-                    g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter << 1;
-                }
-
                 if (retry == 0 && !request->job().compaction().empty() &&
                     request->job().compaction(0).has_delete_bitmap_lock_initiator()) {
                     // Do a fast retry for mow when commit compaction job.
