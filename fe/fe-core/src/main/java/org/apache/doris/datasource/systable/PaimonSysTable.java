@@ -29,8 +29,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.table.system.SystemTableLoader;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -39,8 +42,11 @@ import java.util.stream.Collectors;
 public class PaimonSysTable extends SysTable {
     private static final Logger LOG = LogManager.getLogger(PaimonSysTable.class);
 
+    private static final Set<String> EXCLUDED_SYS_TABLES = new HashSet<>(Arrays.asList("binlog", "ro", "audit_log"));
+
     private static final List<PaimonSysTable> SUPPORTED_PAIMON_SYS_TABLES = SystemTableLoader.SYSTEM_TABLES
             .stream()
+            .filter(table -> !EXCLUDED_SYS_TABLES.contains(table))
             .map(PaimonSysTable::new)
             .collect(Collectors.toList());
 
