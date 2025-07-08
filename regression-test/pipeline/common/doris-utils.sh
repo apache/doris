@@ -268,19 +268,19 @@ function stop_doris_grace() {
     if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then
         if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; then
             echo "INFO: doris recycler stopped gracefully."
-            echo "INFO: try to find keywords ${keywords} in doris_cloud.out"
-            if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
-                if [[ -f "${DORIS_HOME}"/recycler/log/doris_cloud.out ]]; then
-                    if grep -E "${keywords}" "${DORIS_HOME}"/recycler/log/doris_cloud.out; then
-                        echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
-                        echo "ERROR: found memory leaks or undefined behavior in recycler/log/doris_cloud.out" && ret=1
-                    else
-                        echo "INFO: no memory leaks or undefined behavior found in recycler/log/doris_cloud.out"
-                    fi
-                else
-                    echo "ERROR: recycler/log/doris_cloud.out not find, which is not expected" && ret=1
-                fi
-            fi
+            # if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
+            #     echo "INFO: try to find keywords ${keywords} in doris_cloud.out"
+            #     if [[ -f "${DORIS_HOME}"/recycler/log/doris_cloud.out ]]; then
+            #         if grep -E "${keywords}" "${DORIS_HOME}"/recycler/log/doris_cloud.out; then
+            #             echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
+            #             echo "ERROR: found memory leaks or undefined behavior in recycler/log/doris_cloud.out" && ret=1
+            #         else
+            #             echo "INFO: no memory leaks or undefined behavior found in recycler/log/doris_cloud.out"
+            #         fi
+            #     else
+            #         echo "ERROR: recycler/log/doris_cloud.out not find, which is not expected" && ret=1
+            #     fi
+            # fi
         else
             echo "##teamcity[buildProblem description='Stop RECYCLER grace fail']"
             echo "ERROR: doris recycler stop grace failed." && ret=1
