@@ -154,6 +154,10 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             return castToDecimal(targetType);
         } else if (targetType.isBooleanType()) {
             return castToBoolean();
+        } else if (targetType.isIPv4Type()) {
+            return new IPv4Literal(value);
+        } else if (targetType.isIPv6Type()) {
+            return new IPv6Literal(value);
         }
         return super.uncheckedCastTo(targetType);
     }
