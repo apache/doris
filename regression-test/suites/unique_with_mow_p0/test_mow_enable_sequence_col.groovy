@@ -57,7 +57,7 @@ suite("test_mow_enable_sequence_col") {
     sql "sync;"
     res = sql "desc ${tableName} all;"
     assertTrue(res.toString().contains("__DORIS_SEQUENCE_COL__"))
-    order_qt_sql "select * from ${tableName};"
+    order_qt_sql "select user_id,username,city,age,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${tableName};"
     sql "set show_hidden_columns = false;"
     sql "sync;"
 
@@ -68,5 +68,5 @@ suite("test_mow_enable_sequence_col") {
 
     sql "set show_hidden_columns = true;"
     sql "sync;"
-    order_qt_sql "select * from ${tableName};"
+    order_qt_sql "select user_id,username,city,age,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${tableName};"
 }
