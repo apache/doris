@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.tvf.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;

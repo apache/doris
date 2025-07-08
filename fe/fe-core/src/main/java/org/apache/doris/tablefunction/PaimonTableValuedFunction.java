@@ -28,6 +28,7 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.source.PaimonPredicateConverter;
@@ -105,10 +106,10 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
                         String.format("Paimon catalog table '%s.%s' does not exist",
                                 paimonTableName.getDb(), paimonTableName.getTbl())
                 ));
+        NameMapping buildNameMapping = externalTable.getOrBuildNameMapping();
         this.tblId = externalTable.getId();
 
-        this.paimonSysTable = paimonExternalCatalog.getPaimonTable(paimonTableName.getDb(), paimonTableName.getTbl(),
-                queryType);
+        this.paimonSysTable = paimonExternalCatalog.getPaimonSystemTable(buildNameMapping, queryType);
         this.schema = PaimonUtil.parseSchema(paimonSysTable);
 
     }
