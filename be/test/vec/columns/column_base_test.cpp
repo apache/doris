@@ -56,4 +56,34 @@ TEST(ColumnBaseTest, TestCompare_internal) {
     std::cout << cmp_res[0] << std::endl;
 }
 
+TEST(ColumnBaseTest, TestCompare_internal2) {
+    auto column_data1 = ColumnHelper::create_nullable_column<DataTypeInt64>(
+            {
+                    1,
+                    2,
+                    3,
+            },
+            {false, false, false});
+    auto column_offset1 = ColumnArray::ColumnOffsets::create();
+    column_offset1->insert_value(3);
+    auto column_array1 = ColumnArray::create(column_data1, std::move(column_offset1));
+
+    auto column_data2 = ColumnHelper::create_nullable_column<DataTypeInt64>(
+            {
+                    3,
+                    2,
+                    1,
+            },
+            {false, false, false});
+    auto column_offset2 = ColumnArray::ColumnOffsets::create();
+    column_offset2->insert_value(3);
+    auto column_array2 = ColumnArray::create(column_data2, std::move(column_offset2));
+
+    std::vector<uint8_t> cmp_res = {0};
+    std::vector<uint8_t> filter(3, 0);
+    column_array1->compare_internal(0, *column_array2, 0, -1, cmp_res, filter.data());
+
+    EXPECT_EQ(cmp_res.size(), 1);
+    std::cout << cmp_res[0] << std::endl;
+}
 } // namespace doris::vectorized
