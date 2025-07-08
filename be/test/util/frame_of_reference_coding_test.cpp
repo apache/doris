@@ -22,7 +22,32 @@
 
 #include "gtest/gtest_pred_impl.h"
 
+#include <random>
+#include <vector>
+
 namespace doris {
+
+// origin bit_unpack function
+template <typename T>
+void bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output) {
+    unsigned char in_mask = 0x80;
+    int bit_index = 0;
+    while (in_num > 0) {
+        *output = 0;
+        for (int i = 0; i < bit_width; i++) {
+            if (bit_index > 7) {
+                input++;
+                bit_index = 0;
+            }
+            *output |= ((T)((*input & (in_mask >> bit_index)) >> (7 - bit_index)))
+                       << (bit_width - i - 1);
+            bit_index++;
+        }
+        output++;
+        in_num--;
+    }
+}
+
 class TestForCoding : public testing::Test {
 public:
     static void test_frame_of_reference_encode_decode(int32_t element_size) {
@@ -244,6 +269,62 @@ TEST_F(TestForCoding, TestValueSeek) {
     target = 320;
     found = decoder.seek_at_or_after_value(&target, &exact_match);
     EXPECT_EQ(found, false);
+}
+
+TEST_F(TestForCoding, accuracy_unpack_64_test) {
+    std::default_random_engine e;
+    std::uniform_int_distribution<int64_t> u;
+
+    for (int n = 1; n <= 255; n++) {
+        for (int w = 1; w <= 64; w++) {
+            faststring buffer(1);
+            ForEncoder<int64_t> encoder(&buffer);
+
+            std::vector<int64_t> test_data(n);
+            int64_t in_mask = (((__int128_t)1) << w) - 1;
+            for (int i = 0; i < n; i++) {
+                test_data[i] = u(e) & in_mask;
+                encoder.put(test_data[i]);
+            }
+            encoder.flush();
+
+            ForDecoder<int64_t> decoder(buffer.data(), buffer.length());
+            decoder.init();
+            int64_t actual_value;
+            for (int i = 0; i < n; i++) {
+                decoder.get(&actual_value);
+                EXPECT_EQ(test_data[i], actual_value);
+            }
+        }
+    }
+}
+
+TEST_F(TestForCoding, accuracy_unpack_128_test) {
+    std::default_random_engine e;
+    std::uniform_int_distribution<__int128_t> u;
+
+    for (int n = 1; n <= 255; n++) {
+        for (int w = 64; w <= 127; w++) {
+            faststring buffer(1);
+            ForEncoder<__int128_t> encoder(&buffer);
+
+            std::vector<__int128_t> test_data(n);
+            __int128_t in_mask = (((__int128_t)1) << w) - 1;
+            for (int i = 0; i < n; i++) {
+                test_data[i] = u(e) & in_mask;
+                encoder.put(test_data[i]);
+            }
+            encoder.flush();
+
+            ForDecoder<__int128_t> decoder(buffer.data(), buffer.length());
+            decoder.init();
+            __int128_t actual_value;
+            for (int i = 0; i < n; i++) {
+                decoder.get(&actual_value);
+                EXPECT_EQ(test_data[i], actual_value);
+            }
+        }
+    }
 }
 
 } // namespace doris

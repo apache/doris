@@ -269,6 +269,132 @@ bool ForDecoder<T>::init() {
 }
 
 // todo(kks): improve this method by SIMD instructions
+
+template <typename T>
+template <typename U>
+void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, int bit_width, T* output) {
+    U s = 0;
+    int valid_bit = 0; // How many valid bits
+    int need_bit = 0; // still need
+    T output_mask = ((static_cast<T>(1)) << bit_width) - 1;
+    int u_size = sizeof(U); // Size of U
+    size_t input_size = (in_num * bit_width + 7) >> 3; // input's size
+    int full_batch_size = (input_size / u_size) * u_size; // Adjust input_size to a multiple of u_size
+    int tail_count = input_size & (u_size - 1); // The remainder of input_size modulo u_size.
+    // The number of bits in input to adjust to multiples of 8 and thus more
+    int more_bit = (input_size << 3) - (in_num * bit_width); 
+    
+    for (int i = 0; i < full_batch_size; i += u_size) {   
+        s |= static_cast<U>(input[i]);
+        s <<= 8;
+        s |= static_cast<U>(input[i + 1]);
+        s <<= 8;
+        s |= static_cast<U>(input[i + 2]);
+        s <<= 8;
+        s |= static_cast<U>(input[i + 3]);
+        s <<= 8;
+        s |= static_cast<U>(input[i + 4]);
+        s <<= 8;
+        s |= static_cast<U>(input[i + 5]);
+        s <<= 8;
+        s |= static_cast<U>(input[i + 6]);
+        s <<= 8;
+        s |= static_cast<U>(input[i + 7]);
+        
+        if (u_size == 16) {
+            s <<= 8;
+            s |= static_cast<U>(input[i + 8]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 9]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 10]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 11]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 12]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 13]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 14]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 15]);
+        }
+
+        // Determine what the valid bits are based on u_size
+        valid_bit = u_size * 8;
+        
+        // If input_size is exactly a multiple of 8, then need to remove the last more_bit in the last loop.
+        if (tail_count == 0 && i == full_batch_size - u_size) {
+            valid_bit -= more_bit;
+            s >>= more_bit;
+        }
+        
+        if (need_bit) {
+            // The last time we take away the high bit_width - need_bit,
+            // we need to make up the rest of the need_bit from the width.
+            // Use valid_bit - need_bit to compute high need_bit bits of s
+            // perform an AND operation to ensure that only need_bit bits are valid
+            *output |= ((s >> (valid_bit - need_bit)) & ((static_cast<U>(1) << need_bit) - 1));
+            output++;
+            valid_bit -= need_bit;
+        }
+
+        int num = valid_bit / bit_width; // How many outputs can be processed at a time
+        int remainder = valid_bit % bit_width; // How many bits are left to store
+
+        // Starting with the highest valid bit, take out bit_width bits in sequence
+        // perform an AND operation with output_mask to ensure that only bit_width bits are valid
+        // (num-j-1) * bit_width used to calculate how many bits need to be removed at the end
+        // But since there are still remainder bits that can't be processed, need to add the remainder
+        for (int j = 0; j < num; j++) {
+            *output = static_cast<T>((s >> (((num - j - 1) * bit_width) + remainder)) & output_mask);
+            output++;
+        }
+
+        if (remainder) {
+            // Process the last remaining remainder bit.
+            // y = (s & ((static_cast<U>(1) << remainder) - 1)) extract the last remainder bits.
+            // ouput = y << (bit_width - reaminder) Use the high bit_width - remainder bit
+            *output = static_cast<T>((s & ((static_cast<U>(1) << remainder) - 1)) << (bit_width - remainder));
+            // Already have remainder bits, next time need bit_width - remainder bits
+            need_bit = bit_width - remainder;
+        }  else {
+            need_bit = 0;
+        }
+
+        s = 0;
+    }
+
+    // remainder
+    if (tail_count) {
+        // Put the tail_count numbers in the input into s in order, each number occupies 8 bit
+        for (int i = 0; i < tail_count; i++) {
+            s <<= 8;
+            s |= input[full_batch_size + i];
+        }
+
+        // tail * 8 is the number of bits that are left to process 
+        // tail * 8 - more_bit is to remove the last more_bit
+        valid_bit = tail_count * 8 - more_bit;
+        s >>= more_bit;
+        
+        // same as before
+        if (need_bit) {
+            *output |= ((s >> (valid_bit - need_bit)) & ((static_cast<U>(1) << need_bit) - 1));
+            output++;
+            valid_bit -= need_bit;
+        }
+
+        int num = valid_bit / bit_width; // How many outputs can be processed at a time
+        
+        // same as before
+        for (int j = 0; j < num; j++) {
+            *output = static_cast<T>((s >> (((num - j - 1) * bit_width))) & output_mask);
+            output++;
+        }
+    }
+}
+
 // The reverse of bit_pack method, get original integer data list from packed bits
 // param[in] input: the packed bits need to unpack
 // param[in] in_num: the integer number in packed bits
@@ -276,21 +402,10 @@ bool ForDecoder<T>::init() {
 // param[out] output: the original integer data list
 template <typename T>
 void ForDecoder<T>::bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output) {
-    unsigned char in_mask = 0x80;
-    int bit_index = 0;
-    while (in_num > 0) {
-        *output = 0;
-        for (int i = 0; i < bit_width; i++) {
-            if (bit_index > 7) {
-                input++;
-                bit_index = 0;
-            }
-            *output |= ((T)((*input & (in_mask >> bit_index)) >> (7 - bit_index)))
-                       << (bit_width - i - 1);
-            bit_index++;
-        }
-        output++;
-        in_num--;
+    if (bit_width <= 64) {
+        bit_unpack_optimize<int64_t>(input, in_num, bit_width, output);
+    } else {
+        bit_unpack_optimize<__int128_t>(input, in_num, bit_width, output);
     }
 }
 
