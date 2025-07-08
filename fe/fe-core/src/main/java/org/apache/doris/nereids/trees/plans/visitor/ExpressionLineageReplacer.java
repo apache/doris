@@ -82,9 +82,23 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         @Override
         public Expression visitNamedExpression(NamedExpression namedExpression,
                 Map<ExprId, Expression> exprIdExpressionMap) {
-            if (exprIdExpressionMap.containsKey(namedExpression.getExprId())) {
+            Expression childExpr = exprIdExpressionMap.get(namedExpression.getExprId());
+            if (childExpr != null) {
+                List<Expression> children = childExpr.children();
+                for (Expression child : children) {
+                    if (!(child instanceof NamedExpression)) {
+                        continue;
+                    }
+                    NamedExpression childNamedExpression = (NamedExpression) child;
+                    if (childNamedExpression.getExprId().equals(namedExpression.getExprId())) {
+                        // if slot id is the same with exist alias, this happens loop, maybe because
+                        // preAggForRandomDistribution alias id is the same as it's input
+                        // such as namedExpression is alias#1,and it's child is sum(alias#1)
+                        return childExpr;
+                    }
+                }
                 // remove alias
-                return visit(exprIdExpressionMap.get(namedExpression.getExprId()), exprIdExpressionMap);
+                return visit(childExpr, exprIdExpressionMap);
             }
             return visit(namedExpression, exprIdExpressionMap);
         }
@@ -146,6 +160,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
     public static class ExpressionReplaceContext {
         private final List<? extends Expression> targetExpressions;
         private final Set<ExprId> usedExprIdSet = new HashSet<>();
+        // The key is alias exprId, the value is alias child
         private final Map<ExprId, Expression> exprIdExpressionMap = new HashMap<>();
         private List<Expression> replacedExpressions;
 
