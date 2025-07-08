@@ -23,13 +23,14 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
+import org.apache.commons.collections.MapUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,7 +46,6 @@ import java.util.function.Function;
  * CatalogProperty to store the properties for catalog.
  * the properties in "properties" will overwrite properties in "resource"
  */
-@Data
 public class CatalogProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
 
@@ -55,6 +55,8 @@ public class CatalogProperty implements Writable {
     private Map<String, String> properties;
 
     private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+
+    private MetastoreProperties metastoreProperties;
 
     private volatile Resource catalogResource = null;
 
@@ -102,17 +104,20 @@ public class CatalogProperty implements Writable {
         return mergedProperties;
     }
 
+    public String getResource() {
+        return resource;
+    }
+
     public void modifyCatalogProps(Map<String, String> props) {
         properties.putAll(PropertyConverter.convertToMetaProperties(props));
         this.storagePropertiesMap = null;
     }
 
     private void reInitCatalogStorageProperties() {
-        this.storagePropertiesMap = new HashMap<>();
         List<StorageProperties> storageProperties;
         try {
             storageProperties = StorageProperties.createAll(this.properties);
-            this.storagePropertiesMap.putAll(storageProperties.stream()
+            this.storagePropertiesMap = (storageProperties.stream()
                     .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity())));
         } catch (UserException e) {
             throw new RuntimeException(e);
@@ -162,5 +167,19 @@ public class CatalogProperty implements Writable {
     public static CatalogProperty read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, CatalogProperty.class);
+    }
+
+    public MetastoreProperties getMetastoreProperties() {
+        if (MapUtils.isEmpty(getProperties())) {
+            return null;
+        }
+        if (metastoreProperties == null) {
+            try {
+                metastoreProperties = MetastoreProperties.create(getProperties());
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return metastoreProperties;
     }
 }

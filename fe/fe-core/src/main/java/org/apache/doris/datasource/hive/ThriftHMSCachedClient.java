@@ -666,7 +666,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
     }
 
-    private ThriftHMSClient getClient() throws MetaException {
+    private ThriftHMSClient getClient() {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
