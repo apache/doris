@@ -331,11 +331,9 @@ public class SlotDescriptor {
         if (subColPath != null) {
             tSlotDescriptor.setColumnPaths(subColPath);
         }
-
         if (virtualColumn != null) {
             tSlotDescriptor.setVirtualColumnExpr(virtualColumn.treeToThrift());
         }
-
         return tSlotDescriptor;
     }
 
