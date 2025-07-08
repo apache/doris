@@ -630,8 +630,7 @@ public class FunctionCallExpr extends Expr {
         }
         // used by nereids END
 
-        if (fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")
+        if (fnName.getFunction().equalsIgnoreCase("json_object")
                 || fnName.getFunction().equalsIgnoreCase("json_insert")
                 || fnName.getFunction().equalsIgnoreCase("json_replace")
                 || fnName.getFunction().equalsIgnoreCase("json_set")) {

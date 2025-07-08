@@ -105,7 +105,7 @@ public:
     // version = 2 : https://github.com/apache/doris/pull/49822
     int do_delete_bitmap_storage_optimize_check(int version = 1);
 
-    int do_mow_compaction_key_check();
+    int do_mow_job_key_check();
 
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
