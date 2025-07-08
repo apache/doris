@@ -244,18 +244,6 @@ private:
     // [[2,1,5],[9,1]]\n[[1,2]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
-
-    /// Multiply values if the nested column is ColumnVector<T>.
-    template <PrimitiveType T>
-    ColumnPtr replicate_number(const IColumn::Offsets& replicate_offsets) const;
-
-    /// Multiply the values if the nested column is ColumnString. The code is too complicated.
-    ColumnPtr replicate_string(const IColumn::Offsets& replicate_offsets) const;
-
-    /** The following is done by simply replicating of nested columns.
-      */
-    ColumnPtr replicate_nullable(const IColumn::Offsets& replicate_offsets) const;
-    ColumnPtr replicate_generic(const IColumn::Offsets& replicate_offsets) const;
 };
 
 } // namespace doris::vectorized

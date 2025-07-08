@@ -978,107 +978,31 @@ void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t l
     }
 }
 
-ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
-    if (replicate_offsets.empty()) {
-        return clone_empty();
-    }
-
-    // keep ColumnUInt8 for ColumnNullable::null_map
-    if (typeid_cast<const ColumnUInt8*>(data.get())) {
-        return replicate_number<TYPE_BOOLEAN>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt8*>(data.get())) {
-        return replicate_number<TYPE_TINYINT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt16*>(data.get())) {
-        return replicate_number<TYPE_SMALLINT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt32*>(data.get())) {
-        return replicate_number<TYPE_INT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt64*>(data.get())) {
-        return replicate_number<TYPE_BIGINT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnInt128*>(data.get())) {
-        return replicate_number<TYPE_LARGEINT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnIPv4*>(data.get())) {
-        return replicate_number<TYPE_IPV4>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnIPv6*>(data.get())) {
-        return replicate_number<TYPE_IPV6>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDate*>(data.get())) {
-        return replicate_number<TYPE_DATE>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDateTime*>(data.get())) {
-        return replicate_number<TYPE_DATETIME>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDateV2*>(data.get())) {
-        return replicate_number<TYPE_DATEV2>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDateTimeV2*>(data.get())) {
-        return replicate_number<TYPE_DATETIMEV2>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnFloat32*>(data.get())) {
-        return replicate_number<TYPE_FLOAT>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnFloat64*>(data.get())) {
-        return replicate_number<TYPE_DOUBLE>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnTime*>(data.get())) {
-        return replicate_number<TYPE_TIME>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnTimeV2*>(data.get())) {
-        return replicate_number<TYPE_TIMEV2>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal32*>(data.get())) {
-        return replicate_number<TYPE_DECIMAL32>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal64*>(data.get())) {
-        return replicate_number<TYPE_DECIMAL64>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
-        return replicate_number<TYPE_DECIMALV2>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
-        return replicate_number<TYPE_DECIMAL128I>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnDecimal256*>(data.get())) {
-        return replicate_number<TYPE_DECIMAL256>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnString*>(data.get())) {
-        return replicate_string(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnNullable*>(data.get())) {
-        return replicate_nullable(replicate_offsets);
-    }
-    return replicate_generic(replicate_offsets);
-}
-
 template <PrimitiveType T>
-ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offsets) const {
-    size_t col_size = size();
+ColumnArrayDataOffsets replicate_number(const IColumn::Offsets& replicate_offsets,
+                                        const ColumnPtr& src_data_column,
+                                        const ColumnOffsets* src_offsets_column) {
+    const size_t col_size = src_offsets_column->size();
     column_match_offsets_size(col_size, replicate_offsets.size());
 
-    MutableColumnPtr res = clone_empty();
-
-    if (!col_size) {
-        return res;
+    if (col_size == 0) {
+        return ColumnArrayDataOffsets {.data = src_data_column->clone_empty(),
+                                       .offsets = ColumnOffsets::create()};
     }
 
-    auto& res_arr = assert_cast<ColumnArray&>(*res);
-
     const typename PrimitiveTypeTraits<T>::ColumnType::Container& src_data =
-            assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*data).get_data();
-    const auto& src_offsets = get_offsets();
+            assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*src_data_column)
+                    .get_data();
+    const auto& src_offsets = src_offsets_column->get_data();
+
+    auto dst_data = src_data_column->clone_empty();
+    auto dst_offsets_column = ColumnOffsets::create();
 
     typename PrimitiveTypeTraits<T>::ColumnType::Container& res_data =
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(res_arr.get_data())
-                    .get_data();
-    auto& res_offsets = res_arr.get_offsets();
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(*dst_data).get_data();
+    auto& res_offsets = dst_offsets_column->get_data();
 
-    res_data.reserve(data->size() / col_size * replicate_offsets.back());
+    res_data.reserve(src_data_column->size() / col_size * replicate_offsets.back());
     res_offsets.reserve(replicate_offsets.back());
 
     IColumn::Offset prev_replicate_offset = 0;
@@ -1104,29 +1028,32 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
         prev_data_offset = src_offsets[i];
     }
 
-    return res;
+    return ColumnArrayDataOffsets {.data = std::move(dst_data),
+                                   .offsets = std::move(dst_offsets_column)};
 }
 
-ColumnPtr ColumnArray::replicate_string(const IColumn::Offsets& replicate_offsets) const {
-    size_t col_size = size();
+ColumnArrayDataOffsets replicate_string(const IColumn::Offsets& replicate_offsets,
+                                        const ColumnPtr& src_data,
+                                        const ColumnOffsets* src_offsets_column) {
+    const size_t col_size = src_offsets_column->size();
     column_match_offsets_size(col_size, replicate_offsets.size());
 
-    MutableColumnPtr res = clone_empty();
-
-    if (!col_size) {
-        return res;
+    if (col_size == 0) {
+        return ColumnArrayDataOffsets {.data = src_data->clone_empty(),
+                                       .offsets = ColumnOffsets::create()};
     }
 
-    auto& res_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(*res);
-
-    const auto& src_string = assert_cast<const ColumnString&>(*data);
+    const auto& src_string = assert_cast<const ColumnString&>(*src_data);
     const ColumnString::Chars& src_chars = src_string.get_chars();
     const auto& src_string_offsets = src_string.get_offsets();
-    const auto& src_offsets = get_offsets();
+    const auto& src_offsets = src_offsets_column->get_data();
 
-    ColumnString::Chars& res_chars = assert_cast<ColumnString&>(res_arr.get_data()).get_chars();
-    auto& res_string_offsets = assert_cast<ColumnString&>(res_arr.get_data()).get_offsets();
-    auto& res_offsets = res_arr.get_offsets();
+    auto dst_data = src_data->clone_empty();
+    auto dst_offsets_column = ColumnOffsets::create();
+
+    ColumnString::Chars& res_chars = assert_cast<ColumnString&>(*dst_data).get_chars();
+    auto& res_string_offsets = assert_cast<ColumnString&>(*dst_data).get_offsets();
+    auto& res_offsets = dst_offsets_column->get_data();
 
     res_chars.reserve(src_chars.size() / col_size * replicate_offsets.back());
     res_string_offsets.reserve(src_string_offsets.size() / col_size * replicate_offsets.back());
@@ -1179,53 +1106,146 @@ ColumnPtr ColumnArray::replicate_string(const IColumn::Offsets& replicate_offset
         prev_src_string_offset += sum_chars_size;
     }
 
-    return res;
+    return ColumnArrayDataOffsets {.data = std::move(dst_data),
+                                   .offsets = std::move(dst_offsets_column)};
 }
 
-ColumnPtr ColumnArray::replicate_generic(const IColumn::Offsets& replicate_offsets) const {
-    size_t col_size = size();
+ColumnArrayDataOffsets replicate_generic(const IColumn::Offsets& replicate_offsets,
+                                         const ColumnPtr& src_data,
+                                         const ColumnOffsets* src_offsets_column) {
+    const size_t col_size = src_offsets_column->size();
     column_match_offsets_size(col_size, replicate_offsets.size());
 
-    MutableColumnPtr res = clone_empty();
-    ColumnArray& res_concrete = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(*res);
+    if (0 == col_size) {
+        return ColumnArrayDataOffsets {.data = src_data->clone_empty(),
+                                       .offsets = ColumnOffsets::create()};
+    }
 
-    if (0 == col_size) return res;
+    auto dst_data = src_data->clone_empty();
+    auto dst_offsets_column = ColumnOffsets::create();
 
-    Offset64 prev_offset = 0;
+    const auto& src_offsets = src_offsets_column->get_data();
+    auto& dst_offsets = dst_offsets_column->get_data();
+
     for (size_t i = 0; i < col_size; ++i) {
-        size_t size_to_replicate = replicate_offsets[i] - prev_offset;
-        prev_offset = replicate_offsets[i];
+        size_t size_to_replicate = replicate_offsets[i] - replicate_offsets[i - 1];
 
         for (size_t j = 0; j < size_to_replicate; ++j) {
-            res_concrete.insert_from(*this, i);
+            const size_t size = src_offsets[i] - src_offsets[i - 1];
+            const size_t offset = src_offsets[i - 1];
+            dst_data->insert_range_from(*src_data, offset, size);
+            dst_offsets.push_back(dst_offsets.back() + size);
         }
     }
 
-    return res;
+    return ColumnArrayDataOffsets {.data = std::move(dst_data),
+                                   .offsets = std::move(dst_offsets_column)};
 }
 
-ColumnPtr ColumnArray::replicate_nullable(const IColumn::Offsets& replicate_offsets) const {
-    const ColumnNullable& nullable =
-            assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*data);
+ColumnArrayDataOffsets column_array_replicate_dispatch(const IColumn::Offsets& replicate_offsets,
+                                                       const ColumnPtr& data,
+                                                       const ColumnOffsets* offsets) {
+    if (replicate_offsets.empty()) {
+        return ColumnArrayDataOffsets {.data = data->clone_empty(),
+                                       .offsets = ColumnOffsets::create()};
+    }
+
+    // keep ColumnUInt8 for ColumnNullable::null_map
+    if (typeid_cast<const ColumnUInt8*>(data.get())) {
+        return replicate_number<TYPE_BOOLEAN>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnInt8*>(data.get())) {
+        return replicate_number<TYPE_TINYINT>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnInt16*>(data.get())) {
+        return replicate_number<TYPE_SMALLINT>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnInt32*>(data.get())) {
+        return replicate_number<TYPE_INT>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnInt64*>(data.get())) {
+        return replicate_number<TYPE_BIGINT>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnInt128*>(data.get())) {
+        return replicate_number<TYPE_LARGEINT>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnIPv4*>(data.get())) {
+        return replicate_number<TYPE_IPV4>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnIPv6*>(data.get())) {
+        return replicate_number<TYPE_IPV6>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnDate*>(data.get())) {
+        return replicate_number<TYPE_DATE>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnDateTime*>(data.get())) {
+        return replicate_number<TYPE_DATETIME>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnDateV2*>(data.get())) {
+        return replicate_number<TYPE_DATEV2>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnDateTimeV2*>(data.get())) {
+        return replicate_number<TYPE_DATETIMEV2>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnFloat32*>(data.get())) {
+        return replicate_number<TYPE_FLOAT>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnFloat64*>(data.get())) {
+        return replicate_number<TYPE_DOUBLE>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnTime*>(data.get())) {
+        return replicate_number<TYPE_TIME>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnTimeV2*>(data.get())) {
+        return replicate_number<TYPE_TIMEV2>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnDecimal32*>(data.get())) {
+        return replicate_number<TYPE_DECIMAL32>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnDecimal64*>(data.get())) {
+        return replicate_number<TYPE_DECIMAL64>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
+        return replicate_number<TYPE_DECIMALV2>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
+        return replicate_number<TYPE_DECIMAL128I>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnDecimal256*>(data.get())) {
+        return replicate_number<TYPE_DECIMAL256>(replicate_offsets, data, offsets);
+    }
+    if (typeid_cast<const ColumnString*>(data.get())) {
+        return replicate_string(replicate_offsets, data, offsets);
+    }
+    return replicate_generic(replicate_offsets, data, offsets);
+}
+
+ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
+    if (replicate_offsets.empty()) {
+        return clone_empty();
+    }
+
+    const ColumnNullable& nullable = assert_cast<const ColumnNullable&>(*data);
 
     /// Make temporary arrays for each components of Nullable. Then replicate them independently and collect back to result.
     /// NOTE Offsets are calculated twice and it is redundant.
 
-    auto array_of_nested = ColumnArray(nullable.get_nested_column_ptr()->assume_mutable(),
-                                       get_offsets_ptr()->assume_mutable())
-                                   .replicate(replicate_offsets);
-    auto array_of_null_map = ColumnArray(nullable.get_null_map_column_ptr()->assume_mutable(),
-                                         get_offsets_ptr()->assume_mutable())
-                                     .replicate(replicate_offsets);
+    const auto& null_nested_column = nullable.get_nested_column_ptr();
+    const auto& null_null_map = nullable.get_null_map_column_ptr();
+    const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+    auto array_of_nested =
+            column_array_replicate_dispatch(replicate_offsets, null_nested_column, src_offsets);
+    auto array_of_null_map =
+            column_array_replicate_dispatch(replicate_offsets, null_null_map, src_offsets);
+    /// TODO:
+    //  In order to facilitate the writing of code, we use the same interface.
+    //  In fact, for array_of_null_map, we don't need to calculate offset.
 
-    return ColumnArray::create(
-            ColumnNullable::create(
-                    assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*array_of_nested)
-                            .get_data_ptr(),
-                    assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*array_of_null_map)
-                            .get_data_ptr()),
-            assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*array_of_nested)
-                    .get_offsets_ptr());
+    DCHECK_EQ(array_of_nested.offsets->size(), array_of_null_map.offsets->size())
+            << "The size of offsets in array_of_nested and array_of_null_map should be equal.";
+
+    return ColumnArray::create(ColumnNullable::create(array_of_nested.data, array_of_null_map.data),
+                               array_of_nested.offsets);
 }
 
 MutableColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
