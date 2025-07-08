@@ -468,11 +468,19 @@ void DorisFSDirectory::init(const io::FileSystemSPtr& fs, const char* path,
     lucene::store::Directory::setLockFactory(lock_factory);
 }
 
-void DorisFSDirectory::priv_getFN(char* buffer, const char* name) const {
-    buffer[0] = 0;
-    strcpy(buffer, directory.c_str());
-    strcat(buffer, PATH_DELIMITERA);
-    strcat(buffer, name);
+void DorisFSDirectory::priv_getFN(char* buffer, size_t size, const char* name) const {
+    if (buffer == nullptr || size == 0 || name == nullptr) {
+        _CLTHROWA(CL_ERR_IllegalArgument, "buffer, size or name cannot be null");
+    }
+    int32_t written = snprintf(buffer, size, "%s%s%s", directory.c_str(), PATH_DELIMITERA, name);
+    if (written < 0 || written >= size) {
+        auto err = fmt::format(
+                "Failed to generate path, buffer size is too small. dir={}, name={}, buffer "
+                "size={}",
+                directory, name, size);
+        LOG(WARNING) << err;
+        _CLTHROWA(CL_ERR_IO, err.c_str());
+    }
 }
 
 DorisFSDirectory::~DorisFSDirectory() = default;
@@ -487,7 +495,7 @@ const char* DorisFSDirectory::getObjectName() const {
 bool DorisFSDirectory::list(std::vector<std::string>* names) const {
     CND_PRECONDITION(!directory.empty(), "directory is not open");
     char fl[CL_MAX_DIR];
-    priv_getFN(fl, "");
+    priv_getFN(fl, CL_MAX_DIR, "");
     std::vector<io::FileInfo> files;
     bool exists;
     auto st = _fs->list(fl, true, &files, &exists);
@@ -509,7 +517,7 @@ bool DorisFSDirectory::list(std::vector<std::string>* names) const {
 bool DorisFSDirectory::fileExists(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
-    priv_getFN(fl, name);
+    priv_getFN(fl, CL_MAX_DIR, name);
     bool exists = false;
     auto st = _fs->exists(fl, &exists);
     DBUG_EXECUTE_IF("DorisFSDirectory::fileExists_status_is_not_ok", {
@@ -528,7 +536,7 @@ int64_t DorisFSDirectory::fileModified(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     struct stat buf;
     char buffer[CL_MAX_DIR];
-    priv_getFN(buffer, name);
+    priv_getFN(buffer, CL_MAX_DIR, name);
     if (stat(buffer, &buf) == -1) {
         return 0;
     } else {
@@ -553,7 +561,7 @@ void DorisFSDirectory::touchFile(const char* name) {
 int64_t DorisFSDirectory::fileLength(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char buffer[CL_MAX_DIR];
-    priv_getFN(buffer, name);
+    priv_getFN(buffer, CL_MAX_DIR, name);
     int64_t size = -1;
     Status st = _fs->file_size(buffer, &size);
     DBUG_EXECUTE_IF("inverted file read error: index file not found",
@@ -573,7 +581,7 @@ bool DorisFSDirectory::openInput(const char* name, lucene::store::IndexInput*& r
                                  CLuceneError& error, int32_t bufferSize) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
-    priv_getFN(fl, name);
+    priv_getFN(fl, CL_MAX_DIR, name);
     return FSIndexInput::open(_fs, fl, ret, error, bufferSize);
 }
 
@@ -585,7 +593,7 @@ void DorisFSDirectory::close() {
 bool DorisFSDirectory::doDeleteFile(const char* name) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
-    priv_getFN(fl, name);
+    priv_getFN(fl, CL_MAX_DIR, name);
     auto st = _fs->delete_file(fl);
     DBUG_EXECUTE_IF("DorisFSDirectory::doDeleteFile_status_is_not_ok", {
         st = Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -598,7 +606,7 @@ bool DorisFSDirectory::doDeleteFile(const char* name) {
 bool DorisFSDirectory::deleteDirectory() {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
-    priv_getFN(fl, "");
+    priv_getFN(fl, CL_MAX_DIR, "");
     auto st = _fs->delete_directory(fl);
     DBUG_EXECUTE_IF("DorisFSDirectory::deleteDirectory_throw_is_not_directory", {
         st = Status::Error<ErrorCode::NOT_FOUND>(
@@ -612,10 +620,10 @@ void DorisFSDirectory::renameFile(const char* from, const char* to) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     std::lock_guard<std::mutex> wlock(_this_lock);
     char old[CL_MAX_DIR];
-    priv_getFN(old, from);
+    priv_getFN(old, CL_MAX_DIR, from);
 
     char nu[CL_MAX_DIR];
-    priv_getFN(nu, to);
+    priv_getFN(nu, CL_MAX_DIR, to);
 
     bool exists = false;
     auto st = _fs->exists(nu, &exists);
@@ -643,7 +651,7 @@ void DorisFSDirectory::renameFile(const char* from, const char* to) {
 lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
-    priv_getFN(fl, name);
+    priv_getFN(fl, CL_MAX_DIR, name);
     bool exists = false;
     auto st = _fs->exists(fl, &exists);
     DBUG_EXECUTE_IF("DorisFSDirectory::createOutput_exists_status_is_not_ok", {

@@ -821,4 +821,64 @@ TEST_F(DorisFSDirectoryTest, FSIndexInputReadInternalTimer) {
     _CLDELETE(input1);
 }
 
+TEST_F(DorisFSDirectoryTest, PrivGetFNDirectAccess) {
+    {
+        char buffer[1024];
+
+        try {
+            _directory->priv_getFN(buffer, sizeof(buffer), nullptr);
+            FAIL() << "Expected CLuceneError for null name argument";
+        } catch (const CLuceneError& e) {
+            EXPECT_TRUE(e.number() == CL_ERR_IllegalArgument || e.number() == CL_ERR_NullPointer);
+            std::string error_msg = e.what();
+            EXPECT_TRUE(error_msg.find("name") != std::string::npos &&
+                        error_msg.find("null") != std::string::npos);
+        }
+
+        try {
+            _directory->priv_getFN(nullptr, sizeof(buffer), "testfile");
+            FAIL() << "Expected CLuceneError for null buffer argument";
+        } catch (const CLuceneError& e) {
+            EXPECT_TRUE(e.number() == CL_ERR_IllegalArgument || e.number() == CL_ERR_NullPointer);
+            std::string error_msg = e.what();
+            EXPECT_TRUE(error_msg.find("buffer") != std::string::npos &&
+                        error_msg.find("null") != std::string::npos);
+        }
+
+        try {
+            _directory->priv_getFN(buffer, 0, "testfile");
+            FAIL() << "Expected CLuceneError for zero size argument";
+        } catch (const CLuceneError& e) {
+            EXPECT_EQ(e.number(), CL_ERR_IllegalArgument);
+            std::string error_msg = e.what();
+            EXPECT_TRUE(error_msg.find("size") != std::string::npos);
+        }
+
+        char small_buffer[10];
+        try {
+            _directory->priv_getFN(small_buffer, sizeof(small_buffer),
+                                   "a_very_long_file_name_that_will_not_fit");
+            FAIL() << "Expected CLuceneError for oversized path";
+        } catch (const CLuceneError& e) {
+            EXPECT_EQ(e.number(), CL_ERR_IO);
+            std::string error_msg = e.what();
+            EXPECT_NE(error_msg.find("buffer size is too small"), std::string::npos);
+        }
+
+        try {
+            _directory->priv_getFN(buffer, sizeof(buffer), "my_file.txt");
+            std::string expected_path = _tmp_dir.string() + "/my_file.txt";
+            EXPECT_STREQ(buffer, expected_path.c_str());
+        } catch (const CLuceneError& e) {
+            FAIL() << "Did not expect an exception for a valid call. Error: " << e.what();
+        }
+    }
+
+    {
+        char buffer[4096];
+        _directory->priv_getFN(buffer, 4096, "test_file");
+        EXPECT_STREQ(buffer, (_tmp_dir / "test_file").string().c_str());
+    }
+}
+
 } // namespace doris::segment_v2
