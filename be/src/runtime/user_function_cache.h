@@ -61,9 +61,10 @@ public:
 
 private:
     Status _load_cached_lib();
-    Status _load_entry_from_lib(const std::string& dir, const std::string& file);
+    Status _load_entry_from_lib(const std::string& dir, const std::string& file_name);
+
     Status _get_cache_entry(int64_t fid, const std::string& url, const std::string& checksum,
-                            std::shared_ptr<UserFunctionCacheEntry>& output_entry, LibType type);
+                            std::string* libpath, LibType type);
     Status _load_cache_entry(const std::string& url, std::shared_ptr<UserFunctionCacheEntry> entry);
     Status _download_lib(const std::string& url, std::shared_ptr<UserFunctionCacheEntry> entry);
     Status _load_cache_entry_internal(std::shared_ptr<UserFunctionCacheEntry> entry);
@@ -72,7 +73,7 @@ private:
                                const std::string& file_name);
     void _destroy_cache_entry(std::shared_ptr<UserFunctionCacheEntry> entry);
 
-    std::string _get_file_name_from_url(const std::string& url) const;
+    std::string _get_file_name_from_url(const std::string& url, LibType type) const;
     std::vector<std::string> _split_string_by_checksum(const std::string& file);
 
 private:
