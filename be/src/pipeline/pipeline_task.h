@@ -229,14 +229,7 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
-    void stop_if_finished() {
-        std::unique_lock<std::mutex> lc(_dependency_lock);
-        if (!is_finalized()) {
-            if (_sink->is_finished(_state)) {
-                clear_blocking_state();
-            }
-        }
-    }
+    void stop_if_finished();
 
     PipelineId pipeline_id() const { return _pip_id; }
 
