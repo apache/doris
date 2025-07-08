@@ -487,12 +487,11 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                         logicalProject(
                                                 logicalProject(
                                                         logicalAggregate().when(agg -> {
-                                                                    List<Slot> output = agg.getOutput();
-                                                                    checkExprsToSql(output, "sum(id)");
-                                                                    Assertions.assertTrue(output.get(0).nullable());
-                                                                    return true;
-                                                                }
-                                                        )
+                                                            List<Slot> output = agg.getOutput();
+                                                            checkExprsToSql(output, "sum(id)");
+                                                            Assertions.assertTrue(output.get(0).nullable());
+                                                            return true;
+                                                        })
                                                 ).when(project -> {
                                                     List<NamedExpression> projects = project.getProjects();
                                                     checkExprsToSql(projects, "sum(id)");
@@ -522,13 +521,12 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                         logicalProject(
                                                 logicalFilter(
                                                         logicalAggregate().when(agg -> {
-                                                                    List<Slot> output = agg.getOutput();
-                                                                    checkExprsToSql(output, "sum(id)", "sum(no)");
-                                                                    Assertions.assertTrue(output.get(0).nullable());
-                                                                    Assertions.assertTrue(output.get(1).nullable());
-                                                                    return true;
-                                                                }
-                                                        )
+                                                            List<Slot> output = agg.getOutput();
+                                                            checkExprsToSql(output, "sum(id)", "sum(no)");
+                                                            Assertions.assertTrue(output.get(0).nullable());
+                                                            Assertions.assertTrue(output.get(1).nullable());
+                                                            return true;
+                                                        })
                                                 ).when(filter -> {
                                                     List<Expression> conjuncts = filter.getExpressions();
                                                     checkExprsToSql(conjuncts, "(sum(id) > 10)");
@@ -559,13 +557,12 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                     logicalSort(
                                             logicalProject(
                                                     logicalAggregate().when(agg -> {
-                                                                List<Slot> output = agg.getOutput();
-                                                                checkExprsToSql(output, "sum(id)", "sum(no)");
-                                                                Assertions.assertTrue(output.get(0).nullable());
-                                                                Assertions.assertTrue(output.get(1).nullable());
-                                                                return true;
-                                                            }
-                                                    )
+                                                        List<Slot> output = agg.getOutput();
+                                                        checkExprsToSql(output, "sum(id)", "sum(no)");
+                                                        Assertions.assertTrue(output.get(0).nullable());
+                                                        Assertions.assertTrue(output.get(1).nullable());
+                                                        return true;
+                                                    })
                                             ).when(project -> {
                                                 List<NamedExpression> projects = project.getProjects();
                                                 checkExprsToSql(projects, "sum(id)", "sum(no)");
@@ -590,13 +587,12 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                     logicalSort(
                                             logicalProject(
                                                     logicalAggregate().when(agg -> {
-                                                                List<Slot> output = agg.getOutput();
-                                                                checkExprsToSql(output, "sum(no)", "sum(id)");
-                                                                Assertions.assertTrue(output.get(0).nullable());
-                                                                Assertions.assertTrue(output.get(1).nullable());
-                                                                return true;
-                                                            }
-                                                    )
+                                                        List<Slot> output = agg.getOutput();
+                                                        checkExprsToSql(output, "sum(no)", "sum(id)");
+                                                        Assertions.assertTrue(output.get(0).nullable());
+                                                        Assertions.assertTrue(output.get(1).nullable());
+                                                        return true;
+                                                    })
                                             ).when(project -> {
                                                 List<NamedExpression> projects = project.getProjects();
                                                 checkExprsToSql(projects, "sum(no)", "sum(id)");
@@ -629,12 +625,12 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                                         logicalProject(
                                                                 logicalFilter(
                                                                         logicalAggregate().when(agg -> {
-                                                                                    List<Slot> output = agg.getOutput();
-                                                                                    checkExprsToSql(output, "sum(no)", "sum(id)");
-                                                                                    Assertions.assertTrue(output.get(0).nullable());
-                                                                                    Assertions.assertTrue(output.get(1).nullable());
-                                                                                    return true;
-                                                                       })
+                                                                            List<Slot> output = agg.getOutput();
+                                                                            checkExprsToSql(output, "sum(no)", "sum(id)");
+                                                                            Assertions.assertTrue(output.get(0).nullable());
+                                                                            Assertions.assertTrue(output.get(1).nullable());
+                                                                            return true;
+                                                                        })
                                                                 ).when(filter -> {
                                                                     List<Expression> conjuncts = filter.getExpressions();
                                                                     checkExprsToSql(conjuncts, "(sum(no) > 10)");
