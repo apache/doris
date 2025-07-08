@@ -2696,9 +2696,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan,
             PlanTranslatorContext context) {
         PlanFragment planFragment = computePhysicalOlapScan(lazyScan.getScan(), context);
-        TupleDescriptor outputTuple = generateTupleDesc(lazyScan.getOutput(), lazyScan.getScan().getTable(), context);
         OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
-        olapScanNode.setDesc(outputTuple);
         // set lazy materialized context
         olapScanNode.setIsTopnLazyMaterialize(true);
         olapScanNode.setGlobalRowIdColumn(lazyScan.getRowId().getOriginalColumn().get());
@@ -2717,7 +2715,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapScanNode.addTopnLazyMaterializeOutputColumns(((SlotReference) slot).getOriginalColumn().get());
             }
         }
-
         context.getTopnFilterContext().translateTarget(lazyScan, olapScanNode, context);
 
         return planFragment;
