@@ -64,7 +64,7 @@ public:
     HudiOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                   RuntimeState* state, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+            : HudiReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
     ~HudiOrcReader() final = default;
 
     Status init_reader(
