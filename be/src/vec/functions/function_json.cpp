@@ -145,45 +145,7 @@ rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths, rapidjs
         const std::string& col = parsed_paths[i].key;
         int index = parsed_paths[i].idx;
         if (LIKELY(!col.empty())) {
-            if (root->IsArray()) {
-                array_obj = static_cast<rapidjson::Value*>(
-                        mem_allocator.Malloc(sizeof(rapidjson::Value)));
-                array_obj->SetArray();
-                bool is_null = true;
-
-                // if array ,loop the array,find out all Objects,then find the results from the objects
-                for (int j = 0; j < root->Size(); j++) {
-                    rapidjson::Value* json_elem = &((*root)[j]);
-
-                    if (json_elem->IsArray() || json_elem->IsNull()) {
-                        continue;
-                    } else {
-                        if (!json_elem->IsObject()) {
-                            continue;
-                        }
-                        if (!json_elem->HasMember(col.c_str())) {
-                            if (is_insert_null) { // not found item, then insert a null object.
-                                is_null = false;
-                                rapidjson::Value nullObject(rapidjson::kNullType);
-                                array_obj->PushBack(nullObject, mem_allocator);
-                            }
-                            continue;
-                        }
-                        rapidjson::Value* obj = &((*json_elem)[col.c_str()]);
-                        if (obj->IsArray()) {
-                            is_null = false;
-                            for (int k = 0; k < obj->Size(); k++) {
-                                array_obj->PushBack((*obj)[k], mem_allocator);
-                            }
-                        } else if (!obj->IsNull()) {
-                            is_null = false;
-                            array_obj->PushBack(*obj, mem_allocator);
-                        }
-                    }
-                }
-
-                root = is_null ? &(array_obj->SetNull()) : array_obj;
-            } else if (root->IsObject()) {
+            if (root->IsObject()) {
                 if (!root->HasMember(col.c_str())) {
                     return nullptr;
                 } else {
@@ -234,8 +196,17 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
 
     //Cannot use '\' as the last character, return NULL
     if (path_string.back() == '\\') {
-        document->SetNull();
-        return document;
+        return nullptr;
+    }
+
+    std::string fixed_string;
+    if (path_string.size() >= 2 && path_string[0] == '$' && path_string[1] != '.') {
+        // Boost tokenizer requires explicit "." after "$" to correctly extract JSON path tokens.
+        // Without this, expressions like "$[0].key" cannot be properly split.
+        // This commit ensures a "." is automatically added after "$" to maintain consistent token parsing behavior.
+        fixed_string = "$.";
+        fixed_string += path_string.substr(1);
+        path_string = fixed_string;
     }
 
     try {
@@ -252,13 +223,13 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
         }
     } catch (boost::escaped_list_error&) {
         // meet unknown escape sequence, example '$.name\k'
-        return document;
+        return nullptr;
     }
 
     parsed_paths = &tmp_parsed_paths;
 
     if (!(*parsed_paths)[0].is_valid) {
-        return document;
+        return nullptr;
     }
 
     if (UNLIKELY((*parsed_paths).size() == 1)) {
@@ -271,10 +242,7 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
 
     document->Parse(json_string.data(), json_string.size());
     if (UNLIKELY(document->HasParseError())) {
-        // VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
-        //         << GetParseError_En(document->GetParseError());
-        document->SetNull();
-        return document;
+        return nullptr;
     }
 
     return match_value(*parsed_paths, document, document->GetAllocator());
@@ -849,9 +817,9 @@ struct FunctionJsonQuoteImpl {
 struct FunctionJsonExtractImpl {
     static constexpr auto name = "json_extract";
 
-    static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
-                                       rapidjson::Document::AllocatorType& allocator,
-                                       const int row) {
+    static std::pair<bool, rapidjson::Value> parse_json(
+            const ColumnString* json_col, const ColumnString* path_col,
+            rapidjson::Document::AllocatorType& allocator, const int row) {
         rapidjson::Value value;
         rapidjson::Document document;
 
@@ -860,11 +828,14 @@ struct FunctionJsonExtractImpl {
         const auto path = path_col->get_data_at(row);
         std::string_view path_string(path.data, path.size);
 
-        auto root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
+        auto* root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
+        bool found = false;
         if (root != nullptr) {
+            found = true;
             value.CopyFrom(*root, allocator);
         }
-        return value;
+
+        return {found, std::move(value)};
     }
 
     static void execute(const std::vector<const ColumnString*>& data_columns,
@@ -874,30 +845,41 @@ struct FunctionJsonExtractImpl {
         rapidjson::StringBuffer buf;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
 
-        const auto json_col = data_columns[0];
+        const auto* json_col = data_columns[0];
         for (size_t row = 0; row < input_rows_count; row++) {
             rapidjson::Value value;
             if (data_columns.size() == 2) {
-                value = parse_json(json_col, data_columns[1], allocator, row);
+                auto result = parse_json(json_col, data_columns[1], allocator, row);
+                if (result.first) {
+                    value = std::move(result.second);
+                } else {
+                    null_map[row] = 1;
+                    result_column.insert_default();
+                    continue;
+                }
             } else {
+                bool found_any = false;
                 value.SetArray();
                 value.Reserve(data_columns.size() - 1, allocator);
                 for (size_t col = 1; col < data_columns.size(); ++col) {
-                    value.PushBack(parse_json(json_col, data_columns[col], allocator, row),
-                                   allocator);
+                    auto result = parse_json(json_col, data_columns[col], allocator, row);
+                    if (result.first) {
+                        found_any = true;
+                        value.PushBack(std::move(result.second), allocator);
+                    }
+                }
+                if (!found_any) {
+                    null_map[row] = 1;
+                    result_column.insert_default();
+                    continue;
                 }
             }
 
-            if (value.IsNull()) {
-                null_map[row] = 1;
-                result_column.insert_default();
-            } else {
-                // write value as string
-                buf.Clear();
-                writer.Reset(buf);
-                value.Accept(writer);
-                result_column.insert_data(buf.GetString(), buf.GetSize());
-            }
+            // write value as string
+            buf.Clear();
+            writer.Reset(buf);
+            value.Accept(writer);
+            result_column.insert_data(buf.GetString(), buf.GetSize());
         }
     }
 };

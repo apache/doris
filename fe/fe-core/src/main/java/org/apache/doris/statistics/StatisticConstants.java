@@ -69,6 +69,11 @@ public class StatisticConstants {
     public static final String FULL_QUALIFIED_STATS_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
             + "." + FeConstants.INTERNAL_DB_NAME + "." + STATISTIC_TBL_NAME;
 
+    public static final String INSERT_INTO_COLUMN_STATS_PREFIX =
+            "INSERT INTO " + FULL_QUALIFIED_STATS_TBL_NAME + "(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, "
+                    + "`col_id`, `part_id`, `count`, `ndv`, `null_count`, `min`, `max`, "
+                    + "`data_size_in_bytes`, `update_time`) VALUES ";
+
     public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
 
     public static final int RETRY_LOAD_QUEUE_SIZE = 1000;

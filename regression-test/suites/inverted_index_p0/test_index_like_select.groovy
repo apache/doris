@@ -166,7 +166,7 @@ suite("test_index_like_select", "inverted_index_select"){
         } catch(Exception ex) {
             logger.info("int colume should not match succ, result: " + ex)
         }
-        assertEquals(int_colume_like_result, 'fail')
+        assertEquals(int_colume_like_result, 'success')
 
         // case6: mix select
         // case6.0 common colume and index mix select

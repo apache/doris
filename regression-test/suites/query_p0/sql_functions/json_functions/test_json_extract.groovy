@@ -28,4 +28,10 @@ suite("test_json_extract") {
         sql """ SELECT JSON_EXTRACT_STRING('{"id": 123, "name": "doris"}', '\$.'); """
         exception "Invalid Json Path for value: \$."
     }
+
+    qt_fix_array_path """
+        select 
+            JSON_EXTRACT('[{"key": [123]}]', '\$[0].key') v1
+            , JSON_EXTRACT('[{"key": [123]}]', '\$.[0].key') v2;
+    """
 }

@@ -2191,9 +2191,13 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                 iterator_map[iterator_key].segment = segment;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
-                                                            row_id, column, stats,
-                                                            iterator_item.iterator));
+            try {
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
+                                                                row_id, column, stats,
+                                                                iterator_item.iterator));
+            } catch (const Exception& e) {
+                return Status::Error<false>(e.code(), "Row id fetch failed because {}", e.what());
+            }
         }
     }
     // serialize block if not empty

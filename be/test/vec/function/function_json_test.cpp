@@ -72,15 +72,13 @@ TEST(FunctionJsonTEST, GetJsonStringTest) {
     std::string func_name = "get_json_string";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
     DataSet data_set = {
-            {{VARCHAR("{\"k1\":\"v1\", \"k2\":\"v2\"}"), VARCHAR("$.k1")}, VARCHAR("v1")},
-            {{VARCHAR("{\"k1\":\"v1\", \"my.key\":[\"e1\", \"e2\", \"e3\"]}"),
-              VARCHAR("$.\"my.key\"[1]")},
+            {{VARCHAR(R"({"k1":"v1", "k2":"v2"})"), VARCHAR("$.k1")}, VARCHAR("v1")},
+            {{VARCHAR(R"({"k1":"v1", "my.key":["e1", "e2", "e3"]})"), VARCHAR("$.\"my.key\"[1]")},
              VARCHAR("e2")},
-            {{VARCHAR("{\"k1.key\":{\"k2\":[\"v1\", \"v2\"]}}"), VARCHAR("$.\"k1.key\".k2[0]")},
+            {{VARCHAR(R"({"k1.key":{"k2":["v1", "v2"]}})"), VARCHAR("$.\"k1.key\".k2[0]")},
              VARCHAR("v1")},
-            {{VARCHAR("[{\"k1\":\"v1\"}, {\"k2\":\"v2\"}, {\"k1\":\"v3\"}, {\"k1\":\"v4\"}]"),
-              VARCHAR("$.k1")},
-             VARCHAR("[\"v1\",\"v3\",\"v4\"]")}};
+            {{VARCHAR(R"([{"k1":"v1"}, {"k2":"v2"}, {"k1":"v3"}, {"k1":"v4"}])"), VARCHAR("$.k1")},
+             Null()}};
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }

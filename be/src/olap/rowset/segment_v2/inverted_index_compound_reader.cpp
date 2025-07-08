@@ -114,9 +114,9 @@ DorisCompoundReader::DorisCompoundReader(lucene::store::Directory* d, const char
                                          int32_t read_buffer_size, bool open_idx_file_cache)
         : readBufferSize(read_buffer_size),
           dir(d),
-          ram_dir(new lucene::store::RAMDirectory()),
+          ram_dir(std::make_unique<lucene::store::RAMDirectory>()),
           file_name(name),
-          entries(_CLNEW EntriesType(true, true)) {
+          entries(std::make_unique<EntriesType>(true, true)) {
     bool success = false;
     try {
         if (dir->fileLength(name) == 0) {
@@ -203,7 +203,6 @@ DorisCompoundReader::~DorisCompoundReader() {
             LOG(ERROR) << "DorisCompoundReader finalize error:" << err.what();
         }
     }
-    _CLDELETE(entries)
 }
 
 const char* DorisCompoundReader::getClassName() {
@@ -314,7 +313,6 @@ void DorisCompoundReader::close() {
     }
     if (ram_dir) {
         ram_dir->close();
-        _CLDELETE(ram_dir)
     }
     if (dir) {
         dir->close();
