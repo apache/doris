@@ -123,6 +123,17 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new ProjectWithDistinctToAggregate(),
                     new ReplaceExpressionByChildOutput(),
                     new OneRowRelationExtractAggregate(),
+
+                    // ProjectToGlobalAggregate may generate an aggregate with empty group by expressions.
+                    // for sort / having, need to adjust their agg functions' nullable.
+                    // for example: select sum(a) from t having sum(b) > 10 order by sum(c),
+                    // then will have:
+                    // sort(sum(c))                    sort(sum(c))
+                    //     |                                |
+                    // having(sum(b) > 10)       ==>   having(sum(b) > 10)
+                    //     |                                |
+                    // project(sum(a))                 agg(sum(a))
+                    // then need to adjust SORT and HAVING's sum to nullable.
                     new AdjustAggregateNullableForEmptySet()
             ),
             // custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
