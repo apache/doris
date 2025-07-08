@@ -30,15 +30,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * ScalarFunction 'json_array'.
+ * ScalarFunction 'json_array_ignore_null'.
  */
-public class JsonArray extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
+public class JsonArrayIgnoreNull extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
 
     /**
      * constructor with 0 or more arguments.
      */
-    public JsonArray(Expression... varArgs) {
-        super("json_array", ExpressionUtils.mergeArguments(varArgs));
+    public JsonArrayIgnoreNull(Expression... varArgs) {
+        super("json_array_ignore_null", ExpressionUtils.mergeArguments(varArgs));
     }
 
     @Override
@@ -55,12 +55,12 @@ public class JsonArray extends ScalarFunction implements CustomSignature, Always
      * withChildren.
      */
     @Override
-    public JsonArray withChildren(List<Expression> children) {
-        return new JsonArray(children.toArray(new Expression[0]));
+    public JsonArrayIgnoreNull withChildren(List<Expression> children) {
+        return new JsonArrayIgnoreNull(children.toArray(new Expression[0]));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitJsonArray(this, context);
+        return visitor.visitJsonArrayIgnoreNull(this, context);
     }
 }
