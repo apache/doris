@@ -134,6 +134,10 @@ public:
         return _calc_delete_bitmap_executor.get();
     }
 
+    CalcDeleteBitmapExecutor* rowset_calc_delete_bitmap_executor() {
+        return _rowset_calc_delete_bitmap_executor.get();
+    }
+
     void add_quering_rowset(RowsetSharedPtr rs);
 
     RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
@@ -163,6 +167,7 @@ protected:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
+    std::unique_ptr<CalcDeleteBitmapExecutor> _rowset_calc_delete_bitmap_executor;
     CountDownLatch _stop_background_threads_latch;
 
     // Hold reference of quering rowsets

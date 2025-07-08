@@ -203,7 +203,10 @@ Status CloudStorageEngine::open() {
             cast_set<int32_t>(io::FileCacheFactory::instance()->get_cache_instance_size()));
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
-    _calc_delete_bitmap_executor->init();
+    _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread);
+
+    _rowset_calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
+    _rowset_calc_delete_bitmap_executor->init(config::rowset_calc_delete_bitmap_max_thread);
 
     // The default cache is set to 100MB, use memory limit to dynamic adjustment
     bool is_percent = false;
