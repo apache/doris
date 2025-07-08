@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 public class MapLiteralTest {
     static IntLiteral intLiteral1;
     static FloatLiteral floatLiteral;
-    static FloatLiteral floatLiteral1;
     static BoolLiteral boolLiteral;
     static StringLiteral stringLiteral;
     static LargeIntLiteral largeIntLiteral;
@@ -45,8 +44,6 @@ public class MapLiteralTest {
     public static void setUp() throws AnalysisException {
         intLiteral1 = new IntLiteral(1);
         floatLiteral = new FloatLiteral("2.15");
-        floatLiteral1 = new FloatLiteral((double) (11 * 3600 + 22 * 60 + 33),
-            FloatLiteral.getDefaultTimeType(Type.TIME));
         boolLiteral = new BoolLiteral(true);
         stringLiteral = new StringLiteral("shortstring");
         largeIntLiteral = new LargeIntLiteral("1000000000000000000000");
@@ -65,14 +62,10 @@ public class MapLiteralTest {
         FormatOptions options = FormatOptions.getDefault();
         MapLiteral mapLiteral1 = new MapLiteral(intLiteral1, floatLiteral);
         Assertions.assertEquals("{1:2.15}", mapLiteral1.getStringValueForQuery(options));
-        MapLiteral mapLiteral11 = new MapLiteral(intLiteral1, floatLiteral1);
-        Assertions.assertEquals("{1:\"11:22:33\"}", mapLiteral11.getStringValueForQuery(options));
         MapLiteral mapLiteral2 = new MapLiteral(boolLiteral, stringLiteral);
         Assertions.assertEquals("{1:\"shortstring\"}", mapLiteral2.getStringValueForQuery(options));
         MapLiteral mapLiteral3 = new MapLiteral(largeIntLiteral, dateLiteral);
         Assertions.assertEquals("{1000000000000000000000:\"2022-10-10\"}", mapLiteral3.getStringValueForQuery(options));
-        MapLiteral mapLiteral4 = new MapLiteral(floatLiteral1, nullLiteral);
-        Assertions.assertEquals("{\"11:22:33\":null}", mapLiteral4.getStringValueForQuery(options));
         MapLiteral mapLiteral5 = new MapLiteral(datetimeLiteral, dateLiteral);
         Assertions.assertEquals("{\"2022-10-10 12:10:10\":\"2022-10-10\"}",
                 mapLiteral5.getStringValueForQuery(options));
@@ -121,14 +114,10 @@ public class MapLiteralTest {
         FormatOptions options = FormatOptions.getForPresto();
         MapLiteral mapLiteral1 = new MapLiteral(intLiteral1, floatLiteral);
         Assertions.assertEquals("{1=2.15}", mapLiteral1.getStringValueForQuery(options));
-        MapLiteral mapLiteral11 = new MapLiteral(intLiteral1, floatLiteral1);
-        Assertions.assertEquals("{1=11:22:33}", mapLiteral11.getStringValueForQuery(options));
         MapLiteral mapLiteral2 = new MapLiteral(boolLiteral, stringLiteral);
         Assertions.assertEquals("{1=shortstring}", mapLiteral2.getStringValueForQuery(options));
         MapLiteral mapLiteral3 = new MapLiteral(largeIntLiteral, dateLiteral);
         Assertions.assertEquals("{1000000000000000000000=2022-10-10}", mapLiteral3.getStringValueForQuery(options));
-        MapLiteral mapLiteral4 = new MapLiteral(floatLiteral1, nullLiteral);
-        Assertions.assertEquals("{11:22:33=NULL}", mapLiteral4.getStringValueForQuery(options));
         MapLiteral mapLiteral5 = new MapLiteral(datetimeLiteral, dateLiteral);
         Assertions.assertEquals("{2022-10-10 12:10:10=2022-10-10}", mapLiteral5.getStringValueForQuery(options));
         MapLiteral mapLiteral6 = new MapLiteral(decimalLiteral1, decimalLiteral2);
@@ -176,14 +165,10 @@ public class MapLiteralTest {
         FormatOptions options = FormatOptions.getForHive();
         MapLiteral mapLiteral1 = new MapLiteral(intLiteral1, floatLiteral);
         Assertions.assertEquals("{1:2.15}", mapLiteral1.getStringValueForQuery(options));
-        MapLiteral mapLiteral11 = new MapLiteral(intLiteral1, floatLiteral1);
-        Assertions.assertEquals("{1:\"11:22:33\"}", mapLiteral11.getStringValueForQuery(options));
         MapLiteral mapLiteral2 = new MapLiteral(boolLiteral, stringLiteral);
         Assertions.assertEquals("{true:\"shortstring\"}", mapLiteral2.getStringValueForQuery(options));
         MapLiteral mapLiteral3 = new MapLiteral(largeIntLiteral, dateLiteral);
         Assertions.assertEquals("{1000000000000000000000:\"2022-10-10\"}", mapLiteral3.getStringValueForQuery(options));
-        MapLiteral mapLiteral4 = new MapLiteral(floatLiteral1, nullLiteral);
-        Assertions.assertEquals("{\"11:22:33\":null}", mapLiteral4.getStringValueForQuery(options));
         MapLiteral mapLiteral5 = new MapLiteral(datetimeLiteral, dateLiteral);
         Assertions.assertEquals("{\"2022-10-10 12:10:10\":\"2022-10-10\"}",
                 mapLiteral5.getStringValueForQuery(options));
@@ -232,15 +217,11 @@ public class MapLiteralTest {
         FormatOptions options = FormatOptions.getDefault();
         MapLiteral mapLiteral1 = new MapLiteral(intLiteral1, floatLiteral);
         Assertions.assertEquals("{1:2.15}", mapLiteral1.getStringValueForStreamLoad(options));
-        MapLiteral mapLiteral11 = new MapLiteral(intLiteral1, floatLiteral1);
-        Assertions.assertEquals("{1:\"11:22:33\"}", mapLiteral11.getStringValueForStreamLoad(options));
         MapLiteral mapLiteral2 = new MapLiteral(boolLiteral, stringLiteral);
         Assertions.assertEquals("{1:\"shortstring\"}", mapLiteral2.getStringValueForStreamLoad(options));
         MapLiteral mapLiteral3 = new MapLiteral(largeIntLiteral, dateLiteral);
         Assertions.assertEquals("{1000000000000000000000:\"2022-10-10\"}",
                 mapLiteral3.getStringValueForStreamLoad(options));
-        MapLiteral mapLiteral4 = new MapLiteral(floatLiteral1, nullLiteral);
-        Assertions.assertEquals("{\"11:22:33\":null}", mapLiteral4.getStringValueForStreamLoad(options));
         MapLiteral mapLiteral5 = new MapLiteral(datetimeLiteral, dateLiteral);
         Assertions.assertEquals("{\"2022-10-10 12:10:10\":\"2022-10-10\"}",
                 mapLiteral5.getStringValueForStreamLoad(options));

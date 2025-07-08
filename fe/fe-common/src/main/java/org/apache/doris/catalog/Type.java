@@ -236,8 +236,6 @@ public abstract class Type {
         arraySubTypes.add(FLOAT);
         arraySubTypes.add(DOUBLE);
         arraySubTypes.add(DECIMALV2);
-        arraySubTypes.add(TIME);
-        arraySubTypes.add(TIMEV2);
         arraySubTypes.add(DATE);
         arraySubTypes.add(DATETIME);
         arraySubTypes.add(DATEV2);
@@ -266,8 +264,6 @@ public abstract class Type {
         mapSubTypes.add(DECIMAL64);
         mapSubTypes.add(DECIMAL128);
         mapSubTypes.add(DECIMAL256);
-        mapSubTypes.add(TIME);
-        mapSubTypes.add(TIMEV2);
         mapSubTypes.add(DATE);
         mapSubTypes.add(DATETIME);
         mapSubTypes.add(DATEV2);
@@ -292,8 +288,6 @@ public abstract class Type {
         structSubTypes.add(DECIMAL64);
         structSubTypes.add(DECIMAL128);
         structSubTypes.add(DECIMAL256);
-        structSubTypes.add(TIME);
-        structSubTypes.add(TIMEV2);
         structSubTypes.add(DATE);
         structSubTypes.add(DATETIME);
         structSubTypes.add(DATEV2);

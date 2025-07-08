@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 public class StructLiteralTest {
     static IntLiteral intLiteral1;
     static FloatLiteral floatLiteral;
-    static FloatLiteral floatLiteral1;
     static BoolLiteral boolLiteral;
     static StringLiteral stringLiteral;
     static LargeIntLiteral largeIntLiteral;
@@ -45,8 +44,6 @@ public class StructLiteralTest {
     public static void setUp() throws AnalysisException {
         intLiteral1 = new IntLiteral(1);
         floatLiteral = new FloatLiteral("2.15");
-        floatLiteral1 = new FloatLiteral((double) (11 * 3600 + 22 * 60 + 33),
-                FloatLiteral.getDefaultTimeType(Type.TIME));
         boolLiteral = new BoolLiteral(true);
         stringLiteral = new StringLiteral("shortstring");
         largeIntLiteral = new LargeIntLiteral("1000000000000000000000");
@@ -63,10 +60,10 @@ public class StructLiteralTest {
     @Test
     public void testGetStringInFe() throws AnalysisException {
         FormatOptions options = FormatOptions.getDefault();
-        StructLiteral structLiteral1 = new StructLiteral(intLiteral1, floatLiteral, floatLiteral1, boolLiteral,
+        StructLiteral structLiteral1 = new StructLiteral(intLiteral1, floatLiteral, boolLiteral,
                 stringLiteral, largeIntLiteral, decimalLiteral1, decimalLiteral2, dateLiteral, datetimeLiteral);
-        Assert.assertEquals("{\"col1\":1, \"col2\":2.15, \"col3\":\"11:22:33\", \"col4\":1, \"col5\":"
-                        + "\"shortstring\", \"col6\":1000000000000000000000, \"col7\":1.0, \"col8\":2, \"col9\":\"2022-10-10\", \"col10\":\"2022-10-10 12:10:10\"}",
+        Assert.assertEquals("{\"col1\":1, \"col2\":2.15, \"col3\":1, \"col4\":"
+                        + "\"shortstring\", \"col5\":1000000000000000000000, \"col6\":1.0, \"col7\":2, \"col8\":\"2022-10-10\", \"col9\":\"2022-10-10 12:10:10\"}",
                 structLiteral1.getStringValueForQuery(options));
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
         Assert.assertEquals("{\"col1\":[1.0, 2.15], \"col2\":{1:2.15}, \"col3\":"
@@ -85,10 +82,10 @@ public class StructLiteralTest {
     @Test
     public void testGetStringInFeForPresto() throws AnalysisException {
         FormatOptions options = FormatOptions.getForPresto();
-        StructLiteral structLiteral1 = new StructLiteral(intLiteral1, floatLiteral, floatLiteral1, boolLiteral,
+        StructLiteral structLiteral1 = new StructLiteral(intLiteral1, floatLiteral, boolLiteral,
                 stringLiteral, largeIntLiteral, decimalLiteral1, decimalLiteral2, dateLiteral, datetimeLiteral);
-        Assert.assertEquals("{col1=1, col2=2.15, col3=11:22:33, col4=1, col5="
-                        + "shortstring, col6=1000000000000000000000, col7=1.0, col8=2, col9=2022-10-10, col10=2022-10-10 12:10:10}",
+        Assert.assertEquals("{col1=1, col2=2.15, col3=1, col4="
+                        + "shortstring, col5=1000000000000000000000, col6=1.0, col7=2, col8=2022-10-10, col9=2022-10-10 12:10:10}",
                 structLiteral1.getStringValueForQuery(options));
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
         Assert.assertEquals("{col1=[1.0, 2.15], col2={1=2.15}, col3="
@@ -107,10 +104,10 @@ public class StructLiteralTest {
     @Test
     public void testGetStringInFeForHive() throws AnalysisException {
         FormatOptions options = FormatOptions.getForHive();
-        StructLiteral structLiteral1 = new StructLiteral(intLiteral1, floatLiteral, floatLiteral1, boolLiteral,
+        StructLiteral structLiteral1 = new StructLiteral(intLiteral1, floatLiteral, boolLiteral,
                 stringLiteral, largeIntLiteral, decimalLiteral1, decimalLiteral2, dateLiteral, datetimeLiteral);
         Assert.assertEquals(
-                "{\"col1\":1,\"col2\":2.15,\"col3\":\"11:22:33\",\"col4\":true,\"col5\":\"shortstring\",\"col6\":1000000000000000000000,\"col7\":1.0,\"col8\":2,\"col9\":\"2022-10-10\",\"col10\":\"2022-10-10 12:10:10\"}",
+                "{\"col1\":1,\"col2\":2.15,\"col3\":true,\"col4\":\"shortstring\",\"col5\":1000000000000000000000,\"col6\":1.0,\"col7\":2,\"col8\":\"2022-10-10\",\"col9\":\"2022-10-10 12:10:10\"}",
                 structLiteral1.getStringValueForQuery(options));
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
         Assert.assertEquals(
@@ -129,10 +126,10 @@ public class StructLiteralTest {
     @Test
     public void testGetStringForStreamLoad() throws AnalysisException {
         FormatOptions options = FormatOptions.getDefault();
-        StructLiteral structLiteral1 = new StructLiteral(intLiteral1, floatLiteral, floatLiteral1, boolLiteral,
+        StructLiteral structLiteral1 = new StructLiteral(intLiteral1, floatLiteral, boolLiteral,
                 stringLiteral, largeIntLiteral, decimalLiteral1, decimalLiteral2, dateLiteral, datetimeLiteral);
         Assert.assertEquals(
-                "{1, 2.15, \"11:22:33\", 1, \"shortstring\", 1000000000000000000000, 1.0, 2, \"2022-10-10\", \"2022-10-10 12:10:10\"}",
+                "{1, 2.15, 1, \"shortstring\", 1000000000000000000000, 1.0, 2, \"2022-10-10\", \"2022-10-10 12:10:10\"}",
                 structLiteral1.getStringValueForStreamLoad(options));
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
         Assert.assertEquals(

@@ -677,6 +677,13 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "    \"replication_num\" = \"1\",    \n"
                         + "    \"light_schema_change\" = \"true\"    \n"
                         + ");"));
+        
+        checkThrow(AnalysisException.class, "ARRAY unsupported sub-type: time(0)",
+                () -> createTable("create table test.test_array_time( \n"
+                        + "id BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
+                        + "array_time ARRAY<TIME>  DEFAULT NULL COMMENT \"\" ,\n"
+                        + ") \n"
+                        + "duplicate key (id) distributed by hash(id) buckets 1 properties('replication_num' = '1');"));
     }
 
     @Test
@@ -684,6 +691,12 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.test_map(k1 INT, k2 Map<int, VARCHAR(20)>) duplicate key (k1) "
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
+        checkThrow(AnalysisException.class, "MAP unsupported sub-type: time(0)",
+                () -> createTable("create table test.test_map_time( \n"
+                        + "id BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
+                        + "map_time MAP<INT, TIME>  DEFAULT NULL COMMENT \"\" ,\n"
+                        + ") \n"
+                        + "duplicate key (id) distributed by hash(id) buckets 1 properties('replication_num' = '1');"));
     }
 
     @Test
@@ -691,6 +704,12 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) duplicate key (k1) "
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
+        checkThrow(AnalysisException.class, "STRUCT unsupported sub-type: time(0)",
+                () -> createTable("create table test.test_struct_time( \n"
+                        + "id BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
+                        + "struct_time STRUCT<time: TIME>  DEFAULT NULL COMMENT \"\" ,\n"
+                        + ") \n"
+                        + "duplicate key (id) distributed by hash(id) buckets 1 properties('replication_num' = '1');"));
     }
 
     @Test
