@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.qe.ConnectContext;
 
@@ -136,6 +137,11 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             } else {
                 return new DateV2Literal(datetime.year, datetime.month, datetime.day);
             }
+        } else if (targetType.isDateTimeType()) {
+            Expression expression = castToDateTime(DateTimeV2Type.MAX, strictCast);
+            DateTimeV2Literal datetime = (DateTimeV2Literal) expression;
+            return new DateTimeLiteral((DateTimeType) targetType, datetime.year, datetime.month, datetime.day,
+                    datetime.hour, datetime.minute, datetime.second, datetime.microSecond);
         } else if (targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast);
         } else if (targetType.isFloatType()) {
