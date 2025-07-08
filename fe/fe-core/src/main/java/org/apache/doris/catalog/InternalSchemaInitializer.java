@@ -264,114 +264,76 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createTbl() throws UserException {
-        String statisticsTblSql = "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`column_statistics` (\n"
-                + "  `id` varchar(4096) NOT NULL COMMENT \"\",\n"
-                + "  `catalog_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `db_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `tbl_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `idx_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `col_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `part_id` varchar(1024) NULL COMMENT \"\",\n"
-                + "  `count` bigint NULL COMMENT \"\",\n"
-                + "  `ndv` bigint NULL COMMENT \"\",\n"
-                + "  `null_count` bigint NULL COMMENT \"\",\n"
-                + "  `min` varchar(65533) NULL COMMENT \"\",\n"
-                + "  `max` varchar(65533) NULL COMMENT \"\",\n"
-                + "  `data_size_in_bytes` bigint NULL COMMENT \"\",\n"
-                + "  `update_time` datetime NOT NULL COMMENT \"\",\n"
-                + "  `hot_value` text NULL COMMENT \"\"\n"
-                + ") ENGINE = olap\n"
-                + "UNIQUE KEY(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)\n"
-                + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
-                + "DISTRIBUTED BY HASH(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)\n"
-                + "BUCKETS 7\n"
-                + "PROPERTIES (\"replication_num\"  =  \"1\")";
+        createTable(getColumnStatisticsCreateSql());
+        createTable(getPartitionStatisticsCreateSql());
+        createTable(getAuditLogCreateSql());
+    }
 
-        String columnTblSql = "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`partition_statistics` (\n"
-                + "  `catalog_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `db_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `tbl_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `idx_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `part_name` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `part_id` bigint NOT NULL COMMENT \"\",\n"
-                + "  `col_id` varchar(1024) NOT NULL COMMENT \"\",\n"
-                + "  `count` bigint NULL COMMENT \"\",\n"
-                + "  `ndv` hll NOT NULL COMMENT \"\",\n"
-                + "  `null_count` bigint NULL COMMENT \"\",\n"
-                + "  `min` varchar(65533) NULL COMMENT \"\",\n"
-                + "  `max` varchar(65533) NULL COMMENT \"\",\n"
-                + "  `data_size_in_bytes` bigint NULL COMMENT \"\",\n"
-                + "  `update_time` datetime NOT NULL COMMENT \"\"\n"
-                + ") ENGINE = olap\n"
-                + "UNIQUE KEY(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)\n"
-                + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
-                + "DISTRIBUTED BY HASH(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)\n"
-                + "BUCKETS 7\n"
-                + "PROPERTIES (\"replication_num\"  =  \"1\")";
+    private static String getColumnStatisticsCreateSql() throws UserException {
+        String template =
+                "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`column_statistics` (\n"
+                        + "{COLUMN_DEFINITIONS}\n"
+                        + ") ENGINE = olap\n"
+                        + "UNIQUE KEY(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)\n"
+                        + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)\n"
+                        + "BUCKETS 7\n"
+                        + "PROPERTIES (\"replication_num\"  =  \"1\")";
+        return template.replace("{COLUMN_DEFINITIONS}",
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(StatisticConstants.TABLE_STATISTIC_TBL_NAME)));
+    }
 
-        // audit table
-        String auditTblSql = "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`audit_log` (\n"
-                + "  `query_id` varchar(48) NULL COMMENT \"\",\n"
-                + "  `time` datetimev2(3) NULL COMMENT \"\",\n"
-                + "  `client_ip` varchar(128) NULL COMMENT \"\",\n"
-                + "  `user` varchar(128) NULL COMMENT \"\",\n"
-                + "  `frontend_ip` varchar(128) NULL COMMENT \"\",\n"
-                + "  `catalog` varchar(128) NULL COMMENT \"\",\n"
-                + "  `db` varchar(128) NULL COMMENT \"\",\n"
-                + "  `state` varchar(128) NULL COMMENT \"\",\n"
-                + "  `error_code` int NULL COMMENT \"\",\n"
-                + "  `error_message` text NULL COMMENT \"\",\n"
-                + "  `query_time` bigint NULL COMMENT \"\",\n"
-                + "  `cpu_time_ms` bigint NULL COMMENT \"\",\n"
-                + "  `peak_memory_bytes` bigint NULL COMMENT \"\",\n"
-                + "  `scan_bytes` bigint NULL COMMENT \"\",\n"
-                + "  `scan_rows` bigint NULL COMMENT \"\",\n"
-                + "  `return_rows` bigint NULL COMMENT \"\",\n"
-                + "  `shuffle_send_rows` bigint NULL COMMENT \"\",\n"
-                + "  `shuffle_send_bytes` bigint NULL COMMENT \"\",\n"
-                + "  `spill_write_bytes_from_local_storage` bigint NULL COMMENT \"\",\n"
-                + "  `spill_read_bytes_from_local_storage` bigint NULL COMMENT \"\",\n"
-                + "  `scan_bytes_from_local_storage` bigint NULL COMMENT \"\",\n"
-                + "  `scan_bytes_from_remote_storage` bigint NULL COMMENT \"\",\n"
-                + "  `parse_time_ms` int NULL COMMENT \"\",\n"
-                + "  `plan_times_ms` map<text,int> NULL COMMENT \"\",\n"
-                + "  `get_meta_times_ms` map<text,int> NULL COMMENT \"\",\n"
-                + "  `schedule_times_ms` map<text,int> NULL COMMENT \"\",\n"
-                + "  `hit_sql_cache` tinyint NULL COMMENT \"\",\n"
-                + "  `handled_in_fe` tinyint NULL COMMENT \"\",\n"
-                + "  `queried_tables_and_views` array<text> NULL COMMENT \"\",\n"
-                + "  `chosen_m_views` array<text> NULL COMMENT \"\",\n"
-                + "  `changed_variables` map<text,text> NULL COMMENT \"\",\n"
-                + "  `sql_mode` text NULL COMMENT \"\",\n"
-                + "  `stmt_type` varchar(48) NULL COMMENT \"\",\n"
-                + "  `stmt_id` bigint NULL COMMENT \"\",\n"
-                + "  `sql_hash` varchar(128) NULL COMMENT \"\",\n"
-                + "  `sql_digest` varchar(128) NULL COMMENT \"\",\n"
-                + "  `is_query` tinyint NULL COMMENT \"\",\n"
-                + "  `is_nereids` tinyint NULL COMMENT \"\",\n"
-                + "  `is_internal` tinyint NULL COMMENT \"\",\n"
-                + "  `workload_group` text NULL COMMENT \"\",\n"
-                + "  `compute_group` text NULL COMMENT \"\",\n"
-                + "  `stmt` text NULL COMMENT \"\"\n"
-                + ") ENGINE = olap\n"
-                + "DUPLICATE KEY(`query_id`, `time`, `client_ip`)\n"
-                + "COMMENT \"Doris internal audit table, DO NOT MODIFY IT\"\n"
-                + "PARTITION BY RANGE(`time`)\n"
-                + "(\n"
-                + "\n"
-                + ")\n"
-                + "DISTRIBUTED BY HASH(`query_id`)\n"
-                + "BUCKETS 2\n"
-                + "PROPERTIES (\"dynamic_partition.time_unit\"  =  \"DAY\",\n"
-                + "\"dynamic_partition.buckets\"  =  \"2\",\n"
-                + "\"dynamic_partition.end\"  =  \"3\",\n"
-                + "\"dynamic_partition.enable\"  =  \"true\",\n"
-                + "\"replication_num\"  =  \"1\",\n"
-                + "\"dynamic_partition.start\"  =  \"-30\",\n"
-                + "\"dynamic_partition.prefix\"  =  \"p\")";
-        createTable(statisticsTblSql);
-        createTable(columnTblSql);
-        createTable(auditTblSql);
+    private static String getPartitionStatisticsCreateSql() throws UserException {
+        String template =
+                "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`partition_statistics` (\n"
+                        + "{COLUMN_DEFINITIONS}\n"
+                        + ") ENGINE = olap\n"
+                        + "UNIQUE KEY(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)\n"
+                        + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)\n"
+                        + "BUCKETS 7\n"
+                        + "PROPERTIES (\"replication_num\"  =  \"1\")";
+        return template.replace("{COLUMN_DEFINITIONS}",
+                generateColumnDefinitions(
+                        InternalSchema.getCopiedSchema(StatisticConstants.PARTITION_STATISTIC_TBL_NAME)));
+    }
+
+    private static String getAuditLogCreateSql() throws UserException {
+        String template =
+                "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`audit_log` (\n"
+                        + "{COLUMN_DEFINITIONS}\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`query_id`, `time`, `client_ip`)\n"
+                        + "COMMENT \"Doris internal audit table, DO NOT MODIFY IT\"\n"
+                        + "PARTITION BY RANGE(`time`)\n"
+                        + "(\n"
+                        + "\n"
+                        + ")\n"
+                        + "DISTRIBUTED BY HASH(`query_id`)\n"
+                        + "BUCKETS 2\n"
+                        + "PROPERTIES (\"dynamic_partition.time_unit\"  =  \"DAY\",\n"
+                        + "\"dynamic_partition.buckets\"  =  \"2\",\n"
+                        + "\"dynamic_partition.end\"  =  \"3\",\n"
+                        + "\"dynamic_partition.enable\"  =  \"true\",\n"
+                        + "\"replication_num\"  =  \"1\",\n"
+                        + "\"dynamic_partition.start\"  =  \"-30\",\n"
+                        + "\"dynamic_partition.prefix\"  =  \"p\")";
+        return template.replace("{COLUMN_DEFINITIONS}",
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(AuditLoader.AUDIT_LOG_TABLE)));
+    }
+
+    private static String generateColumnDefinitions(List<ColumnDef> schema) {
+        StringBuilder sb = new StringBuilder();
+        for (ColumnDef column : schema) {
+            sb.append("  `").append(column.getName()).append("` ")
+                    .append(column.getTypeDef().toSql())
+                    .append(column.isAllowNull() ? " NULL" : " NOT NULL")
+                    .append(" COMMENT \"\",\n");
+        }
+        if (!schema.isEmpty()) {
+            sb.setLength(sb.length() - 2);
+        }
+        return sb.toString();
     }
 
     private static void createTable(String sql) {
