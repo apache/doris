@@ -67,7 +67,19 @@ suite ("diffrent_serialize") {
         contains "(mv2)"
     }
     */
-    qt_select_mv3 "select k1,map_agg(k2,k3) from d_table group by k1 order by 1;"
+    qt_select_mv3 "select k1,map_agg(k2,k3) from d_table where k1 is not null group by k1 order by 1;"
+    test {
+        sql "select k1,map_agg(k2,k3) from d_table where k1 is null group by k1 order by 1;"
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            // Stream load result: [null, {4:null, 3:null}]
+            def result_str = result[0].toString()
+            log.info("query result: ${result_str}".toString())
+            result_str.equals("[null, {4:null, 3:null}]") || result_str.equals("[null, {3:null, 4:null}]")
+        }
+    }
 
     explain {
         sql("select k1,array_agg(k2) from d_table group by k1 order by 1;")
