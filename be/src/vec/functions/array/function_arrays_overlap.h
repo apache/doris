@@ -165,7 +165,12 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+            segment_v2::InvertedIndexResultBitmap& bitmap_result,
+            bool is_pre_evaluate) const override {
+        if (is_pre_evaluate) {
+            return Status::OK();
+        }
+
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
         DCHECK(iterators.size() == 1);
@@ -174,7 +179,7 @@ public:
             return Status::OK();
         }
         auto data_type_with_name = data_type_with_names[0];
-        if (iter->get_reader()->is_fulltext_index()) {
+        if (segment_v2::IndexReaderHelper::is_fulltext_index(iter->get_reader())) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, FULLTEXT reader can not support "
                     "array_overlap");

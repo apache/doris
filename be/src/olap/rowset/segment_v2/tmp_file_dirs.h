@@ -43,7 +43,6 @@ public:
     };
 
     io::Path get_tmp_file_dir() {
-        std::cout << "TmpFileDirs size: " << _tmp_file_dirs.size() << std::endl;
         size_t cur_index = _next_index.fetch_add(1);
         return _tmp_file_dirs[cur_index % _tmp_file_dirs.size()];
     };

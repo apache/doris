@@ -27,15 +27,22 @@
 
 #include "common/status.h"
 #include "io/io_common.h"
+#include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
+#include "olap/rowset/segment_v2/inverted_index/similarity/bm25_similarity.h"
 #include "olap/rowset/segment_v2/inverted_index/util/docid_set_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
+#include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "roaring/roaring.hh"
+#include "runtime/runtime_state.h"
 
 CL_NS_USE(index)
 CL_NS_USE(search)
 CL_NS_USE(util)
 
 namespace doris::segment_v2 {
+
+using SearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
 
 class Query {
 public:
@@ -45,6 +52,8 @@ public:
     // @param field_name The name of the field within the data source to search against.
     // @param terms a vector of tokenized strings that represent the search terms.
     virtual void add(const InvertedIndexQueryInfo& query_info) = 0;
+
+    virtual void pre_search(const InvertedIndexQueryInfo& query_info) {}
 
     // a unified query interface for retrieving the ids obtained from the search.
     // @param roaring a Roaring bitmap to be populated with the search results,

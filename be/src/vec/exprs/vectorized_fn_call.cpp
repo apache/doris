@@ -164,9 +164,10 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
-Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows,
+                                                 bool is_pre_evaluate) {
     DCHECK_GE(get_num_children(), 1);
-    return _evaluate_inverted_index(context, _function, segment_num_rows);
+    return _evaluate_inverted_index(context, _function, segment_num_rows, is_pre_evaluate);
 }
 
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
