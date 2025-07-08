@@ -287,7 +287,6 @@ public abstract class Type {
         variantSubTypes.add(IPV4);
         variantSubTypes.add(IPV6);
         variantSubTypes.add(STRING);
-        variantSubTypes.add(ARRAY);
         variantSubTypes.add(NULL);
     }
 
