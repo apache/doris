@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableSet;
+
 /**
  * If there are multiple distinct aggregate functions that cannot
  * be transformed into multi_distinct, an error is reported.
@@ -36,7 +37,8 @@ import com.google.common.collect.ImmutableSet;
  */
 public class CheckMultiDistinct extends OneRewriteRuleFactory {
     private final ImmutableSet<Class<? extends AggregateFunction>> supportedFunctions =
-        ImmutableSet.of(Count.class, Sum.class, Avg.class, GroupConcat.class, Sum0.class);
+            ImmutableSet.of(Count.class, Sum.class, Avg.class, GroupConcat.class, Sum0.class);
+
     @Override
     public Rule build() {
         return logicalAggregate().then(agg -> checkDistinct(agg)).toRule(RuleType.CHECK_ANALYSIS);
