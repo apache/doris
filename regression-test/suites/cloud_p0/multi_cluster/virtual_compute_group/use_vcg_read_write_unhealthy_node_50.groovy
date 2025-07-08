@@ -25,7 +25,7 @@ import groovy.json.JsonOutput
 // 4 stop a backend of c1
 // 5 stop another backend of c1
 
-suite('use_vcg_read_write', 'multi_cluster,docker') {
+suite('use_vcg_read_write_unhealthy_node_50', 'multi_cluster,docker') {
     def options = new ClusterOptions()
     String tableName = "test_all_vcluster"
     String tbl = "test_virtual_compute_group_tbl"
@@ -75,7 +75,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             def normalVclusterName = "normalVirtualClusterName"
             def normalVclusterId = "normalVirtualClusterId"
             def vcgClusterNames = [clusterName1, clusterName2]
-            def clusterPolicy = [type: "ActiveStandby", active_cluster_name: "${clusterName1}", standby_cluster_names: ["${clusterName2}"]]
+            def clusterPolicy = [type: "ActiveStandby", active_cluster_name: "${clusterName1}", standby_cluster_names: ["${clusterName2}"], unhealthyNodeThresholdPercent: 50]
             def clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_names:vcgClusterNames, cluster_policy:clusterPolicy]
             def normalInstance = [instance_id: "${instance_id}", cluster: clusterMap]
             def jsonOutput = new JsonOutput()
@@ -243,15 +243,10 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
             def addrSet = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            if (options.connectToFollower) {
-                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
-            } else {
-                checkProfileNew.call(cluster.getMasterFe(), addrSet)
-            }
+            checkProfileNew.call(addrSet)
 
             cluster.stopBackends(4)
-            sleep(6000)
-
+            sleep(10000)
             showResult = sql "show backends"
             for (row : showResult) {
                 println row
@@ -330,28 +325,29 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             after_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("after_cluster2_be1_flush : ${after_cluster2_be1_flush}".toString())
 
-            assertTrue(before_cluster1_be0_load_rows < after_cluster1_be0_load_rows || before_cluster1_be1_load_rows < after_cluster1_be1_load_rows)
-            assertTrue(before_cluster1_be0_flush < after_cluster1_be0_flush || before_cluster1_be1_flush < after_cluster1_be1_flush)
+            assertTrue(before_cluster2_be0_load_rows < after_cluster2_be0_load_rows || before_cluster2_be1_load_rows < after_cluster2_be1_load_rows)
+            assertTrue(before_cluster2_be0_flush < after_cluster2_be0_flush || before_cluster2_be1_flush < after_cluster2_be1_flush)
 
-            assertTrue(before_cluster2_be0_load_rows == after_cluster2_be0_load_rows)
-            assertTrue(before_cluster2_be0_flush == after_cluster2_be0_flush)
-            assertTrue(before_cluster2_be1_load_rows == after_cluster2_be1_load_rows)
-            assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
+            assertTrue(before_cluster1_be0_load_rows == after_cluster1_be0_load_rows)
+            assertTrue(before_cluster1_be0_flush == after_cluster1_be0_flush)
 
-            addrSet = [cluster1Ips[0] + ":" + "8060"] as Set
+            addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            if (options.connectToFollower) {
-                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
-            } else {
-                checkProfileNew.call(cluster.getMasterFe(), addrSet)
-            }
+            checkProfileNew.call(addrSet)
+
+            sleep(16000)
+            sql """
+                insert into ${tbl} (k1, k2) values (1, "10");
+            """
+
+            // show cluster
+            showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
+            log.info("show compute group {}", showComputeGroup)
+            vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
+            assertNotNull(vcgInShow)
+            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster2","standbyComputeGroup":"newcluster1"'))
 
             cluster.stopBackends(5)
-            sleep(10000)
-            showResult = sql "show backends"
-            for (row : showResult) {
-                log.info("show backends resp : ${row}".toString())
-            }
 
             before_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
             log.info("before_cluster2_be0_load_rows : ${before_cluster2_be0_load_rows}".toString())
@@ -410,18 +406,9 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
             addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            if (options.connectToFollower) {
-                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
-            } else {
-                checkProfileNew.call(cluster.getMasterFe(), addrSet)
-            }
+            checkProfileNew.call(addrSet)
 
             sleep(16000)
-
-            sql """
-                insert into ${tbl} (k1, k2) values (1, "10");
-            """
-
             // show cluster
             showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
             log.info("show compute group {}", showComputeGroup)
