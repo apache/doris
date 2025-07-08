@@ -21,7 +21,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
 
     GetDebugPoint().clearDebugPointsForAllFEs()
     GetDebugPoint().clearDebugPointsForAllBEs()
-
+    def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_flexible_partial_update_publish_conflict"
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE;"""
     sql """ CREATE TABLE ${tableName} (
@@ -43,132 +43,160 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
     sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
     order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
-    def enable_publish_spin_wait = { tokenName -> 
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "${tokenName}"])
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait", [token: "${tokenName}"])
-        }
+    def do_streamload_2pc_commit = { txnId ->
+        def command = "curl -X PUT --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
+                " -H txn_id:${txnId}" +
+                " -H txn_operation:commit" +
+                " http://${context.config.feHttpAddress}/api/${dbName}/${tableName}/_stream_load_2pc"
+        log.info("http_stream execute 2pc: ${command}")
+
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.text
+        def json2pc = parseJson(out)
+        log.info("http_stream 2pc result: ${out}".toString())
+        assertEquals(code, 0)
+        assertEquals("success", json2pc.status.toLowerCase())
     }
 
-    def disable_publish_spin_wait = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+    def wait_for_publish = {txnId, waitSecond ->
+        String st = "PREPARE"
+        while (!st.equalsIgnoreCase("VISIBLE") && !st.equalsIgnoreCase("ABORTED") && waitSecond > 0) {
+            Thread.sleep(1000)
+            waitSecond -= 1
+            def result = sql_return_maparray "show transaction from ${dbName} where id = ${txnId}"
+            assertNotNull(result)
+            st = result[0].TransactionStatus
         }
-    }
-    
-    def enable_block_in_publish = { passToken -> 
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "${passToken}"])
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block", [pass_token: "${passToken}"])
-        }
+        log.info("Stream load with txn ${txnId} is ${st}")
+        assertEquals(st, "VISIBLE")
     }
 
-    def disable_block_in_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
-        }
-    }
-
-    try {
-        GetDebugPoint().clearDebugPointsForAllFEs()
-        GetDebugPoint().clearDebugPointsForAllBEs()
-
-        // block the partial update in publish phase
-        enable_publish_spin_wait()
-        enable_block_in_publish()
-        def t1 = Thread.start {
-            streamLoad {
-                table "${tableName}"
-                set 'format', 'json'
-                set 'read_json_by_line', 'true'
-                set 'strict_mode', 'false'
-                set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-                file "test1.json"
-                time 40000
+    // block the partial update in publish phase
+    def txnId1, txnId2
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'two_phase_commit', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test1.json"
+        time 40000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
             }
+            
+            def json = parseJson(result)
+            txnId1 = json.TxnId
+            assertEquals("success", json.Status.toLowerCase())
         }
-
-        Thread.sleep(1500)
-
-        def t2 = Thread.start {
-            streamLoad {
-                table "${tableName}"
-                set 'format', 'json'
-                set 'read_json_by_line', 'true'
-                set 'strict_mode', 'false'
-                set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-                file "test2.json"
-                time 40000
-            }
-        }
-
-        Thread.sleep(1500)
-
-        disable_publish_spin_wait()
-        disable_block_in_publish()
-        t1.join()
-        t2.join()
-
-        order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
-
-
-        // ==================================================================================================
-        // publish alignment read from rowsets which have multi-segments
-        sql "truncate table ${tableName}"
-        enable_publish_spin_wait("token1")
-        enable_block_in_publish("-1")
-        def t3 = Thread.start {
-            sql "set insert_visible_timeout_ms=60000;"
-            sql "sync;"
-            sql "insert into ${tableName} values(1,1,1,1,1,1),(2,2,2,2,2,2);"
-        }
-        Thread.sleep(1500)
-        def t4 = Thread.start {
-            sql "set enable_unique_key_partial_update=true;"
-            sql "set insert_visible_timeout_ms=60000;"
-            sql "set enable_insert_strict=false;"
-            sql "sync;"
-            sql "insert into ${tableName}(k,v1,v2,v3) values(1,99,99,99);"
-        }
-        Thread.sleep(1500)
-        enable_publish_spin_wait("token2")
-        def t5 = Thread.start {
-            streamLoad {
-                table "${tableName}"
-                set 'format', 'json'
-                set 'read_json_by_line', 'true'
-                set 'strict_mode', 'false'
-                set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-                file "test5.json"
-                time 40000
-            }
-        }
-        Thread.sleep(1500)
-        // let t3 and t4 publish
-        enable_block_in_publish("token1")
-        t3.join()
-        t4.join()
-        Thread.sleep(1000)
-        qt_sql1 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
-        // let t5 publish
-        // in publish phase, t5 will read from t4 which has multi segments
-        enable_block_in_publish("token2")
-        t5.join()
-        qt_sql2 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
-
-    } catch(Exception e) {
-        logger.info(e.getMessage())
-        throw e
-    } finally {
-        disable_publish_spin_wait()
-        disable_block_in_publish()
-        GetDebugPoint().clearDebugPointsForAllFEs()
-        GetDebugPoint().clearDebugPointsForAllBEs()
     }
+
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'two_phase_commit', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test2.json"
+        time 40000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            
+            def json = parseJson(result)
+            txnId2 = json.TxnId
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+
+    do_streamload_2pc_commit(txnId1)
+    wait_for_publish(txnId1, 60)
+    do_streamload_2pc_commit(txnId2)
+    wait_for_publish(txnId2, 60)
+
+    order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+
+
+    // ==================================================================================================
+    // publish alignment read from rowsets which have multi-segments
+    sql "truncate table ${tableName}"
+
+    def txnId3, txnId4, txnId5
+
+    String load3 = """1,1,1,1,1,1
+2,2,2,2,2,2"""
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'two_phase_commit', 'true'
+        inputStream new ByteArrayInputStream(load3.getBytes())
+        time 60000 // limit inflight 60s
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            
+            def json = parseJson(result)
+            txnId3 = json.TxnId
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+
+    String load4 = """1,99,99,99"""
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'k,v1,v2,v3'
+        set 'strict_mode', "false"
+        set 'two_phase_commit', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FIXED_COLUMNS'
+        inputStream new ByteArrayInputStream(load4.getBytes())
+        time 40000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            
+            def json = parseJson(result)
+            txnId4 = json.TxnId
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'two_phase_commit', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test5.json"
+        time 40000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            
+            def json = parseJson(result)
+            txnId5 = json.TxnId
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    // let t3 and t4 publish
+    do_streamload_2pc_commit(txnId3)
+    wait_for_publish(txnId3, 60)
+    do_streamload_2pc_commit(txnId4)
+    wait_for_publish(txnId4, 60)
+    qt_sql1 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+
+    do_streamload_2pc_commit(txnId5)
+    wait_for_publish(txnId5, 60)
+    qt_sql2 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
 }

@@ -20,10 +20,14 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
 suite("test_auto_inc_replica_consistency", "nonConcurrent") {
+    if (isCloudMode()) {
+        logger.info("skip test_auto_inc_replica_consistency in cloud mode")
+        return
+    }
 
     GetDebugPoint().clearDebugPointsForAllFEs()
     GetDebugPoint().clearDebugPointsForAllBEs()
-
+    def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_auto_inc_replica_consistency"
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE;"""
     sql """ CREATE TABLE ${tableName} (
@@ -45,99 +49,86 @@ suite("test_auto_inc_replica_consistency", "nonConcurrent") {
         return
     }
 
-    def tabletStat = sql_return_maparray("show tablets from ${tableName};").get(0)
-    def tabletId = tabletStat.TabletId
+    def do_streamload_2pc_commit = { txnId ->
+        def command = "curl -X PUT --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
+                " -H txn_id:${txnId}" +
+                " -H txn_operation:commit" +
+                " http://${context.config.feHttpAddress}/api/${dbName}/${tableName}/_stream_load_2pc"
+        log.info("http_stream execute 2pc: ${command}")
 
-    def enable_publish_spin_wait = { tokenName -> 
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "${tokenName}"])
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.enable_spin_wait", [token: "${tokenName}", tablet_id: "${tabletId}"])
-        }
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.text
+        def json2pc = parseJson(out)
+        log.info("http_stream 2pc result: ${out}".toString())
+        assertEquals(code, 0)
+        assertEquals("success", json2pc.status.toLowerCase())
     }
 
-    def disable_publish_spin_wait = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.enable_spin_wait")
+    def wait_for_publish = {txnId, waitSecond ->
+        String st = "PREPARE"
+        while (!st.equalsIgnoreCase("VISIBLE") && !st.equalsIgnoreCase("ABORTED") && waitSecond > 0) {
+            Thread.sleep(1000)
+            waitSecond -= 1
+            def result = sql_return_maparray "show transaction from ${dbName} where id = ${txnId}"
+            assertNotNull(result)
+            st = result[0].TransactionStatus
         }
+        log.info("Stream load with txn ${txnId} is ${st}")
+        assertEquals(st, "VISIBLE")
     }
 
-    def enable_block_in_publish = { passToken -> 
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "${passToken}"])
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.block", [pass_token: "${passToken}", tablet_id: "${tabletId}"])
-        }
-    }
 
-    def disable_block_in_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.block")
-        }
-    }
-
-    try {
-        GetDebugPoint().clearDebugPointsForAllFEs()
-        GetDebugPoint().clearDebugPointsForAllBEs()
-
-
-        enable_publish_spin_wait("t1")
-        enable_block_in_publish("-1")
-
-
-        Thread.sleep(1000)
-        def t1 = Thread.start {
-            String load1 = 
-                    """{"k":1,"v1":100}"""
-            streamLoad {
-                table "${tableName}"
-                set 'format', 'json'
-                set 'read_json_by_line', 'true'
-                set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-                inputStream new ByteArrayInputStream(load1.getBytes())
-                time 60000
+    def txnId1, txnId2
+    String load1 = """{"k":1,"v1":100}"""
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'two_phase_commit', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        inputStream new ByteArrayInputStream(load1.getBytes())
+        time 60000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
             }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            txnId1 = json.TxnId
+            assert "success" == json.Status.toLowerCase()
         }
-        Thread.sleep(1000)
-
-
-        def t2 = Thread.start {
-            String load2 = 
-                    """{"k":1,"v2":200}"""
-            streamLoad {
-                table "${tableName}"
-                set 'format', 'json'
-                set 'read_json_by_line', 'true'
-                set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-                inputStream new ByteArrayInputStream(load2.getBytes())
-                time 60000
-            }
-        }
-        Thread.sleep(1000)
-
-        disable_block_in_publish()
-        t1.join()
-        t2.join()
-        Thread.sleep(1000)
-
-        sql "insert into ${tableName}(k,v1,v2) values(2,2,2);"
-
-        qt_sql "select k,v1,v2,id from ${tableName} order by k;"
-        sql "set skip_delete_bitmap=true;"
-        sql "sync;"
-        qt_sql "select k,v1,v2,id,__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__;"
-
-    } catch(Exception e) {
-        logger.info(e.getMessage())
-        throw e
-    } finally {
-        disable_publish_spin_wait()
-        disable_block_in_publish()
-        GetDebugPoint().clearDebugPointsForAllFEs()
-        GetDebugPoint().clearDebugPointsForAllBEs()
     }
+
+    String load2 = """{"k":1,"v2":200}"""
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'two_phase_commit', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        inputStream new ByteArrayInputStream(load2.getBytes())
+        time 60000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            txnId2 = json.TxnId
+            assert "success" == json.Status.toLowerCase()
+        }
+    }
+
+    do_streamload_2pc_commit(txnId1)
+    wait_for_publish(txnId1, 10)
+    do_streamload_2pc_commit(txnId2)
+    wait_for_publish(txnId2, 10)
+
+    sql "insert into ${tableName}(k,v1,v2) values(2,2,2);"
+
+    qt_sql "select k,v1,v2,id from ${tableName} order by k;"
+    sql "set skip_delete_bitmap=true;"
+    sql "sync;"
+    qt_sql "select k,v1,v2,id,__DORIS_VERSION_COL__ from ${tableName} order by k,__DORIS_VERSION_COL__;"
 }
