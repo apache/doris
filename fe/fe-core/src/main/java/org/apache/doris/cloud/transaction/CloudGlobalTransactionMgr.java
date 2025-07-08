@@ -258,10 +258,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         switch (sourceType) {
             case BACKEND_STREAMING:
                 checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
-                        Config.min_load_timeout_second);
+                        Config.min_load_timeout_second, sourceType);
                 break;
             default:
-                checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second, Config.min_load_timeout_second);
+                checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second,
+                        Config.min_load_timeout_second, sourceType);
         }
 
         BeginTxnResponse beginTxnResponse = null;
