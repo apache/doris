@@ -21,20 +21,18 @@
 
 #include <string>
 
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "olap/tablet_reader.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
 
-namespace doris {
-#include "common/compile_check_begin.h"
-
-namespace vectorized {
+namespace doris::vectorized {
 class OlapScanner;
-}
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class OlapScanOperatorX;
 class OlapScanLocalState final : public ScanLocalState<OlapScanLocalState> {
@@ -63,6 +61,7 @@ public:
         std::copy(tmp.begin(), tmp.end(), std::inserter(res, res.end()));
         return res;
     }
+    Status sync_cloud_tablets(RuntimeState* state) override;
 
 private:
     friend class vectorized::OlapScanner;
@@ -101,6 +100,8 @@ private:
     Status _build_key_ranges_and_filters();
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    std::vector<SyncRowsetStats> _sync_statistics;
+    int64_t _duration_ns = 0;
     std::vector<std::shared_ptr<Dependency>> _cloud_tablet_dependencies;
     std::future<Status> _cloud_tablet_future;
     std::atomic_bool _sync_tablet = false;

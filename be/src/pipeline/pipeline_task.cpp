@@ -402,11 +402,6 @@ Status PipelineTask::execute(bool* done) {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
         return status;
     });
-    // `hold_tablets` is designed as a reentrant method. For cloud mode, we reach here first to
-    // request remote tablets by RPC, and then hold local tablets by the second call.
-    if (!_hold_cloud_tablet && !_wake_up_early) {
-        RETURN_IF_ERROR(_source->hold_tablets(_state));
-    }
     // `_wake_up_early` must be after `_wait_to_start()`
     if (_wait_to_start() || _wake_up_early) {
         return Status::OK();

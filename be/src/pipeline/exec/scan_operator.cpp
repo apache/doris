@@ -81,6 +81,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
                                  _filter_dependencies, p.get_name() + "_FILTER_DEPENDENCY"));
     RETURN_IF_ERROR(_init_profile());
     set_scan_ranges(state, info.scan_ranges);
+    RETURN_IF_ERROR(sync_cloud_tablets(state));
 
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     return Status::OK();
