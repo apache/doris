@@ -315,8 +315,8 @@ public abstract class ExternalCatalog
                     if (metaCache == null) {
                         metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
                                 name,
-                                OptionalLong.of(86400L),
-                                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
+                                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
                                 Config.max_meta_object_cache_num,
                                 ignored -> getFilteredDatabaseNames(),
                                 localDbName -> Optional.ofNullable(
@@ -1282,4 +1282,15 @@ public abstract class ExternalCatalog
     public ThreadPoolExecutor getThreadPoolExecutor() {
         return threadPoolWithPreAuth;
     }
+
+    /**
+     * Check if an external view exists.
+     * @param dbName
+     * @param viewName
+     * @return
+     */
+    public boolean viewExists(String dbName, String viewName) {
+        throw new UnsupportedOperationException("View is not supported.");
+    }
+
 }

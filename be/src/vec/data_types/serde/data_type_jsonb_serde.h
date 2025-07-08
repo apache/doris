@@ -44,7 +44,7 @@ public:
                                  int row_idx, bool col_const,
                                  const FormatOptions& options) const override;
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
 
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
@@ -56,7 +56,7 @@ public:
                                           const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
+                                               uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,

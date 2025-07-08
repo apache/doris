@@ -129,8 +129,6 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
     _get_block_timer =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
-    _open_reader_timer =
-            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerOpenReaderTime", 1);
     _cast_to_input_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
                                                       "FileScannerCastInputBlockTime", 1);
     _fill_missing_columns_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
@@ -243,7 +241,7 @@ Status VFileScanner::_process_runtime_filters_partition_prune(bool& can_filter_a
         auto partition_value_column = partition_slot_desc->get_data_type_ptr()->create_column();
         auto* col_ptr = static_cast<IColumn*>(partition_value_column.get());
         Slice slice(partition_value.data(), partition_value.size());
-        int num_deserialized = 0;
+        uint64_t num_deserialized = 0;
         RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
                 *col_ptr, slice, partition_value_column_size, &num_deserialized, {}));
         parititon_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
@@ -574,7 +572,7 @@ Status VFileScanner::_fill_columns_from_path(size_t rows) {
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
-        int num_deserialized = 0;
+        uint64_t num_deserialized = 0;
         if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
                                                             &num_deserialized,
                                                             _text_formatOptions) != Status::OK()) {
@@ -942,10 +940,6 @@ Status VFileScanner::_get_next_reader() {
             // ATTN: the push down agg type may be set back to NONE,
             // see IcebergTableReader::init_row_filters for example.
             parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
-            {
-                SCOPED_TIMER(_open_reader_timer);
-                RETURN_IF_ERROR(parquet_reader->open());
-            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1110,12 +1104,12 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_AVRO: {
             _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
                                                        range);
-            init_status = ((AvroJNIReader*)(_cur_reader.get()))
-                                  ->init_fetch_table_reader(_colname_to_value_range);
+            init_status =
+                    ((AvroJNIReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;
         }
         case TFileFormatType::FORMAT_WAL: {
-            _cur_reader.reset(new WalReader(_state));
+            _cur_reader = WalReader::create_unique(_state);
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
             break;
         }

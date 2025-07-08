@@ -30,7 +30,6 @@
 
 namespace doris {
 class TFileRangeDesc;
-
 namespace vectorized {
 class Block;
 } // namespace vectorized
@@ -38,7 +37,7 @@ struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class TableFormatReader : public GenericReader {
 public:
     TableFormatReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeState* state,
@@ -155,5 +154,5 @@ protected:
     // table column name to file column name map.
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

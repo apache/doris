@@ -1171,8 +1171,13 @@ DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
 DECLARE_Int32(file_cache_downloader_thread_num_min);
 DECLARE_Int32(file_cache_downloader_thread_num_max);
-
-DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
+// used to persist lru information before be reboot and load the info back
+DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
+// dump queue only if the queue update specific times through several dump intervals
+DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
+DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
+DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1182,7 +1187,7 @@ DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
 // set `true` to enable insert searcher into cache when write inverted index data
-DECLARE_Bool(enable_write_index_searcher_cache);
+DECLARE_mBool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%

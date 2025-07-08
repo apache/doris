@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <cstdint>
+#include <utility>
+
+#include "common/cast_set.h"
 #include "gutil/strings/numbers.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/types.h"
@@ -25,6 +29,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized::converter {
+#include "common/compile_check_begin.h"
 
 enum FileFormat { COMMON, ORC, PARQUET };
 
@@ -385,9 +390,14 @@ struct SafeCastString<TYPE_TINYINT> {
                                  PrimitiveTypeTraits<TYPE_TINYINT>::ColumnType::value_type* value) {
         int32 cast_to_int = 0;
         bool can_cast = safe_strto32(startptr, buffer_size, &cast_to_int);
-        *value = cast_to_int;
-        return can_cast && cast_to_int <= std::numeric_limits<int8>::max() &&
-               cast_to_int >= std::numeric_limits<int8>::min();
+        if (can_cast && cast_to_int <= std::numeric_limits<int8>::max() &&
+            cast_to_int >= std::numeric_limits<int8>::min()) {
+            // has checked the cast_to_int is in the range of int8
+            *value = cast_set<int8_t>(cast_to_int);
+            return true;
+        } else {
+            return false;
+        }
     }
 };
 
@@ -398,9 +408,14 @@ struct SafeCastString<TYPE_SMALLINT> {
             PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnType::value_type* value) {
         int32 cast_to_int = 0;
         bool can_cast = safe_strto32(startptr, buffer_size, &cast_to_int);
-        *value = cast_to_int;
-        return can_cast && cast_to_int <= std::numeric_limits<int16>::max() &&
-               cast_to_int >= std::numeric_limits<int16>::min();
+        if (can_cast && cast_to_int <= std::numeric_limits<int16>::max() &&
+            cast_to_int >= std::numeric_limits<int16>::min()) {
+            // has checked the cast_to_int is in the range of int16
+            *value = cast_set<int16_t>(cast_to_int);
+            return true;
+        } else {
+            return false;
+        }
     }
 };
 
@@ -526,7 +541,7 @@ private:
 
 public:
     CastStringConverter() = default;
-    CastStringConverter(DataTypePtr dst_type_desc) : _dst_type_desc(dst_type_desc) {}
+    CastStringConverter(DataTypePtr dst_type_desc) : _dst_type_desc(std::move(dst_type_desc)) {}
 
     using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType::value_type;
     using DstColumnType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType;
@@ -551,17 +566,18 @@ public:
             bool can_cast = false;
             if constexpr (is_decimal_type<DstPrimitiveType>()) {
                 can_cast = SafeCastDecimalString<DstPrimitiveType>::safe_cast_string(
-                        string_value.data, string_value.size, &value,
+                        string_value.data, cast_set<int>(string_value.size), &value,
                         _dst_type_desc->get_precision(), _dst_type_desc->get_scale());
             } else if constexpr (DstPrimitiveType == TYPE_DATETIMEV2) {
                 can_cast = SafeCastString<TYPE_DATETIMEV2>::safe_cast_string(
-                        string_value.data, string_value.size, &value, _dst_type_desc->get_scale());
+                        string_value.data, cast_set<int>(string_value.size), &value,
+                        _dst_type_desc->get_scale());
             } else if constexpr (DstPrimitiveType == TYPE_BOOLEAN && fileFormat == ORC) {
                 can_cast = SafeCastString<TYPE_BOOLEAN, ORC>::safe_cast_string(
-                        string_value.data, string_value.size, &value);
+                        string_value.data, cast_set<int>(string_value.size), &value);
             } else {
                 can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(
-                        string_value.data, string_value.size, &value);
+                        string_value.data, cast_set<int>(string_value.size), &value);
             }
 
             if (!can_cast) {
@@ -741,8 +757,8 @@ public:
 
         for (int i = 0; i < rows; ++i) {
             if constexpr (DstPrimitiveType == TYPE_FLOAT || DstPrimitiveType == TYPE_DOUBLE) {
-                data[start_idx + i] =
-                        static_cast<DstCppType>(src_data[i].value / (double)scale_factor);
+                data[start_idx + i] = static_cast<DstCppType>(
+                        static_cast<double>(src_data[i].value) / (double)scale_factor);
             } else {
                 SrcNativeType tmp_value = src_data[i].value / scale_factor;
 
@@ -854,4 +870,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::converter

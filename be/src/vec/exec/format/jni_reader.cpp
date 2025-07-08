@@ -25,6 +25,7 @@
 #include "vec/core/types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 
@@ -42,7 +43,7 @@ MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
     std::ostringstream columns_types;
     std::vector<std::string> column_names;
     int index = 0;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         std::string type = JniConnector::get_jni_type(desc->type());
         column_names.emplace_back(field);
@@ -68,4 +69,5 @@ Status MockJniReader::init_reader(
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

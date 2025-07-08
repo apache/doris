@@ -23,8 +23,6 @@
 #include <rapidjson/rapidjson.h>
 #include <simdjson/common_defs.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
-#include <stddef.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
@@ -43,19 +41,13 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/simd_json_parser.h"
 
-namespace simdjson {
-namespace fallback {
-namespace ondemand {
+namespace simdjson::fallback::ondemand {
 class object;
-} // namespace ondemand
-} // namespace fallback
-} // namespace simdjson
+} // namespace simdjson::fallback::ondemand
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class SlotDescriptor;
 class RuntimeState;
 class TFileRangeDesc;
@@ -93,6 +85,7 @@ public:
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+    Status init_schema_reader() override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
@@ -227,10 +220,10 @@ private:
     bool _skip_first_line;
 
     std::string _line_delimiter;
-    int _line_delimiter_length;
+    size_t _line_delimiter_length;
 
-    int _next_row;
-    int _total_rows;
+    uint32_t _next_row;
+    size_t _total_rows;
 
     std::string _jsonpaths;
     std::string _json_root;
@@ -314,4 +307,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

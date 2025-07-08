@@ -856,7 +856,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_AVRO: {
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
@@ -865,6 +864,12 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             st.to_protobuf(result->mutable_status());
             return;
         }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to create reader, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        st = reader->init_schema_reader();
         if (!st.ok()) {
             LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
