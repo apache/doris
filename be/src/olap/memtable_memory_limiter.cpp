@@ -178,6 +178,7 @@ void MemTableMemoryLimiter::_handle_memtable_flush(WorkloadGroupPtr wg) {
                       << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
                       << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage)
+                      << ", need flush: " << PrettyPrinter::print_bytes(need_flush)
                       << ", wg: " << (wg ? wg->debug_string() : "null");
             if (VLOG_DEBUG_IS_ON) {
                 auto log_str = doris::ProcessProfile::instance()
