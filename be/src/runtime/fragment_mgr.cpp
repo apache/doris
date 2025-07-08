@@ -1112,7 +1112,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         RETURN_IF_ERROR(context->submit());
         return Status::OK();
     } else {
-        auto pre_and_submit = [&](int i) {
+        auto prepare_and_submit = [&](int i) {
             const auto& local_params = params.local_params[i];
 
             const TUniqueId& fragment_instance_id = local_params.fragment_instance_id;
@@ -1165,8 +1165,28 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             return context->submit();
         };
 
-        int target_size = params.local_params.size();
-        g_pipeline_fragment_instances_count << target_size;
+        auto run_in_threadpool = [this](auto func, int parallelism) -> Status {
+            std::latch completion_latch(parallelism);
+            Status prepare_statuses[parallelism];
+
+            for (size_t i = 0; i < parallelism; i++) {
+                RETURN_IF_ERROR(_thread_pool->submit_func([&, i]() {
+                    SCOPED_ATTACH_TASK(query_ctx.get());
+                    prepare_statuses[i] = func(i);
+                    completion_latch.count_down();
+                }));
+            }
+
+            completion_latch.wait();
+
+            // Return the first abnormal state if exists
+            for (size_t i = 0; i < parallelism; i++) {
+                if (!prepare_statuses[i].ok()) {
+                    return prepare_statuses[i];
+                }
+            }
+            return Status::OK();
+        };
 
         const auto& local_params = params.local_params[0];
         if (local_params.__isset.runtime_filter_params) {
@@ -1181,37 +1201,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             query_ctx->init_runtime_predicates({0});
         }
 
+        int pipeline_parallelism = params.local_params.size();
+        g_pipeline_fragment_instances_count << pipeline_parallelism;
+
         if (target_size > 1) {
-            int prepare_done = {0};
-            Status prepare_status[target_size];
-            std::mutex m;
-            std::condition_variable cv;
-
-            for (size_t i = 0; i < target_size; i++) {
-                RETURN_IF_ERROR(_thread_pool->submit_func([&, i]() {
-                    SCOPED_ATTACH_TASK(query_ctx.get());
-                    prepare_status[i] = pre_and_submit(i);
-                    std::unique_lock<std::mutex> lock(m);
-                    prepare_done++;
-                    if (prepare_done == target_size) {
-                        cv.notify_one();
-                    }
-                }));
-            }
-
-            std::unique_lock<std::mutex> lock(m);
-            if (prepare_done != target_size) {
-                cv.wait(lock);
-
-                for (size_t i = 0; i < target_size; i++) {
-                    if (!prepare_status[i].ok()) {
-                        return prepare_status[i];
-                    }
-                }
-            }
-            return Status::OK();
+            return run_in_threadpool(prepare_and_submit, pipeline_parallelism);
         } else {
-            return pre_and_submit(0);
+            // FIXME: Why not submit to the threadpool?
+            return prepare_and_submit(0);
         }
     }
     return Status::OK();
