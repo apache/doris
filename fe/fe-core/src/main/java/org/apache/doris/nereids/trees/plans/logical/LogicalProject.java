@@ -117,9 +117,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalProject[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalProject[" + id.asInt() + "]",
                 "distinct", isDistinct,
-                "projects", projects
+                "projects", projects,
+                "stats", statistics
         );
     }
 

@@ -51,9 +51,13 @@ public:
 
 #ifdef BE_TEST
     ExchangeSinkLocalState(RuntimeState* state) : Base(nullptr, state) {
-        _profile = state->obj_pool()->add(new RuntimeProfile("mock"));
+        _operator_profile = state->obj_pool()->add(new RuntimeProfile("OperatorProfile"));
+        _custom_profile = state->obj_pool()->add(new RuntimeProfile("CustomCounters"));
+        _common_profile = state->obj_pool()->add(new RuntimeProfile("CommonCounters"));
+        _operator_profile->add_child(_custom_profile, true);
+        _operator_profile->add_child(_common_profile, true);
         _memory_used_counter =
-                _profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+                _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     }
 #endif
 
