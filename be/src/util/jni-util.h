@@ -104,7 +104,7 @@ public:
     static Status convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map,
                                       jobject* hashmap_object);
     static Status convert_to_cpp_map(JNIEnv* env, jobject map,
-                                     std::map<std::string, std::string>& resultMap);
+                                     std::map<std::string, std::string>* resultMap);
     static size_t get_max_jni_heap_memory_size();
     static Status clean_udf_class_load_cache(const std::string& function_signature);
 
