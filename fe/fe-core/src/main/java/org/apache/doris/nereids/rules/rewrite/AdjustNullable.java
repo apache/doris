@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -49,7 +48,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -417,10 +415,6 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                         changed.set(true);
                         newSlotReference = slotReference.withNullable(replacedSlot.nullable());
                     }
-                }
-                if (!slotReference.nullable() && newSlotReference.nullable()
-                        && ConnectContext.get().getSessionVariable().feDebug) {
-                    throw new AnalysisException("Slot " + slotReference + " convert to nullable");
                 }
                 return newSlotReference;
             } else {
