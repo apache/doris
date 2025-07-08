@@ -81,7 +81,7 @@ suite("sql_create_table_view_when_exceed_limit", "docker") {
                     "compression"="zstd"
                 );
                 """
-                exception ("""[DATA_QUALITY_ERROR]Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
+                exception ("""Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
 This may include unused tablets that were dropped from the frontend but not asynchronously dropped from the backend.
 Please check your usage of mtmv (e.g., refreshing too frequently) or any misuse of auto partition.
 You can resolve this issue by:
@@ -93,7 +93,7 @@ You can resolve this issue by:
         // without partition table
         test {
             sql "create table varchar_0_char_0 (id int, a varchar(0), b char(0)) distributed by hash(id) properties(\"replication_num\"=\"1\")\n"
-            exception ("""[DATA_QUALITY_ERROR]Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
+            exception ("""Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
 This may include unused tablets that were dropped from the frontend but not asynchronously dropped from the backend.
 Please check your usage of mtmv (e.g., refreshing too frequently) or any misuse of auto partition.
 You can resolve this issue by:
@@ -119,7 +119,7 @@ You can resolve this issue by:
                 "dynamic_partition.create_history_partition"="false",
                 "dynamic_partition.replication_allocation" = "tag.location.default: 1")
             """
-            exception ("""[DATA_QUALITY_ERROR]Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
+            exception ("""Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
 This may include unused tablets that were dropped from the frontend but not asynchronously dropped from the backend.
 Please check your usage of mtmv (e.g., refreshing too frequently) or any misuse of auto partition.
 You can resolve this issue by:
@@ -172,7 +172,7 @@ You can resolve this issue by:
                 "replication_num" = "1"
             );
             """
-            exception ("""[DATA_QUALITY_ERROR]Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
+            exception ("""Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
 This may include unused tablets that were dropped from the frontend but not asynchronously dropped from the backend.
 Please check your usage of mtmv (e.g., refreshing too frequently) or any misuse of auto partition.
 You can resolve this issue by:
@@ -214,7 +214,7 @@ You can resolve this issue by:
                 AS
                 SELECT * from base_table;
                 """
-            exception ("""[DATA_QUALITY_ERROR]Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
+            exception ("""Error: The current number of tablets in BE (1000001) exceeds the allowed limit (1000000).
 This may include unused tablets that were dropped from the frontend but not asynchronously dropped from the backend.
 Please check your usage of mtmv (e.g., refreshing too frequently) or any misuse of auto partition.
 You can resolve this issue by:

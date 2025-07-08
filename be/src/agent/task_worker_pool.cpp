@@ -1778,7 +1778,7 @@ Status check_tablet_limit() {
         tablet_num_in_bvar = 1000001;
     });
     if (tablet_num_in_bvar >= config::be_tablet_num_upper_limit) {
-        return Status::DataQualityError<false>(
+        return Status::Error<EXCEEDED_LIMIT>(
                 R"(Error: The current number of tablets in BE ({}) exceeds the allowed limit ({}).
 This may include unused tablets that were dropped from the frontend but not asynchronously dropped from the backend.
 Please check your usage of mtmv (e.g., refreshing too frequently) or any misuse of auto partition.
