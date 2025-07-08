@@ -354,7 +354,7 @@ suite('test_temp_table', 'p0') {
     def show_table_status = sql "show table status"
     containTempTable = false
     for(int i = 0; i < show_table_status.size(); i++) {
-        if (show_table_status[i][0].contains("t_test_temp_table2")) {
+        if (show_table_status[i][0].equals("t_test_temp_table2")) {
             containTempTable = true;
         }
     }
