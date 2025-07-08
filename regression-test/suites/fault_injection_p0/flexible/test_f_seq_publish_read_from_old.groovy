@@ -42,6 +42,10 @@ suite("test_f_seq_publish_read_from_old", "nonConcurrent") {
     sql """insert into ${tableName} values(1,100,1,1,1,1),(2,100,2,2,2,2),(3,100,3,3,3,3),(4,100,4,4,4,4);"""
     qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
 
+    def tabletStat = sql_return_maparray("show tablets from ${tableName};").get(0)
+    def tabletBackendId = tabletStat.BackendId
+    def tabletId = tabletStat.TabletId
+    
     def inspectRows = { sqlStr ->
         sql "set skip_delete_sign=true;"
         sql "set skip_delete_bitmap=true;"
@@ -56,7 +60,7 @@ suite("test_f_seq_publish_read_from_old", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.enable_spin_wait", [tablet_id: "${tabletId}"])
         }
     }
 
@@ -64,7 +68,7 @@ suite("test_f_seq_publish_read_from_old", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.enable_spin_wait")
         }
     }
 
@@ -72,7 +76,7 @@ suite("test_f_seq_publish_read_from_old", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.block", [tablet_id: "${tabletId}"])
         }
     }
 
@@ -80,7 +84,7 @@ suite("test_f_seq_publish_read_from_old", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.block")
         }
     }
 
@@ -135,6 +139,8 @@ suite("test_f_seq_publish_read_from_old", "nonConcurrent") {
         logger.info(e.getMessage())
         throw e
     } finally {
+        disable_publish_spin_wait()
+        disable_block_in_publish()
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }

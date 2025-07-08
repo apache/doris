@@ -63,7 +63,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "${tokenName}"])
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait", [token: "${tokenName}"])
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.enable_spin_wait", [token: "${tokenName}", tablet_id: "${tabletId}"])
         }
     }
 
@@ -71,7 +71,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.enable_spin_wait")
         }
     }
 
@@ -79,7 +79,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "${passToken}"])
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block", [pass_token: "${passToken}"])
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.block", [pass_token: "${passToken}", tablet_id: "${tabletId}"])
         }
     }
 
@@ -87,7 +87,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.block")
         }
     }
 
@@ -214,6 +214,8 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         logger.info(e.getMessage())
         throw e
     } finally {
+        disable_publish_spin_wait()
+        disable_block_in_publish()
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }

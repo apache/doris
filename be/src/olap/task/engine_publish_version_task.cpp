@@ -194,6 +194,25 @@ Status EnginePublishVersionTask::execute() {
             // here and wait pre version publish or lock timeout
             if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
                 tablet->enable_unique_key_merge_on_write()) {
+                DBUG_EXECUTE_IF("EnginePublishVersionTask::execute.tablet.enable_spin_wait", {
+                    auto token = dp->param<std::string>("token", "invalid_token");
+                    auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+                    if (target_tablet_id == tablet_info.tablet_id) {
+                        while (DebugPoints::instance()->is_enable(
+                                "EnginePublishVersionTask::execute.tablet.block")) {
+                            auto block_dp = DebugPoints::instance()->get_debug_point(
+                                    "EnginePublishVersionTask::execute.tablet.block");
+                            if (block_dp) {
+                                auto pass_token = block_dp->param<std::string>("pass_token", "");
+                                if (pass_token == token) {
+                                    break;
+                                }
+                            }
+                            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                        }
+                    }
+                });
+
                 bool first_time_update = false;
                 if (_engine.txn_manager()->get_txn_by_tablet_version(tablet_info.tablet_id,
                                                                      version.second) < 0) {

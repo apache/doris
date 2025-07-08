@@ -166,6 +166,8 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
         logger.info(e.getMessage())
         throw e
     } finally {
+        disable_publish_spin_wait()
+        disable_block_in_publish()
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }

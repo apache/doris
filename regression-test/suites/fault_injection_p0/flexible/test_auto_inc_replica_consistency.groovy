@@ -25,7 +25,7 @@ suite("test_auto_inc_replica_consistency", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllBEs()
 
     def tableName = "test_auto_inc_replica_consistency"
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS ${tableName} FORCE;"""
     sql """ CREATE TABLE ${tableName} (
         `k` int(11) NULL, 
         `v1` BIGINT NULL,
@@ -45,11 +45,14 @@ suite("test_auto_inc_replica_consistency", "nonConcurrent") {
         return
     }
 
+    def tabletStat = sql_return_maparray("show tablets from ${tableName};").get(0)
+    def tabletId = tabletStat.TabletId
+
     def enable_publish_spin_wait = { tokenName -> 
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "${tokenName}"])
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait", [token: "${tokenName}"])
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.enable_spin_wait", [token: "${tokenName}", tablet_id: "${tabletId}"])
         }
     }
 
@@ -57,7 +60,7 @@ suite("test_auto_inc_replica_consistency", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.enable_spin_wait")
         }
     }
 
@@ -65,7 +68,7 @@ suite("test_auto_inc_replica_consistency", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "${passToken}"])
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block", [pass_token: "${passToken}"])
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.block", [pass_token: "${passToken}", tablet_id: "${tabletId}"])
         }
     }
 
@@ -73,7 +76,7 @@ suite("test_auto_inc_replica_consistency", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.tablet.block")
         }
     }
 
@@ -116,8 +119,6 @@ suite("test_auto_inc_replica_consistency", "nonConcurrent") {
         }
         Thread.sleep(1000)
 
-
-        disable_publish_spin_wait()
         disable_block_in_publish()
         t1.join()
         t2.join()
@@ -134,6 +135,8 @@ suite("test_auto_inc_replica_consistency", "nonConcurrent") {
         logger.info(e.getMessage())
         throw e
     } finally {
+        disable_publish_spin_wait()
+        disable_block_in_publish()
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
