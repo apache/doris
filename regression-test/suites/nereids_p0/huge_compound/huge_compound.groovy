@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("huge_compound") {
+suite("huge_compound", "nonConcurrent") {
     sql """
         drop table if exists tyt_old_order;
         CREATE TABLE `tyt_old_order` (
