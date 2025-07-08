@@ -3205,6 +3205,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         if (!SqlModeHelper.hasNoBackSlashEscapes()) {
             s = LogicalPlanBuilderAssistant.escapeBackSlash(s);
+        } else {
+            if (LogicalPlanBuilderAssistant.hasEscapeChar(s)) {
+                int i = LogicalPlanBuilderAssistant.getEscapeCharPosition(s);
+                throw new ParseException("invalid escape character when sql_mode='NO_BACKSLASH_ESCAPES'",
+                        ctx.getStart().getLine(), i + 1);
+            }
         }
         int strLength = Utils.containChinese(s) ? s.length() * StringLikeLiteral.CHINESE_CHAR_BYTE_LENGTH : s.length();
         if (strLength > ScalarType.MAX_VARCHAR_LENGTH) {
