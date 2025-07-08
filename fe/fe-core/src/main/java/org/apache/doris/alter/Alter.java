@@ -26,6 +26,8 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateOrReplaceBranchClause;
+import org.apache.doris.analysis.CreateOrReplaceTagClause;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
@@ -334,6 +336,26 @@ public class Alter {
         Env.getCurrentEnv().getEditLog().logModifyTableProperties(info);
     }
 
+    private void processAlterTableForExternalTable(
+            ExternalTable table,
+            List<AlterClause> alterClauses) throws UserException {
+        for (AlterClause alterClause : alterClauses) {
+            if (alterClause instanceof ModifyTablePropertiesClause) {
+                setExternalTableAutoAnalyzePolicy(table, alterClauses);
+            } else if (alterClause instanceof CreateOrReplaceBranchClause) {
+                table.getCatalog().createOrReplaceBranch(
+                        table.getDbName(), table.getName(),
+                        ((CreateOrReplaceBranchClause) alterClause).getBranchInfo());
+            } else if (alterClause instanceof CreateOrReplaceTagClause) {
+                table.getCatalog().createOrReplaceTag(
+                        table.getDbName(), table.getName(),
+                        ((CreateOrReplaceTagClause) alterClause).getTagInfo());
+            } else {
+                throw new UserException("Invalid alter operations for external table: " + alterClauses);
+            }
+        }
+    }
+
     private boolean needChangeMTMVState(List<AlterClause> alterClauses) {
         for (AlterClause alterClause : alterClauses) {
             if (alterClause.needChangeMTMVState()) {
@@ -532,7 +554,7 @@ public class Alter {
             case HUDI_EXTERNAL_TABLE:
             case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 alterClauses.addAll(stmt.getOps());
-                setExternalTableAutoAnalyzePolicy((ExternalTable) tableIf, alterClauses);
+                processAlterTableForExternalTable((ExternalTable) tableIf, alterClauses);
                 return;
             default:
                 throw new DdlException("Do not support alter "

@@ -60,10 +60,13 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
+import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -1293,4 +1296,47 @@ public abstract class ExternalCatalog
         throw new UnsupportedOperationException("View is not supported.");
     }
 
+    @Override
+    public void createOrReplaceBranch(String db, String tbl, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("branching operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.createOrReplaceBranch(db, tbl, branchInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), db, tbl);
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to create or replace branch for table {}.{} in catalog {}",
+                    db, tbl, getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void createOrReplaceTag(String db, String tbl, CreateOrReplaceTagInfo tagInfo)
+            throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("Tagging operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.createOrReplaceTag(db, tbl, tagInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), db, tbl);
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to create or replace tag for table {}.{} in catalog {}",
+                    db, tbl, getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void replayCreateOrReplaceBranchOrTag(String dbName, String tblName) {
+        if (metadataOps != null) {
+            metadataOps.afterCreateOrReplaceBranchOrTag(dbName, tblName);
+        }
+    }
 }
+
