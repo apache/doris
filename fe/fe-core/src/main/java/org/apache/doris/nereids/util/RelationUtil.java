@@ -144,9 +144,13 @@ public class RelationUtil {
 
             Optional<TableValuedFunction> sysTable = tbl.getSysTableFunction(catalogName, dbName, tableName);
             if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second) && !sysTable.isPresent()) {
+                String supportedTables = tbl.getSupportedSysTables()
+                        .stream()
+                        .map(SysTable::getSysTableName)
+                        .collect(Collectors.joining(", ", "[", "]"));
                 throw new AnalysisException(String.format(
-                        "System table '%s' is not supported for table '%s.%s.%s'. Available system tables: %s",
-                        tableName, catalogName, dbName, tableName, tbl.getSupportedSysTables()));
+                        "System table '%s' is not supported for table '%s.%s.%s'. Supported system tables: %s",
+                        tableName, catalogName, dbName, tableName, supportedTables));
             }
             return Pair.of(db, tbl);
         } catch (Throwable e) {
