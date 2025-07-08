@@ -264,44 +264,72 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createTbl() throws UserException {
-        createTable(getColumnStatisticsCreateSql());
-        createTable(getPartitionStatisticsCreateSql());
+        createTable(getStatisticsCreateSql(StatisticConstants.TABLE_STATISTIC_TBL_NAME,
+                Lists.newArrayList("id", "catalog_id", "db_id", "tbl_id", "idx_id", "col_id", "part_id")));
+        createTable(getStatisticsCreateSql(StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
+                Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_name", "part_id", "col_id")));
         createTable(getAuditLogCreateSql());
     }
 
-    private static String getColumnStatisticsCreateSql() throws UserException {
-        String template =
-                "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`column_statistics` (\n"
-                        + "{COLUMN_DEFINITIONS}\n"
-                        + ") ENGINE = olap\n"
-                        + "UNIQUE KEY(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)\n"
-                        + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
-                        + "DISTRIBUTED BY HASH(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)\n"
-                        + "BUCKETS 7\n"
-                        + "PROPERTIES (\"replication_num\"  =  \"1\")";
-        return template.replace("{COLUMN_DEFINITIONS}",
-                generateColumnDefinitions(InternalSchema.getCopiedSchema(StatisticConstants.TABLE_STATISTIC_TBL_NAME)));
+    private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        int bucketNum = StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT;
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+        return getStatisticsCreateSql(catalogName, dbName, tableName, uniqueKeys, bucketNum, properties);
     }
 
-    private static String getPartitionStatisticsCreateSql() throws UserException {
+    private static String getStatisticsCreateSql(String catalogName, String dbName, String tableName,
+            List<String> uniqueKeys, int bucketNum,
+            Map<String, String> properties) throws UserException {
+
+        StringBuilder uniqueKeyStr = new StringBuilder();
+        for (String key : uniqueKeys) {
+            if (uniqueKeyStr.length() > 0) {
+                uniqueKeyStr.append(", ");
+            }
+            uniqueKeyStr.append("`").append(key).append("`");
+        }
+
         String template =
-                "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`partition_statistics` (\n"
+                "CREATE TABLE IF NOT EXISTS `" + catalogName + "`.`" + dbName + "`.`" + tableName + "` (\n"
                         + "{COLUMN_DEFINITIONS}\n"
                         + ") ENGINE = olap\n"
-                        + "UNIQUE KEY(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)\n"
+                        + "UNIQUE KEY(" + uniqueKeyStr + ")\n"
                         + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
-                        + "DISTRIBUTED BY HASH(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, "
-                        + "`part_name`, `part_id`, `col_id`)\n"
-                        + "BUCKETS 7\n"
-                        + "PROPERTIES (\"replication_num\"  =  \"1\")";
+                        + "DISTRIBUTED BY HASH(" + uniqueKeyStr + ")\n"
+                        + "BUCKETS " + bucketNum + "\n"
+                        + "PROPERTIES (" + getPropertyStr(properties) + ")";
+
         return template.replace("{COLUMN_DEFINITIONS}",
-                generateColumnDefinitions(
-                        InternalSchema.getCopiedSchema(StatisticConstants.PARTITION_STATISTIC_TBL_NAME)));
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)));
     }
 
     private static String getAuditLogCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = AuditLoader.AUDIT_LOG_TABLE;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("dynamic_partition.time_unit", "DAY");
+                put("dynamic_partition.start", "-30");
+                put("dynamic_partition.end", "3");
+                put("dynamic_partition.prefix", "p");
+                put("dynamic_partition.buckets", "2");
+                put("dynamic_partition.enable", "true");
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+
         String template =
-                "CREATE TABLE IF NOT EXISTS ``.`__internal_schema`.`audit_log` (\n"
+                "CREATE TABLE IF NOT EXISTS `" + catalogName + "`.`" + dbName + "`.`" + tableName + "` (\n"
                         + "{COLUMN_DEFINITIONS}\n"
                         + ") ENGINE = olap\n"
                         + "DUPLICATE KEY(`query_id`, `time`, `client_ip`)\n"
@@ -312,15 +340,20 @@ public class InternalSchemaInitializer extends Thread {
                         + ")\n"
                         + "DISTRIBUTED BY HASH(`query_id`)\n"
                         + "BUCKETS 2\n"
-                        + "PROPERTIES (\"dynamic_partition.time_unit\"  =  \"DAY\",\n"
-                        + "\"dynamic_partition.buckets\"  =  \"2\",\n"
-                        + "\"dynamic_partition.end\"  =  \"3\",\n"
-                        + "\"dynamic_partition.enable\"  =  \"true\",\n"
-                        + "\"replication_num\"  =  \"1\",\n"
-                        + "\"dynamic_partition.start\"  =  \"-30\",\n"
-                        + "\"dynamic_partition.prefix\"  =  \"p\")";
+                        + "PROPERTIES (" + getPropertyStr(properties) + ")";
         return template.replace("{COLUMN_DEFINITIONS}",
                 generateColumnDefinitions(InternalSchema.getCopiedSchema(AuditLoader.AUDIT_LOG_TABLE)));
+    }
+
+    private static String getPropertyStr(Map<String, String> properties) {
+        StringBuilder propertiesStr = new StringBuilder();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (propertiesStr.length() > 0) {
+                propertiesStr.append(", ");
+            }
+            propertiesStr.append("\"").append(entry.getKey()).append("\" = \"").append(entry.getValue()).append("\"");
+        }
+        return propertiesStr.toString();
     }
 
     private static String generateColumnDefinitions(List<ColumnDef> schema) {
