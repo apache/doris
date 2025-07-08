@@ -93,15 +93,7 @@ public:
     }
     void operator()(const JsonbField& x, JsonbWriter* writer) const {
         JsonbDocument* doc;
-        if (x.get_size() == 0) {
-            writer->writeNull();
-            return;
-        }
-        if (auto st = JsonbDocument::checkAndCreateDocument(x.get_value(), x.get_size(), &doc);
-            !st.ok()) {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Invalid JSONB document: {}",
-                                   st.to_string());
-        }
+        THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(x.get_value(), x.get_size(), &doc));
         writer->writeValue(doc->getValue());
     }
     void operator()(const Array& x, JsonbWriter* writer) const;
