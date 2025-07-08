@@ -296,8 +296,8 @@ Status StorageEngine::_open() {
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread);
 
-    _rowset_calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
-    _rowset_calc_delete_bitmap_executor->init(config::rowset_calc_delete_bitmap_max_thread);
+    _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
+    _calc_delete_bitmap_executor_for_load->init(config::calc_delete_bitmap_for_load_max_thread);
 
     _parse_default_rowset_type();
 
@@ -756,7 +756,7 @@ void StorageEngine::stop() {
 
     _memtable_flush_executor.reset(nullptr);
     _calc_delete_bitmap_executor.reset(nullptr);
-    _rowset_calc_delete_bitmap_executor.reset();
+    _calc_delete_bitmap_executor_for_load.reset();
 
     _stopped = true;
     LOG(INFO) << "Storage engine is stopped.";
