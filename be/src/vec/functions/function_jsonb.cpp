@@ -31,6 +31,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_parser_simd.h"
@@ -44,6 +45,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -1537,6 +1539,103 @@ struct JsonbContainsUtil {
     }
 };
 
+template <bool ignore_null>
+class FunctionJsonbArray : public IFunction {
+public:
+    static constexpr auto name = "json_array";
+    static constexpr auto alias = "jsonb_array";
+
+    static FunctionPtr create() { return std::make_shared<FunctionJsonbArray>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeJsonb>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto return_data_type = std::make_shared<DataTypeJsonb>();
+        DorisVector<JsonbWriter> writers(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            writers[i].writeStartArray();
+        }
+
+        for (auto argument : arguments) {
+            auto&& [arg_column, _] = unpack_if_const(block.get_by_position(argument).column);
+
+            auto& data_type = block.get_by_position(argument).type;
+            auto serde = data_type->get_serde();
+
+            if (arg_column->is_nullable()) {
+                const auto& nullable_column = assert_cast<const ColumnNullable&>(*arg_column);
+                const auto& null_map = nullable_column.get_null_map_data();
+                const auto& nested_column = nullable_column.get_nested_column();
+                const auto& jsonb_column = assert_cast<const ColumnString&>(nested_column);
+
+                for (size_t i = 0; i < input_rows_count; ++i) {
+                    if (null_map[i]) {
+                        if constexpr (ignore_null) {
+                            continue;
+                        } else {
+                            writers[i].writeNull();
+                        }
+                    } else {
+                        auto jsonb_binary = jsonb_column.get_data_at(i);
+                        JsonbDocument* doc = nullptr;
+                        auto st = JsonbDocument::checkAndCreateDocument(jsonb_binary.data,
+                                                                        jsonb_binary.size, &doc);
+                        if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
+                            if constexpr (ignore_null) {
+                                continue;
+                            } else {
+                                writers[i].writeNull();
+                            }
+                        } else {
+                            writers[i].writeValue(doc->getValue());
+                        }
+                    }
+                }
+            } else {
+                const auto& jsonb_column = assert_cast<const ColumnString&>(*arg_column);
+
+                for (size_t i = 0; i < input_rows_count; ++i) {
+                    auto jsonb_binary = jsonb_column.get_data_at(i);
+                    JsonbDocument* doc = nullptr;
+                    auto st = JsonbDocument::checkAndCreateDocument(jsonb_binary.data,
+                                                                    jsonb_binary.size, &doc);
+                    if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
+                        if constexpr (ignore_null) {
+                            continue;
+                        } else {
+                            writers[i].writeNull();
+                        }
+                    } else {
+                        writers[i].writeValue(doc->getValue());
+                    }
+                }
+            }
+        }
+
+        auto column = return_data_type->create_column();
+        column->reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            writers[i].writeEndArray();
+            column->insert_data(writers[i].getOutput()->getBuffer(),
+                                writers[i].getOutput()->getSize());
+        }
+
+        block.get_by_position(result).column = std::move(column);
+        return Status::OK();
+    }
+};
+
 struct JsonbContainsImpl {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeJsonb>()};
@@ -1996,6 +2095,12 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbContains<JsonbContainsAndPathImpl>>();
 
     factory.register_function<FunctionJsonSearch>();
+
+    factory.register_function<FunctionJsonbArray<false>>();
+    factory.register_alias(FunctionJsonbArray<false>::name, FunctionJsonbArray<false>::alias);
+
+    factory.register_function<FunctionJsonbArray<true>>("json_array_ignore_null");
+    factory.register_alias("json_array_ignore_null", "jsonb_array_ignore_null");
 }
 
 } // namespace doris::vectorized
