@@ -493,10 +493,6 @@ Status OlapScanLocalState::sync_cloud_tablets(RuntimeState* state) {
 }
 
 Status OlapScanLocalState::hold_tablets() {
-    if (!_tablets.empty()) {
-        return Status::OK();
-    }
-
     MonotonicStopWatch timer;
     timer.start();
     _read_sources.resize(_scan_ranges.size());
