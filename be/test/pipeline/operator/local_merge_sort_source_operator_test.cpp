@@ -58,7 +58,7 @@ struct LocalMergeSOrtSourceOperatorTest : public testing::Test {
         for (int i = 0; i < parallel_tasks; i++) {
             runtime_states[i] = std::make_shared<MockRuntimeState>();
             auto local_state =
-                    LocalMergeSortLocalState::create_unique(runtime_states[i].get(), op.get());
+                    std::make_unique<LocalMergeSortLocalState>(runtime_states[i].get(), op.get());
             local_states[i] = local_state.get();
 
             shared_states[i] = std::make_shared<SortSharedState>();
