@@ -34,6 +34,7 @@ class PullUpProjectUnderApplyTest extends TestWithFeService implements MemoPatte
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().feDebug = false;
 
         createTables(
                 "CREATE TABLE IF NOT EXISTS T (\n"

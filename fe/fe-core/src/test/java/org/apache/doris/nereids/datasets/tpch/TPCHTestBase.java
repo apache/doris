@@ -22,6 +22,7 @@ public abstract class TPCHTestBase extends AnalyzeCheckTestBase {
     protected void runBeforeAll() throws Exception {
         createDatabase("tpch");
         connectContext.setDatabase("tpch");
+        connectContext.getSessionVariable().feDebug = false;
         TPCHUtils.createTables(this);
     }
 }
