@@ -779,7 +779,6 @@ public class IcebergUtils {
         }
         String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
-
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
     }
