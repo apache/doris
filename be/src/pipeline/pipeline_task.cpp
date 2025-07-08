@@ -506,7 +506,7 @@ void PipelineTask::stop_if_finished() {
     if (!fragment) {
         return;
     }
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker);
     if (auto sink = _sink) {
         if (sink->is_finished(_state)) {
             clear_blocking_state();
