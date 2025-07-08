@@ -19,16 +19,27 @@ import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
+import org.apache.kafka.clients.producer.*;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.consumer.ConsumerRecords
+import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.CreateTopicsResult;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.admin.ListTopicsOptions
+
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+
 // 1 create two physical cluster c1, c2, every cluster contains 2 be
 // 2 create vcg, c1, c2 are sub compute group of vcg, adn c1 is active cg
 // 3 use vcg
 // 4 stop a backend of c1
 // 5 stop another backend of c1
 
-suite('use_vcg_read_write', 'multi_cluster,docker') {
+suite('use_vcg_read_write_s3_load', 'multi_cluster,docker') {
     def options = new ClusterOptions()
-    String tableName = "test_all_vcluster"
-    String tbl = "test_virtual_compute_group_tbl"
+    def topic = "test-topic"
 
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -52,6 +63,53 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             uri "/MetaService/http/alter_vcluster_info?token=$token"
             body request_body
             check check_func
+        }
+    }
+
+    def execute_s3_Load = {
+        //def tables = [supplier: 1000000]
+        def tables = [nation: 25]
+        //def tables = [customer: 15000000, lineitem: 600037902, nation: 25, orders: 150000000, part: 20000000, partsupp: 80000000, region: 6, supplier: 1000000]
+        def s3BucketName = getS3BucketName()
+        def s3WithProperties = """WITH S3 (
+            |"AWS_ACCESS_KEY" = "${getS3AK()}",
+            |"AWS_SECRET_KEY" = "${getS3SK()}",
+            |"AWS_ENDPOINT" = "${getS3Endpoint()}",
+            |"AWS_REGION" = "${getS3Region()}",
+            |"provider" = "${getS3Provider()}")
+            |PROPERTIES(
+            |"exec_mem_limit" = "8589934592",
+            |"load_parallelism" = "3")""".stripMargin()
+        // set fe configuration
+        sql "ADMIN SET FRONTEND CONFIG ('max_bytes_per_broker_scanner' = '161061273600')"
+
+        def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
+        tables.each { table, rows ->
+            // create table if not exists
+            sql new File("""${context.file.parent}/ddl/${table}.sql""").text
+            // check row count
+            def rowCount = sql "select count(*) from ${table}"
+            //if (rowCount[0][0] != rows) {
+                def loadLabel = table + "_" + uniqueID
+                sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
+                // load data from cos
+                def loadSql = new File("""${context.file.parent}/ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
+                loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
+                sql loadSql
+
+                // check load state
+                while (true) {
+                    def stateResult = sql "show load where Label = '${loadLabel}'"
+                    logger.info("load result is ${stateResult}")
+                    def loadState = stateResult[stateResult.size() - 1][2].toString()
+                    if ("CANCELLED".equalsIgnoreCase(loadState)) {
+                        throw new IllegalStateException("load ${loadLabel} failed.")
+                    } else if ("FINISHED".equalsIgnoreCase(loadState)) {
+                        break
+                    }
+                    sleep(5000)
+                }
+            //}
         }
     }
 
@@ -125,39 +183,6 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             log.info("backends of cluster2: ${clusterName2} ${cluster2Ips}".toString())
 
             sql """use @${normalVclusterName}"""
-            sql """ drop table if exists ${tableName} """
-
-            sql """
-                CREATE TABLE IF NOT EXISTS ${tableName} (
-                  `k1` int(11) NULL,
-                  `k2` tinyint(4) NULL,
-                  `k3` smallint(6) NULL,
-                  `k4` bigint(20) NULL,
-                  `k5` largeint(40) NULL,
-                  `k6` float NULL,
-                  `k7` double NULL,
-                  `k8` decimal(9, 0) NULL,
-                  `k9` char(10) NULL,
-                  `k10` varchar(1024) NULL,
-                  `k11` text NULL,
-                  `k12` date NULL,
-                  `k13` datetime NULL
-                ) ENGINE=OLAP
-                DISTRIBUTED BY HASH(`k1`) BUCKETS 3
-            """
-
-            sql """
-                CREATE TABLE ${tbl} (
-                  `k1` int(11) NULL,
-                  `k2` char(5) NULL
-                )
-                DUPLICATE KEY(`k1`, `k2`)
-                COMMENT 'OLAP'
-                DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-                PROPERTIES (
-                "replication_num"="1"
-                )
-            """
 
             sql """ set enable_profile = true """
 
@@ -181,37 +206,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             def before_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("before_cluster2_be1_flush : ${before_cluster2_be1_flush}".toString())
 
-            def txnId = -1;
-            streamLoad {
-                table "${tableName}"
-
-                set 'column_separator', ','
-                set 'cloud_cluster', 'normalVirtualClusterName'
-
-                file 'all_types.csv'
-                time 10000 // limit inflight 10s
-                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
-
-                check { loadResult, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load result: ${loadResult}".toString())
-                    def json = parseJson(loadResult)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(20, json.NumberTotalRows)
-                    assertEquals(0, json.NumberFilteredRows)
-                    txnId = json.TxnId
-                }
-            }
-
-            sql """
-                insert into ${tbl} (k1, k2) values (1, "10");
-            """
-
-            sql "sync"
-            order_qt_all11 "SELECT count(*) FROM ${tableName}" // 20
-            order_qt_all12 "SELECT count(*) FROM ${tableName} where k1 <= 10"  // 11
+            execute_s3_Load.call()
 
             def after_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
             log.info("after_cluster1_be0_load_rows : ${after_cluster1_be0_load_rows}".toString())
@@ -242,7 +237,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
 
             def addrSet = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
-            sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
+            sql """ select N_REGIONKEY, count(N_NAME) AS theCount from nation group by N_REGIONKEY order by theCount """
             if (options.connectToFollower) {
                 checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
             } else {
@@ -283,37 +278,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             before_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("before_cluster2_be1_flush : ${before_cluster2_be1_flush}".toString())
 
-            txnId = -1;
-            streamLoad {
-                table "${tableName}"
-
-                set 'column_separator', ','
-                set 'cloud_cluster', 'normalVirtualClusterName'
-
-                file 'all_types.csv'
-                time 10000 // limit inflight 10s
-                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
-
-                check { loadResult, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load result: ${loadResult}".toString())
-                    def json = parseJson(loadResult)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(20, json.NumberTotalRows)
-                    assertEquals(0, json.NumberFilteredRows)
-                    txnId = json.TxnId
-                }
-            }
-
-            sql """
-                insert into ${tbl} (k1, k2) values (1, "10");
-            """
-
-            sql "sync"
-            order_qt_all11 "SELECT count(*) FROM ${tableName}" // 20
-            order_qt_all12 "SELECT count(*) FROM ${tableName} where k1 <= 10"  // 11
+            execute_s3_Load.call()
 
             after_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
             log.info("after_cluster1_be0_load_rows : ${after_cluster1_be0_load_rows}".toString())
@@ -339,7 +304,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
 
             addrSet = [cluster1Ips[0] + ":" + "8060"] as Set
-            sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
+            sql """ select N_REGIONKEY, count(N_NAME) AS theCount from nation group by N_REGIONKEY order by theCount """
             if (options.connectToFollower) {
                 checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
             } else {
@@ -347,11 +312,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             }
 
             cluster.stopBackends(5)
-            sleep(10000)
-            showResult = sql "show backends"
-            for (row : showResult) {
-                log.info("show backends resp : ${row}".toString())
-            }
+            sleep(5000)
 
             before_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
             log.info("before_cluster2_be0_load_rows : ${before_cluster2_be0_load_rows}".toString())
@@ -363,37 +324,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             before_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("before_cluster2_be1_flush : ${before_cluster2_be1_flush}".toString())
 
-            txnId = -1;
-            streamLoad {
-                table "${tableName}"
-
-                set 'column_separator', ','
-                set 'cloud_cluster', 'normalVirtualClusterName'
-
-                file 'all_types.csv'
-                time 10000 // limit inflight 10s
-                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
-
-                check { loadResult, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load result: ${loadResult}".toString())
-                    def json = parseJson(loadResult)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(20, json.NumberTotalRows)
-                    assertEquals(0, json.NumberFilteredRows)
-                    txnId = json.TxnId
-                }
-            }
-
-            sql """
-                insert into ${tbl} (k1, k2) values (1, "10");
-            """
-
-            sql "sync"
-            order_qt_all11 "SELECT count(*) FROM ${tableName}" // 20
-            order_qt_all12 "SELECT count(*) FROM ${tableName} where k1 <= 10"  // 11
+            execute_s3_Load.call()
 
             after_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
             log.info("after_cluster2_be0_load_rows : ${after_cluster2_be0_load_rows}".toString())
@@ -409,7 +340,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             assertTrue(before_cluster2_be0_flush < after_cluster2_be0_flush || before_cluster2_be1_flush < after_cluster2_be1_flush)
 
             addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
-            sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
+            sql """ select N_REGIONKEY, count(N_NAME) AS theCount from nation group by N_REGIONKEY order by theCount """
             if (options.connectToFollower) {
                 checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
             } else {
@@ -418,10 +349,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
             sleep(16000)
 
-            sql """
-                insert into ${tbl} (k1, k2) values (1, "10");
-            """
-
+            sql """ select N_REGIONKEY, count(N_NAME) AS theCount from nation group by N_REGIONKEY order by theCount """
             // show cluster
             showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
             log.info("show compute group {}", showComputeGroup)
