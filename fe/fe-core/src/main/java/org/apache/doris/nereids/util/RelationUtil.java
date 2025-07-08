@@ -141,9 +141,12 @@ public class RelationUtil {
                             "Table [" + tableName + "] does not exist in database [" + dbName + "]."
                                     + (origin.map(loc -> "(" + loc + ")").orElse("")))
             );
+
             Optional<TableValuedFunction> sysTable = tbl.getSysTableFunction(catalogName, dbName, tableName);
             if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second) && !sysTable.isPresent()) {
-                throw new AnalysisException("Unknown sys table '" + tableName + "'");
+                throw new AnalysisException(String.format(
+                        "System table '%s' is not supported for table '%s.%s.%s'. Available system tables: %s",
+                        tableName, catalogName, dbName, tableName, tbl.getSupportedSysTables()));
             }
             return Pair.of(db, tbl);
         } catch (Throwable e) {

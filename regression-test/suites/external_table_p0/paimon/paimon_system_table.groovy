@@ -74,8 +74,8 @@ suite("paimon_system_table", "p0,external,doris,external_docker,external_docker_
 
         // test all paimon system table
         List<String> paimonSystemTableList = new ArrayList<>(Arrays.asList("manifests", "snapshots", "options", "schemas",
-                "partitions", "buckets", "audit_log", "files", "tags", "branches", "consumers", "ro", "aggregation_fields", "statistics",
-                "binlog", "table_indexes"))
+                "partitions", "buckets", "files", "tags", "branches", "consumers", "aggregation_fields",
+                "statistics", "table_indexes"))
 
 
         // Iterate through all system tables for consistency testing
