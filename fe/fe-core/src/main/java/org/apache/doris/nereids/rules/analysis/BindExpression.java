@@ -50,7 +50,6 @@ import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
@@ -675,90 +674,6 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children());
-        Builder<NamedExpression> boundProjectionsBuilder
-                = ImmutableList.builderWithExpectedSize(project.getProjects().size());
-        StatementContext statementContext = ctx.statementContext;
-        for (Expression expression : project.getProjects()) {
-            Expression expr = analyzer.analyze(expression);
-            if (!(expr instanceof BoundStar)) {
-                boundProjectionsBuilder.add((NamedExpression) expr);
-            } else {
-                UnboundStar unboundStar = (UnboundStar) expression;
-                List<NamedExpression> excepts = unboundStar.getExceptedSlots();
-                Set<NamedExpression> boundExcepts = Suppliers.memoize(() -> analyzer.analyzeToSet(excepts)).get();
-                BoundStar boundStar = (BoundStar) expr;
-
-                List<Slot> slots = exceptStarSlots(boundExcepts, boundStar);
-
-                List<NamedExpression> replaces = unboundStar.getReplacedAlias();
-                if (!replaces.isEmpty()) {
-                    final Map<Expression, Expression> replaceMap = new HashMap<>();
-                    final Set<Expression> replaced = new HashSet<>();
-                    Supplier<List<NamedExpression>> boundReplaces = Suppliers.memoize(
-                            () -> analyzer.analyzeToList(replaces));
-                    for (NamedExpression replace : boundReplaces.get()) {
-                        Preconditions.checkArgument(replace instanceof Alias);
-                        Alias alias = (Alias) replace;
-                        UnboundSlot unboundSlot = new UnboundSlot(alias.getName());
-                        Expression slot = analyzer.analyze(unboundSlot);
-                        if (replaceMap.containsKey(slot)) {
-                            throw new AnalysisException("Duplicate replace column name: " + alias.getName());
-                        }
-                        replaceMap.put(slot, alias);
-                    }
-
-                    Collection c = CollectionUtils.intersection(boundExcepts, replaceMap.keySet());
-                    if (!c.isEmpty()) {
-                        throw new AnalysisException("Replace column name: " + c + " is in excepts");
-                    }
-                    for (Slot s : slots) {
-                        Expression e = ExpressionUtils.replace(s, replaceMap);
-                        if (s != e) {
-                            replaced.add(s);
-                        }
-                        boundProjectionsBuilder.add((NamedExpression) e);
-                    }
-
-                    if (replaced.size() != replaceMap.size()) {
-                        replaceMap.keySet().removeAll(replaced);
-                        throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
-                    }
-                } else {
-                    boundProjectionsBuilder.addAll(slots);
-                }
-
-                // for create view stmt expand star
-                List<Slot> slotsForLambda = slots;
-                unboundStar.getIndexInSqlString().ifPresent(pair -> {
-                    statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
-                });
-            }
-        }
-        List<NamedExpression> boundProjections = boundProjectionsBuilder.build();
-        if (!SqlModeHelper.hasOnlyFullGroupBy()) {
-            boolean hasAggregation = boundProjections
-                    .stream()
-                    .anyMatch(e -> e.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
-            if (hasAggregation) {
-                boundProjectionsBuilder
-                        = ImmutableList.builderWithExpectedSize(project.getProjects().size());
-                for (NamedExpression expr : boundProjections) {
-                    if (expr instanceof SlotReference) {
-                        expr = new Alias(expr, expr.getName());
-                    }
-                    boundProjectionsBuilder.add(expr);
-                }
-                boundProjections = boundProjectionsBuilder.build();
-            }
-        }
-        return project.withProjects(boundProjections);
-    }
-
-    private Plan bindLoadProject(MatchingContext<LogicalLoadProject<Plan>> ctx) {
-        LogicalLoadProject<Plan> project = ctx.root;
-        CascadesContext cascadesContext = ctx.cascadesContext;
-
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children());
         List<NamedExpression> boundProjections = Lists.newArrayListWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
@@ -817,18 +732,95 @@ public class BindExpression implements AnalysisRuleFactory {
                 });
             }
         }
-        boundProjections.replaceAll(expression -> (NamedExpression) expression.rewriteDownShortCircuit(e -> {
-            if (e instanceof WindowExpression) {
-                WindowExpression windowExpr = (WindowExpression) e;
-                Expression func = windowExpr.getFunction();
-                if (func instanceof NullableAggregateFunction) {
-                    return windowExpr.withFunction(((NullableAggregateFunction) func).withAlwaysNullable(true));
-                }
-            }
-
-            return e;
-        }));
+        boolean hasAggregation = boundProjections
+                .stream()
+                .anyMatch(e -> e.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
+        if (hasAggregation) {
+            boolean hasOnlyFullGroupBy = SqlModeHelper.hasOnlyFullGroupBy();
+            boundProjections.replaceAll(expression ->
+                    adjustProjectionAggNullable(expression, hasOnlyFullGroupBy));
+        }
         return project.withProjects(ImmutableList.copyOf(boundProjections));
+    }
+
+    private NamedExpression adjustProjectionAggNullable(NamedExpression expr, boolean hasOnlyFullGroupBy) {
+        expr = (NamedExpression) expr.rewriteDownShortCircuit(e -> {
+            // for `select sum(a) from t`, sum(a) is nullable
+            if (e instanceof NullableAggregateFunction) {
+                return ((NullableAggregateFunction) e).withAlwaysNullable(true);
+            }
+            return e;
+        });
+        if (!hasOnlyFullGroupBy && expr instanceof SlotReference) {
+            expr = new Alias(expr, expr.getName());
+        }
+        return expr;
+    }
+
+    private Plan bindLoadProject(MatchingContext<LogicalLoadProject<Plan>> ctx) {
+        LogicalLoadProject<Plan> project = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children());
+        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+        StatementContext statementContext = ctx.statementContext;
+        for (Expression expression : project.getProjects()) {
+            Expression expr = analyzer.analyze(expression);
+            if (!(expr instanceof BoundStar)) {
+                boundProjections.add((NamedExpression) expr);
+            } else {
+                UnboundStar unboundStar = (UnboundStar) expression;
+                List<NamedExpression> excepts = unboundStar.getExceptedSlots();
+                Set<NamedExpression> boundExcepts = Suppliers.memoize(() -> analyzer.analyzeToSet(excepts)).get();
+                BoundStar boundStar = (BoundStar) expr;
+
+                List<Slot> slots = exceptStarSlots(boundExcepts, boundStar);
+
+                List<NamedExpression> replaces = unboundStar.getReplacedAlias();
+                if (!replaces.isEmpty()) {
+                    final Map<Expression, Expression> replaceMap = new HashMap<>();
+                    final Set<Expression> replaced = new HashSet<>();
+                    Supplier<List<NamedExpression>> boundReplaces = Suppliers.memoize(
+                            () -> analyzer.analyzeToList(replaces));
+                    for (NamedExpression replace : boundReplaces.get()) {
+                        Preconditions.checkArgument(replace instanceof Alias);
+                        Alias alias = (Alias) replace;
+                        UnboundSlot unboundSlot = new UnboundSlot(alias.getName());
+                        Expression slot = analyzer.analyze(unboundSlot);
+                        if (replaceMap.containsKey(slot)) {
+                            throw new AnalysisException("Duplicate replace column name: " + alias.getName());
+                        }
+                        replaceMap.put(slot, alias);
+                    }
+
+                    Collection c = CollectionUtils.intersection(boundExcepts, replaceMap.keySet());
+                    if (!c.isEmpty()) {
+                        throw new AnalysisException("Replace column name: " + c + " is in excepts");
+                    }
+                    for (Slot s : slots) {
+                        Expression e = ExpressionUtils.replace(s, replaceMap);
+                        if (s != e) {
+                            replaced.add(s);
+                        }
+                        boundProjections.add((NamedExpression) e);
+                    }
+
+                    if (replaced.size() != replaceMap.size()) {
+                        replaceMap.keySet().removeAll(replaced);
+                        throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
+                    }
+                } else {
+                    boundProjections.addAll(slots);
+                }
+
+                // for create view stmt expand star
+                List<Slot> slotsForLambda = slots;
+                unboundStar.getIndexInSqlString().ifPresent(pair -> {
+                    statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
+                });
+            }
+        }
+        return project.withProjects(boundProjections.build());
     }
 
     private Plan bindFilter(MatchingContext<LogicalFilter<Plan>> ctx) {

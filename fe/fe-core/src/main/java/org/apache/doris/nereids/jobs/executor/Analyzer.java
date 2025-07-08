@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.executor;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
@@ -121,8 +122,10 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new EliminateDistinctConstant(),
                     new ProjectWithDistinctToAggregate(),
                     new ReplaceExpressionByChildOutput(),
-                    new OneRowRelationExtractAggregate()
+                    new OneRowRelationExtractAggregate(),
+                    new AdjustAggregateNullableForEmptySet()
             ),
+            custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
             topDown(
                     new FillUpMissingSlots(),
                     // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis

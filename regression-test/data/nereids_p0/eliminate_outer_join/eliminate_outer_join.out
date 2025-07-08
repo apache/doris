@@ -5,7 +5,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey)) otherCondition=()
 ------hashJoin[INNER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
 --------PhysicalOlapScan[region]
---------filter(( not n_nationkey IS NULL) and (nation.n_nationkey > 1))
+--------filter(( not n_nationkey IS NULL) and ( not n_regionkey IS NULL) and (nation.n_nationkey > 1))
 ----------PhysicalOlapScan[nation]
 ------filter(( not s_suppkey IS NULL) and (supplier.s_suppkey > 1))
 --------PhysicalOlapScan[supplier]
@@ -134,7 +134,7 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=()
 --------filter(( not r_name IS NULL) and ( not r_regionkey IS NULL) and (region.r_name = ''))
 ----------PhysicalOlapScan[region]
---------filter(( not n_regionkey IS NULL))
+--------filter(( not n_nationkey IS NULL) and ( not n_regionkey IS NULL))
 ----------PhysicalOlapScan[nation]
 ------PhysicalOlapScan[supplier]
 ----PhysicalOlapScan[partsupp]
