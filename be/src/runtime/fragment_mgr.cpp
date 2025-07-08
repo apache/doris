@@ -45,11 +45,10 @@
 #include <algorithm>
 #include <atomic>
 
-#include "common/status.h"
-#include "pipeline/pipeline_x/pipeline_x_fragment_context.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
+#include <latch>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -61,10 +60,12 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "common/utils.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline_fragment_context.h"
+#include "pipeline/pipeline_x/pipeline_x_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -1165,7 +1166,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             return context->submit();
         };
 
-        auto run_in_threadpool = [this](auto func, int parallelism) -> Status {
+        auto run_in_threadpool = [this, &query_ctx](auto func, int parallelism) -> Status {
             std::latch completion_latch(parallelism);
             Status prepare_statuses[parallelism];
 
