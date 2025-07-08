@@ -458,6 +458,7 @@ Status OlapScanLocalState::sync_cloud_tablets(RuntimeState* state) {
                                               "CLOUD_TABLET_DEP_" + std::to_string(i));
         }
 
+        _tablets.resize(_scan_ranges.size());
         _tasks.reserve(_scan_ranges.size());
         _sync_statistics.resize(_scan_ranges.size());
         SCOPED_RAW_TIMER(&_duration_ns);
@@ -498,7 +499,6 @@ Status OlapScanLocalState::hold_tablets() {
 
     MonotonicStopWatch timer;
     timer.start();
-    _tablets.resize(_scan_ranges.size());
     _read_sources.resize(_scan_ranges.size());
 
     if (config::is_cloud_mode()) {
