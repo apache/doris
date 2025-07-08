@@ -333,7 +333,7 @@ TEST(RuntimeProfileTest, ProtoMergeAndUpdate) {
 
     RuntimeProfile::Counter* p2_c1_shared = p2_child1.add_counter("Child1 Shared", TUnit::UNIT);
     RuntimeProfile::Counter* p2_c1_only =
-            p1_child1.add_counter("Child1 Parent 2 Only", TUnit::UNIT); // 注意这里 p1_child1
+            p1_child1.add_counter("Child1 Parent 2 Only", TUnit::UNIT);
     RuntimeProfile::Counter* p2_c3 = p2_child3.add_counter("Child3", TUnit::UNIT);
 
     p1_c1_shared->update(10);
