@@ -146,11 +146,15 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                             if (!st) {
                                 LOG_WARNING("Warm up error ").error(st);
                             } else if (is_index) {
-                                g_file_cache_once_or_periodic_warm_up_finished_index_num << (offset == 0 ? 1 : 0);
-                                g_file_cache_once_or_periodic_warm_up_finished_index_size << current_chunk_size;
+                                g_file_cache_once_or_periodic_warm_up_finished_index_num
+                                        << (offset == 0 ? 1 : 0);
+                                g_file_cache_once_or_periodic_warm_up_finished_index_size
+                                        << current_chunk_size;
                             } else {
-                                g_file_cache_once_or_periodic_warm_up_finished_segment_num << (offset == 0 ? 1 : 0);
-                                g_file_cache_once_or_periodic_warm_up_finished_segment_size << current_chunk_size;
+                                g_file_cache_once_or_periodic_warm_up_finished_segment_num
+                                        << (offset == 0 ? 1 : 0);
+                                g_file_cache_once_or_periodic_warm_up_finished_segment_size
+                                        << current_chunk_size;
                             }
                             wait->signal();
                         },
