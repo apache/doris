@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -363,6 +364,8 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
         List<LogicalAggregate<?>> aggList = Lists.newArrayList();
         List<LogicalProject<?>> projectList = Lists.newArrayList();
         List<LogicalApply<?, ?>> applyList = Lists.newArrayList();
+        List<LogicalPlan> planAboveApply = Lists.newArrayList();
+        List<LogicalPlan> planAboveAgg = Lists.newArrayList();
         Plan root = PlanChecker.from(connectContext)
                 .analyze(sql).getPlan();
         root.foreach(plan -> {
@@ -372,6 +375,15 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                 projectList.add((LogicalProject<?>) plan);
             } else if (plan instanceof LogicalApply) {
                 applyList.add((LogicalApply<?, ?>) plan);
+            }
+
+            if (!(plan instanceof LogicalApply) && plan.anyMatch(p -> p instanceof LogicalApply)) {
+                planAboveApply.add((LogicalPlan) plan);
+            }
+            if (!(plan instanceof LogicalAggregate)
+                    && plan.anyMatch(p -> p instanceof LogicalAggregate)
+                    && !(plan.anyMatch(p -> p instanceof LogicalApply))) {
+                planAboveAgg.add((LogicalPlan) plan);
             }
         });
         List<String> slotKName = ImmutableList.of("k");
@@ -385,13 +397,14 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
         Assertions.assertEquals(nullable, slotK.nullable());
 
         Assertions.assertTrue(applyList.size() <= 1);
+        Slot applySlot = null;
         if (applyList.size() == 1) {
             LogicalApply<?, ?> apply = applyList.get(0);
-            NamedExpression expr = apply.getOutput().stream()
+            applySlot = apply.getOutput().stream()
                     .filter(output -> output.getExprId().equals(slotK.getExprId()))
                     .findFirst().orElse(null);
-            Assertions.assertNotNull(expr);
-            Assertions.assertTrue(expr.nullable());
+            Assertions.assertNotNull(applySlot);
+            Assertions.assertTrue(applySlot.nullable());
         }
         for (LogicalProject<?> project : projectList) {
             if (!project.anyMatch(plan -> plan instanceof LogicalAggregate)) {
@@ -418,6 +431,29 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
             } else {
                 Assertions.assertEquals(nullable, expr.nullable());
             }
+        }
+
+        if (applySlot != null) {
+            ExprId applySlotExprId = applySlot.getExprId();
+            boolean applySlotNullable = applySlot.nullable();
+            for (LogicalPlan plan : planAboveApply) {
+                Assertions.assertTrue(plan.getInputSlots().stream()
+                        .filter(slot -> slot.getExprId().equals(applySlotExprId))
+                        .allMatch(slot -> slot.nullable() == applySlotNullable));
+                Assertions.assertTrue(plan.getOutput().stream()
+                        .filter(slot -> slot.getExprId().equals(applySlotExprId))
+                        .allMatch(slot -> slot.nullable() == applySlotNullable));
+            }
+        }
+        for (LogicalPlan plan : planAboveAgg) {
+            ExprId kSlotExprId = slotK.getExprId();
+            boolean kSlotNullable = slotK.nullable();
+            Assertions.assertTrue(plan.getInputSlots().stream()
+                    .filter(slot -> slot.getExprId().equals(kSlotExprId))
+                    .allMatch(slot -> slot.nullable() == kSlotNullable));
+            Assertions.assertTrue(plan.getOutput().stream()
+                    .filter(slot -> slot.getExprId().equals(kSlotExprId))
+                    .allMatch(slot -> slot.nullable() == kSlotNullable));
         }
     }
 
