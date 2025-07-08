@@ -939,7 +939,7 @@ function check_if_need_gcore() {
             sleep 10
         fi
     else
-        echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
+        echo "ERROR: exit_flag ${exit_flag} is not 124(timeout), no need to gcore" && return 1
     fi
 }
 
