@@ -25,7 +25,6 @@ class MockScannerScheduler : ScannerScheduler {
 public:
     MockScannerScheduler() = default;
 
-    MOCK_METHOD2(submit,
-                 Status(std::shared_ptr<ScannerContext>, std::weak_ptr<ScannerDelegate> scanner));
+    MOCK_METHOD2(submit, Status(std::shared_ptr<ScannerContext>, std::shared_ptr<ScanTask>));
 };
 } // namespace doris::vectorized

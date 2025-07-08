@@ -32,7 +32,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "bvar/latency_recorder.h"
 #include "util/threadpool.h"
 #include "vec/exec/executor/listenable_future.h"
 #include "vec/exec/executor/task_executor.h"
@@ -47,7 +46,31 @@ class TimeSharingTaskExecutor;
 class SplitThreadPoolToken;
 
 /**
- * ThreadSafe
+ * @brief TimeSharingTaskExecutor
+ *
+ * This class implements a time-slice-based task scheduling and execution engine.
+ * It is responsible for managing and scheduling multiple concurrent tasks (Task),
+ * and the splits (Split) under each task. Each split is executed in a time-sharing
+ * manner, running periodically until the split is either fully processed or fails.
+ *
+ * Main Features:
+ *  - Supports dynamic registration, removal, and scheduling of tasks.
+ *  - Provides multi-level priority scheduling for splits to prevent starvation of slow tasks.
+ *  - Supports dynamic adjustment of task concurrency and resource isolation.
+ *  - Offers automatic scheduling at the split level and fine-grained concurrency control.
+ *  - Integrates task queues, thread pool management, blocking/wakeup mechanisms, and metrics collection.
+ *
+ * Implementation Details:
+ *  - The thread pool is similar to the implementation in util/threadpool.h.
+ *    In the original thread pool, each logical sub-pool is managed via a token with its own FIFO queue.
+ *  - In TimeSharingTaskExecutor, there is no per-queue token; instead, only a single "tokenless" token is used.
+ *    This token manages a SplitQueue, which by default is a MultilevelSplitQueue (a multi-level priority queue).
+ *  - The design ensures that only one split is scheduled for execution in each time slice,
+ *    and the scheduling is fair and adaptive to workload characteristics.
+ *
+ * Thread Safety:
+ *  - This class is thread-safe.
+ *
  */
 class TimeSharingTaskExecutor : public TaskExecutor {
     ENABLE_FACTORY_CREATOR(TimeSharingTaskExecutor);
@@ -65,9 +88,8 @@ public:
     TimeSharingTaskExecutor(ThreadConfig config, int min_concurrency,
                             int guaranteed_concurrency_per_task, int max_concurrency_per_task,
                             std::shared_ptr<Ticker> ticker,
-                            std::chrono::milliseconds stuck_split_warning_threshold =
-                                    std::chrono::milliseconds(60000),
-                            std::shared_ptr<SplitQueue> split_queue = nullptr);
+                            std::shared_ptr<SplitQueue> split_queue = nullptr,
+                            bool enable_concurrency_control = true);
 
     ~TimeSharingTaskExecutor() override;
 
@@ -90,10 +112,9 @@ public:
             std::shared_ptr<TaskHandle> task_handle, bool intermediate,
             const std::vector<std::shared_ptr<SplitRunner>>& splits) override;
 
-    void re_enqueue_split(std::shared_ptr<TaskHandle> task_handle, bool intermediate,
-                          const std::shared_ptr<SplitRunner>& split) override;
+    Status re_enqueue_split(std::shared_ptr<TaskHandle> task_handle, bool intermediate,
+                            const std::shared_ptr<SplitRunner>& split) override;
 
-    //size_t waiting_splits_size() const { return _waiting_splits->size(); }
     size_t waiting_splits_size() const;
 
     size_t intermediate_splits_size() const {
@@ -145,8 +166,6 @@ public:
 
     int64_t running_tasks_level4() const { return _get_running_tasks_for_level(4); }
 
-    //ThreadPool* thread_pool() const { return _thread_pool.get(); };
-
     // Allocates a new token for use in token-based task submission. All tokens
     // must be destroyed before their ThreadPool is destroyed.
     //
@@ -158,9 +177,6 @@ public:
         // Tasks submitted via this token may be executed concurrently.
         CONCURRENT
     };
-    std::unique_ptr<SplitThreadPoolToken> new_token(ExecutionMode mode,
-                                                    std::shared_ptr<SplitQueue> split_queue,
-                                                    int max_concurrency = INT_MAX);
 
     // Return the number of threads currently running (or in the process of starting up)
     // for this thread pool.
@@ -217,16 +233,7 @@ public:
     Status set_max_threads(int max_threads);
 
 private:
-    // Client-provided task to be executed by this pool.
-    /*struct Task {
-        std::shared_ptr<PrioritizedSplitRunner> split;
-
-        // Time at which the entry was submitted to the pool.
-        MonotonicStopWatch submit_time_wather;
-    };*/
-
     Status _add_runner_thread();
-    //void _worker_thread_function();
     void _schedule_task_if_necessary(std::shared_ptr<TimeSharingTaskHandle> task_handle,
                                      std::unique_lock<std::mutex>& lock);
     void _add_new_entrants(std::unique_lock<std::mutex>& lock);
@@ -245,7 +252,6 @@ private:
     int64_t _get_running_tasks_for_level(int level) const;
 
     std::unique_ptr<ThreadPool> _thread_pool;
-    // ThreadConfig _thread_config;
     const std::string _thread_name;
     const std::string _workload_group;
     int _min_threads;
@@ -258,14 +264,10 @@ private:
     const int _guaranteed_concurrency_per_task;
     const int _max_concurrency_per_task;
     std::shared_ptr<Ticker> _ticker;
-    const std::chrono::milliseconds _stuck_split_warning_threshold;
-    //std::shared_ptr<SplitQueue> _waiting_splits;
 
     mutable std::mutex _mutex;
     std::condition_variable _condition;
     std::atomic<bool> _stopped {false};
-
-    //std::vector<std::thread> _worker_threads;
 
     std::unordered_map<TaskId, std::shared_ptr<TimeSharingTaskHandle>> _tasks;
 
@@ -277,24 +279,8 @@ private:
     std::array<std::atomic<int64_t>, 5> _completed_tasks_per_level = {0, 0, 0, 0, 0};
     std::array<std::atomic<int64_t>, 5> _completed_splits_per_level = {0, 0, 0, 0, 0};
 
-    bvar::LatencyRecorder _split_queued_time;
-
     // friend class SplitThreadPoolBuilder;
     friend class SplitThreadPoolToken;
-
-    // // Client-provided task to be executed by this pool.
-    // struct Task {
-    //     std::shared_ptr<Runnable> runnable;
-
-    //     // Time at which the entry was submitted to the pool.
-    //     MonotonicStopWatch submit_time_wather;
-    // };
-
-    // Creates a new thread pool using a builder.
-    // explicit SplitThreadPool(const SplitThreadPoolBuilder& builder);
-
-    // Initializes the thread pool by starting the minimum number of threads.
-    // Status init();
 
     // Dispatcher responsible for dequeueing and executing the tasks
     void _dispatch_thread();
@@ -309,10 +295,7 @@ private:
     void check_not_pool_thread_unlocked();
 
     // // Submits a task to be run via token.
-    Status _do_submit(std::shared_ptr<PrioritizedSplitRunner> split, SplitThreadPoolToken* token);
-
-    // // Releases token 't' and invalidates it.
-    void release_token(SplitThreadPoolToken* t);
+    Status _do_submit(std::shared_ptr<PrioritizedSplitRunner> split);
 
     //NOTE: not thread safe, caller should keep it thread-safe by using lock
     Status _try_create_thread(int thread_num, std::lock_guard<std::mutex>&);
@@ -357,17 +340,6 @@ private:
     // Protected by _lock.
     int _total_queued_tasks {0};
 
-    // All allocated tokens.
-    //
-    // Protected by _lock.
-    std::unordered_set<SplitThreadPoolToken*> _tokens;
-
-    // FIFO of tokens from which tasks should be executed. Does not own the
-    // tokens; they are owned by clients and are removed from the FIFO on shutdown.
-    //
-    // Protected by _lock.
-    //std::deque<SplitThreadPoolToken*> _queue;
-
     // Pointers to all running threads. Raw pointers are safe because a Thread
     // may only go out of scope after being removed from _threads.
     //
@@ -408,6 +380,8 @@ private:
     IntCounter* split_thread_pool_task_wait_worker_count_total = nullptr;
 
     IntCounter* split_thread_pool_submit_failed = nullptr;
+
+    bool _enable_concurrency_control = true;
 };
 
 // Entry point for token-based task submission and blocking for a particular
@@ -422,12 +396,6 @@ public:
     // May be called on a token with outstanding tasks, as Shutdown() will be
     // called first to take care of them.
     ~SplitThreadPoolToken();
-
-    // Submits a Runnable class.
-    Status submit(std::shared_ptr<Runnable> r);
-
-    // Submits a function bound using std::bind(&FuncName, args...).
-    Status submit_func(std::function<void()> f);
 
     // Marks the token as unusable for future submissions. Any queued tasks not
     // yet running are destroyed. If tasks are in flight, Shutdown() will wait

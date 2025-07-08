@@ -155,7 +155,7 @@ Status TaskSimulator::_create_task_executor() {
             thread_config, _config.executor_config.min_concurrency,
             _config.executor_config.guaranteed_concurrency_per_task,
             _config.executor_config.max_concurrency_per_task, std::make_shared<SystemTicker>(),
-            std::chrono::milliseconds(60000), _split_queue);
+            _split_queue);
 
     RETURN_IF_ERROR(_task_executor->init());
     RETURN_IF_ERROR(_task_executor->start());

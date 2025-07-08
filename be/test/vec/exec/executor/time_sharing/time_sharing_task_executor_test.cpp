@@ -538,8 +538,7 @@ TEST_F(TimeSharingTaskExecutorTest, test_level_multipliers) {
     TimeSharingTaskExecutor::ThreadConfig thread_config;
     thread_config.max_thread_num = TASK_THREADS;
     thread_config.min_thread_num = TASK_THREADS;
-    TimeSharingTaskExecutor executor(thread_config, CONCURRENCY, 3, 4, ticker,
-                                     std::chrono::milliseconds(60000), split_queue);
+    TimeSharingTaskExecutor executor(thread_config, CONCURRENCY, 3, 4, ticker, split_queue);
     ASSERT_TRUE(executor.init().ok());
     ASSERT_TRUE(executor.start().ok());
 
@@ -732,8 +731,6 @@ TEST_F(TimeSharingTaskExecutorTest, test_update_level_with_cap) {
                         .count();
 
         int64_t level_time_nanos = std::min(level_duration_nanos, capped_nanos);
-        fprintf(stdout, "level_duration: %ld, level_time: %ld, capped_nanos: %ld\n",
-                level_duration_nanos, level_time_nanos, capped_nanos);
         EXPECT_EQ(split_queue->level_scheduled_time(i), level_time_nanos);
         capped_nanos -= level_time_nanos;
     }
@@ -752,7 +749,7 @@ TEST_F(TimeSharingTaskExecutorTest, test_min_max_concurrency_per_task) {
     thread_config.max_thread_num = TASK_THREADS;
     thread_config.min_thread_num = TASK_THREADS;
     TimeSharingTaskExecutor executor(thread_config, CONCURRENCY, 1, MAX_DRIVERS_PER_TASK, ticker,
-                                     std::chrono::milliseconds(60000), split_queue);
+                                     split_queue);
     ASSERT_TRUE(executor.init().ok());
     ASSERT_TRUE(executor.start().ok());
 
@@ -815,8 +812,7 @@ TEST_F(TimeSharingTaskExecutorTest, test_user_specified_max_concurrencies_per_ta
     TimeSharingTaskExecutor::ThreadConfig thread_config;
     thread_config.max_thread_num = TASK_THREADS;
     thread_config.min_thread_num = TASK_THREADS;
-    TimeSharingTaskExecutor executor(thread_config, CONCURRENCY, 2, 4, ticker,
-                                     std::chrono::milliseconds(60000), split_queue);
+    TimeSharingTaskExecutor executor(thread_config, CONCURRENCY, 2, 4, ticker, split_queue);
     ASSERT_TRUE(executor.init().ok());
     ASSERT_TRUE(executor.start().ok());
 
@@ -873,8 +869,7 @@ TEST_F(TimeSharingTaskExecutorTest,
     TimeSharingTaskExecutor::ThreadConfig thread_config;
     thread_config.max_thread_num = TASK_THREADS;
     thread_config.min_thread_num = TASK_THREADS;
-    TimeSharingTaskExecutor executor(thread_config, CONCURRENCY, 2, 2, ticker,
-                                     std::chrono::milliseconds(60000), split_queue);
+    TimeSharingTaskExecutor executor(thread_config, CONCURRENCY, 2, 2, ticker, split_queue);
     ASSERT_TRUE(executor.init().ok());
     ASSERT_TRUE(executor.start().ok());
 

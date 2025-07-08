@@ -52,8 +52,8 @@ public:
             std::shared_ptr<TaskHandle> task_handle, bool intermediate,
             const std::vector<std::shared_ptr<SplitRunner>>& splits) = 0;
 
-    virtual void re_enqueue_split(std::shared_ptr<TaskHandle> task_handle, bool intermediate,
-                                  const std::shared_ptr<SplitRunner>& split) = 0;
+    virtual Status re_enqueue_split(std::shared_ptr<TaskHandle> task_handle, bool intermediate,
+                                    const std::shared_ptr<SplitRunner>& split) = 0;
 };
 
 } // namespace vectorized
