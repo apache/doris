@@ -264,10 +264,120 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createTbl() throws UserException {
+        /**
+         * CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`column_statistics` (
+         *   `id` varchar(4096) NOT NULL COMMENT "",
+         *   `catalog_id` varchar(1024) NOT NULL COMMENT "",
+         *   `db_id` varchar(1024) NOT NULL COMMENT "",
+         *   `tbl_id` varchar(1024) NOT NULL COMMENT "",
+         *   `idx_id` varchar(1024) NOT NULL COMMENT "",
+         *   `col_id` varchar(1024) NOT NULL COMMENT "",
+         *   `part_id` varchar(1024) NULL COMMENT "",
+         *   `count` bigint NULL COMMENT "",
+         *   `ndv` bigint NULL COMMENT "",
+         *   `null_count` bigint NULL COMMENT "",
+         *   `min` varchar(65533) NULL COMMENT "",
+         *   `max` varchar(65533) NULL COMMENT "",
+         *   `data_size_in_bytes` bigint NULL COMMENT "",
+         *   `update_time` datetime NOT NULL COMMENT "",
+         *   `hot_value` text NULL COMMENT ""
+         * ) ENGINE = olap
+         * UNIQUE KEY(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)
+         * COMMENT "Doris internal statistics table, DO NOT MODIFY IT"
+         * DISTRIBUTED BY HASH(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`)
+         * BUCKETS 7
+         * PROPERTIES ("replication_num"  =  "1")
+         */
         createTable(getStatisticsCreateSql(StatisticConstants.TABLE_STATISTIC_TBL_NAME,
                 Lists.newArrayList("id", "catalog_id", "db_id", "tbl_id", "idx_id", "col_id", "part_id")));
+        /**
+         *CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`partition_statistics` (
+         *   `catalog_id` varchar(1024) NOT NULL COMMENT "",
+         *   `db_id` varchar(1024) NOT NULL COMMENT "",
+         *   `tbl_id` varchar(1024) NOT NULL COMMENT "",
+         *   `idx_id` varchar(1024) NOT NULL COMMENT "",
+         *   `part_name` varchar(1024) NOT NULL COMMENT "",
+         *   `part_id` bigint NOT NULL COMMENT "",
+         *   `col_id` varchar(1024) NOT NULL COMMENT "",
+         *   `count` bigint NULL COMMENT "",
+         *   `ndv` hll NOT NULL COMMENT "",
+         *   `null_count` bigint NULL COMMENT "",
+         *   `min` varchar(65533) NULL COMMENT "",
+         *   `max` varchar(65533) NULL COMMENT "",
+         *   `data_size_in_bytes` bigint NULL COMMENT "",
+         *   `update_time` datetime NOT NULL COMMENT ""
+         * ) ENGINE = olap
+         * UNIQUE KEY(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)
+         * COMMENT "Doris internal statistics table, DO NOT MODIFY IT"
+         * DISTRIBUTED BY HASH(`catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `part_id`, `col_id`)
+         * BUCKETS 7
+         * PROPERTIES ("replication_num" = "1")
+         */
         createTable(getStatisticsCreateSql(StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
                 Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_name", "part_id", "col_id")));
+        /**
+         *CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`audit_log` (
+         *   `query_id` varchar(48) NULL COMMENT "",
+         *   `time` datetimev2(3) NULL COMMENT "",
+         *   `client_ip` varchar(128) NULL COMMENT "",
+         *   `user` varchar(128) NULL COMMENT "",
+         *   `frontend_ip` varchar(128) NULL COMMENT "",
+         *   `catalog` varchar(128) NULL COMMENT "",
+         *   `db` varchar(128) NULL COMMENT "",
+         *   `state` varchar(128) NULL COMMENT "",
+         *   `error_code` int NULL COMMENT "",
+         *   `error_message` text NULL COMMENT "",
+         *   `query_time` bigint NULL COMMENT "",
+         *   `cpu_time_ms` bigint NULL COMMENT "",
+         *   `peak_memory_bytes` bigint NULL COMMENT "",
+         *   `scan_bytes` bigint NULL COMMENT "",
+         *   `scan_rows` bigint NULL COMMENT "",
+         *   `return_rows` bigint NULL COMMENT "",
+         *   `shuffle_send_rows` bigint NULL COMMENT "",
+         *   `shuffle_send_bytes` bigint NULL COMMENT "",
+         *   `spill_write_bytes_from_local_storage` bigint NULL COMMENT "",
+         *   `spill_read_bytes_from_local_storage` bigint NULL COMMENT "",
+         *   `scan_bytes_from_local_storage` bigint NULL COMMENT "",
+         *   `scan_bytes_from_remote_storage` bigint NULL COMMENT "",
+         *   `parse_time_ms` int NULL COMMENT "",
+         *   `plan_times_ms` map<text,int> NULL COMMENT "",
+         *   `get_meta_times_ms` map<text,int> NULL COMMENT "",
+         *   `schedule_times_ms` map<text,int> NULL COMMENT "",
+         *   `hit_sql_cache` tinyint NULL COMMENT "",
+         *   `handled_in_fe` tinyint NULL COMMENT "",
+         *   `queried_tables_and_views` array<text> NULL COMMENT "",
+         *   `chosen_m_views` array<text> NULL COMMENT "",
+         *   `changed_variables` map<text,text> NULL COMMENT "",
+         *   `sql_mode` text NULL COMMENT "",
+         *   `stmt_type` varchar(48) NULL COMMENT "",
+         *   `stmt_id` bigint NULL COMMENT "",
+         *   `sql_hash` varchar(128) NULL COMMENT "",
+         *   `sql_digest` varchar(128) NULL COMMENT "",
+         *   `is_query` tinyint NULL COMMENT "",
+         *   `is_nereids` tinyint NULL COMMENT "",
+         *   `is_internal` tinyint NULL COMMENT "",
+         *   `workload_group` text NULL COMMENT "",
+         *   `compute_group` text NULL COMMENT "",
+         *   `stmt` text NULL COMMENT ""
+         * ) ENGINE = olap
+         * DUPLICATE KEY(`query_id`, `time`, `client_ip`)
+         * COMMENT "Doris internal audit table, DO NOT MODIFY IT"
+         * PARTITION BY RANGE(`time`)
+         * (
+         *
+         * )
+         * DISTRIBUTED BY HASH(`query_id`)
+         * BUCKETS 2
+         * PROPERTIES (
+         *   "dynamic_partition.time_unit" = "DAY",
+         *   "dynamic_partition.buckets" = "2",
+         *   "dynamic_partition.end" = "3",
+         *   "dynamic_partition.enable" = "true",
+         *   "replication_num" = "1",
+         *   "dynamic_partition.start" = "-30",
+         *   "dynamic_partition.prefix" = "p"
+         * )
+         */
         createTable(getAuditLogCreateSql());
     }
 
