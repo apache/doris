@@ -183,7 +183,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new LeadingJoin()),
             topDown(new BindSkewExpr()),
             bottomUp(new NormalizeGenerate()),
-            bottomUp(new SubqueryToApply()),
             /*
              * Notice, MergeProjects rule should NOT be placed after SubqueryToApply in analyze phase.
              * because in SubqueryToApply, we may add assert_true function with subquery output slot in projects list.
