@@ -2380,28 +2380,37 @@ int InstanceRecycler::recycle_rowsets() {
         if (current_time < calc_expiration(rowset)) { // not expired
             return 0;
         }
+
+        auto record_statistics = [&metrics_context](const doris::RowsetMetaCloudPB& rowset_meta) {
+            int64_t disk_size = rowset_meta.total_disk_size();
+            int64_t num_segments = rowset_meta.num_segments();
+
+            metrics_context.total_need_recycle_data_size += disk_size;
+            metrics_context.total_need_recycle_num++;
+            segment_metrics_context_.total_need_recycle_data_size += disk_size;
+            segment_metrics_context_.total_need_recycle_num += num_segments;
+            metrics_context.report();
+            segment_metrics_context_.report();
+        };
+
         if (!rowset.has_type()) {
-            if (!rowset.has_resource_id()) [[unlikely]] {
+            if (!rowset.has_resource_id() || rowset.resource_id().empty()) [[unlikely]] {
                 return 0;
             }
-            if (rowset.resource_id().empty()) [[unlikely]] {
-                return 0;
-            }
+            record_statistics(rowset.rowset_meta());
             return 0;
         }
-        auto* rowset_meta = rowset.mutable_rowset_meta();
-        if (!rowset_meta->has_resource_id()) [[unlikely]] {
+        auto rowset_meta = rowset.mutable_rowset_meta();
+        if (!rowset_meta->has_resource_id()) [[unlikely]] { // impossible
             if (rowset.type() == RecycleRowsetPB::PREPARE || rowset_meta->num_segments() != 0) {
                 return 0;
             }
         }
-        if (rowset.type() != RecycleRowsetPB::PREPARE) {
-            if (rowset_meta->num_segments() > 0) {
-                metrics_context.total_need_recycle_num++;
-                segment_metrics_context_.total_need_recycle_num += rowset_meta->num_segments();
-                segment_metrics_context_.total_need_recycle_data_size +=
-                        rowset_meta->total_disk_size();
-                metrics_context.total_need_recycle_data_size += rowset_meta->total_disk_size();
+        if (rowset.type() == RecycleRowsetPB::PREPARE) {
+            record_statistics(*rowset_meta);
+        } else {
+            if (rowset_meta->num_segments() > 0) { // Skip empty rowset
+                record_statistics(*rowset_meta);
             }
         }
         return 0;
