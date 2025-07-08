@@ -4,7 +4,7 @@ query_id	varchar(48)	Yes	true	\N
 time	datetime(3)	Yes	true	\N	
 client_ip	varchar(128)	Yes	true	\N	
 user	varchar(128)	Yes	false	\N	NONE
-frontend_ip	varchar(128)	Yes	false	\N	NONE
+frontend_ip	varchar(1024)	Yes	false	\N	NONE
 catalog	varchar(128)	Yes	false	\N	NONE
 db	varchar(128)	Yes	false	\N	NONE
 state	varchar(128)	Yes	false	\N	NONE

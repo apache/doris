@@ -246,6 +246,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
@@ -500,7 +501,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 
-/** ScalarFunctionVisitor. */
+/**
+ * ScalarFunctionVisitor.
+ */
 public interface ScalarFunctionVisitor<R, C> {
 
     R visitScalarFunction(ScalarFunction scalarFunction, C context);
@@ -1428,6 +1431,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonArray(JsonArray jsonArray, C context) {
         return visitScalarFunction(jsonArray, context);
+    }
+
+    default R visitJsonArrayIgnoreNull(JsonArrayIgnoreNull jsonArrayIgnoreNull, C context) {
+        return visitScalarFunction(jsonArrayIgnoreNull, context);
     }
 
     default R visitJsonObject(JsonObject jsonObject, C context) {
