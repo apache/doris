@@ -49,6 +49,16 @@ namespace doris::vectorized {
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
+#ifndef BE_TEST
+    // This is a known problem.
+    // We often do not consider the nullable attribute of array's data column in beut.
+    // Considering that beut is just a test, it will not be checked at present, but this problem needs to be considered in the future.
+    if (!data->is_nullable()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "nested_column must be nullable, but got {}", data->get_name());
+    }
+#endif
+
     data = data->convert_to_full_column_if_const();
     offsets = offsets->convert_to_full_column_if_const();
     const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
@@ -896,21 +906,27 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
         return ColumnArray::create(data);
     }
 
-    const ColumnNullable& nullable_data_column = assert_cast<const ColumnNullable&>(*data);
+    if (const auto* nullable_data_column = check_and_get_column<ColumnNullable>(*data)) {
+        auto res_null_map = ColumnUInt8::create();
+        // filter null map
+        filter_arrays_impl_only_data(nullable_data_column->get_null_map_data(), get_offsets(),
+                                     res_null_map->get_data(), filt, result_size_hint);
 
-    auto res_null_map = ColumnUInt8::create();
-    // filter null map
-    filter_arrays_impl_only_data(nullable_data_column.get_null_map_data(), get_offsets(),
-                                 res_null_map->get_data(), filt, result_size_hint);
+        auto src_data = nullable_data_column->get_nested_column_ptr();
+        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        auto array_of_nested =
+                filter_return_new_dispatch(filt, result_size_hint, src_data, src_offsets);
 
-    auto src_data = nullable_data_column.get_nested_column_ptr();
-    const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
-    auto array_of_nested =
-            filter_return_new_dispatch(filt, result_size_hint, src_data, src_offsets);
-
-    return ColumnArray::create(
-            ColumnNullable::create(array_of_nested.data, std::move(res_null_map)),
-            array_of_nested.offsets);
+        return ColumnArray::create(
+                ColumnNullable::create(array_of_nested.data, std::move(res_null_map)),
+                array_of_nested.offsets);
+    } else {
+        // filter offsets
+        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        auto array_of_nested =
+                filter_return_new_dispatch(filt, result_size_hint, data, src_offsets);
+        return ColumnArray::create(array_of_nested.data, std::move(array_of_nested.offsets));
+    }
 }
 
 // There is a strange thing here. It didn't implement the type of string?
@@ -953,16 +969,20 @@ size_t ColumnArray::filter(const Filter& filter) {
         return 0;
     }
 
-    ColumnNullable& nullable_data_column =
-            assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(*data);
-    const auto result_size = filter_arrays_impl_only_data(nullable_data_column.get_null_map_data(),
-                                                          get_offsets(), filter);
+    if (auto* nullable_data_column = typeid_cast<ColumnNullable*>(data.get())) {
+        const auto result_size = filter_arrays_impl_only_data(
+                nullable_data_column->get_null_map_data(), get_offsets(), filter);
 
-    auto& src_data = nullable_data_column.get_nested_column();
-    auto& src_offsets = assert_cast<ColumnOffsets&>(*offsets);
+        auto& src_data = nullable_data_column->get_nested_column();
+        auto& src_offsets = assert_cast<ColumnOffsets&>(*offsets);
+        filter_inplace_dispatch(filter, src_data, src_offsets);
+        return result_size;
+    } else {
+        auto& src_data = get_data();
+        auto& src_offsets = assert_cast<ColumnOffsets&>(*offsets);
 
-    filter_inplace_dispatch(filter, src_data, src_offsets);
-    return result_size;
+        return filter_inplace_dispatch(filter, src_data, src_offsets);
+    }
 }
 
 void ColumnArray::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
@@ -1225,27 +1245,31 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
         return clone_empty();
     }
 
-    const ColumnNullable& nullable = assert_cast<const ColumnNullable&>(*data);
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*data)) {
+        const auto& null_nested_column = nullable->get_nested_column_ptr();
+        const auto& null_null_map = nullable->get_null_map_column_ptr();
+        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        auto array_of_nested =
+                column_array_replicate_dispatch(replicate_offsets, null_nested_column, src_offsets);
+        auto array_of_null_map =
+                column_array_replicate_dispatch(replicate_offsets, null_null_map, src_offsets);
+        /// TODO:
+        //  In order to facilitate the writing of code, we use the same interface.
+        //  In fact, for array_of_null_map, we don't need to calculate offset.
 
-    /// Make temporary arrays for each components of Nullable. Then replicate them independently and collect back to result.
-    /// NOTE Offsets are calculated twice and it is redundant.
+        DCHECK_EQ(array_of_nested.offsets->size(), array_of_null_map.offsets->size())
+                << "The size of offsets in array_of_nested and array_of_null_map should be equal.";
+        return ColumnArray::create(
+                ColumnNullable::create(array_of_nested.data, array_of_null_map.data),
+                array_of_nested.offsets);
+    }
 
-    const auto& null_nested_column = nullable.get_nested_column_ptr();
-    const auto& null_null_map = nullable.get_null_map_column_ptr();
-    const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
-    auto array_of_nested =
-            column_array_replicate_dispatch(replicate_offsets, null_nested_column, src_offsets);
-    auto array_of_null_map =
-            column_array_replicate_dispatch(replicate_offsets, null_null_map, src_offsets);
-    /// TODO:
-    //  In order to facilitate the writing of code, we use the same interface.
-    //  In fact, for array_of_null_map, we don't need to calculate offset.
-
-    DCHECK_EQ(array_of_nested.offsets->size(), array_of_null_map.offsets->size())
-            << "The size of offsets in array_of_nested and array_of_null_map should be equal.";
-
-    return ColumnArray::create(ColumnNullable::create(array_of_nested.data, array_of_null_map.data),
-                               array_of_nested.offsets);
+    else {
+        const auto* src_offsets = assert_cast<const ColumnOffsets*>(offsets.get());
+        auto array_of_nested =
+                column_array_replicate_dispatch(replicate_offsets, data, src_offsets);
+        return ColumnArray::create(array_of_nested.data, std::move(array_of_nested.offsets));
+    }
 }
 
 MutableColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
