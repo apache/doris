@@ -259,12 +259,6 @@ const FieldDescriptor ParquetReader::get_file_metadata_schema() {
     return _file_metadata->schema();
 }
 
-Status ParquetReader::open() {
-    RETURN_IF_ERROR(_open_file());
-    _t_metadata = &(_file_metadata->to_thrift());
-    return Status::OK();
-}
-
 void ParquetReader::_init_system_properties() {
     if (_scan_range.__isset.file_type) {
         // for compatibility
@@ -311,10 +305,8 @@ Status ParquetReader::init_reader(
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _colname_to_value_range = colname_to_value_range;
     _hive_use_column_names = hive_use_column_names;
-    if (_file_metadata == nullptr) {
-        return Status::InternalError("failed to init parquet reader, please open reader first");
-    }
-
+    RETURN_IF_ERROR(_open_file());
+    _t_metadata = &(_file_metadata->to_thrift());
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     _total_groups = _t_metadata->row_groups.size();
     if (_total_groups == 0) {
@@ -491,11 +483,15 @@ Status ParquetReader::set_fill_columns(
     return Status::OK();
 }
 
+// init file reader and file metadata for parsing schema
+Status ParquetReader::init_schema_reader() {
+    RETURN_IF_ERROR(_open_file());
+    _t_metadata = &(_file_metadata->to_thrift());
+    return Status::OK();
+}
+
 Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
                                         std::vector<TypeDescriptor>* col_types) {
-    RETURN_IF_ERROR(_open_file());
-    _t_metadata = &_file_metadata->to_thrift();
-
     _total_groups = _t_metadata->row_groups.size();
     auto schema_desc = _file_metadata->schema();
     for (int i = 0; i < schema_desc.size(); ++i) {
@@ -863,7 +859,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
-        _col_offsets.emplace(parquet_col_id, offset_index);
+        _col_offsets[parquet_col_id] = offset_index;
     }
     if (skipped_row_ranges.empty()) {
         read_whole_row_group();

@@ -168,6 +168,9 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getBasePath() {
+        return path
+    }
 }
 
 class Frontend extends ServerNode {
