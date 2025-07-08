@@ -141,7 +141,7 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("LocalTvfBroker", StorageType.LOCAL, locationProperties);
+        return new BrokerDesc("LocalTvfBroker", StorageType.LOCAL, processedParams);
     }
 
     @Override
