@@ -242,7 +242,7 @@ public:
     /**
      * Get performance metrics from java scanner
      */
-    Status get_statistics(JNIEnv* env, std::map<std::string, std::string> result);
+    Status get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
 
     /**
      * Call java side function JniScanner.getTableSchema.

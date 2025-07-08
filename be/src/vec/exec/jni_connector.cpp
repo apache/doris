@@ -165,7 +165,7 @@ Status JniConnector::get_table_schema(std::string& table_schema_str) {
     return Status::OK();
 }
 
-Status JniConnector::get_statistics(JNIEnv* env, std::map<std::string, std::string> result) {
+Status JniConnector::get_statistics(JNIEnv* env, std::map<std::string, std::string>* result) {
     result.clear();
     jobject metrics = env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_statistics);
     jthrowable exc = (env)->ExceptionOccurred();
@@ -829,7 +829,7 @@ void JniConnector::_collect_profile_before_close() {
         }
         // update scanner metrics
         std::map<std::string, std::string> statistics_result;
-        st = get_statistics(env, statistics_result);
+        st = get_statistics(env, &statistics_result);
         if (!st) {
             LOG(WARNING) << "failed to get_statistics when collect profile: " << st;
             return;

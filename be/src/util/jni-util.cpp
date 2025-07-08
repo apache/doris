@@ -340,7 +340,7 @@ Status JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std
 }
 
 Status JniUtil::convert_to_cpp_map(JNIEnv* env, jobject map,
-                                   std::map<std::string, std::string>& resultMap) {
+                                   std::map<std::string, std::string>* resultMap) {
     // Get the class and method ID of the java.util.Map interface
     jclass mapClass = env->FindClass("java/util/Map");
     RETURN_ERROR_IF_EXC(env);
@@ -391,7 +391,7 @@ Status JniUtil::convert_to_cpp_map(JNIEnv* env, jobject map,
         const char* value = env->GetStringUTFChars(static_cast<jstring>(javaValue), nullptr);
 
         // Store the key-value pair in the map
-        resultMap[key] = value;
+        (*resultMap)[key] = value;
 
         // Release the string references
         env->ReleaseStringUTFChars(static_cast<jstring>(javaKey), key);
