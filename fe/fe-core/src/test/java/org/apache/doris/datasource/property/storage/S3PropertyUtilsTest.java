@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -40,13 +41,13 @@ class S3PropertyUtilsTest {
     void testCheckLoadPropsAndReturnUri_missingKey() {
         Map<String, String> props = new HashMap<>();
         Executable executable = () -> S3PropertyUtils.validateAndGetUri(props);
-        UserException exception = Assertions.assertThrows(UserException.class, executable);
-        Assertions.assertEquals("errCode = 2, detailMessage = props is empty", exception.getMessage());
+        StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class, executable);
+        Assertions.assertEquals("props is empty", exception.getMessage());
 
         props.put("someKey", "value");
         executable = () -> S3PropertyUtils.validateAndGetUri(props);
-        exception = Assertions.assertThrows(UserException.class, executable);
-        Assertions.assertEquals("errCode = 2, detailMessage = props must contain uri", exception.getMessage());
+        exception = Assertions.assertThrows(StoragePropertiesException.class, executable);
+        Assertions.assertEquals("props must contain uri", exception.getMessage());
     }
 
     @Test
@@ -66,7 +67,7 @@ class S3PropertyUtilsTest {
         Assertions.assertNull(S3PropertyUtils.constructEndpointFromUrl(props, "false", "true"));
 
         props.put("uri", "invalid uri without scheme");
-        Assertions.assertThrowsExactly(UserException.class, () -> S3PropertyUtils.constructEndpointFromUrl(props, "true", "true"));
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> S3PropertyUtils.constructEndpointFromUrl(props, "true", "true"));
     }
 
     @Test
@@ -86,7 +87,7 @@ class S3PropertyUtilsTest {
         Assertions.assertNull(S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
 
         props.put("uri", "not a uri");
-        Assertions.assertThrowsExactly(UserException.class, () -> S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
         props.put("uri", "https://my-bucket.s3.us-west-1.amazonaws.com/test.txt");
         Assertions.assertEquals("us-west-1", S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
     }
@@ -103,8 +104,8 @@ class S3PropertyUtilsTest {
 
     @Test
     void testConvertToS3Address_invalid() {
-        Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.validateAndNormalizeUri(null, "false", "true"));
-        Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.validateAndNormalizeUri("", "false", "false"));
+        Assertions.assertThrows(StoragePropertiesException.class, () -> S3PropertyUtils.validateAndNormalizeUri(null, "false", "true"));
+        Assertions.assertThrows(StoragePropertiesException.class, () -> S3PropertyUtils.validateAndNormalizeUri("", "false", "false"));
         Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.validateAndNormalizeUri("not a uri", "true", "true"));
     }
 }

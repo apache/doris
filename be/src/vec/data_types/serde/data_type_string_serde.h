@@ -231,7 +231,7 @@ public:
     }
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
+                                               uint64_t* num_deserialized,
                                                const FormatOptions& options) const override {
         DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
         return Status::OK();
@@ -249,8 +249,8 @@ public:
         return Status::OK();
     }
 
-    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
-                                              int* num_deserialized,
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
+                                              uint64_t* num_deserialized,
                                               const FormatOptions& options) const override {
         if (rows < 1) [[unlikely]] {
             return Status::OK();
@@ -265,7 +265,7 @@ public:
         return Status::OK();
     }
 
-    void insert_column_last_value_multiple_times(IColumn& column, int times) const override {
+    void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override {
         if (times < 1) [[unlikely]] {
             return;
         }
@@ -303,7 +303,7 @@ public:
     }
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override {
         const auto& string_column = assert_cast<const ColumnType&>(column);
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
@@ -318,14 +318,14 @@ public:
                              array_builder->type()->name());
         }
     }
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                int end, const cctz::time_zone& ctz) const override {
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                int64_t end, const cctz::time_zone& ctz) const override {
         if (arrow_array->type_id() == arrow::Type::STRING ||
             arrow_array->type_id() == arrow::Type::BINARY) {
             const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
             std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
-            for (size_t offset_i = start; offset_i < end; ++offset_i) {
+            for (auto offset_i = start; offset_i < end; ++offset_i) {
                 if (!concrete_array->IsNull(offset_i)) {
                     const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
                     assert_cast<ColumnType&>(column).insert_data(

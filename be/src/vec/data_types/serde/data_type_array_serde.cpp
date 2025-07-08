@@ -19,7 +19,6 @@
 
 #include <arrow/array/builder_nested.h>
 
-#include "common/exception.h"
 #include "common/status.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
@@ -32,7 +31,6 @@
 #include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
-
 class Arena;
 
 Status DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx,
@@ -48,8 +46,8 @@ Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    auto& data_column = assert_cast<const ColumnArray&>(*ptr);
-    auto& offsets = data_column.get_offsets();
+    const auto& data_column = assert_cast<const ColumnArray&>(*ptr);
+    const auto& offsets = data_column.get_offsets();
     size_t offset = offsets[row_num - 1];
     size_t next_offset = offsets[row_num];
 
@@ -69,7 +67,7 @@ Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int
 
 Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
-                                                               int* num_deserialized,
+                                                               uint64_t* num_deserialized,
                                                                const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -146,7 +144,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
         }
     }
 
-    int elem_deserialized = 0;
+    uint64_t elem_deserialized = 0;
     Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,
                                                                   &elem_deserialized, options);
     offsets.emplace_back(offsets.back() + elem_deserialized);
@@ -179,7 +177,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
         }
     }
 
-    int elem_deserialized = 0;
+    uint64_t elem_deserialized = 0;
     Status status = nested_serde->deserialize_column_from_hive_text_vector(
             nested_column, slices, &elem_deserialized, options,
             hive_text_complex_type_delimiter_level + 1);
@@ -188,7 +186,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
 }
 
 Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
@@ -201,8 +199,8 @@ Status DataTypeArraySerDe::serialize_one_cell_to_hive_text(
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    auto& data_column = assert_cast<const ColumnArray&>(*ptr);
-    auto& offsets = data_column.get_offsets();
+    const auto& data_column = assert_cast<const ColumnArray&>(*ptr);
+    const auto& offsets = data_column.get_offsets();
 
     size_t start = offsets[row_num - 1];
     size_t end = offsets[row_num];
@@ -233,18 +231,18 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 }
 
 void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
 void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                               arrow::ArrayBuilder* array_builder, int start,
-                                               int end, const cctz::time_zone& ctz) const {
-    auto& array_column = static_cast<const ColumnArray&>(column);
-    auto& offsets = array_column.get_offsets();
-    auto& nested_data = array_column.get_data();
+                                               arrow::ArrayBuilder* array_builder, int64_t start,
+                                               int64_t end, const cctz::time_zone& ctz) const {
+    const auto& array_column = static_cast<const ColumnArray&>(column);
+    const auto& offsets = array_column.get_offsets();
+    const auto& nested_data = array_column.get_data();
     auto& builder = assert_cast<arrow::ListBuilder&>(*array_builder);
-    auto nested_builder = builder.value_builder();
+    auto* nested_builder = builder.value_builder();
     for (size_t array_idx = start; array_idx < end; ++array_idx) {
         if (null_map && (*null_map)[array_idx]) {
             checkArrowStatus(builder.AppendNull(), column.get_name(),
@@ -258,17 +256,17 @@ void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Null
 }
 
 void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                int start, int end,
+                                                int64_t start, int64_t end,
                                                 const cctz::time_zone& ctz) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
-    auto concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
+    const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
     auto arrow_offsets_array = concrete_array->offsets();
-    auto arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
     auto prev_size = offsets_data.back();
     auto arrow_nested_start_offset = arrow_offsets->Value(start);
     auto arrow_nested_end_offset = arrow_offsets->Value(end);
-    for (int64_t i = start + 1; i < end + 1; ++i) {
+    for (auto i = start + 1; i < end + 1; ++i) {
         // convert to doris offset, start from offsets.back()
         offsets_data.emplace_back(prev_size + arrow_offsets->Value(i) - arrow_nested_start_offset);
     }
@@ -282,9 +280,9 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<is_binary_format>& result,
                                                   int row_idx_of_mysql, bool col_const,
                                                   const FormatOptions& options) const {
-    auto& column_array = assert_cast<const ColumnArray&>(column);
-    auto& offsets = column_array.get_offsets();
-    auto& data = column_array.get_data();
+    const auto& column_array = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = column_array.get_offsets();
+    const auto& data = column_array.get_data();
     bool is_nested_string = data.is_column_string();
     const auto row_idx_of_col_arr = index_check_const(row_idx_of_mysql, col_const);
     result.open_dynamic_mode();

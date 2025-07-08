@@ -73,7 +73,7 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, 
 }
 
 Status DataTypeNullableSerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -122,14 +122,14 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(
 }
 
 Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeNullableSerDe::deserialize_column_from_fixed_json(
-        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
@@ -289,8 +289,8 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
    2/ pass the arrow null byteamp to nested column , and call AppendValues
 **/
 void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                  arrow::ArrayBuilder* array_builder, int start,
-                                                  int end, const cctz::time_zone& ctz) const {
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
                                         &column_nullable.get_null_map_data(), array_builder, start,
@@ -298,11 +298,11 @@ void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const N
 }
 
 void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                   int start, int end,
+                                                   int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     NullMap& map_data = col.get_null_map_data();
-    for (size_t i = start; i < end; ++i) {
+    for (auto i = start; i < end; ++i) {
         auto is_null = arrow_array->IsNull(i);
         map_data.emplace_back(is_null);
     }
@@ -350,7 +350,7 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   std::vector<StringRef>& buffer_list) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
-    auto& null_map_tmp = column_nullable.get_null_map_data();
+    const auto& null_map_tmp = column_nullable.get_null_map_data();
     auto orc_null_map = revert_null_map(&null_map_tmp, start, end);
     // orc_col_batch->notNull.data() must add 'start' (+ start),
     // because orc_col_batch->notNull.data() begins at 0

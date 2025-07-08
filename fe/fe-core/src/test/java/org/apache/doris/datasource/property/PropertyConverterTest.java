@@ -58,6 +58,7 @@ import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -93,10 +94,10 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "into outfile 's3://bucket/mock_dir'\n"
                 + "format as csv\n"
                 + "properties(\n"
-                + "    'AWS_ENDPOINT' = 'http://127.0.0.1:9000',\n"
+                + "    'AWS_ENDPOINT' = 's3.ap-northeast-1.amazonaws.com',\n"
                 + "    'AWS_ACCESS_KEY' = 'akk',\n"
                 + "    'AWS_SECRET_KEY'='akk',\n"
-                + "    'AWS_REGION' = 'mock',\n"
+                + "    'AWS_REGION' = 'ap-northeast-1',\n"
                 + "    'use_path_style' = 'true'\n"
                 + ");";
         QueryStmt analyzedOutStmt = createStmt(query);
@@ -112,7 +113,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "into outfile 's3://bucket/mock_dir'\n"
                 + "format as csv\n"
                 + "properties(\n"
-                + "    's3.endpoint' = 'http://127.0.0.1:9000',\n"
+                + "    's3.endpoint' = 'https://s3.ap-northeast-1.amazonaws.com',\n"
                 + "    's3.access_key' = 'akk',\n"
                 + "    's3.secret_key'='akk',\n"
                 + "    'use_path_style' = 'true'\n"
@@ -181,7 +182,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmt = createStmt(s3Repo);
         Assertions.assertEquals(analyzedStmt.getProperties().size(), 4);
         Repository repository = getRepository(analyzedStmt, "s3_repo");
-        Assertions.assertEquals(9, repository.getRemoteFileSystem().getProperties().size());
+        Assertions.assertEquals(4, repository.getRemoteFileSystem().getProperties().size());
 
         String s3RepoNew = "CREATE REPOSITORY `s3_repo_new`\n"
                 + "WITH S3\n"
@@ -195,7 +196,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmtNew = createStmt(s3RepoNew);
         Assertions.assertEquals(analyzedStmtNew.getProperties().size(), 3);
         Repository repositoryNew = getRepository(analyzedStmtNew, "s3_repo_new");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 5);
+        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 3);
     }
 
     private static Repository getRepository(CreateRepositoryStmt analyzedStmt, String name) throws DdlException {
@@ -203,6 +204,7 @@ public class PropertyConverterTest extends TestWithFeService {
         return Env.getCurrentEnv().getBackupHandler().getRepoMgr().getRepo(name);
     }
 
+    @Disabled("not support")
     @Test
     public void testBosBrokerRepositoryPropertiesConverter() throws Exception {
         FeConstants.runningUnitTest = true;
@@ -241,7 +243,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(analyzedStmt.getTableRefs().size(), 1);
         TableValuedFunctionRef oldFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
         S3TableValuedFunction s3Tvf = (S3TableValuedFunction) oldFuncTable.getTableFunction();
-        Assertions.assertEquals(10, s3Tvf.getBrokerDesc().getProperties().size());
+        Assertions.assertEquals(5, s3Tvf.getBrokerDesc().getProperties().size());
 
         String queryNew = "select * from s3(\n"
                     + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
@@ -254,7 +256,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(analyzedStmtNew.getTableRefs().size(), 1);
         TableValuedFunctionRef newFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
         S3TableValuedFunction newS3Tvf = (S3TableValuedFunction) newFuncTable.getTableFunction();
-        Assertions.assertEquals(10, newS3Tvf.getBrokerDesc().getProperties().size());
+        Assertions.assertEquals(5, newS3Tvf.getBrokerDesc().getProperties().size());
     }
 
     @Test

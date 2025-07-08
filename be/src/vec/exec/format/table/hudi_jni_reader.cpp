@@ -27,14 +27,13 @@
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
-
 namespace vectorized {
 class Block;
 } // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const std::string HudiJniReader::HOODIE_CONF_PREFIX = "hoodie.";
 const std::string HudiJniReader::HADOOP_CONF_PREFIX = "hadoop_conf.";
 
@@ -46,7 +45,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
           _scan_params(scan_params),
           _hudi_params(hudi_params) {
     std::vector<std::string> required_fields;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         required_fields.emplace_back(desc->col_name());
     }
 
@@ -83,4 +82,5 @@ Status HudiJniReader::init_reader(
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -38,7 +38,7 @@ struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class HudiJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(HudiJniReader);
 
@@ -61,4 +61,5 @@ private:
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

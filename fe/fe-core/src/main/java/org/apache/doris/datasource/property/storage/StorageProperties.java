@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectionProperties;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import lombok.Getter;
 
@@ -35,6 +36,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_HDFS_SUPPORT = "fs.hdfs.support";
     public static final String FS_S3_SUPPORT = "fs.s3.support";
     public static final String FS_GCS_SUPPORT = "fs.gcs.support";
+    public static final String FS_MINIO_SUPPORT = "fs.minio.support";
     public static final String FS_AZURE_SUPPORT = "fs.azure.support";
     public static final String FS_OSS_SUPPORT = "fs.oss.support";
     public static final String FS_OBS_SUPPORT = "fs.obs.support";
@@ -50,7 +52,9 @@ public abstract class StorageProperties extends ConnectionProperties {
         OSS,
         OBS,
         COS,
+        MINIO,
         AZURE,
+        BROKER,
         UNKNOWN
     }
 
@@ -98,7 +102,7 @@ public abstract class StorageProperties extends ConnectionProperties {
      * @return a StorageProperties instance for the primary storage type
      * @throws RuntimeException if no supported storage type is found
      */
-    public static StorageProperties createPrimary(Map<String, String> origProps) throws UserException {
+    public static StorageProperties createPrimary(Map<String, String> origProps) {
         for (Function<Map<String, String>, StorageProperties> func : PROVIDERS) {
             StorageProperties p = func.apply(origProps);
             if (p != null) {
@@ -106,7 +110,7 @@ public abstract class StorageProperties extends ConnectionProperties {
                 return p;
             }
         }
-        throw new RuntimeException("No supported storage type found.");
+        throw new StoragePropertiesException("No supported storage type found. Please check your configuration.");
     }
 
     private static final List<Function<Map<String, String>, StorageProperties>> PROVIDERS =
@@ -125,7 +129,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_COS_SUPPORT)
                             || COSProperties.guessIsMe(props)) ? new COSProperties(props) : null,
                     props -> (isFsSupport(props, FS_AZURE_SUPPORT)
-                            || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null
+                            || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null,
+                    props -> (isFsSupport(props, FS_MINIO_SUPPORT)
+                            || MinioProperties.guessIsMe(props)) ? new MinioProperties(props) : null
             );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {

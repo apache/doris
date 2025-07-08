@@ -606,6 +606,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected abstract TableIf getTargetTable() throws UserException;
 
+    // TODO: Rename this method when Metadata Service (MS) integration is complete.
+    // The current name "getLocationProperties" is a placeholder and may not reflect
+    // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
     @Override
