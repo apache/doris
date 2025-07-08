@@ -158,7 +158,8 @@ public:
         thread_config.cgroup_cpu_ctl = _cgroup_cpu_ctl;
         _task_executor = TimeSharingTaskExecutor::create_shared(
                 thread_config, max_thread_num * 2, config::task_executor_min_concurrency_per_task,
-                config::task_executor_max_concurrency_per_task, std::make_shared<SystemTicker>());
+                config::task_executor_max_concurrency_per_task, std::make_shared<SystemTicker>(),
+                nullptr, false);
         RETURN_IF_ERROR(_task_executor->init());
         RETURN_IF_ERROR(_task_executor->start());
         return Status::OK();
@@ -171,16 +172,20 @@ public:
                 split_runner = std::make_shared<ScannerSplitRunner>("scanner_split_runner",
                                                                     scan_task.scan_func);
                 RETURN_IF_ERROR(split_runner->init());
-                _task_executor->enqueue_splits(scan_task.scanner_context->task_handle(), false,
-                                               {split_runner});
+                auto result = _task_executor->enqueue_splits(
+                        scan_task.scanner_context->task_handle(), false, {split_runner});
+                if (!result.has_value()) {
+                    LOG(WARNING) << "enqueue_splits failed: " << result.error();
+                    return result.error();
+                }
                 scan_task.scan_task->is_first_schedule = false;
             } else {
                 split_runner = scan_task.scan_task->split_runner.lock();
                 if (split_runner == nullptr) {
                     return Status::OK();
                 }
-                _task_executor->re_enqueue_split(scan_task.scanner_context->task_handle(), false,
-                                                 split_runner);
+                RETURN_IF_ERROR(_task_executor->re_enqueue_split(
+                        scan_task.scanner_context->task_handle(), false, split_runner));
             }
             scan_task.scan_task->split_runner = split_runner;
             return Status::OK();
@@ -211,7 +216,11 @@ public:
                     std::make_shared<ScannerSplitRunner>("scanner_split_runner", wrapped_scan_func);
             RETURN_IF_ERROR(split_runner->init());
 
-            _task_executor->enqueue_splits(task_handle, false, {split_runner});
+            auto result = _task_executor->enqueue_splits(task_handle, false, {split_runner});
+            if (!result.has_value()) {
+                LOG(WARNING) << "enqueue_splits failed: " << result.error();
+                return result.error();
+            }
             return Status::OK();
         } else {
             return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);

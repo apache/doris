@@ -48,23 +48,10 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_task_execution_time_ns_to
                                      MetricUnit::NANOSECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_task_execution_count_total,
                                      MetricUnit::NOUNIT);
-// DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_task_wait_worker_time_ns_total,
-//                                      MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_task_wait_worker_time_ns_total,
+                                     MetricUnit::NANOSECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_task_wait_worker_count_total,
                                      MetricUnit::NOUNIT);
-using namespace ErrorCode;
-
-using std::string;
-
-/*class FunctionRunnable : public Runnable {
-public:
-    explicit FunctionRunnable(std::function<void()> func) : _func(std::move(func)) {}
-
-    void run() override { _func(); }
-
-private:
-    std::function<void()> _func;
-};*/
 
 SplitThreadPoolToken::SplitThreadPoolToken(TimeSharingTaskExecutor* pool,
                                            TimeSharingTaskExecutor::ExecutionMode mode,
@@ -85,7 +72,6 @@ SplitThreadPoolToken::SplitThreadPoolToken(TimeSharingTaskExecutor* pool,
 
 SplitThreadPoolToken::~SplitThreadPoolToken() {
     shutdown();
-    _pool->release_token(this);
 }
 
 void SplitThreadPoolToken::shutdown() {
@@ -109,17 +95,6 @@ void SplitThreadPoolToken::shutdown() {
         // the token's last task will switch the token to QUIESCED). Otherwise,
         // we can quiesce the token immediately.
 
-        // Note: this is an O(n) operation, but it's expected to be infrequent.
-        // Plus doing it this way (rather than switching to QUIESCING and waiting
-        // for a worker thread to process the queue entry) helps retain state
-        // transition symmetry with ThreadPool::shutdown.
-        /*for (auto it = _pool->_queue.begin(); it != _pool->_queue.end();) {
-            if (*it == this) {
-                it = _pool->_queue.erase(it);
-            } else {
-                it++;
-            }
-        }*/
         _pool->_tokenless->_entries->clear();
 
         if (_active_threads == 0) {
@@ -215,225 +190,31 @@ bool SplitThreadPoolToken::need_dispatch() {
             _num_submitted_tasks < _max_concurrency);
 }
 
-// TimeSharingTaskExecutor::TimeSharingTaskExecutor(SplitThreadPool* pool, SplitThreadPool::ExecutionMode mode,
-//                                  int max_concurrency)
-//         : _mode(mode),
-//           _pool(pool),
-//           _state(State::IDLE),
-//           _active_threads(0),
-//           _max_concurrency(max_concurrency),
-//           _num_submitted_tasks(0),
-//           _num_unsubmitted_tasks(0) {
-//     if (max_concurrency == 1 && mode != SplitThreadPool::ExecutionMode::SERIAL) {
-//         _mode = SplitThreadPool::ExecutionMode::SERIAL;
-//     }
-// }
-
-// TimeSharingTaskExecutor::~TimeSharingTaskExecutor() {
-//     shutdown();
-//     // _pool->release_token(this);
-// }
-
-// Status TimeSharingTaskExecutor::submit(std::shared_ptr<Runnable> r) {
-//     return _pool->_do_submit(std::move(r), this);
-// }
-
-// Status TimeSharingTaskExecutor::submit_func(std::function<void()> f) {
-//     return submit(std::make_shared<FunctionRunnable>(std::move(f)));
-// }
-
-// void TimeSharingTaskExecutor::shutdown() {
-//     std::unique_lock<std::mutex> l(_pool->_mutex);
-//     _pool->check_not_pool_thread_unlocked();
-
-//     // Clear the queue under the lock, but defer the releasing of the tasks
-//     // outside the lock, in case there are concurrent threads wanting to access
-//     // the SplitThreadPool. The task's destructors may acquire locks, etc, so this
-//     // also prevents lock inversions.
-//     std::deque<SplitThreadPool::Task> to_release = std::move(_entries);
-//     _pool->_total_queued_tasks -= to_release.size();
-
-//     switch (state()) {
-//     case State::IDLE:
-//         // There were no tasks outstanding; we can quiesce the token immediately.
-//         transition(State::QUIESCED);
-//         break;
-//     case State::RUNNING:
-//         // There were outstanding tasks. If any are still running, switch to
-//         // QUIESCING and wait for them to finish (the worker thread executing
-//         // the token's last task will switch the token to QUIESCED). Otherwise,
-//         // we can quiesce the token immediately.
-
-//         // Note: this is an O(n) operation, but it's expected to be infrequent.
-//         // Plus doing it this way (rather than switching to QUIESCING and waiting
-//         // for a worker thread to process the queue entry) helps retain state
-//         // transition symmetry with SplitThreadPool::shutdown.
-//         for (auto it = _pool->_queue.begin(); it != _pool->_queue.end();) {
-//             if (*it == this) {
-//                 it = _pool->_queue.erase(it);
-//             } else {
-//                 it++;
-//             }
-//         }
-
-//         if (_active_threads == 0) {
-//             transition(State::QUIESCED);
-//             break;
-//         }
-//         transition(State::QUIESCING);
-//         [[fallthrough]];
-//     case State::QUIESCING:
-//         // The token is already quiescing. Just wait for a worker thread to
-//         // switch it to QUIESCED.
-//         _not_running_cond.wait(l, [this]() { return state() == State::QUIESCED; });
-//         break;
-//     default:
-//         break;
-//     }
-// }
-
-// void TimeSharingTaskExecutor::wait() {
-//     std::unique_lock<std::mutex> l(_pool->_mutex);
-//     _pool->check_not_pool_thread_unlocked();
-//     _not_running_cond.wait(l, [this]() { return !is_active(); });
-// }
-
-/*void TimeSharingTaskExecutor::transition(State new_state) {
-#ifndef NDEBUG
-    CHECK_NE(_state, new_state);
-
-    switch (_state) {
-    case State::IDLE:
-        CHECK(new_state == State::RUNNING || new_state == State::QUIESCED);
-        if (new_state == State::RUNNING) {
-            CHECK(!_entries.size() == 0);
-        } else {
-            CHECK(_entries.size() == 0);
-            CHECK_EQ(_active_threads, 0);
-        }
-        break;
-    case State::RUNNING:
-        CHECK(new_state == State::IDLE || new_state == State::QUIESCING ||
-              new_state == State::QUIESCED);
-        CHECK(_entries.size() == 0);
-        if (new_state == State::QUIESCING) {
-            CHECK_GT(_active_threads, 0);
-        }
-        break;
-    case State::QUIESCING:
-        CHECK(new_state == State::QUIESCED);
-        CHECK_EQ(_active_threads, 0);
-        break;
-    case State::QUIESCED:
-        CHECK(false); // QUIESCED is a terminal state
-        break;
-    default:
-        throw doris::Exception(Status::FatalError("Unknown token state: {}", _state));
-    }
-#endif
-
-    // Take actions based on the state we're entering.
-    switch (new_state) {
-    case State::IDLE:
-    case State::QUIESCED:
-        _not_running_cond.notify_all();
-        break;
-    default:
-        break;
-    }
-
-    _state = new_state;
-}
-
-const char* TimeSharingTaskExecutor::state_to_string(State s) {
-    switch (s) {
-    case State::IDLE:
-        return "IDLE";
-        break;
-    case State::RUNNING:
-        return "RUNNING";
-        break;
-    case State::QUIESCING:
-        return "QUIESCING";
-        break;
-    case State::QUIESCED:
-        return "QUIESCED";
-        break;
-    }
-    return "<cannot reach here>";
-}*/
-
-// bool TimeSharingTaskExecutor::need_dispatch() {
-//     // return _state == State::IDLE ||
-//     //        (_mode == SplitThreadPool::ExecutionMode::CONCURRENT &&
-//     //         _num_submitted_tasks < _max_concurrency);
-//     return true;
-// }
-
-TimeSharingTaskExecutor::TimeSharingTaskExecutor(
-        ThreadConfig thread_config, int min_concurrency, int guaranteed_concurrency_per_task,
-        int max_concurrency_per_task, std::shared_ptr<Ticker> ticker,
-        std::chrono::milliseconds stuck_split_warning_threshold,
-        std::shared_ptr<SplitQueue> split_queue)
+TimeSharingTaskExecutor::TimeSharingTaskExecutor(ThreadConfig thread_config, int min_concurrency,
+                                                 int guaranteed_concurrency_per_task,
+                                                 int max_concurrency_per_task,
+                                                 std::shared_ptr<Ticker> ticker,
+                                                 std::shared_ptr<SplitQueue> split_queue,
+                                                 bool enable_concurrency_control)
         : _thread_name(thread_config.thread_name),
           _workload_group(thread_config.workload_group),
           _min_threads(thread_config.min_thread_num),
-          //_min_threads(2),
           _max_threads(thread_config.max_thread_num),
-          //_max_threads(2),
           _max_queue_size(thread_config.max_queue_size),
           _cgroup_cpu_ctl(thread_config.cgroup_cpu_ctl),
           _min_concurrency(min_concurrency),
           _guaranteed_concurrency_per_task(guaranteed_concurrency_per_task),
           _max_concurrency_per_task(max_concurrency_per_task),
           _ticker(ticker != nullptr ? ticker : std::make_shared<SystemTicker>()),
-          _stuck_split_warning_threshold(stuck_split_warning_threshold),
-          _tokenless(new_token(ExecutionMode::CONCURRENT,
-                               split_queue != nullptr
-                                       ? std::move(split_queue)
-                                       : std::make_shared<MultilevelSplitQueue>(2))) {}
-//_waiting_splits(split_queue != nullptr ? std::move(split_queue)
-//                                       : std::make_shared<MultilevelSplitQueue>(2)) {}
-//: std::make_shared<SimulationFIFOSplitQueue>()) {}
+          _tokenless(new SplitThreadPoolToken(this, ExecutionMode::CONCURRENT,
+                                              split_queue != nullptr
+                                                      ? std::move(split_queue)
+                                                      : std::make_shared<MultilevelSplitQueue>(2),
+                                              INT_MAX)),
+          _enable_concurrency_control(enable_concurrency_control) {}
 
 Status TimeSharingTaskExecutor::init() {
-    static_cast<void>(_stuck_split_warning_threshold);
-
-    // ThreadPoolBuilder builder(_thread_config.thread_name);
-    // builder.set_min_threads(_thread_config.min_thread_num)
-    //         .set_max_threads(_thread_config.max_thread_num)
-    //         .set_max_queue_size(_thread_config.max_queue_size)
-    //         .set_cgroup_cpu_ctl(_thread_config.cgroup_cpu_ctl);
-    // RETURN_IF_ERROR(builder.build(&_thread_pool));
-
-    //     : _thread_name(builder._thread_name),
-    //   _workload_group(builder._workload_group),
-    //   _min_threads(builder._min_threads),
-    //   _max_threads(builder._max_threads),
-    //   _max_queue_size(builder._max_queue_size),
-    //   _idle_timeout(builder._idle_timeout),
-    //   _pool_status(Status::Uninitialized("The pool was not initialized.")),
-    //   _num_threads(0),
-    //   _num_threads_pending_start(0),
-    //   _active_threads(0),
-    //   _total_queued_tasks(0),
-    //   _cgroup_cpu_ctl(builder._cgroup_cpu_ctl),
-    //   _tokenless(new_token(ExecutionMode::CONCURRENT)),
-    //   _id(UniqueId::gen_uid()) {}
-
-    // _thread_name = _thread_config.thread_name;
-    // _workload_group = _thread_config.workload_group;
-    // _min_threads = _thread_config.min_thread_num;
-    // _max_threads = _thread_config.max_thread_num;
-    // _max_queue_size = _thread_config.max_queue_size;
-    // _pool_status = Status::Uninitialized("The pool was not initialized.");
-    // _num_threads = 0;
-    // _num_threads_pending_start = 0;
-    // _active_threads = 0;
-    // _total_queued_tasks = 0;
-    // _id = UniqueId::gen_uid();
-
-    if (!_pool_status.is<UNINITIALIZED>()) {
+    if (!_pool_status.is<ErrorCode::UNINITIALIZED>()) {
         return Status::NotSupported("The thread pool {} is already initialized", _thread_name);
     }
     _pool_status = Status::OK();
@@ -459,7 +240,7 @@ Status TimeSharingTaskExecutor::init() {
     INT_GAUGE_METRIC_REGISTER(_metric_entity, split_thread_pool_max_queue_size);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_task_execution_time_ns_total);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_task_execution_count_total);
-    //INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_task_wait_worker_time_ns_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_task_wait_worker_time_ns_total);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_task_wait_worker_count_total);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_submit_failed);
 
@@ -497,13 +278,7 @@ TimeSharingTaskExecutor::~TimeSharingTaskExecutor() {
                 splits_to_destroy.insert(splits_to_destroy.end(),
                                          std::make_move_iterator(task_splits.begin()),
                                          std::make_move_iterator(task_splits.end()));
-                _record_leaf_splits_size(lock);
             }
-            //_tasks.clear();
-            //_all_splits.clear();
-            //_intermediate_splits.clear();
-            //_blocked_splits.clear();
-            //_waiting_splits->remove_all(splits_to_destroy);
         }
         {
             std::unique_lock<std::mutex> l(_lock);
@@ -521,21 +296,10 @@ TimeSharingTaskExecutor::~TimeSharingTaskExecutor() {
 }
 
 Status TimeSharingTaskExecutor::start() {
-    // std::lock_guard<std::mutex> guard(_mutex);
-    // // TODO a custom thread pool
-    // for (int i = 0; i < _thread_config.max_thread_num; ++i) {
-    //     RETURN_IF_ERROR(_add_runner_thread());
-    // }
     return Status::OK();
 }
 
 void TimeSharingTaskExecutor::stop() {
-    /* _waiting_splits->interrupt();
-    {
-        std::lock_guard<std::mutex> guard(_mutex);
-        _stopped = true;
-    }*/
-
     // Why access to doris_metrics is safe here?
     // Since DorisMetrics is a singleton, it will be destroyed only after doris_main is exited.
     // The shutdown/destroy of SplitThreadPool is guaranteed to take place before doris_main exits by
@@ -549,39 +313,35 @@ void TimeSharingTaskExecutor::stop() {
     // concern though because shutting down a pool typically requires clients to
     // be quiesced first, so there's no danger of a client getting confused.
     // Not print stack trace here
-    _pool_status = Status::Error<SERVICE_UNAVAILABLE, false>(
+    _pool_status = Status::Error<ErrorCode::SERVICE_UNAVAILABLE, false>(
             "The thread pool {} has been shut down.", _thread_name);
 
     // // Clear the various queues under the lock, but defer the releasing
     // // of the tasks outside the lock, in case there are concurrent threads
     // // wanting to access the SplitThreadPool. The task's destructors may acquire
     // // locks, etc, so this also prevents lock inversions.
-    // _queue.clear();
-
-    //_queue.clear();
 
     std::deque<std::shared_ptr<SplitQueue>> to_release;
-    for (auto* t : _tokens) {
-        if (t->_entries->size() > 0) {
-            to_release.emplace_back(t->_entries);
-            t->_entries->clear();
-        }
-        switch (t->state()) {
-        case SplitThreadPoolToken::State::IDLE:
-            // The token is idle; we can quiesce it immediately.
-            t->transition(SplitThreadPoolToken::State::QUIESCED);
-            break;
-        case SplitThreadPoolToken::State::RUNNING:
-            // The token has tasks associated with it. If they're merely queued
-            // (i.e. there are no active threads), the tasks will have been removed
-            // above and we can quiesce immediately. Otherwise, we need to wait for
-            // the threads to finish.
-            t->transition(t->_active_threads > 0 ? SplitThreadPoolToken::State::QUIESCING
-                                                 : SplitThreadPoolToken::State::QUIESCED);
-            break;
-        default:
-            break;
-        }
+    if (_tokenless->_entries->size() > 0) {
+        to_release.emplace_back(_tokenless->_entries);
+        _tokenless->_entries->clear();
+    }
+    switch (_tokenless->state()) {
+    case SplitThreadPoolToken::State::IDLE:
+        // The token is idle; we can quiesce it immediately.
+        _tokenless->transition(SplitThreadPoolToken::State::QUIESCED);
+        break;
+    case SplitThreadPoolToken::State::RUNNING:
+        // The token has tasks associated with it. If they're merely queued
+        // (i.e. there are no active threads), the tasks will have been removed
+        // above and we can quiesce immediately. Otherwise, we need to wait for
+        // the threads to finish.
+        _tokenless->transition(_tokenless->_active_threads > 0
+                                       ? SplitThreadPoolToken::State::QUIESCING
+                                       : SplitThreadPoolToken::State::QUIESCED);
+        break;
+    default:
+        break;
     }
 
     // The queues are empty. Wake any sleeping worker threads and wait for all
@@ -596,10 +356,8 @@ void TimeSharingTaskExecutor::stop() {
     _no_threads_cond.wait(l, [this]() { return _num_threads + _num_threads_pending_start == 0; });
 
     // All the threads have exited. Check the state of each token.
-    for (auto* t : _tokens) {
-        DCHECK(t->state() == SplitThreadPoolToken::State::IDLE ||
-               t->state() == SplitThreadPoolToken::State::QUIESCED);
-    }
+    DCHECK(_tokenless->state() == SplitThreadPoolToken::State::IDLE ||
+           _tokenless->state() == SplitThreadPoolToken::State::QUIESCED);
 }
 
 Status TimeSharingTaskExecutor::_try_create_thread(int thread_num, std::lock_guard<std::mutex>&) {
@@ -616,48 +374,15 @@ Status TimeSharingTaskExecutor::_try_create_thread(int thread_num, std::lock_gua
     return Status::OK();
 }
 
-std::unique_ptr<SplitThreadPoolToken> TimeSharingTaskExecutor::new_token(
-        ExecutionMode mode, std::shared_ptr<SplitQueue> split_queue, int max_concurrency) {
-    std::lock_guard<std::mutex> l(_lock);
-    std::unique_ptr<SplitThreadPoolToken> t(
-            new SplitThreadPoolToken(this, mode, split_queue, max_concurrency));
-    if (!_tokens.insert(t.get()).second) {
-        throw doris::Exception(Status::InternalError("duplicate token"));
-    }
-    return t;
-}
-
-void TimeSharingTaskExecutor::release_token(SplitThreadPoolToken* t) {
-    std::lock_guard<std::mutex> l(_lock);
-    CHECK(!t->is_active()) << fmt::format("Token with state {} may not be released",
-                                          SplitThreadPoolToken::state_to_string(t->state()));
-    CHECK_EQ(1, _tokens.erase(t));
-}
-
-/*Status TimeSharingTaskExecutor::submit(std::shared_ptr<Runnable> r) {
-     return _do_submit(std::move(r), _tokenless.get());
- }*/
-
-/*Status TimeSharingTaskExecutor::submit_func(std::function<void()> f) {
-     return submit(std::make_shared<FunctionRunnable>(std::move(f)));
- }*/
-
-/*static std::string get_thread_id_str() {
-    std::ostringstream oss;
-    oss << std::this_thread::get_id();
-    return oss.str();
-}*/
-
-Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunner> split,
-                                           SplitThreadPoolToken* token) {
-    DCHECK(token);
+Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunner> split) {
     std::unique_lock<std::mutex> l(_lock);
     if (!_pool_status.ok()) [[unlikely]] {
         return _pool_status;
     }
 
-    if (!token->may_submit_new_tasks()) [[unlikely]] {
-        return Status::Error<SERVICE_UNAVAILABLE>("Thread pool({}) was shut down", _thread_name);
+    if (!_tokenless->may_submit_new_tasks()) [[unlikely]] {
+        return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>("Thread pool({}) was shut down",
+                                                             _thread_name);
     }
 
     // Size limit check.
@@ -665,7 +390,7 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
         split_thread_pool_submit_failed->increment(1);
-        return Status::Error<SERVICE_UNAVAILABLE>(
+        return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                 "Thread pool {} is at capacity ({}/{} tasks running, {}/{} tasks queued)",
                 _thread_name, _num_threads + _num_threads_pending_start, _max_threads,
                 _total_queued_tasks, _max_queue_size);
@@ -687,13 +412,8 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     // and harmless.
     //
     // Of course, we never create more than _max_threads threads no matter what.
-    // int threads_from_this_submit =
-    //         is_active() && mode() == ExecutionMode::SERIAL ? 0 : 1;
-    //int threads_from_this_submit = is_active();
     int threads_from_this_submit = 1;
     int inactive_threads = _num_threads + _num_threads_pending_start - _active_threads;
-    //int additional_threads =
-    //        static_cast<int>(_queue.size()) + threads_from_this_submit - inactive_threads;
     int additional_threads = static_cast<int>(_tokenless->_entries->size()) +
                              threads_from_this_submit - inactive_threads;
     bool need_a_thread = false;
@@ -702,14 +422,11 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
         _num_threads_pending_start++;
     }
 
-    // Task task;
-    // task.split_runner = std::move(split_runner);
-    // task.submit_time_wather.start();
-
-    // Add the task to the token's queue.
+    // Add the split to the queue.
     SplitThreadPoolToken::State state = _tokenless->state();
     DCHECK(state == SplitThreadPoolToken::State::IDLE ||
            state == SplitThreadPoolToken::State::RUNNING);
+    split->submit_time_watch().start();
     _tokenless->_entries->offer(std::move(split));
     if (state == SplitThreadPoolToken::State::IDLE) {
         _tokenless->transition(SplitThreadPoolToken::State::RUNNING);
@@ -722,15 +439,6 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     //    1. If it is a SERIAL token, and there are unsubmitted tasks, submit them to the queue.
     //    2. If it is a CONCURRENT token, and there are still unsubmitted tasks, and the upper limit of concurrency is not reached,
     //       then submitted to the queue.
-    /*if (token->need_dispatch()) {
-        _tokenless->_entries->emplace_back(token);
-        ++token->_num_submitted_tasks;
-        if (state == SplitThreadPoolToken::State::IDLE) {
-            token->transition(SplitThreadPoolToken::State::RUNNING);
-        }
-    } else {
-        ++token->_num_unsubmitted_tasks;
-    }*/
     _total_queued_tasks++;
 
     // Wake up an idle thread for this task. Choosing the thread at the front of
@@ -836,8 +544,8 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
         DCHECK_EQ(SplitThreadPoolToken::State::RUNNING, _tokenless->state());
         DCHECK(_tokenless->_entries->size() > 0);
         std::shared_ptr<PrioritizedSplitRunner> split = _tokenless->_entries->take();
-        // split_thread_pool_task_wait_worker_time_ns_total->increment(
-        //         task.submit_time_wather.elapsed_time());
+        split_thread_pool_task_wait_worker_time_ns_total->increment(
+                split->submit_time_watch().elapsed_time());
         split_thread_pool_task_wait_worker_count_total->increment(1);
         _tokenless->_active_threads++;
         --_total_queued_tasks;
@@ -873,9 +581,7 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
                 if (split->is_auto_reschedule()) {
                     std::unique_lock<std::mutex> lock(_mutex);
                     if (blocked_future.is_done()) {
-                        // _waiting_splits->offer(split);
                         lock.unlock();
-                        //static_cast<void>(_do_submit(split, _tokenless.get()));
                         l.lock();
                         if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING) {
                             _tokenless->_entries->offer(split);
@@ -884,28 +590,24 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
                     } else {
                         _blocked_splits[split] = blocked_future;
 
-                        _blocked_splits[split].add_callback(
-                                [this, split, &l](const Void& value, const Status& status) {
-                                    if (status.ok()) {
-                                        {
-                                            std::unique_lock<std::mutex> lock(_mutex);
-                                            _blocked_splits.erase(split);
-                                        }
-                                        split->reset_level_priority();
-                                        // _waiting_splits->offer(split);
-                                        //static_cast<void>(_do_submit(split, _tokenless.get()));
-                                        l.lock();
-                                        if (_tokenless->state() ==
-                                            SplitThreadPoolToken::State::RUNNING) {
-                                            _tokenless->_entries->offer(split);
-                                        }
-                                        l.unlock();
-                                    } else {
-                                        LOG(WARNING) << "blocked split is failed, split_id: "
-                                                     << split->split_id() << ", status: " << status;
-                                        _split_finished(split, status);
-                                    }
-                                });
+                        _blocked_splits[split].add_callback([this, split](const Void& value,
+                                                                          const Status& status) {
+                            if (status.ok()) {
+                                {
+                                    std::unique_lock<std::mutex> lock(_mutex);
+                                    _blocked_splits.erase(split);
+                                }
+                                split->reset_level_priority();
+                                std::unique_lock<std::mutex> l(_lock);
+                                if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING) {
+                                    _tokenless->_entries->offer(split);
+                                }
+                            } else {
+                                LOG(WARNING) << "blocked split is failed, split_id: "
+                                             << split->split_id() << ", status: " << status;
+                                _split_finished(split, status);
+                            }
+                        });
                     }
                 }
             }
@@ -944,17 +646,6 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
 
         // We decrease _num_submitted_tasks holding lock, so the following DCHECK works.
         DCHECK(_tokenless->_num_submitted_tasks < _tokenless->_max_concurrency);
-
-        // If token->state is running and there are unsubmitted tasks in the token, we put
-        // the token back.
-        /*if (token->_num_unsubmitted_tasks > 0 && state == SplitThreadPoolToken::State::RUNNING) {
-            // SERIAL: if _entries is not empty, then num_unsubmitted_tasks must be greater than 0.
-            // CONCURRENT: we have to check _num_unsubmitted_tasks because there may be at least 2
-            // threads are running for the token.
-            _queue.emplace_back(token);
-            ++token->_num_submitted_tasks;
-            --token->_num_unsubmitted_tasks;
-        }*/
 
         if (--_active_threads == 0) {
             _idle_cond.notify_all();
@@ -1031,125 +722,6 @@ std::ostream& operator<<(std::ostream& o, SplitThreadPoolToken::State s) {
     return o << SplitThreadPoolToken::state_to_string(s);
 }
 
-// Status TimeSharingTaskExecutor::_add_runner_thread() {
-//     return _thread_pool->submit_func([this]() {
-//         Thread::set_self_name("SplitRunner");
-
-//         while (!_stopped) {
-//             std::shared_ptr<PrioritizedSplitRunner> split;
-//             split = _waiting_splits->take();
-//             if (!split) {
-//                 return;
-//             }
-
-//             {
-//                 std::lock_guard<std::mutex> guard(_mutex);
-//                 _running_splits.insert(split);
-//             }
-//             Defer defer {[&]() {
-//                 std::lock_guard<std::mutex> guard(_mutex);
-//                 _running_splits.erase(split);
-//             }};
-//             Result<SharedListenableFuture<Void>> blocked_future_result = split->process();
-//             if (!blocked_future_result.has_value()) {
-//                 return;
-//             }
-//             auto blocked_future = blocked_future_result.value();
-
-//             if (split->is_finished()) {
-//                 _split_finished(split, split->finished_status());
-//             } else {
-//                 if (!split->is_auto_reschedule()) {
-//                     continue;
-//                 }
-//                 std::lock_guard<std::mutex> guard(_mutex);
-//                 if (blocked_future.is_done()) {
-//                     _waiting_splits->offer(split);
-//                 } else {
-//                     _blocked_splits[split] = blocked_future;
-
-//                     _blocked_splits[split].add_callback(
-//                             [this, split](const Void& value, const Status& status) {
-//                                 if (status.ok()) {
-//                                     std::lock_guard<std::mutex> guard(_mutex);
-//                                     _blocked_splits.erase(split);
-//                                     split->reset_level_priority();
-//                                     _waiting_splits->offer(split);
-//                                 } else {
-//                                     LOG(WARNING) << "blocked split is failed, split_id: "
-//                                                  << split->split_id() << ", status: " << status;
-//                                     _split_finished(split, status);
-//                                 }
-//                             });
-//                 }
-//             }
-//         }
-//     });
-
-//     /*try {
-//         _worker_threads.emplace_back([this]() {
-//             _worker_thread_function();
-//         });
-//         return Status::OK();
-//     } catch (const std::exception& e) {
-//         return Status::InternalError("Failed to create worker thread: {}", e.what());
-//     }*/
-// }
-
-/*void TimeSharingTaskExecutor::_worker_thread_function() {
-    Thread::set_self_name("SplitRunner");
-
-    while (!_stopped) {
-        std::shared_ptr<PrioritizedSplitRunner> split;
-        split = _waiting_splits->take();
-        if (!split) {
-            return;
-        }
-
-        {
-            std::lock_guard<std::mutex> guard(_mutex);
-            _running_splits.insert(split);
-        }
-        Defer defer {[&]() {
-            std::lock_guard<std::mutex> guard(_mutex);
-            _running_splits.erase(split);
-        }};
-        Result<SharedListenableFuture<Void>> blocked_future_result = split->process();
-        if (!blocked_future_result.has_value()) {
-            return;
-        }
-        auto blocked_future = blocked_future_result.value();
-
-        if (split->is_finished()) {
-            _split_finished(split, split->finished_status());
-        } else {
-            if (!split->is_auto_reschedule()) {
-                continue;
-            }
-            std::lock_guard<std::mutex> guard(_mutex);
-            if (blocked_future.is_done()) {
-                _waiting_splits->offer(split);
-            } else {
-                _blocked_splits[split] = blocked_future;
-
-                _blocked_splits[split].add_callback([this, split](const Void& value,
-                                                                  const Status& status) {
-                    if (status.ok()) {
-                        std::lock_guard<std::mutex> guard(_mutex);
-                        _blocked_splits.erase(split);
-                        split->reset_level_priority();
-                        _waiting_splits->offer(split);
-                    } else {
-                        LOG(WARNING) << "blocked split is failed, split_id: " << split->split_id()
-                                     << ", status: " << status;
-                        _split_finished(split, status);
-                    }
-                });
-            }
-        }
-    }
-}*/
-
 Result<std::shared_ptr<TaskHandle>> TimeSharingTaskExecutor::create_task(
         const TaskId& task_id, std::function<double()> utilization_supplier,
         int initial_split_concurrency, std::chrono::nanoseconds split_concurrency_adjust_frequency,
@@ -1199,7 +771,6 @@ Status TimeSharingTaskExecutor::remove_task(std::shared_ptr<TaskHandle> task_han
                 _intermediate_splits.erase(split);
                 _blocked_splits.erase(split);
             }
-            _record_leaf_splits_size(lock);
         }
         {
             std::unique_lock<std::mutex> l(_lock);
@@ -1225,7 +796,6 @@ Status TimeSharingTaskExecutor::remove_task(std::shared_ptr<TaskHandle> task_han
     {
         std::unique_lock<std::mutex> lock(_mutex);
         _add_new_entrants(lock);
-        _record_leaf_splits_size(lock);
     }
     return Status::OK();
 }
@@ -1266,20 +836,18 @@ Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enque
             }
             finished_futures.push_back(prioritized_split->finished_future());
         }
-        _record_leaf_splits_size(lock);
     }
     return finished_futures;
 }
 
-void TimeSharingTaskExecutor::re_enqueue_split(std::shared_ptr<TaskHandle> task_handle,
-                                               bool intermediate,
-                                               const std::shared_ptr<SplitRunner>& split) {
+Status TimeSharingTaskExecutor::re_enqueue_split(std::shared_ptr<TaskHandle> task_handle,
+                                                 bool intermediate,
+                                                 const std::shared_ptr<SplitRunner>& split) {
     auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
     std::shared_ptr<PrioritizedSplitRunner> prioritized_split =
             handle->get_split(split, intermediate);
     prioritized_split->reset_level_priority();
-    //_waiting_splits->offer(prioritized_split);
-    static_cast<void>(_do_submit(prioritized_split, _tokenless.get()));
+    return _do_submit(prioritized_split);
 }
 
 void TimeSharingTaskExecutor::_split_finished(std::shared_ptr<PrioritizedSplitRunner> split,
@@ -1295,7 +863,6 @@ void TimeSharingTaskExecutor::_split_finished(std::shared_ptr<PrioritizedSplitRu
         _schedule_task_if_necessary(task_handle, lock);
 
         _add_new_entrants(lock);
-        _record_leaf_splits_size(lock);
     }
     // call close outside of synchronized block as it is expensive and doesn't need a lock on the task executor
     split->close(status);
@@ -1303,40 +870,30 @@ void TimeSharingTaskExecutor::_split_finished(std::shared_ptr<PrioritizedSplitRu
 
 void TimeSharingTaskExecutor::_schedule_task_if_necessary(
         std::shared_ptr<TimeSharingTaskHandle> task_handle, std::unique_lock<std::mutex>& lock) {
-    //int guaranteed_concurrency = std::min(
-    //        _guaranteed_concurrency_per_task,
-    //        task_handle->max_concurrency_per_task().value_or(std::numeric_limits<int>::max()));
-    //int splits_to_schedule = guaranteed_concurrency - task_handle->running_leaf_splits();
-
-    //for (int i = 0; i < splits_to_schedule; ++i) {
-    while (true) {
+    int guaranteed_concurrency = std::min(
+            _guaranteed_concurrency_per_task,
+            task_handle->max_concurrency_per_task().value_or(std::numeric_limits<int>::max()));
+    int splits_to_schedule = guaranteed_concurrency - task_handle->running_leaf_splits();
+    int max_loops =
+            !_enable_concurrency_control ? std::numeric_limits<int>::max() : splits_to_schedule;
+    for (int i = 0; i < max_loops; ++i) {
         auto split = task_handle->poll_next_split();
-        if (!split) return;
-
+        if (!split) {
+            break;
+        }
         _start_split(split, lock);
-        auto elapsed_nanos = std::chrono::nanoseconds(
-                std::chrono::steady_clock::now().time_since_epoch().count() -
-                split->created_nanos());
-        _split_queued_time
-                << std::chrono::duration_cast<std::chrono::microseconds>(elapsed_nanos).count();
     }
-    _record_leaf_splits_size(lock);
 }
 
 void TimeSharingTaskExecutor::_add_new_entrants(std::unique_lock<std::mutex>& lock) {
-    //int running = _all_splits.size() - _intermediate_splits.size();
-    //for (int i = 0; i < _min_concurrency - running; i++) {
-    while (true) {
+    int running = _all_splits.size() - _intermediate_splits.size();
+    int max_loops = !_enable_concurrency_control ? std::numeric_limits<int>::max()
+                                                 : (_min_concurrency - running);
+    for (int i = 0; i < max_loops; ++i) {
         auto split = _poll_next_split_worker(lock);
         if (!split) {
             break;
         }
-
-        auto elapsed_nanos = std::chrono::nanoseconds(
-                std::chrono::steady_clock::now().time_since_epoch().count() -
-                split->created_nanos());
-        _split_queued_time
-                << std::chrono::duration_cast<std::chrono::microseconds>(elapsed_nanos).count();
         _start_split(split, lock);
     }
 }
@@ -1351,8 +908,11 @@ void TimeSharingTaskExecutor::_start_split(std::shared_ptr<PrioritizedSplitRunne
                                            std::unique_lock<std::mutex>& lock) {
     _all_splits.insert(split);
     lock.unlock();
-    // _waiting_splits->offer(split);
-    static_cast<void>(_do_submit(split, _tokenless.get()));
+    Status submit_status = _do_submit(split);
+    if (!submit_status.ok()) {
+        LOG(WARNING) << "_do_submit failed for split_id: " << split->split_id()
+                     << ", status: " << submit_status.to_string();
+    }
     lock.lock();
 }
 
@@ -1378,8 +938,6 @@ std::shared_ptr<PrioritizedSplitRunner> TimeSharingTaskExecutor::_poll_next_spli
     }
     return nullptr;
 }
-
-void TimeSharingTaskExecutor::_record_leaf_splits_size(std::unique_lock<std::mutex>& lock) {}
 
 void TimeSharingTaskExecutor::_interrupt() {
     /*std::lock_guard<std::mutex> guard(_mutex);

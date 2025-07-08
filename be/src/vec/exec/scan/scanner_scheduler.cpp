@@ -336,7 +336,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     if (eos) {
         scanner->mark_to_need_to_close();
     }
-    //fprintf(stderr, "eos:%d\n", eos?1: 0);
     scan_task->set_eos(eos);
 
     VLOG_DEBUG << fmt::format(

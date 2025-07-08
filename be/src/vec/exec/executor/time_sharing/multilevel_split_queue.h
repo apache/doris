@@ -43,6 +43,22 @@ struct SplitRunnerComparator {
     }
 };
 
+/**
+ * @brief MultilevelSplitQueue
+ *
+ * A multi-level priority queue implementation for scheduling and managing split runners
+ * in a time-sharing executor. Each split is assigned a priority level based on
+ * its accumulated scheduled time, and splits in higher-priority levels are scheduled
+ * before those in lower-priority levels. This design helps to prevent starvation of
+ * slow or long-running splits and ensures fair resource allocation among all tasks.
+ *
+ * Key Features:
+ *  - Supports multiple priority levels, each with its own priority queue.
+ *  - Dynamically adjusts split priority based on execution time and configurable thresholds.
+ *  - Integrates with the time-sharing task executor for fine-grained scheduling.
+ *
+ */
+
 class MultilevelSplitQueue : public SplitQueue {
     ENABLE_FACTORY_CREATOR(MultilevelSplitQueue);
 

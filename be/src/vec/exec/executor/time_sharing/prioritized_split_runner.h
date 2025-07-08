@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "common/factory_creator.h"
+#include "util/stopwatch.hpp"
 #include "vec/exec/executor/listenable_future.h"
 #include "vec/exec/executor/split_runner.h"
 #include "vec/exec/executor/ticker.h"
@@ -30,6 +31,15 @@ namespace vectorized {
 
 class TimeSharingTaskHandle;
 
+/**
+ * @brief PrioritizedSplitRunner
+ *
+ * Represents a single prioritized split runner of a task within a time-sharing task execution framework.
+ * Each instance encapsulates the execution state, scheduling priority, and lifecycle
+ * management for a split, and provides interfaces for cooperative scheduling,
+ * progress tracking, and completion notification.
+ *
+ */
 class PrioritizedSplitRunner : public std::enable_shared_from_this<PrioritizedSplitRunner> {
     ENABLE_FACTORY_CREATOR(PrioritizedSplitRunner);
 
@@ -66,6 +76,9 @@ public:
 
     std::shared_ptr<SplitRunner> split_runner() const { return _split_runner; }
 
+    MonotonicStopWatch& submit_time_watch() { return _submit_time_watch; }
+    const MonotonicStopWatch& submit_time_watch() const { return _submit_time_watch; }
+
 private:
     static std::atomic<int64_t> _next_worker_id;
 
@@ -85,6 +98,7 @@ private:
     std::atomic<int64_t> _scheduled_nanos {0};
     std::atomic<int64_t> _wait_nanos {0};
     std::atomic<int> _process_calls {0};
+    MonotonicStopWatch _submit_time_watch;
 };
 
 } // namespace vectorized
