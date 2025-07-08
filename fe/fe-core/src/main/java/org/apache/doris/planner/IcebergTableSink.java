@@ -19,8 +19,10 @@ package org.apache.doris.planner;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
@@ -41,6 +43,7 @@ import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortField;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.types.Types;
 
 import java.util.HashMap;
@@ -129,9 +132,30 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setCompressionType(getTFileCompressType(IcebergUtils.getFileCompress(icebergTable)));
 
         // hadoop config
-        HashMap<String, String> props = new HashMap<>(icebergTable.properties());
-        Map<String, String> catalogProps = targetTable.getCatalog().getProperties();
-        props.putAll(catalogProps);
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
+        HashMap<String, String> props = new HashMap<>(catalog.getCatalogProperty().getHadoopProperties());
+
+        boolean useVendedCredentials = false;
+        if (IcebergExternalCatalog.ICEBERG_REST.equals(catalog.getIcebergCatalogType())) {
+            IcebergRestProperties restProps = (IcebergRestProperties) catalog.getCatalogProperty()
+                    .getMetastoreProperties();
+            if (restProps.isIcebergRestVendedCredentialsEnabled()) {
+                useVendedCredentials = true;
+            }
+        }
+
+        if (useVendedCredentials) {
+            Map<String, String> ioProps = icebergTable.io().properties();
+            if (ioProps.containsKey(S3FileIOProperties.ACCESS_KEY_ID)) {
+                props.put("AWS_ACCESS_KEY", ioProps.get(S3FileIOProperties.ACCESS_KEY_ID));
+            }
+            if (ioProps.containsKey(S3FileIOProperties.SECRET_ACCESS_KEY)) {
+                props.put("AWS_SECRET_KEY", ioProps.get(S3FileIOProperties.SECRET_ACCESS_KEY));
+            }
+            if (ioProps.containsKey(S3FileIOProperties.SESSION_TOKEN)) {
+                props.put("AWS_TOKEN", ioProps.get(S3FileIOProperties.SESSION_TOKEN));
+            }
+        }
         tSink.setHadoopConfig(props);
 
         // location

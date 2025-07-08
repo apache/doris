@@ -25,6 +25,8 @@ import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
@@ -143,6 +145,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+
+        // When using vended credentials with a REST catalog, AK/SK are not provided directly.
+        // The credentials will be fetched from the REST service later.
+        // So we skip the credential check in this case.
+        if (Boolean.parseBoolean(origProps.getOrDefault("iceberg.rest.vended-credentials-enabled", "false"))) {
+            return;
+        }
+
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
             return;
         }
@@ -215,12 +225,16 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     }*/
 
     public void toIcebergS3FileIOProperties(Map<String, String> catalogProps) {
-        // See S3FileIOProperties.java
-        catalogProps.put("s3.endpoint", endpoint);
-        catalogProps.put("s3.access-key-id", accessKey);
-        catalogProps.put("s3.secret-access-key", secretKey);
-        catalogProps.put("client.region", region);
-        catalogProps.put("s3.path-style-access", usePathStyle);
+        // Common properties
+        catalogProps.put(S3FileIOProperties.ENDPOINT, endpoint);
+        catalogProps.put(S3FileIOProperties.PATH_STYLE_ACCESS, usePathStyle);
+        catalogProps.put(AwsClientProperties.CLIENT_REGION, region);
+        if (StringUtils.isNotBlank(accessKey)) {
+            catalogProps.put(S3FileIOProperties.ACCESS_KEY_ID, accessKey);
+        }
+        if (StringUtils.isNotBlank(secretKey)) {
+            catalogProps.put(S3FileIOProperties.SECRET_ACCESS_KEY, secretKey);
+        }
     }
 
     @Override
@@ -262,5 +276,4 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 ProfileCredentialsProvider.create(),
                 InstanceProfileCredentialsProvider.create());
     }
-
 }
