@@ -333,12 +333,16 @@ TEST_F(HttpClientTest, download_file_md5) {
 TEST_F(HttpClientTest, escape_url) {
     HttpClient client;
     client._curl = curl_easy_init();
-    auto check_result = [&client](const auto& input_url, const auto& output_url) -> bool {
+    auto check_result = [&client](const auto& input_url, const auto& output_url,
+                                  bool skip_percent_encode = false) -> bool {
         std::string escaped_url;
-        if (!client._escape_url(input_url, &escaped_url).ok()) {
+        if (!client._escape_url(input_url, &escaped_url, skip_percent_encode).ok()) {
             return false;
         }
         if (escaped_url != output_url) {
+            std::cout << "input1: " << input_url << "\n";
+            std::cout << "output1: " << output_url << "\n";
+            std::cout << "escaped1: " << escaped_url << "\n";
             return false;
         }
         return true;
@@ -369,7 +373,19 @@ TEST_F(HttpClientTest, escape_url) {
 
     std::string input_G = hostname + "/download_file?key=0x2E&key=%2E#section";
     std::string output_G = hostname + "/download_file?key=0x2E&key=%252E#section";
-    ASSERT_TRUE(check_result(input_G, output_G));
+    ASSERT_TRUE(check_result(input_G, output_G, false)); // not skip percent encode
+
+    std::string input_H =
+            hostname +
+            "/java-udf-demo-jar-with-dependencies.jar?Expires=1751901956&OSSAccessKeyId=TMP."
+            "3KnCifjy4MFB4df4vqkTyZHvfGbxS41dBuRFhD9UYDJkfKn3wbtWgHnpqQGAKV64bY426DnB9jf6cEctwvShPa"
+            "oyL4zD6v&Signature=AYs2HN4bQ7wG9onjEQ9nRcF6EGM%3D";
+    std::string output_H =
+            hostname +
+            "/java-udf-demo-jar-with-dependencies.jar?Expires=1751901956&OSSAccessKeyId=TMP."
+            "3KnCifjy4MFB4df4vqkTyZHvfGbxS41dBuRFhD9UYDJkfKn3wbtWgHnpqQGAKV64bY426DnB9jf6cEctwvShPa"
+            "oyL4zD6v&Signature=AYs2HN4bQ7wG9onjEQ9nRcF6EGM%3D";
+    ASSERT_TRUE(check_result(input_H, output_H, true)); // skip percent encode
 }
 
 TEST_F(HttpClientTest, enable_http_auth) {

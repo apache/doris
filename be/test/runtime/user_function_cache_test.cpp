@@ -43,4 +43,36 @@ TEST_F(UserFunctionCacheTest, SplitStringByChecksumTest) {
     EXPECT_EQ(result[3], "jar");
 }
 
+TEST_F(UserFunctionCacheTest, getFileNameFromUrl) {
+    std::string url =
+            "https://asdadadadas.oss-cn-hangzhou.aliyuncs.com/udf/"
+            "java-udf-demo-jar-with-dependencies.jar?Expires=1751901956&OSSAccessKeyId=TMP."
+            "3KnCifjy4MFB4df4AAAAAAAAAvqkTyZHvfGbxS4UYDJkfKn3wbtWgHnpqQGAKV64bY426DnB9jf6cEctwvShPa"
+            "oyL4zD6v&Signature=AYs2HN4bQ7wG9onjEQ9nRcF6EGM%3D";
+
+    auto result = ufc._get_file_name_from_url(url, doris::LibType::JAR);
+    std::cout << result << std::endl;
+    EXPECT_EQ(result, "java-udf-demo-jar-with-dependencies.jar");
+
+    url = "https://asdadadadas.oss-cn-hangzhou.aliyuncs.com/udf/"
+          "java-udf-demo-jar-with-dependencies.jar";
+    result = ufc._get_file_name_from_url(url, doris::LibType::JAR);
+    std::cout << result << std::endl;
+    EXPECT_EQ(result, "java-udf-demo-jar-with-dependencies.jar");
+
+    url = "file:///mnt/disk8/zhangsida/doris/samples/doris-demo/java-udf-demo/target/"
+          "java-udf-demo-jar-with-dependencies.jar";
+    result = ufc._get_file_name_from_url(url, doris::LibType::JAR);
+    std::cout << result << std::endl;
+    EXPECT_EQ(result, "java-udf-demo-jar-with-dependencies.jar");
+}
+
+TEST_F(UserFunctionCacheTest, makeLibFile) {
+    ufc._lib_dir = config::user_function_dir;
+    auto result = ufc._make_lib_file(123, "20c8228267b6c9ce620fddb39467d3eb", doris::LibType::JAR,
+                                     "test.jar");
+    std::cout << result << std::endl;
+    EXPECT_EQ(result, ufc._lib_dir + "/123.20c8228267b6c9ce620fddb39467d3eb.test.jar");
+}
+
 } // namespace doris
