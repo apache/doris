@@ -493,6 +493,7 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     GetTabletResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     Status st = retry_rpc("get tablet meta", req, &resp, &MetaService_Stub::get_tablet);
     if (!st.ok()) {
         if (resp.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
@@ -537,6 +538,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         int64_t table_id = tablet->table_id();
         int64_t index_id = tablet->index_id();
         req.set_cloud_unique_id(config::cloud_unique_id);
+        req.set_request_ip(BackendOptions::get_be_endpoint());
         auto* idx = req.mutable_idx();
         idx->set_tablet_id(tablet_id);
         idx->set_table_id(table_id);
@@ -895,6 +897,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     req.set_base_compaction_cnt(stats.base_compaction_cnt());
     req.set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
     req.set_cumulative_point(stats.cumulative_point());
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     *(req.mutable_idx()) = idx;
     // New rowset sync all versions of delete bitmap
     for (const auto& rs_meta : rs_metas) {
@@ -1010,6 +1013,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
     req.set_tablet_job_id(job_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -1041,6 +1045,7 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string&
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
     req.set_tablet_job_id(job_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
@@ -1078,6 +1083,7 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
 
     // Variant schema maybe updated, so we need to update the schema as well.
     // The updated rowset meta after `rowset->merge_rowset_meta` in `BaseTablet::update_delete_bitmap`
@@ -1159,6 +1165,7 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     CommitTxnRequest req;
     CommitTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
@@ -1182,6 +1189,7 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     AbortTxnRequest req;
     AbortTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     req.set_reason(std::string(ctx.status.msg().substr(0, 1024)));
     if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
@@ -1208,6 +1216,7 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
@@ -1215,6 +1224,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     Status s =
             retry_rpc("get storage vault info", req, &resp, &MetaService_Stub::get_obj_store_info);
     if (!s.ok()) {
@@ -1260,6 +1270,7 @@ Status CloudMetaMgr::prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJ
     StartTabletJobRequest req;
     req.mutable_job()->CopyFrom(job);
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     return retry_rpc("start tablet job", req, res, &MetaService_Stub::start_tablet_job);
 }
 
@@ -1271,6 +1282,7 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
     req.mutable_job()->CopyFrom(job);
     req.set_action(FinishTabletJobRequest::COMMIT);
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     auto st = retry_rpc("commit tablet job", req, res, &MetaService_Stub::finish_tablet_job);
     if (res->status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
@@ -1286,6 +1298,7 @@ Status CloudMetaMgr::abort_tablet_job(const TabletJobInfoPB& job) {
     req.mutable_job()->CopyFrom(job);
     req.set_action(FinishTabletJobRequest::ABORT);
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     return retry_rpc("abort tablet job", req, &res, &MetaService_Stub::finish_tablet_job);
 }
 
@@ -1296,6 +1309,7 @@ Status CloudMetaMgr::lease_tablet_job(const TabletJobInfoPB& job) {
     req.mutable_job()->CopyFrom(job);
     req.set_action(FinishTabletJobRequest::LEASE);
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     return retry_rpc("lease tablet job", req, &res, &MetaService_Stub::finish_tablet_job);
 }
 
@@ -1313,6 +1327,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
     req.set_is_explicit_txn(is_explicit_txn);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     if (txn_id > 0) {
         req.set_txn_id(txn_id);
     }
@@ -1377,6 +1392,7 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     req.set_table_id(tablet.table_id());
     req.set_partition_id(tablet.partition_id());
     req.set_tablet_id(tablet.tablet_id());
@@ -1427,6 +1443,7 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
     GetDeleteBitmapUpdateLockRequest req;
     GetDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     req.set_table_id(tablet.table_id());
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
@@ -1490,6 +1507,7 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
     RemoveDeleteBitmapUpdateLockRequest req;
     RemoveDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     req.set_table_id(table_id);
     req.set_tablet_id(tablet_id);
     req.set_lock_id(lock_id);
@@ -1627,6 +1645,7 @@ Status CloudMetaMgr::get_schema_dict(int64_t index_id,
     GetSchemaDictRequest req;
     GetSchemaDictResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_request_ip(BackendOptions::get_be_endpoint());
     req.set_index_id(index_id);
 
     // Invoke RPC via the retry_rpc helper function.
