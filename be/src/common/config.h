@@ -1273,6 +1273,9 @@ DECLARE_mString(kerberos_krb5_conf_path);
 // the interval for renew kerberos ticket cache
 DECLARE_mInt32(kerberos_refresh_interval_second);
 
+// JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
+DECLARE_mBool(jdk_process_reaper_use_default_stack_size);
+
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
 DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
