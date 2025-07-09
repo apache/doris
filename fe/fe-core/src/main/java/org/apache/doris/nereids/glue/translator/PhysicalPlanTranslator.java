@@ -997,7 +997,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.getNereidsIdToPlanNodeIdMap().put(oneRowRelation.getId(), unionNode.getId());
         unionNode.setCardinality(1L);
         unionNode.addConstExprList(legacyExprs);
-        unionNode.finalizeForNereids(oneRowTuple.getSlots(), new ArrayList<>());
+        finalizeSetOperationNode(oneRowTuple.getSlots(), new ArrayList<>(), unionNode);
 
         PlanFragment planFragment = createPlanFragment(unionNode, DataPartition.UNPARTITIONED, oneRowRelation);
         context.addPlanFragment(planFragment);
@@ -2294,7 +2294,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (PlanFragment childFragment : childrenFragments) {
             setOperationNode.addChild(childFragment.getPlanRoot());
         }
-        setOperationNode.finalizeForNereids(outputSlotDescs, outputSlotDescs);
+        finalizeSetOperationNode(outputSlotDescs, outputSlotDescs, setOperationNode);
 
         PlanFragment setOperationFragment;
         if (childrenFragments.isEmpty()) {
@@ -3151,5 +3151,41 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return partitionExprs;
         }
         return Lists.newArrayList();
+    }
+
+    private void finalizeSetOperationNode(List<SlotDescriptor> constExprSlots, List<SlotDescriptor> resultExprSlots, SetOperationNode node) {
+        List<List<Expr>> materializedConstExprLists = node.getMaterializedConstExprLists();
+        materializedConstExprLists.clear();
+        for (List<Expr> exprList : node.getConstExprLists()) {
+            Preconditions.checkState(exprList.size() == constExprSlots.size());
+            List<Expr> newExprList = Lists.newArrayList();
+            for (int i = 0; i < exprList.size(); ++i) {
+                if (constExprSlots.get(i).isMaterialized()) {
+                    newExprList.add(exprList.get(i));
+                }
+            }
+            materializedConstExprLists.add(newExprList);
+        }
+        List<List<Expr>> materializedResultExprLists = node.getMaterializedResultExprLists();
+        materializedResultExprLists.clear();
+        List<List<Expr>> resultExprLists = node.getResultExprLists();
+        ArrayList<PlanNode> children = node.getChildren();
+        Preconditions.checkState(resultExprLists.size() == children.size());
+        for (int i = 0; i < resultExprLists.size(); ++i) {
+            List<Expr> exprList = resultExprLists.get(i);
+            List<Expr> newExprList = Lists.newArrayList();
+            Preconditions.checkState(exprList.size() == resultExprSlots.size());
+            for (int j = 0; j < exprList.size(); ++j) {
+                if (resultExprSlots.get(j).isMaterialized()) {
+                    newExprList.add(exprList.get(j));
+                    // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
+                    resultExprSlots.get(j)
+                            .setIsNullable(resultExprSlots.get(j).getIsNullable() || exprList.get(j).isNullable());
+                }
+            }
+            materializedResultExprLists.add(newExprList);
+        }
+        Preconditions.checkState(
+                materializedResultExprLists.size() == children.size());
     }
 }
