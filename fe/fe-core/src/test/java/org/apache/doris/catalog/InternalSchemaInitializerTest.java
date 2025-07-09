@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -33,7 +32,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Method;
 import java.util.List;
 
 class InternalSchemaInitializerTest {
@@ -95,38 +93,6 @@ class InternalSchemaInitializerTest {
         Assertions.assertTrue(hasLocalStorageField, "scan_bytes_from_local_storage field is missing from AUDIT_SCHEMA");
         Assertions.assertTrue(hasRemoteStorageField,
                 "scan_bytes_from_remote_storage field is missing from AUDIT_SCHEMA");
-    }
-
-    @Test
-    public void testAuditLogTableCreationWithStorageFields() throws Exception {
-        Method buildAuditTblStmtMethod = InternalSchemaInitializer.class.getDeclaredMethod("buildAuditTblStmt");
-        buildAuditTblStmtMethod.setAccessible(true);
-
-        CreateTableStmt createTableStmt = (CreateTableStmt) buildAuditTblStmtMethod.invoke(null);
-
-        List<Column> columns = createTableStmt.getColumns();
-
-        boolean hasLocalStorageField = false;
-        boolean hasRemoteStorageField = false;
-
-        for (Column column : columns) {
-            if (column.getName().equals("scan_bytes_from_local_storage")) {
-                hasLocalStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, column.getType().getPrimitiveType());
-                Assertions.assertTrue(column.isAllowNull());
-            }
-
-            if (column.getName().equals("scan_bytes_from_remote_storage")) {
-                hasRemoteStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, column.getType().getPrimitiveType());
-                Assertions.assertTrue(column.isAllowNull());
-            }
-        }
-
-        Assertions.assertTrue(hasLocalStorageField,
-                "scan_bytes_from_local_storage field is missing from the created audit log table");
-        Assertions.assertTrue(hasRemoteStorageField,
-                "scan_bytes_from_remote_storage field is missing from the created audit log table");
     }
 
     @Test
