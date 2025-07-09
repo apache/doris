@@ -171,6 +171,10 @@ public:
     // Do initialization. This step should be executed only once and in bthread, so we can do some
     // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
+    // Make sure all resources are ready before execution. For example, remote tablets should be
+    // loaded to local storage.
+    // This is called by execution pthread and different from `Operator::prepare` which is called
+    // by bthread.
     virtual Status prepare(RuntimeState* state) = 0;
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
