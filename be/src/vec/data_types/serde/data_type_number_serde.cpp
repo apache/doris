@@ -351,17 +351,40 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
 
     if constexpr (std::is_same_v<T, Int128>) { // largeint
         orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
-
-        INIT_MEMORY_FOR_ORC_WRITER()
-
+        // First pass: calculate total memory needed and collect serialized values
+        size_t total_size = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
                 std::string value_str = fmt::format("{}", col_data[row_id]);
                 size_t len = value_str.size();
-
-                REALLOC_MEMORY_FOR_ORC_WRITER()
-
-                strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
+                total_size += len;
+            }
+        }
+        // Allocate continues memory based on calculated size
+        char* ptr = (char*)malloc(total_size);
+        if (!ptr) {
+            return Status::InternalError(
+                    "malloc memory {} error when write variant column data to orc file.",
+                    total_size);
+        }
+        StringRef bufferRef;
+        bufferRef.data = ptr;
+        bufferRef.size = total_size;
+        buffer_list.emplace_back(bufferRef);
+        // Second pass: fill the data and update the batch
+        size_t offset = 0;
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                std::string value_str = fmt::format("{}", col_data[row_id]);
+                size_t len = value_str.size();
+                if (offset + len > total_size) {
+                    return Status::InternalError(
+                            "Buffer overflow when writing column data to ORC file. offset {} with "
+                            "len {} exceed total_size {} . ",
+                            offset, len, total_size);
+                }
+                // do not use strcpy here, because this buffer is not null-terminated
+                memcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str(), len);
                 cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
                 cur_batch->length[row_id] = len;
                 offset += len;

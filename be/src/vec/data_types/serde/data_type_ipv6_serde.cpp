@@ -198,20 +198,45 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     orc::StringVectorBatch* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-    INIT_MEMORY_FOR_ORC_WRITER()
-
+    // First pass: calculate total memory needed and collect serialized values
+    std::vector<std::string> serialized_values;
+    std::vector<size_t> valid_row_indices;
+    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            std::string ipv6_str = IPv6Value::to_string(col_data[row_id]);
-            size_t len = ipv6_str.size();
-
-            REALLOC_MEMORY_FOR_ORC_WRITER()
-
-            strcpy(const_cast<char*>(bufferRef.data) + offset, ipv6_str.c_str());
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
-            cur_batch->length[row_id] = len;
-            offset += len;
+            auto serialized_value = IPv6Value::to_string(col_data[row_id]);
+            serialized_values.push_back(std::move(serialized_value));
+            size_t len = serialized_values.back().length();
+            total_size += len;
+            valid_row_indices.push_back(row_id);
         }
+    }
+    // Allocate continues memory based on calculated size
+    char* ptr = (char*)malloc(total_size);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory {} error when write variant column data to orc file.", total_size);
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = total_size;
+    buffer_list.emplace_back(bufferRef);
+    // Second pass: copy data to allocated memory
+    size_t offset = 0;
+    for (size_t i = 0; i < serialized_values.size(); i++) {
+        const auto& serialized_value = serialized_values[i];
+        size_t row_id = valid_row_indices[i];
+        size_t len = serialized_value.length();
+        if (offset + len > total_size) {
+            return Status::InternalError(
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
+                    offset, len, total_size);
+        }
+        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
+        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+        cur_batch->length[row_id] = len;
+        offset += len;
     }
 
     cur_batch->numElements = end - start;
