@@ -122,7 +122,6 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                                                         expression.collectToList(Alias.class::isInstance));
                                             }
                                             return super.visitLogicalAggregate(aggregate, context);
-
                                         }
                                     }, collectedAlias);
                             for (Alias alias : collectedAlias) {
