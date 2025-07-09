@@ -435,9 +435,9 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
     int need_bit = 0;                                   // still need
     T output_mask = ((static_cast<T>(1)) << bit_width) - 1;
     size_t input_size = (in_num * bit_width + 7) >> 3; // input's size
-    int full_batch_size =
-            (input_size >> u_size_shift) * u_size; // Adjust input_size to a multiple of u_size
-    int tail_count = input_size & (u_size - 1);    // The remainder of input_size modulo u_size.
+    int full_batch_size = (input_size >> u_size_shift)
+                          << u_size_shift;      // Adjust input_size to a multiple of u_size
+    int tail_count = input_size & (u_size - 1); // The remainder of input_size modulo u_size.
     // The number of bits in input to adjust to multiples of 8 and thus more
     int more_bit = (input_size << 3) - (in_num * bit_width);
     U s = 0; // Temporary buffer for bitstream: aggregates input bytes into a large integer for unpacking
