@@ -29,8 +29,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,7 +54,6 @@ import java.util.Optional;
  * and need to be substituted as such; example: COUNT(COUNT(..)) OVER (..)
  */
 public class AnalyticExpr extends Expr {
-    private static final Logger LOG = LoggerFactory.getLogger(AnalyticExpr.class);
 
     private FunctionCallExpr fnCall;
     private final List<Expr> partitionExprs;
@@ -72,23 +69,6 @@ public class AnalyticExpr extends Expr {
 
     // SQL string of this AnalyticExpr before standardization. Returned in toSqlImpl().
     private String sqlString;
-
-    private static String NTILE = "NTILE";
-    private static String LEAD = "LEAD";
-    private static String LAG = "LAG";
-    private static String FIRSTVALUE = "FIRST_VALUE";
-    private static String LASTVALUE = "LAST_VALUE";
-    private static String RANK = "RANK";
-    private static String DENSERANK = "DENSE_RANK";
-    private static String ROWNUMBER = "ROW_NUMBER";
-    private static String MIN = "MIN";
-    private static String MAX = "MAX";
-    private static String SUM = "SUM";
-    private static String COUNT = "COUNT";
-
-    // Internal function used to implement FIRST_VALUE with a window equal and
-    // additional null handling in the backend.
-    public static String FIRST_VALUE_REWRITE = "FIRST_VALUE_REWRITE";
 
     public AnalyticExpr(FunctionCallExpr fnCall, List<Expr> partitionExprs,
                         List<OrderByElement> orderByElements, AnalyticWindow window) {
@@ -128,14 +108,6 @@ public class AnalyticExpr extends Expr {
 
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
-    }
-
-    public List<OrderByElement> getOrderByElements() {
-        return orderByElements;
-    }
-
-    public AnalyticWindow getWindow() {
-        return window;
     }
 
     @Override
@@ -200,15 +172,6 @@ public class AnalyticExpr extends Expr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-    }
-
-    /**
-     * Rewrite the following analytic functions: ntile().
-     * Returns a new Expr if the analytic expr is rewritten, returns null if it's not one
-     * that we want to equal.
-     */
-    public static Expr rewrite(AnalyticExpr analyticExpr) {
-        return null;
     }
 
     /**

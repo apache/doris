@@ -83,10 +83,6 @@ public class ArithmeticExpr extends Expr {
             return name;
         }
 
-        public OperatorPosition getPos() {
-            return pos;
-        }
-
         public TExprOpcode getOpcode() {
             return opcode;
         }

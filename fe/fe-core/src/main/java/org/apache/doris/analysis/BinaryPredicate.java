@@ -108,31 +108,6 @@ public class BinaryPredicate extends Predicate {
             }
         }
 
-        public Operator converse() {
-            switch (this) {
-                case EQ:
-                    return EQ;
-                case NE:
-                    return NE;
-                case LE:
-                    return GE;
-                case GE:
-                    return LE;
-                case LT:
-                    return GT;
-                case GT:
-                    return LT;
-                case EQ_FOR_NULL:
-                    return EQ_FOR_NULL;
-                // case DISTINCT_FROM: return DISTINCT_FROM;
-                // case NOT_DISTINCT: return NOT_DISTINCT;
-                // case NULL_MATCHING_EQ:
-                // throw new IllegalStateException("Not implemented");
-                default:
-                    throw new IllegalStateException("Invalid operator");
-            }
-        }
-
         public boolean isEquivalence() {
             return this == EQ || this == EQ_FOR_NULL;
         }
@@ -187,14 +162,6 @@ public class BinaryPredicate extends Predicate {
         slotIsleft = other.slotIsleft;
         isInferred = other.isInferred;
         printSqlInParens = true;
-    }
-
-    public boolean isInferred() {
-        return isInferred;
-    }
-
-    public void setIsInferred() {
-        isInferred = true;
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
@@ -297,20 +264,6 @@ public class BinaryPredicate extends Predicate {
         msg.node_type = TExprNodeType.BINARY_PRED;
         msg.setOpcode(opcode);
         msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
-    }
-
-    // Expr only support Literal
-    public Pair<SlotRef, Expr> extract() {
-        Expr lexpr = getChild(0);
-        Expr rexpr = getChild(1);
-        if (lexpr instanceof SlotRef && (rexpr instanceof LiteralExpr)) {
-            SlotRef slot = (SlotRef) lexpr;
-            return Pair.of(slot, rexpr);
-        } else if (rexpr instanceof SlotRef && (lexpr instanceof LiteralExpr)) {
-            SlotRef slot = (SlotRef) rexpr;
-            return Pair.of(slot, lexpr);
-        }
-        return null;
     }
 
     public Expr invokeFunctionExpr(ArrayList<Expr> partitionExprs, Expr paramExpr) {

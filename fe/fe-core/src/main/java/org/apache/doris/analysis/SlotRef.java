@@ -135,14 +135,6 @@ public class SlotRef extends Expr {
         return desc.getId();
     }
 
-    public void setNeedMaterialize(boolean needMaterialize) {
-        this.desc.setNeedMaterialize(needMaterialize);
-    }
-
-    public boolean isInvalid() {
-        return this.desc.isInvalid();
-    }
-
     public Column getColumn() {
         if (desc == null) {
             return null;
@@ -159,47 +151,6 @@ public class SlotRef extends Expr {
 
     public void setDesc(SlotDescriptor desc) {
         this.desc = desc;
-    }
-
-    public void setAnalyzed(boolean analyzed) {
-        isAnalyzed = analyzed;
-    }
-
-    public boolean columnEqual(Expr srcExpr) {
-        Preconditions.checkState(srcExpr instanceof SlotRef);
-        SlotRef srcSlotRef = (SlotRef) srcExpr;
-        if (desc != null && srcSlotRef.desc != null) {
-            return desc.getId().equals(srcSlotRef.desc.getId());
-        }
-        TableName srcTableName = srcSlotRef.tblName;
-        if (srcTableName == null && srcSlotRef.desc != null) {
-            srcTableName = srcSlotRef.getTableName();
-        }
-        TableName thisTableName = tblName;
-        if (thisTableName == null && desc != null) {
-            thisTableName = getTableName();
-        }
-        if ((thisTableName == null) != (srcTableName == null)) {
-            return false;
-        }
-        if (thisTableName != null && !thisTableName.equals(srcTableName)) {
-            return false;
-        }
-        String srcColumnName = srcSlotRef.getColumnName();
-        if (srcColumnName == null && srcSlotRef.desc != null && srcSlotRef.getDesc().getColumn() != null) {
-            srcColumnName = srcSlotRef.desc.getColumn().getName();
-        }
-        String thisColumnName = getColumnName();
-        if (thisColumnName == null && desc != null && desc.getColumn() != null) {
-            thisColumnName = desc.getColumn().getName();
-        }
-        if ((thisColumnName == null) != (srcColumnName == null)) {
-            return false;
-        }
-        if (thisColumnName != null && !thisColumnName.equalsIgnoreCase(srcColumnName)) {
-            return false;
-        }
-        return true;
     }
 
     @Override
@@ -441,10 +392,6 @@ public class SlotRef extends Expr {
         return false;
     }
 
-    public void setTupleId(TupleId tupleId) {
-        this.tupleId = tupleId;
-    }
-
     public TupleId getTupleId() {
         return tupleId;
     }
@@ -526,14 +473,6 @@ public class SlotRef extends Expr {
 
     public void setTable(TableIf table) {
         this.table = table;
-    }
-
-    public TableIf getTable() {
-        if (desc == null && table != null) {
-            return table;
-        }
-        Preconditions.checkState(desc != null);
-        return desc.getParent().getTable();
     }
 
     public void setLabel(String label) {

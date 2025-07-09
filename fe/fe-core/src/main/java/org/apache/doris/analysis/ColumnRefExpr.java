@@ -35,13 +35,6 @@ public class ColumnRefExpr extends Expr {
         super();
     }
 
-    public ColumnRefExpr(int columnId, String columnName, boolean isNullable) {
-        super();
-        this.columnId = columnId;
-        this.columnName = columnName;
-        this.isNullable = isNullable;
-    }
-
     public ColumnRefExpr(ColumnRefExpr rhs) {
         super(rhs);
         this.columnId = rhs.columnId;
@@ -63,10 +56,6 @@ public class ColumnRefExpr extends Expr {
 
     public void setName(String name) {
         this.columnName = name;
-    }
-
-    public int getColumnId() {
-        return columnId;
     }
 
     public void setColumnId(int id) {

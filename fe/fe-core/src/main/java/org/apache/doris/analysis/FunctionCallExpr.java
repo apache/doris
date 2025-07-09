@@ -22,22 +22,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -48,7 +39,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
@@ -58,7 +48,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.text.StringCharacterIterator;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -840,46 +829,14 @@ public class FunctionCallExpr extends Expr {
         return fnParams;
     }
 
-    public boolean isScalarFunction() {
-        Preconditions.checkState(fn != null);
-        return fn instanceof ScalarFunction;
-    }
-
     public boolean isAggregateFunction() {
         Preconditions.checkState(fn != null);
         return fn instanceof AggregateFunction && !isAnalyticFnCall;
     }
 
-    /**
-     * Returns true if this is a call to an aggregate function that returns
-     * non-null on an empty input (e.g. count).
-     */
-    public boolean returnsNonNullOnEmpty() {
-        Preconditions.checkNotNull(fn);
-        return fn instanceof AggregateFunction
-                && ((AggregateFunction) fn).returnsNonNullOnEmpty();
-    }
-
     public boolean isDistinct() {
         Preconditions.checkState(isAggregateFunction());
         return fnParams.isDistinct();
-    }
-
-    public boolean isCountDistinctBitmapOrHLL() {
-        if (!fnParams.isDistinct()) {
-            return false;
-        }
-
-        if (!fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
-            return false;
-        }
-
-        if (children.size() != 1) {
-            return false;
-        }
-
-        Type type = getChild(0).getType();
-        return type.isBitmapType() || type.isHllType();
     }
 
     @Override
@@ -986,19 +943,6 @@ public class FunctionCallExpr extends Expr {
         return true;
     }
 
-    public static FunctionCallExpr createMergeAggCall(
-            FunctionCallExpr agg, List<Expr> intermediateParams, List<Expr> realParams) {
-        Preconditions.checkState(agg.isAnalyzed);
-        Preconditions.checkState(agg.isAggregateFunction());
-        FunctionCallExpr result = new FunctionCallExpr(
-                agg.fnName, new FunctionParams(false, intermediateParams), true);
-        // Inherit the function object from 'agg'.
-        result.fn = agg.fn;
-        result.type = agg.type;
-        result.setAggFnParams(new FunctionParams(false, realParams));
-        return result;
-    }
-
     @Override
     protected void normalize(TExprNode msg, Normalizer normalizer) {
         String functionName = fnName.getFunction().toUpperCase();
@@ -1087,52 +1031,6 @@ public class FunctionCallExpr extends Expr {
 
     private void setChildren() {
         orderByElements.forEach(o -> addChild(o.getExpr()));
-    }
-
-    @Override
-    public boolean haveFunction(String functionName) {
-        if (fnName.toString().equalsIgnoreCase(functionName)) {
-            return true;
-        }
-        return super.haveFunction(functionName);
-    }
-
-    public Function findUdf(FunctionName fnName, Analyzer analyzer) throws AnalysisException {
-        if (!analyzer.isUDFAllowed()) {
-            throw new AnalysisException(
-                    "Does not support non-builtin functions, or function does not exist: "
-                            + this.toSqlImpl());
-        }
-
-        Function fn = null;
-        String dbName = null;
-        // when enable_udf_in_load == true, and db is null, maybe it's load, should find global function
-        if (!(Config.enable_udf_in_load && fnName.getDb() == null)) {
-            dbName = fnName.analyzeDb(analyzer);
-        }
-        if (!Strings.isNullOrEmpty(dbName)) {
-            // check operation privilege
-            if (!analyzer.isReplay() && !Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SELECT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
-            }
-            // TODO(gaoxin): ExternalDatabase not implement udf yet.
-            DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
-            if (db != null && (db instanceof Database)) {
-                Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()),
-                        Type.INVALID, false);
-                fn = ((Database) db).getFunction(searchDesc,
-                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            }
-        }
-        // find from the internal database first, if not, then from the global functions
-        if (fn == null) {
-            Function searchDesc =
-                    new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
-            fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(searchDesc,
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        }
-        return fn;
     }
 
     // eg: date_floor("0001-01-01 00:00:18",interval 5 second) convert to

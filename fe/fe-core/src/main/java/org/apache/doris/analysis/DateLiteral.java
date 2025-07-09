@@ -89,8 +89,6 @@ public class DateLiteral extends LiteralExpr {
             = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2);
     private static final DateLiteral MAX_DATETIMEV2
             = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2);
-    private static final int DATEKEY_LENGTH = 8;
-    private static final int DATETIMEKEY_LENGTH = 14;
     private static final int MAX_MICROSECOND = 999999;
 
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
@@ -677,10 +675,6 @@ public class DateLiteral extends LiteralExpr {
         return this.type.isDate() || this.type.isDateV2();
     }
 
-    public boolean isDateTimeType() {
-        return this.type.isDatetime() || this.type.isDatetimeV2();
-    }
-
     @Override
     public String getStringValue() {
         char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
@@ -754,26 +748,6 @@ public class DateLiteral extends LiteralExpr {
     @Override
     protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
-    }
-
-    public void roundCeiling(int newScale) {
-        Preconditions.checkArgument(type.isDatetimeV2());
-        long remain = Double.valueOf(microsecond % (Math.pow(10, 6 - newScale))).longValue();
-        if (remain != 0) {
-            microsecond = Double.valueOf((microsecond + (Math.pow(10, 6 - newScale)))
-                / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale))).longValue();
-        }
-        if (microsecond > MAX_MICROSECOND) {
-            microsecond %= microsecond;
-            DateLiteral result = this.plusSeconds(1);
-            this.second = result.second;
-            this.minute = result.minute;
-            this.hour = result.hour;
-            this.day = result.day;
-            this.month = result.month;
-            this.year = result.year;
-        }
-        type = ScalarType.createDatetimeV2Type(newScale);
     }
 
     public void roundFloor(int newScale) {
@@ -871,18 +845,6 @@ public class DateLiteral extends LiteralExpr {
         hour = 0;
         minute = 0;
         second = 0;
-    }
-
-    public boolean hasTimePart() {
-        if (this.type.isDateV2() || this.type.isDate()) {
-            return false;
-        } else {
-            if (hour != 0 || minute != 0 || second != 0) {
-                return true;
-            } else {
-                return !this.type.isDatetime() && microsecond != 0;
-            }
-        }
     }
 
     private boolean isLeapYear() {
@@ -1730,51 +1692,6 @@ public class DateLiteral extends LiteralExpr {
         minute = 0;
         second = 0;
         microsecond = 0;
-    }
-
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        int len = getParmLen(data);
-        if (type.getPrimitiveType() == PrimitiveType.DATE) {
-            if (len >= 4) {
-                year = (int) data.getChar();
-                month = (int) data.get();
-                day = (int) data.get();
-                hour = 0;
-                minute = 0;
-                second = 0;
-                microsecond = 0;
-            } else {
-                copy(MIN_DATE);
-            }
-            return;
-        }
-        if (type.getPrimitiveType() == PrimitiveType.DATETIME) {
-            if (len >= 4) {
-                year = (int) data.getChar();
-                month = (int) data.get();
-                day = (int) data.get();
-                microsecond = 0;
-                if (len > 4) {
-                    hour = (int) data.get();
-                    minute = (int) data.get();
-                    second = (int) data.get();
-                } else {
-                    hour = 0;
-                    minute = 0;
-                    second = 0;
-                    microsecond = 0;
-                }
-                if (len > 7) {
-                    microsecond = data.getInt();
-                    // choose highest scale to keep microsecond value
-                    type = ScalarType.createDatetimeV2Type(6);
-                }
-            } else {
-                copy(MIN_DATETIME);
-            }
-            return;
-        }
     }
 
     private static boolean haveTimeZoneOffset(String arg) {

@@ -37,10 +37,6 @@ public class BitmapFilterPredicate extends Predicate {
         this.notIn = other.notIn;
     }
 
-    public boolean isNotIn() {
-        return notIn;
-    }
-
     @Override
     protected String toSqlImpl() {
         return (notIn ? "not " : "") + "BitmapFilterPredicate(" + children.get(0).toSql() + ", " + children.get(1)
@@ -65,8 +61,4 @@ public class BitmapFilterPredicate extends Predicate {
         return new BitmapFilterPredicate(this);
     }
 
-    @Override
-    public boolean supportSerializable() {
-        return false;
-    }
 }

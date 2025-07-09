@@ -29,17 +29,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Class representing a subquery. A Subquery consists of a QueryStmt and has
- * its own Analyzer context.
+ * its own context.
  */
 public class Subquery extends Expr {
     private static final Logger LOG = LoggerFactory.getLogger(Subquery.class);
-
-    // A subquery has its own analysis context
-    protected Analyzer analyzer;
-
-    public Analyzer getAnalyzer() {
-        return analyzer;
-    }
 
     @Override
     public String toSqlImpl() {
@@ -62,7 +55,6 @@ public class Subquery extends Expr {
      */
     public Subquery(Subquery other) {
         super(other);
-        analyzer = other.analyzer;
     }
 
     @Override
@@ -97,7 +89,6 @@ public class Subquery extends Expr {
     @Override
     public Expr reset() {
         super.reset();
-        analyzer = null;
         return this;
     }
 

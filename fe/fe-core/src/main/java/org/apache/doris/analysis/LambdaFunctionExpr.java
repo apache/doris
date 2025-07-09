@@ -123,14 +123,6 @@ public class LambdaFunctionExpr extends Expr {
         return new LambdaFunctionExpr(this);
     }
 
-    public ArrayList<String> getNames() {
-        return names;
-    }
-
-    public ArrayList<Expr> getSlotExprs() {
-        return slotExprs;
-    }
-
     @Override
     public boolean isNullable() {
         for (int i = 1; i < slotExprs.size(); ++i) {
