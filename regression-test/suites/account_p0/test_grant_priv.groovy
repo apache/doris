@@ -92,8 +92,8 @@ suite("test_grant_priv") {
      // for login
     sql """grant select_priv on ${dbName}.* to ${user1}"""
     sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
-    sql """grant grant_priv on *.*.* to role ${role1}"""
-    sql """grant select_priv on *.*.* to role ${role2}"""
+    sql """grant grant_priv on *.*.* to role '${role1}'"""
+    sql """grant select_priv on *.*.* to role '${role2}'"""
     sql """grant '${role1}' to ${user1}"""
     // test only have role1 can not grant
     connect(user1, "${pwd}", url) {
