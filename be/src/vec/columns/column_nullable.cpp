@@ -211,7 +211,6 @@ void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_
 
 StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
                                                      char const*& begin) const {
-    const auto& arr = get_null_map_data();
     auto* pos = arena.alloc_continue(serialize_size_at(n), begin);
     return {pos, serialize_impl(pos, n)};
 }
