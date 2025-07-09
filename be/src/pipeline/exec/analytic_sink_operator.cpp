@@ -70,14 +70,18 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         }
         _streaming_mode = true;
         _support_incremental_calculate = (p._has_window_start && p._has_window_end);
+
+        // TAnalyticWindowBoundaryType::PRECEDING -> negative
+        // TAnalyticWindowBoundaryType::CURRENT_ROW -> set zero
+        // TAnalyticWindowBoundaryType::FOLLOWING -> positive
         if (p._has_window_start) { //calculate start boundary
             TAnalyticWindowBoundary b = p._window.window_start;
             if (b.__isset.rows_offset_value) { //[offset     ,   ]
                 _rows_start_offset = b.rows_offset_value;
                 if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
-                    _rows_start_offset *= -1; //preceding--> negative
-                } //current_row  0
-            } else {                                                         //following    positive
+                    _rows_start_offset *= -1;
+                }
+            } else {
                 DCHECK_EQ(b.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[current row,   ]
                 _rows_start_offset = 0;
             }
