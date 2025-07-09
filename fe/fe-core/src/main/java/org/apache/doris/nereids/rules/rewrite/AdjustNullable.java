@@ -72,10 +72,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> implements CustomRewriter {
 
-    private final boolean skipAdjustJoin;
+    private final boolean isAnalyzedPhase;
 
-    public AdjustNullable(boolean skipAdjustJoin) {
-        this.skipAdjustJoin = skipAdjustJoin;
+    public AdjustNullable(boolean isAnalyzedPhase) {
+        this.isAnalyzedPhase = isAnalyzedPhase;
     }
 
     @Override
@@ -150,7 +150,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Map<ExprId, Slot> replaceMap) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, replaceMap);
-        if (skipAdjustJoin) {
+        if (isAnalyzedPhase) {
             // at analyzed phase, join had no hash conditions, need skip update its expressions.
             for (Slot slot : join.getOutput()) {
                 replaceMap.put(slot.getExprId(), slot);
@@ -442,8 +442,13 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 }
                 // for join other conditions, debugCheck = false, because join other condition use join output's
                 // nullable attribute.
+                // at analyzed phased, the slot reference nullable may change, for example, NormalRepeat may adjust some
+                // slot reference to nullable, after this rule, node above repeat need adjust.
+                // so analyzed phase don't assert not-nullable -> nullable.
                 if (!slotReference.nullable() && newSlotReference.nullable()
-                        && debugCheck && ConnectContext.get().getSessionVariable().feDebug) {
+                        && !isAnalyzedPhase && debugCheck
+                        && ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().feDebug) {
                     throw new AnalysisException("Slot " + slotReference + " convert to nullable");
                 }
                 return newSlotReference;
