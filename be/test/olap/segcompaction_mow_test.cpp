@@ -238,7 +238,7 @@ protected:
         std::vector<uint32_t> return_columns = {0, 1, 2};
         reader_context.return_columns = &return_columns;
         reader_context.stats = &_stats;
-        reader_context.delete_bitmap = delete_bitmap.get();
+        reader_context.delete_bitmap = delete_bitmap;
 
         Status s;
 
