@@ -202,7 +202,7 @@ public class NereidsLoadUtils {
                     ImmutableList.of(Rewriter.bottomUp(
                             new BindExpression(),
                             new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
-                            new BindSink(),
+                            new BindSink(false),
                             new AddPostFilter(
                                     context.fileGroup.getWhereExpr()
                             ),
