@@ -465,6 +465,37 @@ size_t Block::allocated_bytes() const {
     return res;
 }
 
+Status Block::check_type_and_column() const {
+    for (const auto& elem : data) {
+        if (!elem.column) {
+            continue;
+        }
+        if (!elem.type) {
+            continue;
+        }
+
+        const auto& type = elem.type;
+        const auto& column = elem.column;
+
+        auto report_error = [&]() -> Status {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "column type not match, column name={}, data type={}, column type ={}",
+                    elem.name, type->get_name(), column->get_name());
+        };
+
+        if (type->is_nullable() != column->is_nullable()) {
+            return report_error();
+        }
+
+        if (auto col_type = column->get_primitive_type(); col_type != PrimitiveType::INVALID_TYPE) {
+            if (col_type != type->get_primitive_type()) {
+                return report_error();
+            }
+        }
+    }
+    return Status::OK();
+}
+
 std::string Block::dump_names() const {
     std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {

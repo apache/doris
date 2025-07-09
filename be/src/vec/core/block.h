@@ -166,6 +166,8 @@ public:
     Container::const_iterator cbegin() const { return data.cbegin(); }
     Container::const_iterator cend() const { return data.cend(); }
 
+    Status check_type_and_column() const;
+
     bool has(const std::string& name) const;
 
     size_t get_position_by_name(const std::string& name) const;
