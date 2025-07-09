@@ -419,6 +419,7 @@ Status PipelineTask::execute(bool* done) {
     if (_wait_to_start() || _wake_up_early) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_prepare());
 
     // The status must be runnable
     if (!_opened && !fragment_context->is_canceled()) {
