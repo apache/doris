@@ -468,7 +468,12 @@ Status OlapScanLocalState::sync_cloud_tablets(RuntimeState* state) {
             std::from_chars(_scan_ranges[i]->version.data(),
                             _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
                             version);
-            _tasks.emplace_back([this, sync_stats, version, i]() {
+            auto task_ctx = state->get_task_execution_context();
+            _tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
+                auto task_lock = task_ctx.lock();
+                if (task_lock == nullptr) {
+                    return Status::OK();
+                }
                 Defer defer([&] { this->_cloud_tablet_dependencies[i]->set_ready(); });
                 auto tablet =
                         DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id, sync_stats));
