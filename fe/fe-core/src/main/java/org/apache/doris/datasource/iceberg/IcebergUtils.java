@@ -741,9 +741,9 @@ public class IcebergUtils {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
-            Column column =  new Column(field.name().toLowerCase(Locale.ROOT),
-                            IcebergUtils.icebergTypeToDorisType(field.type()), true, null,
-                            true, field.doc(), true, -1);
+            Column column = new Column(field.name().toLowerCase(Locale.ROOT),
+                    IcebergUtils.icebergTypeToDorisType(field.type()), true, null,
+                    field.isOptional(), field.doc(), true, -1);
             updateIcebergColumnUniqueId(column, field);
             resSchema.add(column);
         }

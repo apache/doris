@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.operations;
 
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.DdlException;
 
@@ -28,7 +29,7 @@ import java.util.List;
  * - Reordering top-level columns fields
  */
 public interface TableMetadataOps {
-    default void addColumn(Column column) throws DdlException {
+    default void addColumn(Column column, ColumnPosition columnPosition) throws DdlException {
         throw new UnsupportedOperationException("Add column operation is not supported for this table type.");
     }
 
@@ -44,7 +45,7 @@ public interface TableMetadataOps {
         throw new UnsupportedOperationException("Rename column operation is not supported for this table type.");
     }
 
-    default void updateColumn(Column column) throws DdlException {
+    default void updateColumn(Column column, ColumnPosition columnPosition) throws DdlException {
         throw new UnsupportedOperationException("Update column operation is not supported for this table type.");
     }
 

@@ -416,7 +416,7 @@ public class Alter {
                         table.getDbName(), table.getName(), tableRename.getNewTableName());
             } else if (alterClause instanceof AddColumnClause) {
                 AddColumnClause addColumn = (AddColumnClause) alterClause;
-                table.addColumn(addColumn.getColumn());
+                table.addColumn(addColumn.getColumn(), addColumn.getColPos());
             } else if (alterClause instanceof AddColumnsClause) {
                 AddColumnsClause addColumns = (AddColumnsClause) alterClause;
                 table.addColumns(addColumns.getColumns());
@@ -428,7 +428,7 @@ public class Alter {
                 table.renameColumn(columnRename.getColName(), columnRename.getNewColName());
             } else if (alterClause instanceof ModifyColumnClause) {
                 ModifyColumnClause modifyColumn = (ModifyColumnClause) alterClause;
-                table.updateColumn(modifyColumn.getColumn());
+                table.updateColumn(modifyColumn.getColumn(), modifyColumn.getColPos());
             } else if (alterClause instanceof ReorderColumnsClause) {
                 ReorderColumnsClause reorderColumns = (ReorderColumnsClause) alterClause;
                 table.reorderColumn(reorderColumns.getColumnsByPos());
