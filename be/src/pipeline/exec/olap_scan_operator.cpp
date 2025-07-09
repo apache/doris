@@ -567,6 +567,7 @@ Status OlapScanLocalState::hold_tablets() {
                                  TUnit::TIME_NS));
         }
     } else {
+        _tablets.resize(_scan_ranges.size());
         for (size_t i = 0; i < _scan_ranges.size(); i++) {
             int64_t version = 0;
             std::from_chars(_scan_ranges[i]->version.data(),
