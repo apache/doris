@@ -123,7 +123,7 @@ TEST(VFieldTest, jsonb_field_io) {
     // Write the JsonbField to the buffer
     {
         BufferWritable buf(column_str);
-        write_binary(StringRef {original.get_value(), original.get_size()}, buf);
+        buf.write_binary(StringRef {original.get_value(), original.get_size()});
         buf.commit(); // Important: commit the write operation
     }
 
@@ -140,7 +140,7 @@ TEST(VFieldTest, jsonb_field_io) {
 
         // Read the data back into a new JsonbField
         StringRef result;
-        read_binary(result, read_buf);
+        read_buf.read_binary(result);
         JsonbField read_field = JsonbField(result.data, result.size);
 
         // Verify the data
@@ -157,7 +157,7 @@ TEST(VFieldTest, jsonb_field_io) {
         // ser
         {
             BufferWritable field_buf(field_column);
-            write_binary(StringRef {original.get_value(), original.get_size()}, field_buf);
+            field_buf.write_binary(StringRef {original.get_value(), original.get_size()});
             field_buf.commit();
         }
 
@@ -171,7 +171,7 @@ TEST(VFieldTest, jsonb_field_io) {
 
             // we can't use read_binary because of the JsonbField is not POD type
             StringRef result;
-            read_binary(result, read_field_buf);
+            read_field_buf.read_binary(result);
             JsonbField jsonb_from_field = JsonbField(result.data, result.size);
             Field f2 = Field::create_field<TYPE_JSONB>(jsonb_from_field);
 

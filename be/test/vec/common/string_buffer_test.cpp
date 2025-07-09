@@ -43,11 +43,11 @@ TEST(StringBufferTest, TestWriteBinary) {
 
     {
         String str = "Hello, World!";
-        write_binary(str, buffer);
+        buffer.write_binary(str);
     }
     {
         int64_t x = 123456789;
-        write_binary(x, buffer);
+        buffer.write_binary(x);
     }
 
     buffer.commit();
@@ -59,13 +59,13 @@ TEST(StringBufferTest, TestWriteBinary) {
 
     {
         String read_str;
-        read_binary(read_str, readable);
+        readable.read_binary(read_str);
         EXPECT_EQ(read_str, "Hello, World!");
     }
 
     {
         int64_t read_x;
-        read_binary(read_x, readable);
+        readable.read_binary(read_x);
         EXPECT_EQ(read_x, 123456789);
     }
 }

@@ -61,9 +61,9 @@ struct AggregateFunctionSumData {
 
     void merge(const AggregateFunctionSumData& rhs) { sum += rhs.sum; }
 
-    void write(BufferWritable& buf) const { write_binary(sum, buf); }
+    void write(BufferWritable& buf) const { buf.write_binary(sum); }
 
-    void read(BufferReadable& buf) { read_binary(sum, buf); }
+    void read(BufferReadable& buf) { buf.read_binary(sum); }
 
     typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return sum; }
 };

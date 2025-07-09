@@ -48,19 +48,19 @@ struct AggregateFunctionRegrData {
     Float64 sum_of_x_squared {};
 
     void write(BufferWritable& buf) const {
-        write_binary(sum_x, buf);
-        write_binary(sum_y, buf);
-        write_binary(sum_of_x_mul_y, buf);
-        write_binary(sum_of_x_squared, buf);
-        write_binary(count, buf);
+        buf.write_binary(sum_x);
+        buf.write_binary(sum_y);
+        buf.write_binary(sum_of_x_mul_y);
+        buf.write_binary(sum_of_x_squared);
+        buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(sum_x, buf);
-        read_binary(sum_y, buf);
-        read_binary(sum_of_x_mul_y, buf);
-        read_binary(sum_of_x_squared, buf);
-        read_binary(count, buf);
+        buf.read_binary(sum_x);
+        buf.read_binary(sum_y);
+        buf.read_binary(sum_of_x_mul_y);
+        buf.read_binary(sum_of_x_squared);
+        buf.read_binary(count);
     }
 
     void reset() {

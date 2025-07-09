@@ -96,13 +96,13 @@ struct AggregateFunctionAvgData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(sum, buf);
-        write_binary(count, buf);
+        buf.write_binary(sum);
+        buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(sum, buf);
-        read_binary(count, buf);
+        buf.read_binary(sum);
+        buf.read_binary(count);
     }
 };
 

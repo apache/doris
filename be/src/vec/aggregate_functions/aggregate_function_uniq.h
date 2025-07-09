@@ -202,9 +202,9 @@ public:
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& set = this->data(place).set;
-        write_var_uint(set.size(), buf);
+        buf.write_var_uint(set.size());
         for (const auto& elem : set) {
-            write_binary(elem, buf);
+            buf.write_binary(elem);
         }
     }
 
@@ -212,13 +212,13 @@ public:
                                BufferReadable& buf, Arena*) const override {
         auto& set = this->data(place).set;
         UInt64 size;
-        read_var_uint(size, buf);
+        buf.read_var_uint(size);
 
         set.rehash(size + set.size());
 
         for (size_t i = 0; i < size; ++i) {
             KeyType ref;
-            read_binary(ref, buf);
+            buf.read_binary(ref);
             set.insert(ref);
         }
     }
@@ -227,13 +227,13 @@ public:
                      Arena*) const override {
         auto& set = this->data(place).set;
         UInt64 size;
-        read_var_uint(size, buf);
+        buf.read_var_uint(size);
 
         set.rehash(size + set.size());
 
         for (size_t i = 0; i < size; ++i) {
             KeyType ref;
-            read_binary(ref, buf);
+            buf.read_binary(ref);
             set.insert(ref);
         }
     }

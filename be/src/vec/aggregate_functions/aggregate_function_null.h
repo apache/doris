@@ -132,7 +132,7 @@ public:
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         bool flag = get_flag(place);
         if (result_is_nullable) {
-            write_binary(flag, buf);
+            buf.write_binary(flag);
         }
         if (flag) {
             nested_function->serialize(nested_place(place), buf);
@@ -143,7 +143,7 @@ public:
                      Arena* arena) const override {
         bool flag = true;
         if (result_is_nullable) {
-            read_binary(flag, buf);
+            buf.read_binary(flag);
         }
         if (flag) {
             set_flag(place);
@@ -155,7 +155,7 @@ public:
                                BufferReadable& buf, Arena* arena) const override {
         bool flag = true;
         if (result_is_nullable) {
-            read_binary(flag, buf);
+            buf.read_binary(flag);
         }
         if (flag) {
             set_flag(rhs);

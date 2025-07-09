@@ -45,8 +45,8 @@ struct AggregateFunctionBaseData {
 public:
     AggregateFunctionBaseData(typename PrimitiveTypeTraits<T>::CppType init_value)
             : res_bit(init_value) {}
-    void write(BufferWritable& buf) const { write_binary(res_bit, buf); }
-    void read(BufferReadable& buf) { read_binary(res_bit, buf); }
+    void write(BufferWritable& buf) const { buf.write_binary(res_bit); }
+    void read(BufferReadable& buf) { buf.read_binary(res_bit); }
     typename PrimitiveTypeTraits<T>::CppType get() const { return res_bit; }
 
 protected:

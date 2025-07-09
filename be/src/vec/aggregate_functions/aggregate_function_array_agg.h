@@ -98,14 +98,14 @@ struct AggregateFunctionArrayAggData {
 
     void write(BufferWritable& buf) const {
         const size_t size = null_map->size();
-        write_binary(size, buf);
+        buf.write_binary(size);
 
         for (size_t i = 0; i < size; i++) {
-            write_binary(null_map->data()[i], buf);
+            buf.write_binary(null_map->data()[i]);
         }
 
         for (size_t i = 0; i < size; i++) {
-            write_binary(nested_column->get_data()[i], buf);
+            buf.write_binary(nested_column->get_data()[i]);
         }
     }
 
@@ -113,16 +113,16 @@ struct AggregateFunctionArrayAggData {
         DCHECK(null_map);
         DCHECK(null_map->empty());
         size_t size = 0;
-        read_binary(size, buf);
+        buf.read_binary(size);
         null_map->resize(size);
         nested_column->reserve(size);
         for (size_t i = 0; i < size; i++) {
-            read_binary(null_map->data()[i], buf);
+            buf.read_binary(null_map->data()[i]);
         }
 
         ElementType data_value;
         for (size_t i = 0; i < size; i++) {
-            read_binary(data_value, buf);
+            buf.read_binary(data_value);
             nested_column->get_data().push_back(data_value);
         }
     }
@@ -201,12 +201,12 @@ struct AggregateFunctionArrayAggData<T> {
 
     void write(BufferWritable& buf) const {
         const size_t size = null_map->size();
-        write_binary(size, buf);
+        buf.write_binary(size);
         for (size_t i = 0; i < size; i++) {
-            write_binary(null_map->data()[i], buf);
+            buf.write_binary(null_map->data()[i]);
         }
         for (size_t i = 0; i < size; i++) {
-            write_binary(nested_column->get_data_at(i), buf);
+            buf.write_binary(nested_column->get_data_at(i));
         }
     }
 
@@ -214,16 +214,16 @@ struct AggregateFunctionArrayAggData<T> {
         DCHECK(null_map);
         DCHECK(null_map->empty());
         size_t size = 0;
-        read_binary(size, buf);
+        buf.read_binary(size);
         null_map->resize(size);
         nested_column->reserve(size);
         for (size_t i = 0; i < size; i++) {
-            read_binary(null_map->data()[i], buf);
+            buf.read_binary(null_map->data()[i]);
         }
 
         StringRef s;
         for (size_t i = 0; i < size; i++) {
-            read_binary(s, buf);
+            buf.read_binary(s);
             nested_column->insert_data(s.data, s.size);
         }
     }
