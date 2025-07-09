@@ -100,12 +100,6 @@ public enum SchemaTableType {
                     TSchemaTableType.SCH_VIEW_DEPENDENCY);
 
     private static final String dbName = "INFORMATION_SCHEMA";
-    private static SelectList fullSelectLists;
-
-    static {
-        fullSelectLists = new SelectList();
-        fullSelectLists.addItem(SelectListItem.createStarItem(null));
-    }
 
     private final String description;
     private final String tableName;
