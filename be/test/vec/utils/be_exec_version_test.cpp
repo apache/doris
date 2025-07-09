@@ -15,32 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 
-#include <functional>
-#include <memory>
-#include <string>
-#include <unordered_map>
+#include "agent/be_exec_version_manager.h"
 
-#include "common/status.h"
+namespace doris::vectorized {
+TEST(be_exec_version_test, empty_buckets) {
+    // YOU MUST NOT CHANGE THIS TEST !
+    // if you want to change be_exec_version, you should know what you are doing
+    EXPECT_EQ(BeExecVersionManager::get_newest_version(), 6);
+    EXPECT_EQ(BeExecVersionManager::get_min_version(), 0);
+}
 
-namespace doris {
-class ObjectPool;
-
-namespace vectorized {
-class TableFunction;
-
-class TableFunctionFactory {
-public:
-    TableFunctionFactory() = delete;
-    static Status get_fn(const std::string& fn_name_raw, ObjectPool* pool, TableFunction** fn,
-                         int be_version);
-
-    const static std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
-            _function_map;
-
-    // alias name ---> function name
-    static std::unordered_map<std::string, std::string> _function_alias;
-};
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
