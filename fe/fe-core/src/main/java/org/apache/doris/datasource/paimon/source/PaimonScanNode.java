@@ -29,6 +29,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -56,11 +57,9 @@ import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.types.DataField;
-import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -148,7 +147,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         source = new PaimonSource(desc);
-        serializedTable = encodeObjectToString(source.getPaimonTable());
+        serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
         Preconditions.checkNotNull(source);
         params.setHistorySchemaInfo(new ConcurrentHashMap<>());
     }
@@ -163,17 +162,6 @@ public class PaimonScanNode extends FileQueryScanNode {
         PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
                 source.getPaimonTable().rowType());
         predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
-    }
-
-    private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
-
-    public static <T> String encodeObjectToString(T t) {
-        try {
-            byte[] bytes = InstantiationUtil.serializeObject(t);
-            return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
     }
 
     @Override
@@ -210,7 +198,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (split != null) {
             // use jni reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            fileDesc.setPaimonSplit(encodeObjectToString(split));
+            fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
@@ -225,7 +213,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             params.history_schema_info.computeIfAbsent(paimonSplit.getSchemaId(), this::getSchemaInfo);
         }
         fileDesc.setFileFormat(fileFormat);
-        fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
+        fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
         fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
                 .collect(Collectors.joining(",")));
         fileDesc.setDbName(((PaimonExternalTable) source.getTargetTable()).getDbName());
@@ -378,13 +366,13 @@ public class PaimonScanNode extends FileQueryScanNode {
             return Collections.emptyList();
         }
         int[] projected = desc.getSlots().stream().mapToInt(
-            slot -> source.getPaimonTable().rowType()
-                    .getFieldNames()
-                    .stream()
-                    .map(String::toLowerCase)
-                    .collect(Collectors.toList())
-                    .indexOf(slot.getColumn().getName()))
-                    .toArray();
+                        slot -> source.getPaimonTable().rowType()
+                                .getFieldNames()
+                                .stream()
+                                .map(String::toLowerCase)
+                                .collect(Collectors.toList())
+                                .indexOf(slot.getColumn().getName()))
+                .toArray();
         Table paimonTable = source.getPaimonTable();
         Map<String, String> incrReadParams = getIncrReadParams();
         paimonTable = paimonTable.copy(incrReadParams);
