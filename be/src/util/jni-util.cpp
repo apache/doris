@@ -101,7 +101,7 @@ const std::string GetKerb5ConfPath() {
     std::string libhdfs_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     CHECK(libhdfs_opts != "") << "LIBHDFS_OPTS is not set";
     libhdfs_opts += fmt::format(" {} ", GetKerb5ConfPath());
-    libhdfs_opts += fmt::format(" -Djdk.lang.processReaperUseDefaultStackSize{}",
+    libhdfs_opts += fmt::format(" -Djdk.lang.processReaperUseDefaultStackSize={}",
                                 config::jdk_process_reaper_use_default_stack_size);
     setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
     LOG(INFO) << "set final LIBHDFS_OPTS: " << libhdfs_opts;
@@ -120,7 +120,7 @@ const std::string GetKerb5ConfPath() {
                     GetDorisJNIClasspathOption(), fmt::format("-Xmx{}", "1g"),
                     fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME")),
                     fmt::format("-Dsun.java.command={}", "DorisBE"), "-XX:-CriticalJNINatives",
-                    fmt::format("-Djdk.lang.processReaperUseDefaultStackSize{}",
+                    fmt::format("-Djdk.lang.processReaperUseDefaultStackSize={}",
                                 config::jdk_process_reaper_use_default_stack_size),
 #ifdef __APPLE__
                     // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE

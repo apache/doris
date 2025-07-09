@@ -463,13 +463,12 @@ static int create_delete_bitmap_update_lock_kv(TxnKv* txn_kv, int64_t table_id, 
         return -1;
     }
     txn->put(key, val);
-    std::string tablet_compaction_key =
-            mow_tablet_compaction_key({instance_id, table_id, initiator});
-    std::string tablet_compaction_val;
-    MowTabletCompactionPB mow_tablet_compaction;
-    mow_tablet_compaction.set_expiration(expiration);
-    mow_tablet_compaction.SerializeToString(&tablet_compaction_val);
-    txn->put(tablet_compaction_key, tablet_compaction_val);
+    std::string tablet_job_key = mow_tablet_job_key({instance_id, table_id, initiator});
+    std::string tablet_job_val;
+    MowTabletJobPB mow_tablet_job;
+    mow_tablet_job.set_expiration(expiration);
+    mow_tablet_job.SerializeToString(&tablet_job_val);
+    txn->put(tablet_job_key, tablet_job_val);
     if (txn->commit() != TxnErrorCode::TXN_OK) {
         return -1;
     }
@@ -1439,10 +1438,9 @@ TEST(RecyclerTest, recycle_versions) {
     std::string delete_bitmap_update_lock_val;
     ASSERT_EQ(txn->get(delete_bitmap_update_lock_key, &delete_bitmap_update_lock_val),
               TxnErrorCode::TXN_OK);
-    auto tablet_compaction_key0 = mow_tablet_compaction_key({instance_id, table_id, 0});
-    auto tablet_compaction_key1 = mow_tablet_compaction_key({instance_id, table_id + 1, 0});
-    ASSERT_EQ(txn->get(tablet_compaction_key0, tablet_compaction_key1, &iter),
-              TxnErrorCode::TXN_OK);
+    auto tablet_job_key0 = mow_tablet_job_key({instance_id, table_id, 0});
+    auto tablet_job_key1 = mow_tablet_job_key({instance_id, table_id + 1, 0});
+    ASSERT_EQ(txn->get(tablet_job_key0, tablet_job_key1, &iter), TxnErrorCode::TXN_OK);
     ASSERT_EQ(iter->size(), 2);
 
     // Drop indexes
@@ -1461,8 +1459,7 @@ TEST(RecyclerTest, recycle_versions) {
     // delete bitmap update lock must be deleted
     ASSERT_EQ(txn->get(delete_bitmap_update_lock_key, &delete_bitmap_update_lock_val),
               TxnErrorCode::TXN_KEY_NOT_FOUND);
-    ASSERT_EQ(txn->get(tablet_compaction_key0, tablet_compaction_key1, &iter),
-              TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tablet_job_key0, tablet_job_key1, &iter), TxnErrorCode::TXN_OK);
     ASSERT_EQ(iter->size(), 0);
 }
 
@@ -3358,19 +3355,18 @@ MetaServiceCode remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_
 }
 
 void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id) {
-    std::string lock_key =
-            meta_delete_bitmap_update_lock_key({"test_check_compaction_key", table_id, -1});
+    std::string lock_key = meta_delete_bitmap_update_lock_key({"test_check_job_key", table_id, -1});
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->remove(lock_key);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-}
+} // namespace
 
-TEST(CheckerTest, check_compaction_key) {
-    config::enable_mow_compaction_key_check = true;
-    config::compaction_key_check_expiration_diff_seconds = 0;
+TEST(CheckerTest, check_job_key) {
+    config::enable_mow_job_key_check = true;
+    config::mow_job_key_check_expiration_diff_seconds = 0;
     config::delete_bitmap_lock_v2_white_list = "*";
-    std::string instance_id = "test_check_compaction_key";
+    std::string instance_id = "test_check_job_key";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -3402,7 +3398,7 @@ TEST(CheckerTest, check_compaction_key) {
     obj_info->set_id("1");
     InstanceChecker checker(meta_service->txn_kv(), instance_id);
     ASSERT_EQ(checker.init(instance), 0);
-    ASSERT_EQ(checker.do_mow_compaction_key_check(), 0);
+    ASSERT_EQ(checker.do_mow_job_key_check(), 0);
     res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
 
     //test 2:
@@ -3416,7 +3412,7 @@ TEST(CheckerTest, check_compaction_key) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
     remove_delete_bitmap_lock(meta_service.get(), table_id);
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 101, -1);
-    ASSERT_EQ(checker.do_mow_compaction_key_check(), -1);
+    ASSERT_EQ(checker.do_mow_job_key_check(), -1);
     std::this_thread::sleep_for(std::chrono::seconds(6));
 
     //test 3:
@@ -3429,7 +3425,7 @@ TEST(CheckerTest, check_compaction_key) {
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     std::this_thread::sleep_for(std::chrono::seconds(1));
     remove_delete_bitmap_lock(meta_service.get(), table_id);
-    ASSERT_EQ(checker.do_mow_compaction_key_check(), -1);
+    ASSERT_EQ(checker.do_mow_job_key_check(), -1);
 }
 
 TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_normal) {

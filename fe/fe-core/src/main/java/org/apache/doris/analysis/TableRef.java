@@ -31,8 +31,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hudi.HudiUtils;
-import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -728,20 +726,6 @@ public class TableRef implements ParseNode {
         if (lateralViewRefs != null) {
             for (LateralViewRef lateralViewRef : lateralViewRefs) {
                 allTableRefIds.add(lateralViewRef.getId());
-            }
-        }
-    }
-
-    public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
-            throws AnalysisException {
-        Preconditions.checkState(isAnalyzed);
-        if (onClause != null) {
-            Expr expr = onClause.clone();
-            onClause = rewriter.rewrite(onClause, analyzer, ClauseType.fromJoinType(joinOp));
-            if (joinOp.isOuterJoin() || joinOp.isSemiAntiJoin()) {
-                if (onClause instanceof BoolLiteral && !((BoolLiteral) onClause).getValue()) {
-                    onClause = expr;
-                }
             }
         }
     }

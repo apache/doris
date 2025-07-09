@@ -1077,12 +1077,16 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         default:
-            return Status::InternalError("Not supported file format: {}", _params->format_type);
+            return Status::NotSupported("Not supported create reader for file format: {}.",
+                                        to_string(_params->format_type));
         }
 
         if (_cur_reader == nullptr) {
-            return Status::InternalError("Failed to create reader for  file format: {}",
-                                         _params->format_type);
+            return Status::NotSupported(
+                    "Not supported create reader for table format: {} / file format: {}.",
+                    range.__isset.table_format_params ? range.table_format_params.table_format_type
+                                                      : "NotSet",
+                    to_string(_params->format_type));
         }
         COUNTER_UPDATE(_file_counter, 1);
         // The FileScanner for external table may try to open not exist files,
@@ -1239,6 +1243,16 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader) {
         RETURN_IF_ERROR(paimon_reader->init_row_filters());
         _cur_reader = std::move(paimon_reader);
     } else if (range.__isset.table_format_params &&
+               range.table_format_params.table_format_type == "hudi") {
+        std::unique_ptr<HudiOrcReader> hudi_reader = HudiOrcReader::create_unique(
+                std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
+
+        init_status = hudi_reader->init_reader(
+                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
+                _default_val_row_desc.get(), &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts);
+        _cur_reader = std::move(hudi_reader);
+    } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hive") {
         std::unique_ptr<HiveOrcReader> hive_reader = HiveOrcReader::create_unique(
                 std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
@@ -1390,10 +1404,10 @@ Status FileScanner::read_one_line_from_range(const TFileRangeDesc& range,
                     break;
                 }
                 default: {
-                    return Status::InternalError(
-                            "Failed to create one line reader for file format: {},"
-                            "only support parquet and orc",
-                            _params->format_type);
+                    return Status::NotSupported(
+                            "Not support create lines reader for file format: {},"
+                            "only support parquet and orc.",
+                            to_string(_params->format_type));
                 }
                 }
                 return Status::OK();

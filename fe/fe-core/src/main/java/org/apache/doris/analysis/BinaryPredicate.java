@@ -515,68 +515,6 @@ public class BinaryPredicate extends Predicate {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        this.checkIncludeBitmap();
-        // Ignore placeholder, when it type is invalid.
-        // Invalid type could happen when analyze prepared point query select statement,
-        // since the value is occupied but not assigned
-        if ((getChild(0) instanceof PlaceHolderExpr && getChild(0).type == Type.UNSUPPORTED)
-                || (getChild(1) instanceof PlaceHolderExpr && getChild(1).type == Type.UNSUPPORTED)) {
-            return;
-        }
-        for (Expr expr : children) {
-            if (expr instanceof Subquery) {
-                Subquery subquery = (Subquery) expr;
-                if (!subquery.returnsScalarColumn()) {
-                    String msg = "Subquery of binary predicate must return a single column: " + expr.toSql();
-                    throw new AnalysisException(msg);
-                }
-                /**
-                 * Situation: The expr is a binary predicate and the type of subquery is not scalar type.
-                 * Add assert: The stmt of subquery is added an assert condition (return error if row count > 1).
-                 * Input params:
-                 *     expr: k1=(select k1 from t2)
-                 *     subquery stmt: select k1 from t2
-                 * Output params:
-                 *     new expr: k1 = (select k1 from t2 (assert row count: return error if row count > 1 ))
-                 *     subquery stmt: select k1 from t2 (assert row count: return error if row count > 1 )
-                 */
-                if (!subquery.getType().isScalarType()) {
-                    subquery.getStatement().setAssertNumRowsElement(1, AssertNumRowsElement.Assertion.LE);
-                }
-            }
-        }
-
-        // if children has subquery, it will be rewritten and reanalyzed in the future.
-        if (contains(Subquery.class)) {
-            return;
-        }
-
-        Type cmpType = getCmpType();
-        // Ignore return value because type is always bool for predicates.
-        castBinaryOp(cmpType);
-
-        this.opcode = op.getOpcode();
-        String opName = op.getName();
-        fn = getBuiltinFunction(opName, collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
-        if (fn == null) {
-            Preconditions.checkState(false, String.format(
-                    "No match for '%s' with operand types %s and %s", toSql()));
-        }
-
-        // determine selectivity
-        Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
-        if (op == Operator.EQ && isSingleColumnPredicate(slotRefRef, null)
-                && slotRefRef.getRef().getNumDistinctValues() > 0) {
-            Preconditions.checkState(slotRefRef.getRef() != null);
-            selectivity = 1.0 / slotRefRef.getRef().getNumDistinctValues();
-            selectivity = Math.max(0, Math.min(1, selectivity));
-        } else {
-            // TODO: improve using histograms, once they show up
-            selectivity = Expr.DEFAULT_SELECTIVITY;
-        }
-
-        // vectorizedAnalyze(analyzer);
     }
 
     public Expr invokeFunctionExpr(ArrayList<Expr> partitionExprs, Expr paramExpr) {

@@ -95,6 +95,19 @@ public class S3PropertiesTest {
         origProps.put("s3.endpoint", "s3-fips.us-east-2.amazonaws.com");
         s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+
+        origProps.put("glue.endpoint", "glue.us-wast-2.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+        origProps.remove("s3.endpoint");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-wast-2", s3Properties.getRegion());
+        origProps.put("glue.endpoint", "glue-fips.us-west-2.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", s3Properties.getRegion());
+        origProps.put("glue.endpoint", "glue.us-gov-west-1.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-gov-west-1", s3Properties.getRegion());
     }
 
     @Test

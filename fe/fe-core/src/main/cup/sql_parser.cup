@@ -748,13 +748,8 @@ nonterminal String quantity;
 // Description of user
 nonterminal UserDesc grant_user;
 
-// Select or set operation(union/intersect/except) statement.
-nonterminal QueryStmt query_stmt;
-// Single select_stmt or parenthesized query_stmt.
-nonterminal QueryStmt set_operand;
 // List of select blocks connected by set operators, with order by or limit.
 nonterminal InsertTarget insert_target;
-nonterminal InsertSource insert_source;
 nonterminal List<BinaryPredicate> set_clause;
 nonterminal List<BinaryPredicate> assignment_list;
 nonterminal BinaryPredicate assignment;
@@ -764,9 +759,6 @@ nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
 nonterminal Boolean backup_exclude_or_not;
 nonterminal RestoreStmt restore_stmt;
 
-nonterminal SelectList select_clause, select_list, select_sublist;
-
-nonterminal SelectListItem select_list_item, star_expr;
 nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
 nonterminal Expr set_expr_or_default;
 nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values, kv_list;
@@ -824,10 +816,8 @@ nonterminal ArrayList<LateralViewRef> opt_lateral_view_ref_list, lateral_view_re
 nonterminal TableRef table_ref;
 nonterminal TableRef base_table_ref;
 nonterminal LateralViewRef lateral_view_ref;
-nonterminal WithClause opt_with_clause;
 nonterminal ArrayList<View> with_view_def_list;
 nonterminal View with_view_def;
-nonterminal Subquery subquery;
 nonterminal TableValuedFunctionRef table_valued_function_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
@@ -1138,12 +1128,6 @@ stmt ::=
     {: RESULT = query; :}
     | switch_stmt:stmt
     {: RESULT = stmt; :}
-    | query_stmt:query
-    {:
-        RESULT = query;
-        query.setPlaceHolders(parser.placeholder_expr_list);
-        parser.placeholder_expr_list.clear();
-    :}
     | drop_stmt:stmt
     {: RESULT = stmt; :}
     | recover_stmt:stmt
@@ -1315,11 +1299,6 @@ alter_stmt ::=
     | KW_ALTER KW_TABLE table_name:tbl KW_DROP KW_ROLLUP drop_rollup_clause_list:clauses
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
-    :}
-    | KW_ALTER KW_VIEW table_name:tbl
-    opt_col_with_comment_list:columns KW_AS query_stmt:view_def
-    {:
-        RESULT = new AlterViewStmt(tbl, columns, view_def);
     :}
     | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_DATA KW_QUOTA quantity:quota_quantity
     {:
@@ -1811,11 +1790,6 @@ create_stmt ::=
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
-    :}
-    | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
-        opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
-    {:
-        RESULT = new CreateViewStmt(ifNotExists, orReplace, viewName, columns, comment, view_def);
     :}
     | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role opt_comment:comment
     {:
@@ -4019,26 +3993,6 @@ opt_outfile ::=
     :}
     ;
 
-opt_with_clause ::=
-    KW_WITH with_view_def_list:list
-    {: RESULT = new WithClause(list); :}
-    | /* empty */
-    {: RESULT = null; :}
-    ;
-
-with_view_def ::=
-    ident:alias KW_AS LPAREN query_stmt:query RPAREN
-    {: RESULT = new View(alias, query, null); :}
-    | STRING_LITERAL:alias KW_AS LPAREN query_stmt:query RPAREN
-    {: RESULT = new View(alias, query, null); :}
-    | ident:alias LPAREN ident_list:col_names RPAREN KW_AS LPAREN
-      query_stmt:query RPAREN
-    {: RESULT = new View(alias, query, col_names); :}
-    | STRING_LITERAL:alias LPAREN ident_list:col_names RPAREN
-      KW_AS LPAREN query_stmt:query RPAREN
-    {: RESULT = new View(alias, query, col_names); :}
-    ;
-
 with_view_def_list ::=
     with_view_def:v
     {:
@@ -4052,13 +4006,6 @@ with_view_def_list ::=
         RESULT = list;
     :}
     ;
-
-set_operand ::=
-  LPAREN query_stmt:query RPAREN
-  {:
-    RESULT = query;
-  :}
-  ;
 
 // Change catalog
 switch_stmt ::=
@@ -4111,13 +4058,6 @@ opt_with_label ::=
     | KW_WITH KW_LABEL ident:label
     {:
         RESULT = label;
-    :}
-    ;
-
-insert_source ::=
-    query_stmt:query
-    {:
-        RESULT = new InsertSource(query);
     :}
     ;
 
@@ -4632,25 +4572,6 @@ args_list ::=
     :}
     ;
 
-select_clause ::=
-    KW_SELECT opt_select_hints:hints select_list:l
-    {:
-        l.setOptHints(hints);
-        RESULT = l;
-    :}
-    | KW_SELECT opt_select_hints:hints KW_ALL select_list:l
-    {:
-        l.setOptHints(hints);
-        RESULT = l;
-    :}
-    | KW_SELECT opt_select_hints:hints KW_DISTINCT select_list:l
-    {:
-        l.setOptHints(hints);
-        l.setIsDistinct(true);
-        RESULT = l;
-    :}
-    ;
-
 query_hint_parameter_key ::=
     literal:k
     {:
@@ -4736,63 +4657,6 @@ opt_select_hints ::=
     :}
     ;
 
-select_list ::=
-    select_sublist:list
-    {:
-        RESULT = list;
-    :}
-    | STAR
-    {:
-        SelectList list = new SelectList();
-        list.addItem(SelectListItem.createStarItem(null));
-        RESULT = list;
-    :}
-    | STAR KW_EXCEPT LPAREN select_sublist: list RPAREN
-    {:
-        SelectList res = new SelectList(list);
-        list.setIsExcept(true);
-        RESULT = list;
-    :}
-    ;
-
-select_sublist ::=
-    select_sublist:list COMMA select_list_item:item
-    {:
-        list.addItem(item);
-        RESULT = list;
-    :}
-    | select_sublist:list COMMA STAR
-    {:
-        list.addItem(SelectListItem.createStarItem(null));
-        RESULT = list;
-    :}
-    // why not use "STAR COMMA select_sublist",for we analyze from left to right
-    | STAR COMMA select_list_item:item
-    {:
-        SelectList list = new SelectList();
-        list.addItem(SelectListItem.createStarItem(null));
-        list.addItem(item);
-        RESULT = list;
-    :}
-    | select_list_item:item
-    {:
-        SelectList list = new SelectList();
-        list.addItem(item);
-        RESULT = list;
-    :}
-    ;
-
-select_list_item ::=
-    expr:expr select_alias:alias
-    {:
-        RESULT = new SelectListItem(expr, alias);
-    :}
-    | star_expr:expr
-    {:
-        RESULT = expr;
-    :}
-    ;
-
 select_alias ::=
     /* empty */
     {:
@@ -4813,23 +4677,6 @@ select_alias ::=
     | STRING_LITERAL:l
     {:
         RESULT = l;
-    :}
-    ;
-
-star_expr ::=
-    // table_name DOT STAR doesn't work because of a reduce-reduce conflict
-    // on IDENT [DOT]
-    ident:tbl DOT STAR
-    {:
-        RESULT = SelectListItem.createStarItem(new TableName(null, null, tbl));
-    :}
-    | ident:db DOT ident:tbl DOT STAR
-    {:
-        RESULT = SelectListItem.createStarItem(new TableName(null, db, tbl));
-    :}
-    | ident:ctl DOT ident:db DOT ident:tbl DOT STAR
-    {:
-        RESULT = SelectListItem.createStarItem(new TableName(ctl, db, tbl));
     :}
     ;
 
@@ -5922,11 +5769,6 @@ struct_literal ::=
   :}
   ;
 
-exists_predicate ::=
-  KW_EXISTS subquery:s
-  {: RESULT = new ExistsPredicate(s, false); :}
-  ;
-
 non_pred_expr ::=
   sign_chain_expr:e
   {: RESULT = e; :}
@@ -6018,8 +5860,6 @@ non_pred_expr ::=
   {:
     RESULT = new StringLiteral(new String(MysqlPassword.makeScrambledPassword(text)));
   :}
-  | subquery:s
-  {: RESULT = s; :}
   |  KW_NULL KW_IS KW_NULL
   {: RESULT = new BoolLiteral(true); :}
   | KW_NULL KW_IS KW_NOT KW_NULL
@@ -6375,17 +6215,6 @@ in_predicate ::=
   {: RESULT = new InPredicate(e, l, false); :}
   | expr:e KW_NOT KW_IN LPAREN expr_list:l RPAREN
   {: RESULT = new InPredicate(e, l, true); :}
-  | expr:e KW_IN subquery:s
-  {: RESULT = new InPredicate(e, s, false); :}
-  | expr:e KW_NOT KW_IN subquery:s
-  {: RESULT = new InPredicate(e, s, true); :}
-  ;
-
-subquery ::=
-  LPAREN subquery:query RPAREN
-  {: RESULT = query; :}
-  | LPAREN query_stmt:query RPAREN
-  {: RESULT = new Subquery(query); :}
   ;
 
 compound_predicate ::=

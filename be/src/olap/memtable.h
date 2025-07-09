@@ -249,8 +249,8 @@ private:
     //return number of same keys
     size_t _sort();
     Status _sort_by_cluster_keys();
-    void _sort_one_column(DorisVector<RowInBlock*>& row_in_blocks, Tie& tie,
-                          std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
+    void _sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in_blocks, Tie& tie,
+                          std::function<int(RowInBlock*, RowInBlock*)> cmp);
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);
@@ -263,7 +263,7 @@ private:
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
     std::vector<size_t> _offsets_of_aggregate_states;
     size_t _total_size_of_aggregate_states;
-    std::unique_ptr<DorisVector<RowInBlock*>> _row_in_blocks;
+    std::unique_ptr<DorisVector<std::shared_ptr<RowInBlock>>> _row_in_blocks;
 
     size_t _num_columns;
     int32_t _seq_col_idx_in_block = -1;

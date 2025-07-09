@@ -22,3 +22,46 @@ v31
 
 -- !fix_array_path --
 [123]	[123]	[123]	[123]
+
+-- !empty --
+\N
+
+-- !empty2 --
+\N
+
+-- !empty3 --
+\N
+
+-- !empty4 --
+\N
+
+-- !wildcard --
+["v1","v2","v3","v4"]
+
+-- !wildcard2 --
+\N
+
+-- !wildcard3 --
+[123,345,456,456,678]
+
+-- !wildcard4 --
+[123,345,456]
+
+-- !wildcard5 --
+["value",{"key3":123},{"key5":["a","b","c"]}]
+
+-- !wildcard6 --
+["v3","v4",5]
+
+-- !wildcard7 --
+[[1,2,3],{"k":[4,5],"b":"123"},[4,5],"123"]
+
+-- !array_last --
+5	5
+
+-- !array_last2 --
+4	4
+
+-- !array_last3 --
+4	4
+

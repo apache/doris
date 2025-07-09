@@ -32,19 +32,16 @@ public class BaseViewStmt extends DdlStmt {
 
     protected final TableName tableName;
     protected final List<ColWithComment> cols;
-    protected final QueryStmt viewDefStmt;
 
     // Set during analyze
     protected final List<Column> finalCols;
 
     protected String inlineViewDef;
 
-    protected QueryStmt cloneStmt;
 
-    public BaseViewStmt(TableName tableName, List<ColWithComment> cols, QueryStmt queryStmt) {
+    public BaseViewStmt(TableName tableName, List<ColWithComment> cols) {
         this.tableName = tableName;
         this.cols = cols;
-        this.viewDefStmt = queryStmt;
         finalCols = Lists.newArrayList();
     }
 
@@ -66,10 +63,6 @@ public class BaseViewStmt extends DdlStmt {
 
     public List<ColWithComment> getColWithComments() {
         return cols;
-    }
-
-    public QueryStmt getViewDefStmt() {
-        return viewDefStmt;
     }
 
     public String getInlineViewDef() {

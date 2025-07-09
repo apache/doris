@@ -532,6 +532,9 @@ install(FILES
 
 install(FILES
     ${BASE_DIR}/conf/doris_cloud.conf
+    ${BASE_DIR}/conf/asan_suppr.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
+    ${BASE_DIR}/conf/ubsan_suppr.conf
     DESTINATION ${OUTPUT_DIR}/conf)
 
 install(FILES

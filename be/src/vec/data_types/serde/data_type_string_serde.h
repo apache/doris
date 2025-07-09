@@ -56,7 +56,11 @@ inline void escape_string(const char* src, size_t* len, char escape_char) {
         if (escape_next_char) {
             ++src;
         } else {
-            *dest_ptr++ = *src++;
+            if (dest_ptr != src) {
+                *dest_ptr = *src;
+            }
+            dest_ptr++;
+            src++;
         }
     }
 
