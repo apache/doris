@@ -304,8 +304,10 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public void afterCreateTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().setUnInitialized(true);
+            db.get().setUnInitialized();
         }
+        LOG.info("after create table {}.{}.{}, is db exists: {}",
+                getCatalog().getName(), dbName, tblName, db.isPresent());
     }
 
     @Override
@@ -334,8 +336,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public void afterDropTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().setUnInitialized(true);
+            Optional table = db.get().getTableForReplay(tblName);
+            if (table.isPresent()) {
+                Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db.get(), (ExternalTable) table.get(), 0);
+            }
+            db.get().setUnInitialized();
         }
+        LOG.info("after drop table {}.{}.{}, is db exists: {}",
+                getCatalog().getName(), dbName, tblName, db.isPresent());
     }
 
     @Override
@@ -359,7 +367,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                     Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) dorisTable.get());
                 }
                 db.get().setLastUpdateTime(System.currentTimeMillis());
-                db.get().setUnInitialized(true);
+                db.get().setUnInitialized();
             }
         } catch (Exception e) {
             LOG.warn("exception when calling afterTruncateTable for db: {}, table: {}, error: {}",
