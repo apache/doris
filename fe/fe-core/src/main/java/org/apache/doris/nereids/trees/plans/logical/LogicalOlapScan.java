@@ -27,7 +27,6 @@ import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -495,9 +494,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     private List<Slot> generateUniqueSlot(OlapTable table, Column column, boolean isBaseIndex, long indexId,
             IdGenerator<ExprId> exprIdIdGenerator) {
-        String name = isBaseIndex || directMvScan ? column.getName()
-                : AbstractSelectMaterializedIndexRule.parseMvColumnToMvName(column.getName(),
-                        column.isAggregated() ? Optional.of(column.getAggregationType().toSql()) : Optional.empty());
+        String name = column.getName();
         Pair<Long, String> key = Pair.of(indexId, name);
         Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k ->
                 SlotReference.fromColumn(exprIdIdGenerator.getNextId(), table, column, name, qualified()));
