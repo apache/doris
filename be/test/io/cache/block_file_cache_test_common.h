@@ -74,21 +74,14 @@ extern int disk_used_percentage(const std::string& path, std::pair<int, int>* pe
 extern fs::path caches_dir;
 extern std::string cache_base_path;
 extern std::string tmp_file;
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunknown-warning-option"
-#pragma clang diagnostic ignored "-Wdeprecated-literal-operator"
-#endif
-constexpr unsigned long long operator"" _mb(unsigned long long m) {
+
+constexpr unsigned long long operator""_mb(unsigned long long m) {
     return m * 1024 * 1024;
 }
 
-constexpr unsigned long long operator"" _kb(unsigned long long m) {
+constexpr unsigned long long operator""_kb(unsigned long long m) {
     return m * 1024;
 }
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
 
 extern void assert_range([[maybe_unused]] size_t assert_n, io::FileBlockSPtr file_block,
                          const io::FileBlock::Range& expected_range,
