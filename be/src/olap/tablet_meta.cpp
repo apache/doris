@@ -972,20 +972,20 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b) {
     return !(a == b);
 }
 
-DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {
-    // The default delete bitmap cache is set to 100MB,
-    // which can be insufficient and cause performance issues when the amount of user data is large.
-    // To mitigate the problem of an inadequate cache,
-    // we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
-    bool is_percent = false;
-    int64_t delete_bitmap_agg_cache_cache_limit =
-            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
-                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
-    _agg_cache.reset(new AggCache(delete_bitmap_agg_cache_cache_limit >
-                                                  config::delete_bitmap_agg_cache_capacity
-                                          ? delete_bitmap_agg_cache_cache_limit
-                                          : config::delete_bitmap_agg_cache_capacity));
+DeleteBitmapAggCache::DeleteBitmapAggCache(size_t capacity)
+        : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
+                                       LRUCacheType::SIZE,
+                                       config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
+
+DeleteBitmapAggCache* DeleteBitmapAggCache::instance() {
+    return ExecEnv::GetInstance()->delete_bitmap_agg_cache();
 }
+
+DeleteBitmapAggCache* DeleteBitmapAggCache::create_instance(size_t capacity) {
+    return new DeleteBitmapAggCache(capacity);
+}
+
+DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {}
 
 DeleteBitmap::DeleteBitmap(const DeleteBitmap& o) {
     delete_bitmap = o.delete_bitmap; // just copy data
@@ -1201,16 +1201,16 @@ static std::string agg_cache_key(int64_t tablet_id, const DeleteBitmap::BitmapKe
 std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) const {
     std::string key_str = agg_cache_key(_tablet_id, bmk); // Cache key container
     CacheKey key(key_str);
-    Cache::Handle* handle = _agg_cache->repr()->lookup(key);
+    Cache::Handle* handle = DeleteBitmapAggCache::instance()->lookup(key);
 
-    AggCache::Value* val =
-            handle == nullptr
-                    ? nullptr
-                    : reinterpret_cast<AggCache::Value*>(_agg_cache->repr()->value(handle));
+    DeleteBitmapAggCache::Value* val =
+            handle == nullptr ? nullptr
+                              : reinterpret_cast<DeleteBitmapAggCache::Value*>(
+                                        DeleteBitmapAggCache::instance()->value(handle));
     // FIXME: do we need a mutex here to get rid of duplicated initializations
     //        of cache entries in some cases?
     if (val == nullptr) { // Renew if needed, put a new Value to cache
-        val = new AggCache::Value();
+        val = new DeleteBitmapAggCache::Value();
         {
             std::shared_lock l(lock);
             DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
@@ -1223,16 +1223,15 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
                 val->bitmap |= bm;
             }
         }
-        size_t charge = val->bitmap.getSizeInBytes() + sizeof(AggCache::Value);
-        handle = _agg_cache->repr()->insert(key, val, charge, charge, CachePriority::NORMAL);
+        size_t charge = val->bitmap.getSizeInBytes() + sizeof(DeleteBitmapAggCache::Value);
+        handle = DeleteBitmapAggCache::instance()->insert(key, val, charge, charge,
+                                                          CachePriority::NORMAL);
     }
 
     // It is natural for the cache to reclaim the underlying memory
     return std::shared_ptr<roaring::Roaring>(
-            &val->bitmap, [this, handle](...) { _agg_cache->repr()->release(handle); });
+            &val->bitmap, [handle](...) { DeleteBitmapAggCache::instance()->release(handle); });
 }
-
-std::atomic<DeleteBitmap::AggCachePolicy*> DeleteBitmap::AggCache::s_repr {nullptr};
 
 std::string tablet_state_name(TabletState state) {
     switch (state) {

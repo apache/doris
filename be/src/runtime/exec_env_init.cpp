@@ -46,6 +46,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_column_object_pool.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
@@ -521,6 +522,16 @@ Status ExecEnv::_init_mem_env() {
     _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
     _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
 
+    // The default delete bitmap cache is set to 100MB,
+    // which can be insufficient and cause performance issues when the amount of user data is large.
+    // To mitigate the problem of an inadequate cache,
+    // we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _delete_bitmap_agg_cache = DeleteBitmapAggCache::create_instance(std::max(
+            delete_bitmap_agg_cache_cache_limit, config::delete_bitmap_agg_cache_capacity));
+
     return Status::OK();
 }
 
@@ -633,6 +644,7 @@ void ExecEnv::destroy() {
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_DELETE(_storage_engine);
+    SAFE_DELETE(_delete_bitmap_agg_cache);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
