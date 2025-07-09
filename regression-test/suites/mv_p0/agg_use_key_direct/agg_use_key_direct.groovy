@@ -47,17 +47,34 @@ suite ("agg_use_key_direct") {
 
 
     mv_rewrite_success("""select count(distinct k1) from agg_use_key_direct""", "common_mv")
-    order_qt_select_count """select count(distinct k1) from agg_use_key_direct"""
+    order_qt_select_count1 """select count(distinct k1) from agg_use_key_direct"""
 
     mv_rewrite_success("""select sum(distinct k1) from agg_use_key_direct""", "common_mv")
-    order_qt_select_sum """select sum(distinct k1) from agg_use_key_direct"""
+    order_qt_select_sum1 """select sum(distinct k1) from agg_use_key_direct"""
 
     mv_rewrite_success("""select max(distinct k3) from agg_use_key_direct""", "common_mv")
-    order_qt_select_max """select max(distinct k3) from agg_use_key_direct"""
+    order_qt_select_max1 """select max(distinct k3) from agg_use_key_direct"""
 
     mv_rewrite_success("""select min(distinct k3) from agg_use_key_direct""", "common_mv")
-    order_qt_select_min """select min(distinct k3) from agg_use_key_direct"""
+    order_qt_select_min1 """select min(distinct k3) from agg_use_key_direct"""
 
     mv_rewrite_success("""select avg(distinct k3) from agg_use_key_direct""", "common_mv")
-    order_qt_select_avg """select min(distinct k3) from agg_use_key_direct"""
+    order_qt_select_avg1 """select min(distinct k3) from agg_use_key_direct"""
+
+
+    sql """set enable_sync_mv_cost_based_rewrite = true;"""
+    mv_rewrite_success("""select count(distinct k1) from agg_use_key_direct""", "common_mv")
+    order_qt_select_count2 """select count(distinct k1) from agg_use_key_direct"""
+
+    mv_rewrite_success("""select sum(distinct k1) from agg_use_key_direct""", "common_mv")
+    order_qt_select_sum2 """select sum(distinct k1) from agg_use_key_direct"""
+
+    mv_rewrite_success("""select max(distinct k3) from agg_use_key_direct""", "common_mv")
+    order_qt_select_max2 """select max(distinct k3) from agg_use_key_direct"""
+
+    mv_rewrite_success("""select min(distinct k3) from agg_use_key_direct""", "common_mv")
+    order_qt_select_min2 """select min(distinct k3) from agg_use_key_direct"""
+
+    mv_rewrite_success("""select avg(distinct k3) from agg_use_key_direct""", "common_mv")
+    order_qt_select_avg2 """select min(distinct k3) from agg_use_key_direct"""
 }
