@@ -157,50 +157,6 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
     // ===========================================================================================
     // publish alignment read from rowsets which have multi-segments
     sql "truncate table ${tableName}"
-    // def t3 = Thread.start {
-    //     sql "set insert_visible_timeout_ms=60000;"
-    //     sql "sync;"
-    //     sql "insert into ${tableName} values(1,10,1,1,1),(2,20,2,2,2);"
-    // }
-    // Thread.sleep(1500)
-    // def t4 = Thread.start {
-    //     sql "set enable_unique_key_partial_update=true;"
-    //     sql "set insert_visible_timeout_ms=60000;"
-    //     sql "set enable_insert_strict=false;"
-    //     sql "sync;"
-    //     sql "insert into ${tableName}(k,v1,v2,v3) values(1,99,99,99);"
-    // }
-    // Thread.sleep(1500)
-    // enable_publish_spin_wait("token2")
-    // def t5 = Thread.start {
-    //     streamLoad {
-    //         table "${tableName}"
-    //         set 'format', 'json'
-    //         set 'read_json_by_line', 'true'
-    //         set 'strict_mode', 'false'
-    //         set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-    //         file "test6.json"
-    //         time 40000
-    //     }
-    // }
-    // Thread.sleep(1500)
-    // // let t3 and t4 publish
-    // enable_block_in_publish("token1")
-    // t3.join()
-    // t4.join()
-    // Thread.sleep(3000)
-    // qt_sql1 "select k,v1,v2,v3,v4 from ${tableName} order by k;"
-
-    // // let t5 publish
-    // // in publish phase, t5 will read from t4 which has multi segments
-    // enable_block_in_publish("token2")
-    // t5.join()
-    // qt_sql2 "select k,v1,v2,v3,v4 from ${tableName} order by k;"
-    // inspectRows "select k,v1,v2,v3,v4,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;" 
-
-
-
-
     def txnId3, txnId4, txnId5
 
     String load3 = """1,10,1,1,1
