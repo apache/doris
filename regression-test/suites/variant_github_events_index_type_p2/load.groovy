@@ -93,7 +93,7 @@ suite("test_variant_index_type_p2", "p2"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true");
     """
     
     // 2015
@@ -143,7 +143,7 @@ suite("test_variant_index_type_p2", "p2"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v");
         """
     sql """insert into github_events2 select * from github_events order by k"""
     sql """select v['payload']['commits'] from github_events order by k ;"""
@@ -175,7 +175,7 @@ suite("test_variant_index_type_p2", "p2"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v");
         """
     sql """insert into github_events3 select * from github_events order by k"""
     // query with inverted index

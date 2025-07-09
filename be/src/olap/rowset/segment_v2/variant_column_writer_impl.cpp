@@ -585,33 +585,18 @@ Status VariantSubcolumnWriter::finalize() {
     auto path = _tablet_column->path_info_ptr()->copy_pop_front().get_path();
 
     TabletSchema::SubColumnInfo sub_column_info;
-    if (vectorized::schema_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
-                                                          _tablet_column->parent_unique_id(), path,
-                                                          &sub_column_info)) {
-        vectorized::DataTypePtr storage_type =
-                vectorized::DataTypeFactory::instance().create_data_type(sub_column_info.column);
-        ptr->ensure_root_node_type(storage_type);
-        flush_column = std::move(sub_column_info.column);
-        _indexes = std::move(sub_column_info.indexes);
-    } else if (ptr->get_subcolumns().get_root()->data.get_least_common_base_type_id() ==
-               vectorized::TypeIndex::Nothing) {
+    if (ptr->get_subcolumns().get_root()->data.get_least_common_base_type_id() ==
+        vectorized::TypeIndex::Nothing) {
         auto flush_type = vectorized::DataTypeFactory::instance().create_data_type(
                 vectorized::TypeIndex::Int8, true /* is_nullable */);
         ptr->ensure_root_node_type(flush_type);
-        flush_column = vectorized::schema_util::get_column_by_type(
-                ptr->get_root_type(), _tablet_column->name(),
-                vectorized::schema_util::ExtraInfo {
-                        .unique_id = -1,
-                        .parent_unique_id = _tablet_column->parent_unique_id(),
-                        .path_info = *_tablet_column->path_info_ptr()});
-    } else {
-        flush_column = vectorized::schema_util::get_column_by_type(
-                ptr->get_root_type(), _tablet_column->name(),
-                vectorized::schema_util::ExtraInfo {
-                        .unique_id = -1,
-                        .parent_unique_id = _tablet_column->parent_unique_id(),
-                        .path_info = *_tablet_column->path_info_ptr()});
     }
+    flush_column = vectorized::schema_util::get_column_by_type(
+            ptr->get_root_type(), _tablet_column->name(),
+            vectorized::schema_util::ExtraInfo {
+                    .unique_id = -1,
+                    .parent_unique_id = _tablet_column->parent_unique_id(),
+                    .path_info = *_tablet_column->path_info_ptr()});
 
     int64_t none_null_value_size = ptr->get_subcolumns().get_root()->data.get_non_null_value_size();
     bool need_record_none_null_value_size = (!flush_column.path_info_ptr()->get_is_typed()) &&

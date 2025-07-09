@@ -448,6 +448,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     }
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() ==
                 config::variant_max_sparse_column_statistics_size);
+    EXPECT_TRUE(variant_column_reader->is_exceeded_sparse_column_limit());
     delete (it1);
 
     ColumnIterator* it2;
