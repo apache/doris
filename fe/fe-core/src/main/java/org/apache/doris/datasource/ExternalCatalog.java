@@ -158,7 +158,6 @@ public abstract class ExternalCatalog
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
-    protected boolean invalidCacheInInit = true;
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
 
@@ -354,7 +353,7 @@ public abstract class ExternalCatalog
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
+                    (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized()));
         }
     }
 
@@ -580,11 +579,10 @@ public abstract class ExternalCatalog
             } else if (!useMetaCache.get()) {
                 this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-                    db.setUnInitialized(invalidCache);
+                    db.setUnInitialized();
                 }
             }
         }
-        this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
@@ -1103,6 +1101,7 @@ public abstract class ExternalCatalog
                 // we should get the table stored in Doris, and use local name in edit log.
                 CreateTableInfo info = new CreateTableInfo(getName(), stmt.getDbName(), stmt.getTableName());
                 Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                LOG.info("finished to create table {}.{}.{}", getName(), stmt.getDbName(), stmt.getTableName());
             }
             return res;
         } catch (Exception e) {
