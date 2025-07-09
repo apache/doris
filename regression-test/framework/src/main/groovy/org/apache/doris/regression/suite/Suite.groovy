@@ -1850,8 +1850,9 @@ class Suite implements GroovyInterceptable {
         logger.info("result by fold constant: " + resultByFoldConstant.toString())
         String closeFoldConstant = "set debug_skip_fold_constant=true";
         sql(closeFoldConstant)
-        // logger.info(foldSql)
-        List<List<Object>> resultExpected = sql(foldSql)
+        logger.info(foldSql)
+        Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult2 = JdbcUtils.executeToStringList(context.getConnection(), foldSql)
+        List<List<Object>> resultExpected = tupleResult2.first
         logger.info("result expected: " + resultExpected.toString())
 
         // restore debug_skip_fold_constant original value
