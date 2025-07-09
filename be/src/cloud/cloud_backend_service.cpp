@@ -194,8 +194,8 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
     PGetFileCacheMetaResponse brpc_response;
 
     brpc_stub->get_file_cache_meta_by_tablet_id(&cntl, &brpc_request, &brpc_response, nullptr);
-    LOG(INFO) << "warm_up_cache_async: request=" << brpc_request.DebugString()
-              << ", response=" << brpc_response.DebugString();
+    VLOG_DEBUG << "warm_up_cache_async: request=" << brpc_request.DebugString()
+               << ", response=" << brpc_response.DebugString();
     if (!cntl.Failed()) {
         _engine.file_cache_block_downloader().submit_download_task(
                 std::move(*brpc_response.mutable_file_cache_block_metas()));
@@ -229,7 +229,7 @@ void CloudBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncRespon
     response.__set_task_done(task_done);
 
     for (const auto& [tablet_id, done] : task_done) {
-        LOG(INFO) << "check_warm_up_cache_async: tablet_id=" << tablet_id << ", done=" << done;
+        VLOG_DEBUG << "check_warm_up_cache_async: tablet_id=" << tablet_id << ", done=" << done;
     }
 
     Status st = Status::OK();

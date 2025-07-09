@@ -40,6 +40,8 @@
 
 namespace doris::io {
 
+bvar::Adder<uint64_t> block_file_cache_downloader_task_total("file_cache_downloader_queue_total");
+
 FileCacheBlockDownloader::FileCacheBlockDownloader(CloudStorageEngine& engine) : _engine(engine) {
     _poller = std::thread(&FileCacheBlockDownloader::polling_download_task, this);
     auto st = ThreadPoolBuilder("FileCacheBlockDownloader")
@@ -92,10 +94,12 @@ void FileCacheBlockDownloader::submit_download_task(DownloadTask task) {
             }
             LOG(INFO) << "submit_download_task: task queue full, pop front";
             _task_queue.pop_front(); // Eliminate the earliest task in the queue
+            block_file_cache_downloader_task_total << -1;
         }
         VLOG_DEBUG << "submit_download_task: push task, queue size before push: "
                    << _task_queue.size();
         _task_queue.push_back(std::move(task));
+        block_file_cache_downloader_task_total << 1;
         _empty.notify_all();
     }
 }
@@ -114,14 +118,15 @@ void FileCacheBlockDownloader::polling_download_task() {
 
             task = std::move(_task_queue.front());
             _task_queue.pop_front();
-            LOG(INFO) << "polling_download_task: pop task, queue size after pop: "
-                      << _task_queue.size();
+            block_file_cache_downloader_task_total << -1;
+            VLOG_DEBUG << "polling_download_task: pop task, queue size after pop: "
+                       << _task_queue.size();
         }
 
         if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() -
                                                              task.atime)
                     .count() < hot_interval) {
-            LOG(INFO) << "polling_download_task: submit download_blocks to thread pool";
+            VLOG_DEBUG << "polling_download_task: submit download_blocks to thread pool";
             auto st = _workers->submit_func(
                     [this, task_ = std::move(task)]() mutable { download_blocks(task_); });
             if (!st.ok()) {
@@ -152,9 +157,9 @@ std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTable
 void FileCacheBlockDownloader::download_file_cache_block(
         const DownloadTask::FileCacheBlockMetaVec& metas) {
     std::ranges::for_each(metas, [&](const FileCacheBlockMeta& meta) {
-        LOG(INFO) << "download_file_cache_block: start, tablet_id=" << meta.tablet_id()
-                  << ", rowset_id=" << meta.rowset_id() << ", segment_id=" << meta.segment_id()
-                  << ", offset=" << meta.offset() << ", size=" << meta.size();
+        VLOG_DEBUG << "download_file_cache_block: start, tablet_id=" << meta.tablet_id()
+                   << ", rowset_id=" << meta.rowset_id() << ", segment_id=" << meta.segment_id()
+                   << ", offset=" << meta.offset() << ", size=" << meta.size();
         CloudTabletSPtr tablet;
         if (auto res = _engine.tablet_mgr().get_tablet(meta.tablet_id(), false); !res.has_value()) {
             LOG(INFO) << "failed to find tablet " << meta.tablet_id() << " : " << res.error();
@@ -185,13 +190,13 @@ void FileCacheBlockDownloader::download_file_cache_block(
                 LOG(WARNING) << "inflight ref cnt not exist, tablet id " << tablet_id;
             } else {
                 it->second--;
-                LOG(INFO) << "download_file_cache_block: inflight_tablets[" << tablet_id
-                          << "] = " << it->second;
+                VLOG_DEBUG << "download_file_cache_block: inflight_tablets[" << tablet_id
+                           << "] = " << it->second;
                 if (it->second <= 0) {
                     DCHECK_EQ(it->second, 0) << it->first;
                     _inflight_tablets.erase(it);
-                    LOG(INFO) << "download_file_cache_block: erase inflight_tablets[" << tablet_id
-                              << "]";
+                    VLOG_DEBUG << "download_file_cache_block: erase inflight_tablets[" << tablet_id
+                               << "]";
                 }
             }
             LOG(INFO) << "download_file_cache_block: download_done, tablet_Id=" << tablet_id
