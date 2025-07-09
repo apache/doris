@@ -212,19 +212,8 @@ void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_
 StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
                                                      char const*& begin) const {
     const auto& arr = get_null_map_data();
-    static constexpr auto s = sizeof(arr[0]);
-
-    auto* pos = arena.alloc_continue(s, begin);
-    serialize_impl(pos, n);
-
-    if (arr[n]) {
-        return {pos, s};
-    }
-
-    auto nested_ref = get_nested_column().serialize_value_into_arena(n, arena, begin);
-
-    /// serialize_value_into_arena may reallocate memory. Have to use ptr from nested_ref.data and move it back.
-    return {nested_ref.data - s, nested_ref.size + s};
+    auto* pos = arena.alloc_continue(serialize_size_at(n), begin);
+    return {pos, serialize_impl(pos, n)};
 }
 
 const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {
@@ -256,16 +245,16 @@ size_t ColumnNullable::get_max_row_byte_size() const {
 size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
     const auto& arr = get_null_map_data();
     memcpy_fixed<NullMap::value_type>(pos, (char*)&arr[row]);
-    return sizeof(NullMap::value_type);
+    if (arr[row]) {
+        return sizeof(NullMap::value_type);
+    }
+    return sizeof(NullMap::value_type) +
+           get_nested_column().serialize_impl(pos + sizeof(NullMap::value_type), row);
 }
 
 void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
-        if (!is_null_at(i)) {
-            keys[i].size += get_nested_column().serialize_impl(
-                    const_cast<char*>(keys[i].data + keys[i].size), i);
-        }
     }
 }
 
