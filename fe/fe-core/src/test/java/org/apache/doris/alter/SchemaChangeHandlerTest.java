@@ -626,9 +626,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(alterJobs);
 
         String buildNgramBfIndexStmtStr = "BUILD INDEX idx_error_msg on test.sc_dup ";
-        AlterTableStmt buildNgramBfIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(buildNgramBfIndexStmtStr);
-        org.junit.jupiter.api.Assertions.assertThrows(org.apache.doris.common.DdlException.class,
-                () -> Env.getCurrentEnv().getAlterInstance().processAlterTable(buildNgramBfIndexStmt));
+        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> parseAndAnalyzeStmt(buildNgramBfIndexStmtStr));
 
         tbl.readLock();
         try {
