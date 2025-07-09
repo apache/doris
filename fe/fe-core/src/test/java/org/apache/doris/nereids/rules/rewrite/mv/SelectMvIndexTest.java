@@ -893,7 +893,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(query)
                 .rewrite()
-                .matches(logicalAggregate().when(agg -> {
+                .anyMatches(logicalAggregate().when(agg -> {
                     assertOneAggFuncType(agg, BitmapUnionCount.class);
                     return true;
                 }));
@@ -938,7 +938,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(query)
                 .rewrite()
-                .matches(logicalAggregate().when(agg -> {
+                .anyMatches(logicalAggregate().when(agg -> {
                     assertOneAggFuncType(agg, BitmapUnionCount.class);
                     return true;
                 }));
@@ -954,7 +954,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(query)
                 .rewrite()
-                .matches(logicalAggregate().when(agg -> {
+                .anyMatches(logicalAggregate().when(agg -> {
                     assertOneAggFuncType(agg, Count.class);
                     return true;
                 }));
@@ -995,7 +995,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(query)
                 .rewrite()
-                .matches(logicalAggregate().when(agg -> {
+                .anyMatches(logicalAggregate().when(agg -> {
                     assertOneAggFuncType(agg, HllUnion.class);
                     return true;
                 }));
@@ -1005,7 +1005,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(query)
                 .rewrite()
-                .matches(logicalAggregate().when(agg -> {
+                .anyMatches(logicalAggregate().when(agg -> {
                     assertOneAggFuncType(agg, HllUnionAgg.class);
                     return true;
                 }));
@@ -1015,7 +1015,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(query)
                 .rewrite()
-                .matches(logicalAggregate().when(agg -> {
+                .anyMatches(logicalAggregate().when(agg -> {
                     assertOneAggFuncType(agg, HllUnion.class);
                     return true;
                 }));
@@ -1040,7 +1040,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(query)
                 .rewrite()
-                .matches(logicalAggregate().when(agg -> {
+                .anyMatches(logicalAggregate().when(agg -> {
                     assertOneAggFuncType(agg, Sum.class);
                     return true;
                 }));
@@ -1074,7 +1074,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(query)
                 .rewrite()
-                .matches(logicalAggregate().when(agg -> {
+                .anyMatches(logicalAggregate().when(agg -> {
                     assertOneAggFuncType(agg, Sum.class);
                     return true;
                 }));
@@ -1282,7 +1282,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(sql1)
                 .rewrite()
-                .matches(logicalOlapScan().when(scan -> {
+                .anyMatches(logicalOlapScan().when(scan -> {
                     Assertions.assertEquals("test_rollup", scan.getSelectedMaterializedIndexName().get());
                     Assertions.assertTrue(scan.getPreAggStatus().isOn());
                     return true;
