@@ -180,17 +180,18 @@ static void export_fdb_status_details(const std::string& status_str) {
             auto object_recursive = [&set_bvar_value, &recursive_name_helper](
                                             auto&& self, std::string name,
                                             decltype(process_node) temp_node) -> void {
+                // if the node is an object, then get Member(iter) and recursive with iter as arg
                 if (temp_node->value.IsObject()) {
                     for (auto iter = temp_node->value.MemberBegin();
                          iter != temp_node->value.MemberEnd(); iter++) {
                         self(self, recursive_name_helper(name, iter->name.GetString()), iter);
                     }
                 }
-                // Note that the parameter passed to set_bvar_value here is the current node, not its Member.
-                // so we can directly call object_recursive in the loop below(metric_node).
-                // if the node is a object, then get Member(iter) and recursive with iter as arg
+                // if not object, set bvar value
                 set_bvar_value(name, temp_node);
             };
+            // Note that the parameter passed to set_bvar_value here is the current node, not its Member
+            // so we can directly call object_recursive in the loop
             for (auto metric_node = component_node->value.MemberBegin();
                  metric_node != component_node->value.MemberEnd(); metric_node++) {
                 object_recursive(object_recursive, metric_node->name.GetString(), metric_node);
