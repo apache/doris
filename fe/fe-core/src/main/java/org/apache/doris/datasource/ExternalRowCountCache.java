@@ -86,8 +86,13 @@ public class ExternalRowCountCache {
                 TableIf table = StatisticsUtil.findTable(rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
                 return Optional.of(table.fetchRowCount());
             } catch (Exception e) {
-                LOG.warn("Failed to get table with catalogId {}, dbId {}, tableId {}", rowCountKey.catalogId,
-                        rowCountKey.dbId, rowCountKey.tableId);
+                String message = String.format("Failed to get table with catalogId %s, dbId %s, tableId %s. Reason: %s",
+                        rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId, e.getMessage());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(message, e);
+                } else {
+                    LOG.warn(message);
+                }
                 return Optional.empty();
             }
         }
