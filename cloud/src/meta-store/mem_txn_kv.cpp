@@ -28,7 +28,7 @@
 #include <string>
 
 #include "cpp/sync_point.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/txn_kv_error.h"
 #include "txn_kv.h"
 
 namespace doris::cloud {
