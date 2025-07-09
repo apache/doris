@@ -715,16 +715,15 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         }
     }
 
-    CaptureRsReaderOptions opts {
-            .skip_missing_version = _state->skip_missing_version(),
-            .enable_prefer_cached_rowset =
-                    config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
-            .query_freshness_tolerance_ms =
-                    config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
-    };
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
-        RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers({0, _tablets[i].version},
-                                                               &_read_sources[i].rs_splits, opts));
+        _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
+                {0, _tablets[i].version},
+                {.skip_missing_versions = _state->skip_missing_version(),
+                 .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
+                 .enable_prefer_cached_rowset =
+                         config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+                 .query_freshness_tolerance_ms =
+                         config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1}));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }
