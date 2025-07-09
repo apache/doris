@@ -40,6 +40,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "runtime/primitive_type.h"
 #include "runtime/thread_context.h"
 #include "util/block_compression.h"
 #include "util/faststring.h"
@@ -502,7 +503,11 @@ Status Block::check_type_and_column() const {
         }
 
         if (auto col_type = column->get_primitive_type(); col_type != PrimitiveType::INVALID_TYPE) {
-            if (col_type != type->get_primitive_type()) {
+            const bool all_string_type =
+                    is_string_type(col_type) && is_string_type(type->get_primitive_type());
+            const bool type_equal = col_type == type->get_primitive_type();
+
+            if (!(all_string_type || type_equal)) {
                 return report_error();
             }
         }
