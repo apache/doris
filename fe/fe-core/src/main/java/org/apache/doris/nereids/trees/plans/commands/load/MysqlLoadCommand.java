@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.load;
 
-import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -31,7 +30,7 @@ import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NoForward;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -72,7 +71,7 @@ import java.util.UUID;
 /**
  * MysqlLoadCommand
  */
-public class MysqlLoadCommand extends Command implements ForwardWithSync {
+public class MysqlLoadCommand extends Command implements NoForward {
     public static final String TIMEOUT_PROPERTY = "timeout";
     public static final String EXEC_MEM_LIMIT_PROPERTY = "exec_mem_limit";
     public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
@@ -182,9 +181,12 @@ public class MysqlLoadCommand extends Command implements ForwardWithSync {
         handleMysqlLoadComand(ctx);
     }
 
-    private void validate(ConnectContext ctx) throws UserException, IOException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws UserException, IOException {
         if (mysqlDataDescription == null) {
-            throw new AnalysisException("No data file in load statement.");
+            throw new AnalysisException("No data file in mysql load command.");
         }
 
         // check data descriptions, only support one file path:
@@ -330,10 +332,5 @@ public class MysqlLoadCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.LOAD;
-    }
-
-    @Override
-    public RedirectStatus toRedirectStatus() {
-        return RedirectStatus.NO_FORWARD;
     }
 }

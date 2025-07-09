@@ -2012,18 +2012,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return subqueries.get(0);
     }
 
-    public boolean isCorrelatedPredicate(List<TupleId> tupleIdList) {
-        if (this instanceof SlotRef && !this.isBoundByTupleIds(tupleIdList)) {
-            return true;
-        }
-        for (Expr child : this.getChildren()) {
-            if (child.isCorrelatedPredicate(tupleIdList)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     enum ExprSerCode {
         SLOT_REF(1),
         NULL_LITERAL(2),
