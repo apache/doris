@@ -145,8 +145,13 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
     do_streamload_2pc_commit(txnId2)
     wait_for_publish(txnId2, 60)
 
-    qt_sql "select k,v1,v2,v3,v4,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
-    inspectRows "select k,v1,v2,v3,v4,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;" 
+    qt_sql "select k,v1,v2,v3,v4,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__ from ${tableName} order by k;"
+
+    sql "set skip_delete_sign=true;"
+    qt_skip_delete_sign "select k,v1,v2,v3,v4,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${tableName} order by k;"
+    sql "set skip_delete_sign=false;"
+
+    inspectRows "select k,v1,v2,v3,v4,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__;" 
 
 
     // ===========================================================================================
@@ -198,8 +203,8 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
 
     def txnId3, txnId4, txnId5
 
-    String load3 = """1,10,1,1,1,1
-2,20,2,2,2,2"""
+    String load3 = """1,10,1,1,1
+2,20,2,2,2"""
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
@@ -264,10 +269,11 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
     wait_for_publish(txnId3, 60)
     do_streamload_2pc_commit(txnId4)
     wait_for_publish(txnId4, 60)
-    qt_sql1 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+    qt_sql1 "select k,v1,v2,v3,v4 from ${tableName} order by k;"
 
     do_streamload_2pc_commit(txnId5)
     wait_for_publish(txnId5, 60)
-    qt_sql2 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+    qt_sql2 "select k,v1,v2,v3,v4 from ${tableName} order by k;"
+    inspectRows "select k,v1,v2,v3,v4,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;" 
 
 }
