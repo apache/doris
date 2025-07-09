@@ -520,15 +520,14 @@ public class InsertUtils {
             Optional<ExpressionAnalyzer> analyzer,
             ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
             NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext) {
+        if (targetType != null) {
+            value = castValue(value, targetType);
+        }
         if (analyzer.isPresent() && !(value instanceof Alias && value.child(0) instanceof Literal)) {
             ExpressionAnalyzer expressionAnalyzer = analyzer.get();
             value = (NamedExpression) expressionAnalyzer.analyze(
-                value, new ExpressionRewriteContext(expressionAnalyzer.getCascadesContext())
+                    value, new ExpressionRewriteContext(expressionAnalyzer.getCascadesContext())
             );
-        }
-
-        if (targetType != null) {
-            value = castValue(value, targetType);
             value = rewriteContext == null
                     ? value
                     : (NamedExpression) FoldConstantRuleOnFE.evaluate(value, rewriteContext);
