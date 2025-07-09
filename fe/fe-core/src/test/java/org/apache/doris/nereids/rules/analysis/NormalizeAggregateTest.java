@@ -322,6 +322,10 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
     @Test
     void testAggFunctionNullabe() {
         List<String> aggNullableSqls = ImmutableList.of(
+                // one row relation
+                "select sum(1) as k",
+                "select sum(1) over() as k",
+
                 "select sum(id) as k from t1",
                 "select sum(id) as k from t1 where id > 10",
 
