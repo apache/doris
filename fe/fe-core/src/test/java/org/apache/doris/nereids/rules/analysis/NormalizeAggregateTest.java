@@ -324,7 +324,6 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
         List<String> aggNullableSqls = ImmutableList.of(
                 // one row relation
                 "select sum(1) as k",
-                "select sum(1) over() as k",
 
                 "select sum(id) as k from t1",
                 "select sum(id) as k from t1 where id > 10",
@@ -668,6 +667,25 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                     return true;
                                 })
                         )
+                );
+
+        // a window function, not agg
+        PlanChecker.from(connectContext)
+                .analyze("select sum(1) over()")
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalOneRowRelation()
+                                ).when(project -> {
+                                    List<NamedExpression> projects = project.getProjects();
+                                    checkExprsToSql(projects, "sum(1) OVER() AS `sum(1) over()`");
+                                    Assertions.assertFalse(projects.get(0).nullable());
+                                    return true;
+                                })
+                        ).when(sink -> {
+                            Assertions.assertFalse(sink.getOutput().get(0).nullable());
+                            return true;
+                        })
                 );
     }
 
