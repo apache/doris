@@ -369,8 +369,7 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
         condition.__set_column_unique_id(col_unique_id);
         const auto& column = complete_schema->column_by_uid(col_unique_id);
         uint32_t index = complete_schema->field_index(col_unique_id);
-        auto* predicate =
-                parse_to_predicate(column, index, condition, _predicate_arena, true);
+        auto* predicate = parse_to_predicate(column, index, condition, _predicate_arena, true);
         if (predicate != nullptr) {
             delete_conditions->column_predicate_vec.push_back(predicate);
         }

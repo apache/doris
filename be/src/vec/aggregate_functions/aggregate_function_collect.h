@@ -145,7 +145,6 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
                     return;
                 }
             }
-            assert(arena != nullptr);
             StringRef key = rhs_elem;
             key.data = arena.insert(key.data, key.size);
             data_set.insert(key);
