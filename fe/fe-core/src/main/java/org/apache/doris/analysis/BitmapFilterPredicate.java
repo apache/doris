@@ -20,10 +20,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 
@@ -35,15 +32,6 @@ public class BitmapFilterPredicate extends Predicate {
 
     private boolean notIn = false;
 
-    BitmapFilterPredicate(Expr targetExpr, Expr srcExpr, boolean notIn) {
-        super();
-        this.notIn = notIn;
-        Preconditions.checkNotNull(targetExpr);
-        children.add(targetExpr);
-        Preconditions.checkNotNull(srcExpr);
-        children.add(srcExpr);
-    }
-
     BitmapFilterPredicate(BitmapFilterPredicate other) {
         super(other);
         this.notIn = other.notIn;
@@ -51,33 +39,6 @@ public class BitmapFilterPredicate extends Predicate {
 
     public boolean isNotIn() {
         return notIn;
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-
-        Expr targetExpr = children.get(0);
-        if (!targetExpr.getType().isIntegerType()) {
-            throw new AnalysisException("Unsupported targetExpr type: " + targetExpr.getType().toSql()
-                    + ". Target expr type must be integer.");
-        }
-
-        Expr srcExpr = children.get(1);
-        if (!srcExpr.getType().isBitmapType()) {
-            throw new AnalysisException("The srcExpr type must be bitmap, not " + srcExpr.getType().toSql() + ".");
-        }
-
-        if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable().allowedRuntimeFilterType(
-                TRuntimeFilterType.BITMAP)) {
-            throw new AnalysisException("In bitmap syntax requires runtime filter of bitmap_filter to be enabled. "
-                    + "Please `set runtime_filter_type = 'xxx, bitmap_filter'` first.");
-        }
-
-        if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isEnableProjection()) {
-            throw new AnalysisException(
-                    "Please enable the session variable 'enable_projection' through `set enable_projection = true;`");
-        }
     }
 
     @Override

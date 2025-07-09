@@ -195,24 +195,6 @@ public class IntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        //it's so strange, now in write/read function, not write type info
-        if (this.type.getPrimitiveType() == Type.INVALID.getPrimitiveType()) {
-            if (this.value <= TINY_INT_MAX && this.value >= TINY_INT_MIN) {
-                type = Type.TINYINT;
-            } else if (this.value <= SMALL_INT_MAX && this.value >= SMALL_INT_MIN) {
-                type = Type.SMALLINT;
-            } else if (this.value <= INT_MAX && this.value >= INT_MIN) {
-                type = Type.INT;
-            } else if (this.value <= BIG_INT_MAX && this.value >= BIG_INT_MIN) {
-                type = Type.BIGINT;
-            } else {
-                Preconditions.checkState(false, value);
-            }
-        }
-    }
-
-    @Override
     public boolean isMinValue() {
         switch (type.getPrimitiveType()) {
             case TINYINT:

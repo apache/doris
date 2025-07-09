@@ -166,10 +166,6 @@ public class InPredicate extends Predicate {
         return true;
     }
 
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-    }
-
     public InPredicate union(InPredicate inPredicate) {
         Preconditions.checkState(inPredicate.isLiteralChildren());
         Preconditions.checkState(this.isLiteralChildren());

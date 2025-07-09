@@ -129,46 +129,6 @@ public class CompoundPredicate extends Predicate {
         msg.setOpcode(op.toThrift());
     }
 
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-
-        // Check that children are predicates.
-        for (Expr e : children) {
-            if (!e.getType().equals(Type.BOOLEAN) && !e.getType().isNull()) {
-                throw new AnalysisException(String.format(
-                  "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
-                          + "returns type '%s'.",
-                  e.toSql(), toSql(), e.getType()));
-            }
-        }
-
-        if (getChild(0).selectivity == -1 || children.size() == 2 && getChild(1).selectivity == -1) {
-            // give up if we're missing an input
-            selectivity = -1;
-            return;
-        }
-
-        switch (op) {
-            case AND:
-                selectivity = getChild(0).selectivity * getChild(1).selectivity;
-                break;
-            case OR:
-                selectivity = getChild(0).selectivity + getChild(1).selectivity - getChild(
-                  0).selectivity * getChild(1).selectivity;
-                break;
-            case NOT:
-                selectivity = 1.0 - getChild(0).selectivity;
-                break;
-            default:
-                throw new AnalysisException("not support operator: " + op);
-        }
-        selectivity = Math.max(0.0, Math.min(1.0, selectivity));
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(toSql() + " selectivity: " + Double.toString(selectivity));
-        }
-    }
-
     public enum Operator {
         AND("AND", TExprOpcode.COMPOUND_AND),
         OR("OR", TExprOpcode.COMPOUND_OR),

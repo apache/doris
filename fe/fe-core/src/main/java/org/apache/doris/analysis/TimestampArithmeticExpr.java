@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -183,127 +182,6 @@ public class TimestampArithmeticExpr extends Expr {
             return Type.DATETIME;
         }
         return Type.INVALID;
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // Check if name of function call is date_sub or date_add.
-        String funcOpName;
-        if (funcName != null && funcName.equalsIgnoreCase("TIMESTAMPDIFF")) {
-            timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
-            if (timeUnit == null) {
-                throw new AnalysisException("Invalid time unit '" + timeUnitIdent
-                        + "' in timestamp arithmetic expression '" + toSql() + "'.");
-            }
-            Type dateType = fixType();
-            if (dateType.isDate() && timeUnit.isDateTime()) {
-                dateType = ScalarType.getDefaultDateType(Type.DATETIME);
-            }
-            // The first child must return a timestamp or null.
-            if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
-                if (!dateType.isValid()) {
-                    throw new AnalysisException("Operand '" + getChild(0).toSql()
-                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                            + getChild(0).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
-                }
-                castChild(dateType, 0);
-            }
-
-            // The first child must return a timestamp or null.
-            if (!getChild(1).getType().isDateType() && !getChild(1).getType().isNull()) {
-                if (!dateType.isValid()) {
-                    throw new AnalysisException("Operand '" + getChild(1).toSql()
-                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                            + getChild(1).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
-                }
-                castChild(dateType, 1);
-            }
-
-            type = Type.BIGINT;
-            opcode = getOpCode();
-            funcOpName = String.format("%sS_%s", timeUnit, "DIFF");
-        } else {
-            if (funcName != null) {
-                if (funcName.toUpperCase().equals("DATE_ADD")
-                        || funcName.toUpperCase().equals("DAYS_ADD")
-                        || funcName.toUpperCase().equals("ADDDATE")
-                        || funcName.toUpperCase().equals("TIMESTAMPADD")) {
-                    op = ArithmeticExpr.Operator.ADD;
-                } else if (funcName.toUpperCase().equals("DATE_SUB")
-                        || funcName.toUpperCase().equals("DAYS_SUB")
-                        || funcName.toUpperCase().equals("SUBDATE")) {
-                    op = ArithmeticExpr.Operator.SUBTRACT;
-                } else {
-                    throw new AnalysisException("Encountered function name '" + funcName
-                            + "' in timestamp arithmetic expression '" + toSql() + "'. "
-                            + "Expected function name 'DATE_ADD/DAYS_ADD/ADDDATE/TIMESTAMPADD'"
-                            + "or 'DATE_SUB/DAYS_SUB/SUBDATE");
-                }
-            }
-
-            timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
-            if (timeUnit == null) {
-                throw new AnalysisException("Invalid time unit '" + timeUnitIdent
-                        + "' in timestamp arithmetic expression '" + toSql() + "'.");
-            }
-
-            Type dateType = fixType();
-            if (dateType.isDate() && timeUnit.isDateTime()) {
-                dateType = Type.DATETIME;
-            }
-            if (dateType.isDateV2() && timeUnit.isDateTime()) {
-                dateType = Type.DATETIMEV2;
-            }
-            // The first child must return a timestamp or null.
-            if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
-                if (!dateType.isValid()) {
-                    throw new AnalysisException("Operand '" + getChild(0).toSql()
-                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                            + getChild(0).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
-                }
-                castChild(dateType, 0);
-            }
-
-            if (!getChild(1).getType().isScalarType()) {
-                throw new AnalysisException(
-                        "the second argument must be a scalar type. but it is " + getChild(1).toSql());
-            }
-
-            // The second child must be of type 'INT' or castable to it.
-            if (!getChild(1).getType().isScalarType(PrimitiveType.INT)) {
-                if (!ScalarType.canCastTo((ScalarType) getChild(1).getType(), Type.INT)) {
-                    throw new AnalysisException("Operand '" + getChild(1).toSql()
-                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                            + getChild(1).getType() + "' which is incompatible with expected type 'INT'.");
-                }
-                castChild(Type.INT, 1);
-            }
-
-            type = dateType;
-            opcode = getOpCode();
-            funcOpName = String.format("%sS_%s", timeUnit,
-                    (op == ArithmeticExpr.Operator.ADD) ? "ADD" : "SUB");
-        }
-
-        Type[] childrenTypes = collectChildReturnTypes();
-        fn = getBuiltinFunction(funcOpName.toLowerCase(), childrenTypes,
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        Preconditions.checkArgument(fn != null);
-        Type[] argTypes = fn.getArgs();
-        if (argTypes.length > 0) {
-            // Implicitly cast all the children to match the function if necessary
-            for (int i = 0; i < childrenTypes.length; ++i) {
-                // For varargs, we must compare with the last type in callArgs.argTypes.
-                int ix = Math.min(argTypes.length - 1, i);
-                if (!childrenTypes[i].matchesType(argTypes[ix]) && !(
-                        childrenTypes[i].isDateOrDateTime() && argTypes[ix].isDateOrDateTime())) {
-                    uncheckedCastChild(argTypes[ix], i);
-                }
-            }
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("fn is {} name is {}", fn, funcOpName);
-        }
     }
 
     @Override

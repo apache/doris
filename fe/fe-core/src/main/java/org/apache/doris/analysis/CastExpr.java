@@ -370,25 +370,6 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (isImplicit) {
-            return;
-        }
-        // When cast target type is string and it's length is default -1, the result length
-        // of cast is decided by child.
-        if (targetTypeDef.getType().isScalarType()) {
-            final ScalarType targetType = (ScalarType) targetTypeDef.getType();
-            if (!(targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet())) {
-                targetTypeDef.analyze(analyzer);
-            }
-        } else {
-            targetTypeDef.analyze(analyzer);
-        }
-        type = targetTypeDef.getType();
-        analyze();
-    }
-
-    @Override
     public int hashCode() {
         return super.hashCode();
     }
@@ -400,21 +381,6 @@ public class CastExpr extends Expr {
         }
         CastExpr expr = (CastExpr) obj;
         return this.opcode == expr.opcode;
-    }
-
-    /**
-     * Returns child expr if this expr is an implicit cast, otherwise returns 'this'.
-     */
-    @Override
-    public Expr ignoreImplicitCast() {
-        if (isImplicit) {
-            // we don't expect to see to consecutive implicit casts
-            Preconditions.checkState(!(getChild(0) instanceof CastExpr)
-                    || !((CastExpr) getChild(0)).isImplicit());
-            return getChild(0);
-        } else {
-            return this;
-        }
     }
 
     public boolean canHashPartition() {

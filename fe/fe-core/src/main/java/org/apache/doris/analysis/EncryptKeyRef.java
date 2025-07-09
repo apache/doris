@@ -77,14 +77,6 @@ public class EncryptKeyRef extends Expr {
     }
 
     @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // analyze encryptKey name
-        encryptKeyName.analyze(analyzer);
-        // analyze encryptKey
-        analyzeEncryptKey(analyzer);
-    }
-
-    @Override
     protected String toSqlImpl() {
         StringBuilder sb = new StringBuilder();
         sb.append(encryptKeyName.toSql());

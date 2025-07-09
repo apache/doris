@@ -202,25 +202,6 @@ public class DateLiteral extends LiteralExpr {
         return super.equals(o);
     }
 
-    // Date Literal persist type in meta
-    private enum DateLiteralType {
-        DATETIME(0),
-        DATE(1),
-
-        DATETIMEV2(2),
-        DATEV2(3);
-
-        private final int value;
-
-        DateLiteralType(int value) {
-            this.value = value;
-        }
-
-        public int value() {
-            return value;
-        }
-    }
-
     public DateLiteral() {
         super();
     }
@@ -902,52 +883,6 @@ public class DateLiteral extends LiteralExpr {
                 return !this.type.isDatetime() && microsecond != 0;
             }
         }
-    }
-
-    private void fromPackedDatetimeV2(long packedTime) {
-        microsecond = (packedTime % (1L << 20));
-        long ymdhms = (packedTime >> 20);
-        long ymd = ymdhms >> 17;
-        day = ymd % (1 << 5);
-        long ym = ymd >> 5;
-        month = ym % (1 << 4);
-        year = ym >> 4;
-
-        long hms = ymdhms % (1 << 17);
-        second = hms % (1 << 6);
-        minute = (hms >> 6) % (1 << 6);
-        hour = (hms >> 12);
-        // set default date literal type to DATETIME
-        // date literal read from meta will set type by flag bit;
-        this.type = Type.DATETIMEV2;
-    }
-
-    private void fromPackedDateV2(long packedTime) {
-        day = packedTime % (1 << 5);
-        long ym = packedTime >> 5;
-        month = ym % (1 << 4);
-        year = ym >> 4;
-
-        this.type = Type.DATEV2;
-    }
-
-    private void fromPackedDatetime(long packedTime) {
-        microsecond = (packedTime % (1L << 24));
-        long ymdhms = (packedTime >> 24);
-        long ymd = ymdhms >> 17;
-        day = ymd % (1 << 5);
-        long ym = ymd >> 5;
-        month = ym % 13;
-        year = ym / 13;
-        year %= 10000;
-
-        long hms = ymdhms % (1 << 17);
-        second = hms % (1 << 6);
-        minute = (hms >> 6) % (1 << 6);
-        hour = (hms >> 12);
-        // set default date literal type to DATETIME
-        // date literal read from meta will set type by flag bit;
-        this.type = Type.DATETIME;
     }
 
     private boolean isLeapYear() {

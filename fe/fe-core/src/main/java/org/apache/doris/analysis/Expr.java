@@ -35,7 +35,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Text;
@@ -282,58 +281,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
     }
 
     /**
-     * Perform semantic analysis of node and all of its children.
-     * Throws exception if any errors found.
-     */
-    public final void analyze(Analyzer analyzer) throws AnalysisException {
-        if (isAnalyzed()) {
-            return;
-        }
-
-        // Check the expr child limit.
-        if (children.size() > Config.expr_children_limit) {
-            throw new AnalysisException(String.format("Exceeded the maximum number of child "
-                    + "expressions (%d).", Config.expr_children_limit));
-        }
-
-        // analyzer may be null for certain literal constructions (e.g. IntLiteral).
-        if (analyzer != null) {
-            analyzer.incrementCallDepth();
-            // Check the expr depth limit. Do not print the toSql() to not overflow the stack.
-            if (analyzer.getCallDepth() > Config.expr_depth_limit) {
-                throw new AnalysisException(String.format("Exceeded the maximum depth of an "
-                        + "expression tree (%s).", Config.expr_depth_limit));
-            }
-        } else {
-            throw new AnalysisException("analyzer is null.");
-        }
-
-        for (Expr child : children) {
-            child.analyze(analyzer);
-        }
-        if (analyzer != null) {
-            analyzer.decrementCallDepth();
-        }
-        computeNumDistinctValues();
-
-        // Do all the analysis for the expr subclass before marking the Expr analyzed.
-        analyzeImpl(analyzer);
-        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            setSelectivity();
-        }
-        analysisDone();
-        if (type.isAggStateType() && !(this instanceof SlotRef) && !children.get(0).getType().isAggStateType()) {
-            type = createAggStateType(((AggStateType) type), Arrays.asList(collectChildReturnTypes()),
-                    Arrays.asList(collectChildReturnNullables()));
-        }
-    }
-
-    /**
-     * Does subclass-specific analysis. Subclasses should override analyzeImpl().
-     */
-    protected abstract void analyzeImpl(Analyzer analyzer) throws AnalysisException;
-
-    /**
      * Set the expr to be analyzed and computes isConstant_.
      */
     protected void analysisDone() {
@@ -342,23 +289,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         // the result, e.g. by resolving function.
         isConstant = Suppliers.memoize(this::isConstantImpl);
         isAnalyzed = true;
-    }
-
-    protected void computeNumDistinctValues() {
-        if (isConstant()) {
-            numDistinctValues = 1;
-        } else {
-            // if this Expr contains slotrefs, we estimate the # of distinct values
-            // to be the maximum such number for any of the slotrefs;
-            // the subclass analyze() function may well want to override this, if it
-            // knows better
-            List<SlotRef> slotRefs = Lists.newArrayList();
-            this.collect(SlotRef.class, slotRefs);
-            numDistinctValues = -1;
-            for (SlotRef slotRef : slotRefs) {
-                numDistinctValues = Math.max(numDistinctValues, slotRef.numDistinctValues);
-            }
-        }
     }
 
     /**
@@ -416,23 +346,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
             strings.add(Strings.nullToEmpty(expr.debugString()));
         }
         return "(" + Joiner.on(" ").join(strings) + ")";
-    }
-
-    /**
-     * Return true if l1[i].equals(l2[i]) for all i.
-     */
-    public static <C extends Expr> boolean equalLists(List<C> l1, List<C> l2) {
-        if (l1.size() != l2.size()) {
-            return false;
-        }
-        Iterator<C> l1Iter = l1.iterator();
-        Iterator<C> l2Iter = l2.iterator();
-        while (l1Iter.hasNext()) {
-            if (!l1Iter.next().equals(l2Iter.next())) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /**
@@ -588,16 +501,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         }
     }
 
-    public static <C extends Expr> void getIds(List<? extends Expr> exprs, List<TupleId> tupleIds,
-            List<SlotId> slotIds) {
-        if (exprs == null) {
-            return;
-        }
-        for (Expr e : exprs) {
-            e.getIds(tupleIds, slotIds);
-        }
-    }
-
     public String toSql() {
         if (disableTableName) {
             return toSqlWithoutTbl();
@@ -652,10 +555,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
      */
     public String toColumnLabel() {
         return toSql();
-    }
-
-    public List<String> toSubColumnLabel() {
-        return Lists.newArrayList();
     }
 
     // Convert this expr, including all children, to its Thrift representation.
@@ -881,13 +780,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
     }
 
     /**
-     * Returns true if expr is fully bound by tid, otherwise false.
-     */
-    public boolean isBound(TupleId tid) {
-        return isBoundByTupleIds(Lists.newArrayList(tid));
-    }
-
-    /**
      * Returns true if expr is fully bound by tids, otherwise false.
      */
     public boolean isBoundByTupleIds(List<TupleId> tids) {
@@ -927,10 +819,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         for (Expr child : children) {
             child.getIds(tupleIds, slotIds);
         }
-    }
-
-    public Expr getRealSlotRef() {
-        return this;
     }
 
     public Map<Long, Set<String>> getTableIdToColumnNames() {
@@ -991,14 +879,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         for (Expr expr : children) {
             expr.compactForLiteral(type);
         }
-    }
-
-    /**
-     * Return true if this expr is a scalar subquery.
-     */
-    public boolean isScalarSubquery() {
-        Preconditions.checkState(isAnalyzed);
-        return this instanceof Subquery && getType().isScalarType();
     }
 
     /**
@@ -1143,13 +1023,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
             Expr newChild = child.uncheckedCastTo(targetType);
             setChild(childIndex, newChild);
         }
-    }
-
-    /**
-     * Returns child expr if this expr is an implicit cast, otherwise returns 'this'.
-     */
-    public Expr ignoreImplicitCast() {
-        return this;
     }
 
     /**
@@ -1508,48 +1381,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
 
     protected void normalize(TExprNode msg, Normalizer normalizer) {
         this.toThrift(msg);
-    }
-
-    public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {
-        for (Expr child : expr.getChildren()) {
-            if (child.isBoundByTupleIds(tids)) {
-                return child;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Returns true if expr contains specify function, otherwise false.
-     */
-    public boolean isContainsFunction(String functionName) {
-        if (fn == null) {
-            return false;
-        }
-        if (fn.functionName().equalsIgnoreCase(functionName))  {
-            return true;
-        }
-        for (Expr child : children) {
-            if (child.isContainsFunction(functionName)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Returns true if expr contains specify className, otherwise false.
-     */
-    public boolean isContainsClass(String className) {
-        if (this.getClass().getName().equalsIgnoreCase(className)) {
-            return true;
-        }
-        for (Expr child : children) {
-            if (child.isContainsClass(className)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     protected boolean hasNullableChild() {

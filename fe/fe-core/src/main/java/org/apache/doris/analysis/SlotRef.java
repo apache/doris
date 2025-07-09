@@ -39,7 +39,6 @@ import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -204,27 +203,6 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        desc = analyzer.registerColumnRef(tblName, col, subColPath);
-        type = desc.getType();
-        if (this.type.equals(Type.CHAR)) {
-            this.type = Type.VARCHAR;
-        }
-        if (!type.isSupported()) {
-            throw new AnalysisException(
-                    "Unsupported type '" + type.toString() + "' in '" + toSql() + "'.");
-        }
-        numDistinctValues = desc.getStats().getNumDistinctValues();
-        if (type.equals(Type.BOOLEAN)) {
-            selectivity = DEFAULT_SELECTIVITY;
-        }
-        if (tblName == null && StringUtils.isNotEmpty(desc.getParent().getLastAlias())
-                && !desc.getParent().getLastAlias().equals(desc.getParent().getTable().getName())) {
-            tblName = new TableName(null, null, desc.getParent().getLastAlias());
-        }
-    }
-
-    @Override
     public String debugString() {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         helper.add("slotDesc", desc != null ? desc.debugString() : "null");
@@ -378,10 +356,6 @@ public class SlotRef extends Expr {
         return this.exprName.get();
     }
 
-    public List<String> toSubColumnLabel() {
-        return subColPath;
-    }
-
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
@@ -509,18 +483,6 @@ public class SlotRef extends Expr {
         }
         for (Expr sourceExpr : desc.getSourceExprs()) {
             sourceExpr.getSlotRefsBoundByTupleIds(tupleIds, boundSlotRefs);
-        }
-    }
-
-    @Override
-    public Expr getRealSlotRef() {
-        Preconditions.checkState(!type.equals(Type.INVALID));
-        Preconditions.checkState(desc != null);
-        if (!desc.getSourceExprs().isEmpty()
-                && desc.getSourceExprs().get(0) instanceof SlotRef) {
-            return desc.getSourceExprs().get(0);
-        } else {
-            return this;
         }
     }
 

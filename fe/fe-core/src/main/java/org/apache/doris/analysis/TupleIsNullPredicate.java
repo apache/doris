@@ -22,7 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TNullSide;
@@ -58,11 +57,6 @@ public class TupleIsNullPredicate extends Predicate {
         super(other);
         tupleIds.addAll(other.tupleIds);
         nullSide = other.nullSide;
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
     }
 
     @Override
