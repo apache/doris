@@ -1723,7 +1723,7 @@ Status StorageEngine::submit_clone_task(Tablet* tablet, int64_t version) {
             .tag("partition_id", tablet->partition_id())
             .tag("table_id", tablet->table_id());
     RETURN_IF_ERROR(assert_cast<PriorTaskWorkerPool*>(workers->at(TTaskType::CLONE).get())
-                           ->submit_high_prior_and_cancel_low(task));
+                            ->submit_high_prior_and_cancel_low(task));
     return Status::OK();
 }
 
