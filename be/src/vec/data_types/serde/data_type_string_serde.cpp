@@ -358,6 +358,32 @@ Status DataTypeStringSerDeBase<ColumnType>::read_one_cell_from_json(
     return Status::OK();
 }
 
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                                      int64_t row_num,
+                                                                      JsonbWriter& writer) const {
+    const auto& data = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
+
+    // start writing string
+    if (!writer.writeStartString()) {
+        return Status::InternalError("writeStartString failed");
+    }
+
+    // write string
+    if (data.size > 0) {
+        if (writer.writeString(data.data, data.size) == 0) {
+            return Status::InternalError("writeString failed");
+        }
+    }
+
+    // end writing string
+    if (!writer.writeEndString()) {
+        return Status::InternalError("writeEndString failed");
+    }
+
+    return Status::OK();
+}
+
 template class DataTypeStringSerDeBase<ColumnString>;
 template class DataTypeStringSerDeBase<ColumnString64>;
 template class DataTypeStringSerDeBase<ColumnFixedLengthObject>;

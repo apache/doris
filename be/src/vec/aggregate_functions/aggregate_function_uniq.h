@@ -58,18 +58,23 @@ class ColumnDecimal;
 template <PrimitiveType T>
 struct AggregateFunctionUniqExactData {
     static constexpr bool is_string_key = is_string_type(T);
-    using Key =
-            std::conditional_t<is_string_key, UInt128,
+    using Key = std::conditional_t<
+            is_string_key, UInt128,
+            std::conditional_t<T == TYPE_ARRAY, UInt64,
                                std::conditional_t<T == TYPE_BOOLEAN, UInt8,
-                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>;
+                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>>;
     using Hash = HashCRC32<Key>;
 
     using Set = flat_hash_set<Key, Hash>;
 
-    // TODO: replace SipHash with xxhash to speed up
     static UInt128 ALWAYS_INLINE get_key(const StringRef& value) {
         auto hash_value = XXH_INLINE_XXH128(value.data, value.size, 0);
         return UInt128 {hash_value.high64, hash_value.low64};
+    }
+    static UInt64 ALWAYS_INLINE get_key(const IColumn& column, size_t row_num) {
+        UInt64 hash_value = 0;
+        column.update_xxHash_with_value(row_num, row_num + 1, hash_value, nullptr);
+        return hash_value;
     }
 
     Set set;
@@ -90,6 +95,8 @@ struct OneAdder {
         if constexpr (is_string_type(T)) {
             StringRef value = column.get_data_at(row_num);
             data.set.insert(Data::get_key(value));
+        } else if constexpr (T == TYPE_ARRAY) {
+            data.set.insert(Data::get_key(column, row_num));
         } else {
             data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                         TypeCheckOnRelease::DISABLE>(column)
@@ -105,8 +112,10 @@ template <PrimitiveType T, typename Data>
 class AggregateFunctionUniq final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>> {
 public:
-    using KeyType = std::conditional_t<is_string_type(T), UInt128,
-                                       typename PrimitiveTypeTraits<T>::ColumnItemType>;
+    using KeyType =
+            std::conditional_t<is_string_type(T), UInt128,
+                               std::conditional_t<T == TYPE_ARRAY, UInt64,
+                                                  typename PrimitiveTypeTraits<T>::ColumnItemType>>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}
 
@@ -128,6 +137,12 @@ public:
             for (size_t i = 0; i != batch_size; ++i) {
                 StringRef value = column.get_data_at(i);
                 keys_container[i] = Data::get_key(value);
+            }
+            return keys_container.data();
+        } else if constexpr (T == TYPE_ARRAY) {
+            keys_container.resize(batch_size);
+            for (size_t i = 0; i != batch_size; ++i) {
+                keys_container[i] = Data::get_key(column, i);
             }
             return keys_container.data();
         } else {

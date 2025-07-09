@@ -118,8 +118,8 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 // **just for TEST**
 CONF_Bool(force_immediate_recycle, "false");
 
-CONF_mBool(enable_mow_compaction_key_check, "false");
-CONF_mInt64(compaction_key_check_expiration_diff_seconds, "600"); // 10min
+CONF_mBool(enable_mow_job_key_check, "false");
+CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
@@ -338,5 +338,8 @@ CONF_Validator(azure_log_level,
 CONF_mString(ca_cert_file_paths,
              "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
              "/etc/ssl/ca-bundle.pem");
+
+CONF_Bool(enable_split_rowset_meta_pb, "false");
+CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
 
 } // namespace doris::cloud::config

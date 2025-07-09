@@ -143,6 +143,7 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
@@ -253,6 +254,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWorkloadGroupsCommand;
+import org.apache.doris.nereids.trees.plans.commands.StartTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
@@ -273,6 +275,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTable
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.MysqlLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
@@ -544,6 +547,11 @@ public interface CommandVisitor<R, C> {
 
     default R visitUnsupportedCommand(UnsupportedCommand unsupportedCommand, C context) {
         return visitCommand(unsupportedCommand, context);
+    }
+
+    default R visitUnsupportedStartTransactionCommand(StartTransactionCommand unsupportedStartTransactionCommand,
+                                                      C context) {
+        return visitCommand(unsupportedStartTransactionCommand, context);
     }
 
     default R visitUnsetVariableCommand(UnsetVariableCommand unsetVariableCommand, C context) {
@@ -1150,6 +1158,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterColumnStatsCommand, context);
     }
 
+    default R visitMysqlLoadCommand(MysqlLoadCommand mysqlLoadCommand, C context) {
+        return visitCommand(mysqlLoadCommand, context);
+    }
+
     default R visitCancelAlterTable(CancelAlterTableCommand cancelAlterTableCommand, C context) {
         return visitCommand(cancelAlterTableCommand, context);
     }
@@ -1245,6 +1257,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateResourceCommand(CreateResourceCommand createResourceCommand, C context) {
         return visitCommand(createResourceCommand, context);
+    }
+
+    default R visitRestoreCommand(RestoreCommand restoreCommand, C context) {
+        return visitCommand(restoreCommand, context);
     }
 
     default R visitBackupCommand(BackupCommand backupCommand, C context) {

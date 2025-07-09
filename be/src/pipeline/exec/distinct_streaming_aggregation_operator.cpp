@@ -70,12 +70,13 @@ Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo&
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_init_timer);
-    _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
-    _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
-    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
-    _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
+    _build_timer = ADD_TIMER(Base::custom_profile(), "BuildTime");
+    _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
+    _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
+    _hash_table_input_counter =
+            ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
+    _hash_table_size_counter = ADD_COUNTER(custom_profile(), "HashTableSize", TUnit::UNIT);
+    _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
 
     return Status::OK();
 }

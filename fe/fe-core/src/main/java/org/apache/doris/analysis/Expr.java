@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MapType;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
@@ -45,7 +44,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -2014,18 +2012,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return subqueries.get(0);
     }
 
-    public boolean isCorrelatedPredicate(List<TupleId> tupleIdList) {
-        if (this instanceof SlotRef && !this.isBoundByTupleIds(tupleIdList)) {
-            return true;
-        }
-        for (Expr child : this.getChildren()) {
-            if (child.isCorrelatedPredicate(tupleIdList)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     enum ExprSerCode {
         SLOT_REF(1),
         NULL_LITERAL(2),
@@ -2388,39 +2374,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         return false;
-    }
-
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple)
-            throws AnalysisException {
-        List<SlotRef> slots = new ArrayList<>();
-        collect(SlotRef.class, slots);
-        if (slots.size() == 0) {
-            return true;
-        }
-
-        String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
-        for (Expr expr : exprs) {
-            if (CreateMaterializedViewStmt.isMVColumnNormal(name)
-                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
-                            .mvColumnBreaker(name))) {
-                return true;
-            }
-            if (MVExprEquivalent.aggregateArgumentEqual(this, expr)) {
-                return true;
-            }
-        }
-
-        if (getChildren().isEmpty()) {
-            // Match base index when expr not be rewritten
-            return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
-        }
-
-        for (Expr expr : getChildren()) {
-            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tuple)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {

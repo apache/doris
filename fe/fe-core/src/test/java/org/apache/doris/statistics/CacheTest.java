@@ -242,7 +242,7 @@ public class CacheTest extends TestWithFeService {
                 return Optional.of(new ColumnStatistic(1, 2,
                         null, 3, 4, 5, 6, 7,
                         null, null, false,
-                        new Date().toString()));
+                        new Date().toString(), null));
             }
         };
 
@@ -408,7 +408,7 @@ public class CacheTest extends TestWithFeService {
                 return Optional.of(new ColumnStatistic(1, 2,
                     null, 3, 4, 5, 6, 7,
                     null, null, false,
-                        new Date().toString()));
+                        new Date().toString(), null));
             }
         };
         columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, -1, "col", connectContext);

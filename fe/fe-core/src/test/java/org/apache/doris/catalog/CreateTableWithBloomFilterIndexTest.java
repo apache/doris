@@ -17,9 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
@@ -341,7 +341,7 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
     @Test
     public void testCreateTableWithArrayStringNgramBloomFilterIndex() {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                " ARRAY is not supported in ngram_bf index. invalid column: k1",
+                "is not supported in ngram_bf index. invalid column: k1",
                 () -> createTable("CREATE TABLE test.tbl_array_string_ngram_bf (\n"
                         + "v1 INT,\n"
                         + "k1 ARRAY<STRING>,\n"

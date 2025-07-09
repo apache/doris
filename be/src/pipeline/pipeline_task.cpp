@@ -109,14 +109,14 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     }
 
     _scan_ranges = scan_range;
-    auto* parent_profile = _state->get_sink_local_state()->profile();
+    auto* parent_profile = _state->get_sink_local_state()->operator_profile();
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         LocalStateInfo info {parent_profile, _scan_ranges, get_op_shared_state(op->operator_id()),
                              _shared_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
-        parent_profile = _state->get_local_state(op->operator_id())->profile();
+        parent_profile = _state->get_local_state(op->operator_id())->operator_profile();
     }
     {
         std::vector<Dependency*> filter_dependencies;
@@ -212,8 +212,7 @@ bool PipelineTask::inject_shared_state(std::shared_ptr<BasicSharedState> shared_
 }
 
 void PipelineTask::_init_profile() {
-    _task_profile =
-            std::make_unique<RuntimeProfile>(fmt::format("PipelineTask (index={})", _index));
+    _task_profile = std::make_unique<RuntimeProfile>(fmt::format("PipelineTask(index={})", _index));
     _parent_profile->add_child(_task_profile.get(), true, nullptr);
     _task_cpu_timer = ADD_TIMER(_task_profile, "TaskCpuTime");
 

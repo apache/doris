@@ -31,9 +31,6 @@ import java.util.Map;
 
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.ColumnNullableType;
-import org.apache.doris.analysis.SetOperationStmt.Qualifier;
-import org.apache.doris.analysis.SetOperationStmt.Operation;
-import org.apache.doris.analysis.SetOperationStmt.SetOperand;
 import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
@@ -723,13 +720,11 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt, unset_var_stmt, unset_default_storage_vault_stmt,
     create_job_stmt, pause_job_stmt, resume_job_stmt,stop_job_stmt, cancel_job_task_stmt,
-    use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
+    use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, kill_analysis_job_stmt, insert_overwrite_stmt, copy_stmt,
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, kill_analysis_job_stmt, copy_stmt,
     warm_up_stmt;
-
-nonterminal FromClause opt_using_clause;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -738,8 +733,6 @@ nonterminal List<ImportColumnDesc> import_column_descs;
 // unsupported statement
 nonterminal opt_with_consistent_snapshot, opt_work, opt_chain, opt_release;
 
-// Single select statement.
-nonterminal SelectStmt select_stmt;
 nonterminal ValueList value_clause;
 
 // No return.
@@ -755,18 +748,8 @@ nonterminal String quantity;
 // Description of user
 nonterminal UserDesc grant_user;
 
-// Select or set operation(union/intersect/except) statement.
-nonterminal QueryStmt query_stmt;
-// Single select_stmt or parenthesized query_stmt.
-nonterminal QueryStmt set_operand;
-// List of select or set operation(union/intersect/except) blocks connected by  set operators or a single select block.
-nonterminal List<SetOperand> set_operand_list;
 // List of select blocks connected by set operators, with order by or limit.
-nonterminal QueryStmt set_operation_with_order_by_or_limit;
-nonterminal InsertStmt insert_stmt;
 nonterminal InsertTarget insert_target;
-nonterminal InsertSource insert_source;
-nonterminal UpdateStmt update_stmt;
 nonterminal List<BinaryPredicate> set_clause;
 nonterminal List<BinaryPredicate> assignment_list;
 nonterminal BinaryPredicate assignment;
@@ -776,9 +759,6 @@ nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
 nonterminal Boolean backup_exclude_or_not;
 nonterminal RestoreStmt restore_stmt;
 
-nonterminal SelectList select_clause, select_list, select_sublist;
-
-nonterminal SelectListItem select_list_item, star_expr;
 nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
 nonterminal Expr set_expr_or_default;
 nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values, kv_list;
@@ -833,17 +813,12 @@ nonterminal FunctionCallExpr column_subscript;
 nonterminal FunctionCallExpr column_slice;
 nonterminal ArrayList<TableRef> table_ref_list, base_table_ref_list;
 nonterminal ArrayList<LateralViewRef> opt_lateral_view_ref_list, lateral_view_ref_list;
-nonterminal FromClause from_clause;
-nonterminal FromClause opt_from_clause;
 nonterminal TableRef table_ref;
 nonterminal TableRef base_table_ref;
 nonterminal LateralViewRef lateral_view_ref;
-nonterminal WithClause opt_with_clause;
 nonterminal ArrayList<View> with_view_def_list;
 nonterminal View with_view_def;
-nonterminal Subquery subquery;
 nonterminal TableValuedFunctionRef table_valued_function_ref;
-nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
@@ -854,8 +829,6 @@ nonterminal Map<String, String> query_hint_parameters;
 nonterminal Map.Entry<String, String> query_hint_parameter;
 nonterminal String query_hint_parameter_key;
 nonterminal Expr sign_chain_expr;
-nonterminal Qualifier opt_set_qualifier;
-nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
 nonterminal String opt_job_starts;
@@ -1155,12 +1128,6 @@ stmt ::=
     {: RESULT = query; :}
     | switch_stmt:stmt
     {: RESULT = stmt; :}
-    | query_stmt:query
-    {:
-        RESULT = query;
-        query.setPlaceHolders(parser.placeholder_expr_list);
-        parser.placeholder_expr_list.clear();
-    :}
     | drop_stmt:stmt
     {: RESULT = stmt; :}
     | recover_stmt:stmt
@@ -1221,24 +1188,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | cancel_stmt : stmt
     {: RESULT = stmt; :}
-    | delete_stmt : stmt
-    {: RESULT = stmt; :}
     | sync_stmt : stmt
     {: RESULT = stmt; :}
-    | insert_stmt : stmt
-    {:
-        RESULT = stmt;
-        stmt.setPlaceHolders(parser.placeholder_expr_list);
-        parser.placeholder_expr_list.clear();
-    :}
-    | insert_overwrite_stmt : stmt
-    {: RESULT = stmt; :}
-    | update_stmt : stmt
-    {:
-        RESULT = stmt;
-        stmt.setPlaceHolders(parser.placeholder_expr_list);
-        parser.placeholder_expr_list.clear();
-    :}
     | backup_stmt : stmt
     {: RESULT = stmt; :}
     | restore_stmt : stmt
@@ -1348,11 +1299,6 @@ alter_stmt ::=
     | KW_ALTER KW_TABLE table_name:tbl KW_DROP KW_ROLLUP drop_rollup_clause_list:clauses
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
-    :}
-    | KW_ALTER KW_VIEW table_name:tbl
-    opt_col_with_comment_list:columns KW_AS query_stmt:view_def
-    {:
-        RESULT = new AlterViewStmt(tbl, columns, view_def);
     :}
     | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_DATA KW_QUOTA quantity:quota_quantity
     {:
@@ -1845,30 +1791,6 @@ create_stmt ::=
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
     :}
-    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            opt_col_list:columns
-            opt_engine:engineName
-            opt_keys:keys
-            opt_comment:tableComment
-            opt_partition:partition
-            opt_distribution:distribution
-            opt_rollup:index
-            opt_properties:tblProperties
-            opt_ext_properties:extProperties
-            KW_AS query_stmt:query_def
-    {:
-        RESULT = new CreateTableAsSelectStmt(new CreateTableStmt(ifNotExists, isExternal, name, null, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment, index), columns, query_def);
-    :}
-    | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
-        opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
-    {:
-        RESULT = new CreateViewStmt(ifNotExists, orReplace, viewName, columns, comment, view_def);
-    :}
-    | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH storage_backend:storage
-    {:
-        RESULT = new CreateRepositoryStmt(isReadOnly, repoName, storage);
-    :}
     | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role opt_comment:comment
     {:
         RESULT = new CreateRoleStmt(ifNotExists, role, comment);
@@ -1876,10 +1798,6 @@ create_stmt ::=
     | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = new AlterRoleStmt(role, comment);
-    :}
-    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
-    {:
-        RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
     :}
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
@@ -3786,19 +3704,6 @@ show_param ::=
     {:
         RESULT = new ShowCreateMTMVStmt(table);
     :}
-    /* Show Warnings */
-    | KW_COUNT LPAREN STAR RPAREN KW_WARNINGS
-    {:
-        SelectList list = new SelectList();
-        list.addItem(new SelectListItem(new IntLiteral((long)0), null));
-        RESULT = new SelectStmt(list, null, null, null, null, null, null);
-    :}
-    | KW_COUNT LPAREN STAR RPAREN KW_ERRORS
-    {:
-        SelectList list = new SelectList();
-        list.addItem(new SelectListItem(new IntLiteral((long)0), null));
-        RESULT = new SelectStmt(list, null, null, null, null, null, null);
-    :}
     | KW_WARNINGS limit_clause
     {:
         RESULT = new ShowWarningStmt();
@@ -3811,10 +3716,6 @@ show_param ::=
     | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
-    :}
-    | KW_CACHE KW_HOTSPOT STRING_LITERAL:tablePath
-    {:
-        RESULT = new ShowCacheHotSpotStmt(tablePath);
     :}
     /* show column stats */
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
@@ -4075,61 +3976,10 @@ opt_detailed ::=
     :}
     ;
 
-// Delete stmt
-delete_stmt ::=
-    KW_DELETE KW_FROM table_name:table opt_partition_names:partitionNames opt_table_alias:alias opt_using_clause:fromClause where_clause:wherePredicate
-    {:
-        RESULT = new DeleteStmt(new TableRef(table, alias), partitionNames, fromClause, wherePredicate);
-    :}
-    ;
-
 opt_using_clause ::=
     /* empty */
     {:
         RESULT = null;
-    :}
-    | KW_USING table_ref_list:l
-    {:
-        RESULT = new FromClause(l);
-    :}
-    ;
-
-// Our parsing of UNION is slightly different from MySQL's:
-// http://dev.mysql.com/doc/refman/5.5/en/union.html
-//
-// Imo, MySQL's parsing of union is not very clear.
-// For example, MySQL cannot parse this query:
-// select 3 order by 1 limit 1 union all select 1;
-//
-// On the other hand, MySQL does parse this query, but associates
-// the order by and limit with the union, not the select:
-// select 3 as g union all select 1 order by 1 limit 2;
-//
-// MySQL also allows some combinations of select blocks
-// with and without parenthesis, but also disallows others.
-//
-// Our parsing:
-// Select blocks may or may not be in parenthesis,
-// even if the union has order by and limit.
-// ORDER BY and LIMIT bind to the preceding select statement by default.
-query_stmt ::=
-    opt_with_clause:w set_operand_list:operands opt_outfile:outfile
-    {:
-        QueryStmt queryStmt = null;
-        if (operands.size() == 1) {
-          queryStmt = operands.get(0).getQueryStmt();
-        } else {
-          queryStmt = new SetOperationStmt(operands, null, LimitElement.NO_LIMIT);
-        }
-        queryStmt.setWithClause(w);
-        queryStmt.setOutFileClause(outfile);
-        RESULT = queryStmt;
-    :}
-    | opt_with_clause:w set_operation_with_order_by_or_limit:set_operation opt_outfile:outfile
-    {:
-        set_operation.setWithClause(w);
-        set_operation.setOutFileClause(outfile);
-        RESULT = set_operation;
     :}
     ;
 
@@ -4141,26 +3991,6 @@ opt_outfile ::=
     {:
         RESULT = new OutFileClause(file, fileFormat, properties);
     :}
-    ;
-
-opt_with_clause ::=
-    KW_WITH with_view_def_list:list
-    {: RESULT = new WithClause(list); :}
-    | /* empty */
-    {: RESULT = null; :}
-    ;
-
-with_view_def ::=
-    ident:alias KW_AS LPAREN query_stmt:query RPAREN
-    {: RESULT = new View(alias, query, null); :}
-    | STRING_LITERAL:alias KW_AS LPAREN query_stmt:query RPAREN
-    {: RESULT = new View(alias, query, null); :}
-    | ident:alias LPAREN ident_list:col_names RPAREN KW_AS LPAREN
-      query_stmt:query RPAREN
-    {: RESULT = new View(alias, query, col_names); :}
-    | STRING_LITERAL:alias LPAREN ident_list:col_names RPAREN
-      KW_AS LPAREN query_stmt:query RPAREN
-    {: RESULT = new View(alias, query, col_names); :}
     ;
 
 with_view_def_list ::=
@@ -4176,130 +4006,6 @@ with_view_def_list ::=
         RESULT = list;
     :}
     ;
-
-// We must have a non-empty order by or limit for them to bind to the union.
-// We cannot reuse the existing order_by_clause or
-// limit_clause because they would introduce conflicts with EOF,
-// which, unfortunately, cannot be accessed in the parser as a nonterminal
-// making this issue unresolvable.
-// We rely on the left precedence of KW_ORDER, KW_BY, and KW_LIMIT,
-// to resolve the ambiguity with select_stmt in favor of select_stmt
-// (i.e., ORDER BY and LIMIT bind to the select_stmt by default, and not the set operation).
-// There must be at least two set operands for ORDER BY or LIMIT to bind to a set operation,
-// and we manually throw a parse error if we reach this production
-// with only a single operand.
-set_operation_with_order_by_or_limit ::=
-    set_operand_list:operands
-    KW_LIMIT INTEGER_LITERAL:limit
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
-    }
-    RESULT = new SetOperationStmt(operands, null, new LimitElement(limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_LIMIT INTEGER_LITERAL:offset COMMA INTEGER_LITERAL:limit
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
-    }
-    RESULT = new SetOperationStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_LIMIT INTEGER_LITERAL:limit KW_OFFSET INTEGER_LITERAL:offset
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
-    }
-    RESULT = new SetOperationStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_ORDER KW_BY order_by_elements:orderByClause
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
-    }
-    RESULT = new SetOperationStmt(operands, orderByClause, LimitElement.NO_LIMIT);
-  :}
-  |
-    set_operand_list:operands
-    KW_ORDER KW_BY order_by_elements:orderByClause
-    KW_LIMIT INTEGER_LITERAL:limit
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
-    }
-    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_ORDER KW_BY order_by_elements:orderByClause
-    KW_LIMIT INTEGER_LITERAL:offset COMMA INTEGER_LITERAL:limit
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
-    }
-    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
-  :}
-  |
-    set_operand_list:operands
-    KW_ORDER KW_BY order_by_elements:orderByClause
-    KW_LIMIT INTEGER_LITERAL:limit KW_OFFSET INTEGER_LITERAL:offset
-  {:
-    if (operands.size() == 1) {
-      parser.parseError("order", SqlParserSymbols.KW_ORDER);
-    }
-    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
-  :}
-  ;
-
-
-set_operand ::=
-  select_stmt:select
-  {:
-    RESULT = select;
-  :}
-  | LPAREN query_stmt:query RPAREN
-  {:
-    RESULT = query;
-  :}
-  ;
-
-set_operand_list ::=
-  set_operand:operand
-  {:
-    List<SetOperand> operands = new ArrayList<SetOperand>();
-    operands.add(new SetOperand(operand, null, null));
-    RESULT = operands;
-  :}
-  | set_operand_list:operands set_op:op opt_set_qualifier:qualifier set_operand:operand
-  {:
-    operands.add(new SetOperand(operand, op, qualifier));
-    RESULT = operands;
-  :}
-  ;
-
-set_op ::=
-  KW_UNION
-  {: RESULT = Operation.UNION; :}
-  | KW_INTERSECT
-  {: RESULT = Operation.INTERSECT; :}
-  | KW_EXCEPT
-  {: RESULT = Operation.EXCEPT; :}
-  | KW_MINUS
-  {: RESULT = Operation.EXCEPT; :}
-  ;
-
-opt_set_qualifier ::=
-  {: RESULT = Qualifier.DISTINCT; :}
-  | KW_DISTINCT
-  {: RESULT = Qualifier.DISTINCT; :}
-  | KW_ALL
-  {: RESULT = Qualifier.ALL; :}
-  ;
 
 // Change catalog
 switch_stmt ::=
@@ -4320,13 +4026,6 @@ use_stmt ::=
         RESULT = new UseStmt(ctl, db);
     :}
     ;
-// Insert overwrite statement
-insert_overwrite_stmt ::=
-    KW_INSERT KW_OVERWRITE KW_TABLE insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
-    {:
-       RESULT = new InsertOverwriteTableStmt(target, label, cols, source, hints);
-    :}
-    ;
 
 // Change cloud cluster
 use_cloud_cluster_stmt ::=
@@ -4341,21 +4040,6 @@ use_cloud_cluster_stmt ::=
     | KW_USE ident:ctl DOT ident:db AT ident:cluster
     {:
         RESULT = new UseCloudClusterStmt(cluster, db, ctl);
-    :}
-    ;
-
-// Insert statement
-insert_stmt ::=
-    KW_INSERT KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
-    {:
-        RESULT = new NativeInsertStmt(target, label, cols, source, hints);
-    :}
-    // TODO(zc) add default value for SQL-2003
-    // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
-    | /* used for group commit */
-    KW_INSERT KW_INTO KW_DORIS_INTERNAL_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
-    {:
-        RESULT = new NativeInsertStmt(table_id, label, cols, source, hints);
     :}
     ;
 
@@ -4374,33 +4058,6 @@ opt_with_label ::=
     | KW_WITH KW_LABEL ident:label
     {:
         RESULT = label;
-    :}
-    ;
-
-insert_source ::=
-    query_stmt:query
-    {:
-        RESULT = new InsertSource(query);
-    :}
-    ;
-
-
-// update stmt
-update_stmt ::=
-    KW_UPDATE table_name:tbl opt_table_alias:alias set_clause:setClause opt_from_clause:fromClause where_clause:whereClause
-    {:
-        RESULT = new UpdateStmt(new TableRef(tbl, alias), setClause, fromClause, whereClause);
-    :}
-    ;
-
-opt_from_clause ::=
-    /* empty */
-    {:
-        RESULT = null;
-    :}
-    | from_clause:fromClause
-    {:
-        RESULT = fromClause;
     :}
     ;
 
@@ -4840,28 +4497,6 @@ set_expr_or_default ::=
     :}
     ;
 
-select_stmt ::=
-  select_clause:selectList
-    limit_clause:limitClause
-  {: RESULT = new SelectStmt(selectList, null, null, null, null, null, limitClause); :}
-  | select_clause:selectList
-    from_clause:fromClause
-    where_clause:wherePredicate
-    group_by_clause:groupByClause
-    having_clause:havingPredicate
-    order_by_clause:orderByClause
-    limit_clause:limitClause
-  {:
-    RESULT = new SelectStmt(selectList, fromClause, wherePredicate,
-                            groupByClause, havingPredicate, orderByClause,
-                            limitClause);
-  :}
-  | value_clause:valueClause order_by_clause:orderByClause limit_clause:limitClause
-  {:
-      RESULT = new SelectStmt(valueClause, orderByClause, limitClause);
-  :}
-  ;
-
 value_clause ::=
     KW_VALUES row_value:value
     {:
@@ -4934,25 +4569,6 @@ args_list ::=
     | KW_USING LPAREN literal_values:values RPAREN 
     {:
         RESULT = values;
-    :}
-    ;
-
-select_clause ::=
-    KW_SELECT opt_select_hints:hints select_list:l
-    {:
-        l.setOptHints(hints);
-        RESULT = l;
-    :}
-    | KW_SELECT opt_select_hints:hints KW_ALL select_list:l
-    {:
-        l.setOptHints(hints);
-        RESULT = l;
-    :}
-    | KW_SELECT opt_select_hints:hints KW_DISTINCT select_list:l
-    {:
-        l.setOptHints(hints);
-        l.setIsDistinct(true);
-        RESULT = l;
     :}
     ;
 
@@ -5041,63 +4657,6 @@ opt_select_hints ::=
     :}
     ;
 
-select_list ::=
-    select_sublist:list
-    {:
-        RESULT = list;
-    :}
-    | STAR
-    {:
-        SelectList list = new SelectList();
-        list.addItem(SelectListItem.createStarItem(null));
-        RESULT = list;
-    :}
-    | STAR KW_EXCEPT LPAREN select_sublist: list RPAREN
-    {:
-        SelectList res = new SelectList(list);
-        list.setIsExcept(true);
-        RESULT = list;
-    :}
-    ;
-
-select_sublist ::=
-    select_sublist:list COMMA select_list_item:item
-    {:
-        list.addItem(item);
-        RESULT = list;
-    :}
-    | select_sublist:list COMMA STAR
-    {:
-        list.addItem(SelectListItem.createStarItem(null));
-        RESULT = list;
-    :}
-    // why not use "STAR COMMA select_sublist",for we analyze from left to right
-    | STAR COMMA select_list_item:item
-    {:
-        SelectList list = new SelectList();
-        list.addItem(SelectListItem.createStarItem(null));
-        list.addItem(item);
-        RESULT = list;
-    :}
-    | select_list_item:item
-    {:
-        SelectList list = new SelectList();
-        list.addItem(item);
-        RESULT = list;
-    :}
-    ;
-
-select_list_item ::=
-    expr:expr select_alias:alias
-    {:
-        RESULT = new SelectListItem(expr, alias);
-    :}
-    | star_expr:expr
-    {:
-        RESULT = expr;
-    :}
-    ;
-
 select_alias ::=
     /* empty */
     {:
@@ -5118,23 +4677,6 @@ select_alias ::=
     | STRING_LITERAL:l
     {:
         RESULT = l;
-    :}
-    ;
-
-star_expr ::=
-    // table_name DOT STAR doesn't work because of a reduce-reduce conflict
-    // on IDENT [DOT]
-    ident:tbl DOT STAR
-    {:
-        RESULT = SelectListItem.createStarItem(new TableName(null, null, tbl));
-    :}
-    | ident:db DOT ident:tbl DOT STAR
-    {:
-        RESULT = SelectListItem.createStarItem(new TableName(null, db, tbl));
-    :}
-    | ident:ctl DOT ident:db DOT ident:tbl DOT STAR
-    {:
-        RESULT = SelectListItem.createStarItem(new TableName(ctl, db, tbl));
     :}
     ;
 
@@ -5211,13 +4753,6 @@ type_function_name ::=
     {: RESULT = id; :}
     ;
 
-from_clause ::=
-    KW_FROM table_ref_list:l
-    {: RESULT = new FromClause(l); :}
-    | KW_FROM KW_DUAL
-    {: RESULT = null; :}
-    ;
-
 table_ref_list ::=
   table_ref:t opt_sort_hints:h
   {:
@@ -5268,11 +4803,6 @@ table_ref ::=
     b.setLateralViewRefs(lateralViewRefList);
     RESULT = b;
   :}
-  | inline_view_ref:s opt_lateral_view_ref_list:lateralViewRefList
-  {:
-    s.setLateralViewRefs(lateralViewRefList);
-    RESULT = s;
-  :}
   | table_valued_function_ref:f
   {:
   	RESULT = f;
@@ -5285,13 +4815,6 @@ table_valued_function_ref ::=
     RESULT = new TableValuedFunctionRef(func_name, alias, properties);
   :}
   ;
-
-inline_view_ref ::=
-    LPAREN query_stmt:query RPAREN opt_table_alias:alias
-    {:
-        RESULT = new InlineViewRef(alias, query);
-    :}
-    ;
 
 base_table_ref_list ::=
   base_table_ref:tbl
@@ -6246,11 +5769,6 @@ struct_literal ::=
   :}
   ;
 
-exists_predicate ::=
-  KW_EXISTS subquery:s
-  {: RESULT = new ExistsPredicate(s, false); :}
-  ;
-
 non_pred_expr ::=
   sign_chain_expr:e
   {: RESULT = e; :}
@@ -6342,8 +5860,6 @@ non_pred_expr ::=
   {:
     RESULT = new StringLiteral(new String(MysqlPassword.makeScrambledPassword(text)));
   :}
-  | subquery:s
-  {: RESULT = s; :}
   |  KW_NULL KW_IS KW_NULL
   {: RESULT = new BoolLiteral(true); :}
   | KW_NULL KW_IS KW_NOT KW_NULL
@@ -6699,17 +6215,6 @@ in_predicate ::=
   {: RESULT = new InPredicate(e, l, false); :}
   | expr:e KW_NOT KW_IN LPAREN expr_list:l RPAREN
   {: RESULT = new InPredicate(e, l, true); :}
-  | expr:e KW_IN subquery:s
-  {: RESULT = new InPredicate(e, s, false); :}
-  | expr:e KW_NOT KW_IN subquery:s
-  {: RESULT = new InPredicate(e, s, true); :}
-  ;
-
-subquery ::=
-  LPAREN subquery:query RPAREN
-  {: RESULT = query; :}
-  | LPAREN query_stmt:query RPAREN
-  {: RESULT = new Subquery(query); :}
   ;
 
 compound_predicate ::=
@@ -6868,13 +6373,6 @@ admin_stmt ::=
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
-    ;
-
-truncate_stmt ::=
-    KW_TRUNCATE KW_TABLE base_table_ref:tblRef opt_force:force
-    {:
-        RESULT = new TruncateTableStmt(tblRef, force);
     :}
     ;
 
@@ -7547,89 +7045,3 @@ time_unit ::=
     {: RESULT = id; :}
     ;
 
-// TODO(zhaochun): Select for SQL-2003 (http://savage.net.au/SQL/sql-2003-2.bnf.html)
-
-// Specify a table derived from the result of a <table expression>.
-// query_spec ::=
-//     KW_SELECT opt_set_quantifier select_list table_expr
-//
-// opt_set_quantifier ::=
-//     KW_DISTINCT
-//     | KW_ALL
-//     ;
-//
-// select_list ::=
-//     STAR
-//     | select_sublist
-//     ;
-//
-// select_sublist ::=
-//     derived_column
-//     | qualified_star
-//     ;
-//
-// table_expr ::=
-//     from_clause where_clause group_by_clause having_clause order_by_clause limit_clause
-//     ;
-//
-// // Specify a table derived from one or more tables.
-// from_clause ::=
-//     table_ref_list
-//     ;
-//
-// table_ref_list ::=
-//     table_ref
-//     | table_ref_list COMMA table_ref
-//     ;
-//
-// // Reference a table.
-// table_ref ::=
-//     table_primary
-//     | joined_table
-//     ;
-//
-// table_primary ::=
-//     table_name
-//     | subquery opt_as ident
-//     | LPAREN joined_table RPAREN
-//     ;
-//
-// opt_as ::=
-//     /* Empty */
-//     | KW_AS
-//     ;
-//
-// // Specify a table.
-// // TODO(zhaochun): Do not support EXCEPT INTERSECT and joined table
-// query_expr_body ::=
-//     query_term
-//     | query_expr_body KW_UNION opt_set_quantifier query_term;
-//     ;
-//
-// query_term ::=
-//     query_spec
-//     | LPAREN query_expr_body RPAREN
-//     ;
-//
-// // Specify a scalar value, a row, or a table derived from a <query expression>.
-// subquery ::=
-//     LPAREN query_expr_body RPAREN;
-
-// unused
-//
-// where_clause_without_null ::=
-//   KW_WHERE expr:e
-//   {: RESULT = e; :}
-//   ;
-//
-// col_list ::=
-//     KW_COLUMNS LPAREN ident_list:colList RPAREN
-//     {:
-//         RESULT = colList;
-//     :}
-//     ;
-//
-// opt_charset_name ::=
-//     /* empty */
-//     | charset old_or_new_charset_name_or_default
-//     ;

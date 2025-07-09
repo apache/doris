@@ -20,23 +20,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.MultiRowType;
-import org.apache.doris.catalog.StructField;
-import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprNode;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Class representing a subquery. A Subquery consists of a QueryStmt and has
@@ -45,8 +35,6 @@ import java.util.List;
 public class Subquery extends Expr {
     private static final Logger LOG = LoggerFactory.getLogger(Subquery.class);
 
-    // The QueryStmt of the subquery.
-    protected QueryStmt stmt;
     // A subquery has its own analysis context
     protected Analyzer analyzer;
 
@@ -54,34 +42,20 @@ public class Subquery extends Expr {
         return analyzer;
     }
 
-    public QueryStmt getStatement() {
-        return stmt;
-    }
-
     @Override
     public String toSqlImpl() {
-        return "(" + stmt.toSql() + ")";
+        return "";
     }
 
     @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
-        return "(" + stmt.toSql() + ")";
+        return "";
     }
 
     @Override
     public String toDigestImpl() {
-        return "(" + stmt.toDigest() + ")";
-    }
-
-    /**
-     * C'tor that initializes a Subquery from a QueryStmt.
-     */
-    public Subquery(QueryStmt queryStmt) {
-        super();
-        Preconditions.checkNotNull(queryStmt);
-        stmt = queryStmt;
-        stmt.setNeedToSql(true);
+        return "";
     }
 
     /**
@@ -89,7 +63,6 @@ public class Subquery extends Expr {
      */
     public Subquery(Subquery other) {
         super(other);
-        stmt = other.stmt.clone();
         analyzer = other.analyzer;
     }
 
@@ -98,102 +71,10 @@ public class Subquery extends Expr {
      */
     @Override
     public void analyzeImpl(Analyzer parentAnalyzer) throws AnalysisException {
-        if (!(stmt instanceof SelectStmt)) {
-            throw new AnalysisException("A subquery must contain a single select block: " + toSql());
-        }
-        // The subquery is analyzed with its own analyzer.
-        analyzer = new Analyzer(parentAnalyzer);
-        analyzer.setIsSubquery();
-        try {
-            stmt.analyze(analyzer);
-        } catch (UserException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
-        // Check whether the stmt_ contains an illegal mix of un/correlated table refs.
-        stmt.getCorrelatedTupleIds(analyzer);
-
-        // Set the subquery type based on the types of the exprs in the
-        // result list of the associated SelectStmt.
-        ArrayList<Expr> stmtResultExprs = stmt.getResultExprs();
-        if (stmtResultExprs.size() == 1) {
-            type = stmtResultExprs.get(0).getType();
-            if (type.isComplexType()) {
-                throw new AnalysisException("A subquery should not return Array/Map/Struct type: " + toSql());
-            }
-        } else {
-            type = createStructTypeFromExprList();
-        }
-
-        // If the subquery returns many rows, set its type to MultiRowType.
-        if (!((SelectStmt) stmt).returnsSingleRow()) {
-            type = new MultiRowType(type);
-        }
-
-        // Preconditions.checkNotNull(type);
-        // type.analyze();
     }
 
     @Override
     protected boolean isConstantImpl() {
-        return false;
-    }
-
-    /**
-     * Check if the subquery's SelectStmt returns a single column of scalar type.
-     */
-    public boolean returnsScalarColumn() {
-        ArrayList<Expr> stmtResultExprs = stmt.getResultExprs();
-        if (stmtResultExprs.size() == 1 && stmtResultExprs.get(0).getType().isScalarType()) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Create a StructType from the result expr list of a subquery's SelectStmt.
-     */
-    private StructType createStructTypeFromExprList() {
-        List<Expr> stmtResultExprs = stmt.getResultExprs();
-        ArrayList<StructField> structFields = Lists.newArrayList();
-        // Check if we have unique labels
-        List<String> labels = stmt.getColLabels();
-        boolean hasUniqueLabels = true;
-        if (Sets.newHashSet(labels).size() != labels.size()) {
-            hasUniqueLabels = false;
-        }
-
-        // Construct a StructField from each expr in the select list
-        for (int i = 0; i < stmtResultExprs.size(); ++i) {
-            Expr expr = stmtResultExprs.get(i);
-            String fieldName = null;
-            // Check if the label meets the Metastore's requirements.
-            // TODO(zc)
-            // if (MetastoreShim.validateName(labels.get(i))) {
-            if (false) {
-                fieldName = labels.get(i);
-                // Make sure the field names are unique.
-                if (!hasUniqueLabels) {
-                    fieldName = "_" + Integer.toString(i) + "_" + fieldName;
-                }
-            } else {
-                // Use the expr ordinal to construct a StructField.
-                fieldName = "_" + Integer.toString(i);
-            }
-            Preconditions.checkNotNull(fieldName);
-            structFields.add(new StructField(fieldName, expr.getType()));
-        }
-        Preconditions.checkState(structFields.size() != 0);
-        return new StructType(structFields);
-    }
-
-    @Override
-    public boolean isCorrelatedPredicate(List<TupleId> tupleIdList) {
-        List<TupleId> tupleIdFromSubquery = stmt.collectTupleIds();
-        for (TupleId tupleId : tupleIdList) {
-            if (tupleIdFromSubquery.contains(tupleId)) {
-                return true;
-            }
-        }
         return false;
     }
 
@@ -207,7 +88,7 @@ public class Subquery extends Expr {
         if (!super.equals(o)) {
             return false;
         }
-        return stmt.toSql().equals(((Subquery) o).stmt.toSql());
+        return false;
     }
 
     @Override
@@ -224,7 +105,6 @@ public class Subquery extends Expr {
     @Override
     public Expr reset() {
         super.reset();
-        stmt.reset();
         analyzer = null;
         return this;
     }

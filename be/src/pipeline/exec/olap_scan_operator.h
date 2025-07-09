@@ -47,9 +47,9 @@ public:
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
-        return fmt::format(" (id={}. nereids_id={}. table name = {})",
-                           std::to_string(_parent->node_id()),
-                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
+        return fmt::format("(nereids_id={}. table_name={})" + operator_name_suffix,
+                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name,
+                           std::to_string(_parent->node_id()));
     }
     Status hold_tablets();
 
@@ -220,7 +220,7 @@ private:
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_inverted_index_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;

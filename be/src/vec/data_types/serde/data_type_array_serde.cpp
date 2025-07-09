@@ -217,6 +217,29 @@ Status DataTypeArraySerDe::serialize_one_cell_to_hive_text(
     return Status::OK();
 }
 
+Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                     JsonbWriter& writer) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(from_column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t start = offsets[row_num - 1];
+    size_t end = offsets[row_num];
+    const IColumn& nested_column = data_column.get_data();
+
+    if (!writer.writeStartArray()) {
+        return Status::InternalError("writeStartArray failed");
+    }
+
+    for (size_t i = start; i < end; ++i) {
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(nested_column, i, writer));
+    }
+    if (!writer.writeEndArray()) {
+        return Status::InternalError("writeEndArray failed");
+    }
+
+    return Status::OK();
+}
+
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                  Arena* mem_pool, int32_t col_id,
                                                  int64_t row_num) const {
