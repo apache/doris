@@ -483,7 +483,21 @@ Status Block::check_type_and_column() const {
                     elem.name, type->get_name(), column->get_name());
         };
 
-        if (type->is_nullable() != column->is_nullable()) {
+        auto column_nullable = [&]() {
+            if (column->is_nullable()) {
+                return true;
+            }
+            if (const auto* column_const = check_and_get_column<ColumnConst>(*column)) {
+                if (column_const->get_data_column().is_nullable()) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        auto datatype_nullable = [&]() { return type->is_nullable(); };
+
+        if (datatype_nullable() != column_nullable()) {
             return report_error();
         }
 
