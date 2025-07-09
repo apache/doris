@@ -581,14 +581,6 @@ public class TableRef implements ParseNode {
         }
     }
 
-    /**
-     * Analyze the join clause.
-     * The join clause can only be analyzed after the left table has been analyzed
-     * and the TupleDescriptor (desc) of this table has been created.
-     */
-    public void analyzeJoin(Analyzer analyzer) throws AnalysisException {
-    }
-
     private String joinOpToSql() {
         Preconditions.checkState(joinOp != null);
         switch (joinOp) {

@@ -189,8 +189,6 @@ public class InPredicate extends Predicate {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        // Can't serialize a predicate with a subquery
-        Preconditions.checkState(!contains(Subquery.class));
         msg.in_predicate = new TInPredicate(isNotIn);
         msg.node_type = TExprNodeType.IN_PRED;
         msg.setOpcode(opcode);

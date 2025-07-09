@@ -22,7 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TAnalyticWindow;
 import org.apache.doris.thrift.TAnalyticWindowBoundary;
 import org.apache.doris.thrift.TAnalyticWindowBoundaryType;
@@ -244,9 +243,6 @@ public class AnalyticWindow {
         public Boundary clone() {
             return new Boundary(type, expr != null ? expr.clone() : null, offsetValue);
         }
-
-        public void analyze(Analyzer analyzer) throws AnalysisException {
-        }
     }
 
     private final Type type;
@@ -412,9 +408,5 @@ public class AnalyticWindow {
     @Override
     public AnalyticWindow clone() {
         return new AnalyticWindow(this);
-    }
-
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-
     }
 }

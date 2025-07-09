@@ -171,11 +171,6 @@ public class GroupByClause implements ParseNode {
     public void analyze(Analyzer analyzer) throws AnalysisException {
     }
 
-    // check if group by clause is contain grouping set/rollup/cube
-    public boolean isGroupByExtension() {
-        return groupingType != GroupingType.GROUP_BY;
-    }
-
     @Override
     public String toSql() {
         StringBuilder strBuilder = new StringBuilder();

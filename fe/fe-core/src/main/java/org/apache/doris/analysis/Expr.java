@@ -1250,24 +1250,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return new CompoundPredicate(CompoundPredicate.Operator.NOT, this, null);
     }
 
-    /**
-     * Returns the subquery of an expr. Returns null if this expr does not contain
-     * a subquery.
-     *
-     * TODO: Support predicates with more that one subqueries when we implement
-     * the independent subquery evaluation.
-     */
-    public Subquery getSubquery() {
-        if (!contains(Subquery.class)) {
-            return null;
-        }
-        List<Subquery> subqueries = Lists.newArrayList();
-        collect(Subquery.class, subqueries);
-        Preconditions.checkState(subqueries.size() == 1,
-                "only support one subquery in " + this.toSql());
-        return subqueries.get(0);
-    }
-
     public static void writeTo(Expr expr, DataOutput output) throws IOException {
         if (expr.supportSerializable()) {
             Text.writeString(output, GsonUtils.GSON.toJson(expr));
