@@ -22,7 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.gson.annotations.SerializedName;
@@ -64,10 +63,6 @@ public class BetweenPredicate extends Predicate {
 
     public boolean isNotBetween() {
         return isNotBetween;
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
     }
 
     @Override

@@ -49,11 +49,6 @@ public class PlaceHolderExpr extends LiteralExpr {
         this.type = literal.getType();
     }
 
-    protected PlaceHolderExpr(PlaceHolderExpr other) {
-        this.lExpr = other.lExpr;
-        this.type = other.type;
-    }
-
     public void setLiteral(LiteralExpr literal) {
         this.lExpr = literal;
         this.type = literal.getType();

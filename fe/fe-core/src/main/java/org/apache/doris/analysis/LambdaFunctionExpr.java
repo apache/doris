@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -74,10 +73,6 @@ public class LambdaFunctionExpr extends Expr {
         this.slotExprs.addAll(rhs.slotExprs);
         this.params.addAll(rhs.params);
         this.columnId = rhs.columnId;
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
     }
 
     @Override

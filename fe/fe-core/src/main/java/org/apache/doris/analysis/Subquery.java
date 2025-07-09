@@ -22,7 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 
 import org.slf4j.Logger;
@@ -64,13 +63,6 @@ public class Subquery extends Expr {
     public Subquery(Subquery other) {
         super(other);
         analyzer = other.analyzer;
-    }
-
-    /**
-     * Analyzes the subquery in a child analyzer.
-     */
-    @Override
-    public void analyzeImpl(Analyzer parentAnalyzer) throws AnalysisException {
     }
 
     @Override

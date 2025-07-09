@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TCaseExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -200,11 +199,6 @@ public class CaseExpr extends Expr {
         msg.case_expr = new TCaseExpr(hasCaseExpr, hasElseExpr);
     }
 
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-
-    }
-
     // case and when
     public List<Expr> getConditionExprs() {
         List<Expr> exprs = Lists.newArrayList();
@@ -334,19 +328,6 @@ public class CaseExpr extends Expr {
         } else {
             return new NullLiteral();
         }
-    }
-
-    // check if subquery in `in` or `exists` Predicate
-    private boolean checkSubquery(Expr expr) {
-        for (Expr child : expr.getChildren()) {
-            if (child instanceof Subquery && (expr instanceof ExistsPredicate || expr instanceof InPredicate)) {
-                return true;
-            }
-            if (checkSubquery(child)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Override

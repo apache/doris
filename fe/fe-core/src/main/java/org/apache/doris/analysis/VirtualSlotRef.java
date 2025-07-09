@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 
 import java.util.List;
 import java.util.Map;
@@ -73,12 +72,6 @@ public class VirtualSlotRef extends SlotRef {
     @Override
     public Expr clone() {
         return new VirtualSlotRef(this);
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        desc = analyzer.registerVirtualColumnRef(super.getColumnName(), type, tupleDescriptor);
-        numDistinctValues = desc.getStats().getNumDistinctValues();
     }
 
     @Override

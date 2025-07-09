@@ -23,17 +23,13 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -303,202 +299,6 @@ public class BinaryPredicate extends Predicate {
         msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
     }
 
-    private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
-        if (t1.isDateType()) {
-            if (t2.isDateType() || t2.isStringType() || t2.isIntegerType()) {
-                return true;
-            }
-            return false;
-        } else if (t2.isDateType()) {
-            if (t1.isStringType() || t1.isIntegerType()) {
-                return true;
-            }
-            return false;
-        } else {
-            return false;
-        }
-    }
-
-    private boolean canCompareIP(PrimitiveType t1, PrimitiveType t2) {
-        if (t1.isIPv4Type()) {
-            return t2.isIPv4Type() || t2.isStringType();
-        } else if (t2.isIPv4Type()) {
-            return t1.isStringType();
-        } else if (t1.isIPv6Type()) {
-            return t2.isIPv6Type() || t2.isStringType();
-        } else if (t2.isIPv6Type()) {
-            return t1.isStringType();
-        }
-        return false;
-    }
-
-    private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
-        if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
-            return Type.DATEV2;
-        } else if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
-            return ScalarType.createDatetimeV2Type(Math.max(t1.getScalarScale(), t2.getScalarScale()));
-        } else if (t1.isDatetimeV2()) {
-            return t1;
-        } else {
-            return t2;
-        }
-    }
-
-    private Type getCmpType() throws AnalysisException {
-        if (!getChild(0).isConstantImpl() && getChild(1).isConstantImpl()) {
-            getChild(1).compactForLiteral(getChild(0).getType());
-        } else if (!getChild(1).isConstantImpl() && getChild(0).isConstantImpl()) {
-            getChild(0).compactForLiteral(getChild(1).getType());
-        }
-        PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
-        PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
-
-        for (Expr e : getChildren()) {
-            if (e.getType().getPrimitiveType() == PrimitiveType.HLL) {
-                throw new AnalysisException("Hll type dose not support operand: " + toSql());
-            }
-            if (e.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
-                throw new AnalysisException("Bitmap type dose not support operand: " + toSql());
-            }
-            if (e.getType().isArrayType()) {
-                throw new AnalysisException("Array type dose not support operand: " + toSql());
-            }
-        }
-
-        if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
-            if (getChild(0).getType().isDatetimeV2() && getChild(1).getType().isDatetimeV2()) {
-                Preconditions.checkArgument(getChild(0).getType() instanceof ScalarType
-                        && getChild(1).getType() instanceof ScalarType);
-                return dateV2ComparisonResultType((ScalarType) getChild(0).getType(),
-                        (ScalarType) getChild(1).getType());
-            } else if (getChild(0).getType().isDatetimeV2()) {
-                return getChild(0).getType();
-            } else if (getChild(1).getType().isDatetimeV2()) {
-                return getChild(1).getType();
-            } else if (getChild(0).getType().isDateV2()
-                    && (getChild(1).getType().isDate() || getChild(1).getType().isDateV2())) {
-                return getChild(0).getType();
-            } else if (getChild(1).getType().isDateV2()
-                    && (getChild(0).getType().isDate() || getChild(0).getType().isDateV2())) {
-                return getChild(1).getType();
-            } else if (getChild(0).getType().isDateV2()
-                    && (getChild(1).getType().isStringType() && getChild(1) instanceof StringLiteral)) {
-                if (((StringLiteral) getChild(1)).canConvertToDateType(Type.DATEV2)) {
-                    return Type.DATEV2;
-                } else {
-                    return Type.DATETIMEV2;
-                }
-            } else if (getChild(1).getType().isDateV2()
-                    && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
-                if (((StringLiteral) getChild(0)).canConvertToDateType(Type.DATEV2)) {
-                    return Type.DATEV2;
-                } else {
-                    return Type.DATETIMEV2;
-                }
-            } else if (getChild(0).getType().isDatetimeV2()
-                    && (getChild(1).getType().isStringType() && getChild(1) instanceof StringLiteral)) {
-                return getChild(0).getType();
-            } else if (getChild(1).getType().isDatetimeV2()
-                    && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
-                return getChild(1).getType();
-            } else if (getChild(0).getType().isDate()
-                    && (getChild(1).getType().isStringType() && getChild(1) instanceof StringLiteral)) {
-                return ((StringLiteral) getChild(1)).canConvertToDateType(Type.DATE) ? Type.DATE : Type.DATETIME;
-            } else if (getChild(1).getType().isDate()
-                    && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
-                return ((StringLiteral) getChild(0)).canConvertToDateType(Type.DATE) ? Type.DATE : Type.DATETIME;
-            } else if (getChild(1).getType().isDate() && getChild(0).getType().isDate()) {
-                return Type.DATE;
-            } else {
-                return Type.DATETIME;
-            }
-        }
-
-        if (canCompareIP(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
-            if ((getChild(0).getType().isIP() && getChild(1) instanceof StringLiteral)
-                    || (getChild(1).getType().isIP() && getChild(0) instanceof StringLiteral)
-                    || (getChild(0).getType().isIP() && getChild(1).getType().isIP())) {
-                if (getChild(0).getType().isIPv4() || getChild(1).getType().isIPv4()) {
-                    return Type.IPV4;
-                }
-                if (getChild(0).getType().isIPv6() || getChild(1).getType().isIPv6()) {
-                    return Type.IPV6;
-                }
-            }
-        }
-
-        // Following logical is compatible with MySQL:
-        //    Cast to DOUBLE by default, because DOUBLE has the largest range of values.
-        if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.VARCHAR) {
-            return Type.VARCHAR;
-        }
-        if ((t1 == PrimitiveType.STRING && (t2 == PrimitiveType.VARCHAR || t2 == PrimitiveType.STRING)) || (
-                t2 == PrimitiveType.STRING && (t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING))) {
-            return Type.STRING;
-        }
-        if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
-                    SessionVariable.getEnableDecimal256());
-        }
-
-        if (t1 == PrimitiveType.DECIMALV2 && t2 == PrimitiveType.DECIMALV2) {
-            return ScalarType.getAssignmentCompatibleDecimalV2Type((ScalarType) getChild(0).getType(),
-                    (ScalarType) getChild(1).getType());
-        }
-
-        if ((t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.DECIMALV2)
-                || (t2 == PrimitiveType.BIGINT && t1 == PrimitiveType.DECIMALV2)
-                || (t1 == PrimitiveType.LARGEINT && t2 == PrimitiveType.DECIMALV2)
-                || (t2 == PrimitiveType.LARGEINT && t1 == PrimitiveType.DECIMALV2)) {
-            // only decimalv3 can hold big and large int
-            return ScalarType.createDecimalType(PrimitiveType.DECIMAL128, ScalarType.MAX_DECIMAL128_PRECISION,
-                    ScalarType.MAX_DECIMALV2_SCALE);
-        }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
-            return Type.LARGEINT;
-        }
-
-        // Implicit conversion affects query performance.
-        // For a common example datekey='20200825' which datekey is int type.
-        // If we up conversion to double type directly.
-        // PartitionPruner will not take effect. Then it will scan all partitions.
-        // When int column compares with string, Mysql will convert string to int.
-        // So it is also compatible with Mysql.
-
-        if (t1.isStringType() || t2.isStringType()) {
-            if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT) && TypeUtils.canParseTo(getChild(1), t1)) {
-                return Type.fromPrimitiveType(t1);
-            }
-            if ((t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT) && TypeUtils.canParseTo(getChild(0), t2)) {
-                return Type.fromPrimitiveType(t2);
-            }
-        }
-
-        if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType() && !t2.isVariantType())
-                || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType() && !t1.isVariantType())) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
-                    SessionVariable.getEnableDecimal256());
-        }
-
-        // Variant can be implicit cast to numeric type and string type at present
-        if (t1.isVariantType() && (t2.isNumericType() || t2.isStringType())) {
-            if (t2.isDecimalV2Type() || t2.isDecimalV3Type()) {
-                // TODO support decimal
-                return Type.DOUBLE;
-            }
-            return Type.fromPrimitiveType(t2);
-        }
-        if (t2.isVariantType() && (t1.isNumericType() || t1.isStringType())) {
-            if (t1.isDecimalV2Type() || t1.isDecimalV3Type()) {
-                return Type.DOUBLE;
-            }
-            return Type.fromPrimitiveType(t1);
-        }
-
-        return Type.DOUBLE;
-    }
-
     // Expr only support Literal
     public Pair<SlotRef, Expr> extract() {
         Expr lexpr = getChild(0);
@@ -511,10 +311,6 @@ public class BinaryPredicate extends Predicate {
             return Pair.of(slot, lexpr);
         }
         return null;
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
     }
 
     public Expr invokeFunctionExpr(ArrayList<Expr> partitionExprs, Expr paramExpr) {

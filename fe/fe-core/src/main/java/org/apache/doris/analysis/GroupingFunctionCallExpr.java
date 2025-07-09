@@ -17,10 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -53,24 +49,6 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
     @Override
     public Expr clone() {
         return new GroupingFunctionCallExpr(this);
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (children.size() < 1) {
-            throw new AnalysisException("GROUPING functions required at least one parameters");
-        }
-        for (Expr expr : children) {
-            if (expr instanceof SlotRef) {
-                continue;
-            } else {
-               // throw new AnalysisException("GROUPING functions required columns as parameters");
-            }
-        }
-        Type[] childTypes = new Type[1];
-        childTypes[0] = Type.BIGINT;
-        fn = getBuiltinFunction(getFnName().getFunction(), childTypes, Function.CompareMode.IS_IDENTICAL);
-        this.type = fn.getReturnType();
     }
 
     // set child to virtual slot

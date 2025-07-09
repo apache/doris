@@ -21,7 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 
@@ -48,12 +47,6 @@ public abstract class Predicate extends Expr {
 
     public void setIsEqJoinConjunct(boolean v) {
         isEqJoinConjunct = v;
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // values: true/false/null
-        numDistinctValues = 3;
     }
 
     /**
