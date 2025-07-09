@@ -136,7 +136,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // then need to adjust SORT and HAVING's sum to nullable.
                     new AdjustAggregateNullableForEmptySet()
             ),
-            // custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
             topDown(
                     new FillUpMissingSlots(),
                     // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
@@ -196,7 +195,10 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // merge normal filter and hidden column filter
                     new MergeFilters()
             ),
-            custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
+            // for cte: analyze producer -> analyze consumer -> rewrite consumer -> rewrite producer,
+            // in order to ensure cte consumer had right nullable attribute, need adjust nullable at analyze phase.
+            custom(RuleType.ADJUST_NULLABLE,
+                    () -> new AdjustNullable(true))
         );
     }
 }
