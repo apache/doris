@@ -89,9 +89,9 @@ public:
 
     template <typename Type>
         requires(std::is_same_v<Type, String> || std::is_same_v<Type, PaddedPODArray<UInt8>>)
-    void write_binary(const Type& s, BufferWritable& buf) {
+    void write_binary(const Type& s) {
         write_var_uint(s.size());
-        buf.write(reinterpret_cast<const char*>(s.data()), s.size());
+        write(reinterpret_cast<const char*>(s.data()), s.size());
     }
 
     void write_binary(const StringRef& s) {
@@ -157,7 +157,10 @@ public:
         read_var_uint(size);
 
         if (size > DEFAULT_MAX_STRING_SIZE) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Too large string size."
+                                   " size: {}, max: {}",
+                                   size, DEFAULT_MAX_STRING_SIZE);
         }
 
         s.resize(size);
@@ -170,7 +173,10 @@ public:
         read_var_uint(size);
 
         if (size > DEFAULT_MAX_STRING_SIZE) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Too large string size. "
+                                   " size: {}, max: {}",
+                                   size, DEFAULT_MAX_STRING_SIZE);
         }
 
         s = read(size);
