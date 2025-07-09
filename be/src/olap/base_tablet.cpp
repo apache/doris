@@ -1164,10 +1164,6 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                       update_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
                       ->get_data());
 
-    VLOG_DEBUG << fmt::format(
-            "BaseTablet::generate_new_block_for_flexible_partial_update: "
-            "rids_be_overwritten.size()={}",
-            rids_be_overwritten.size());
     if (rowset_schema->has_sequence_col() && !rids_be_overwritten.empty()) {
         // If the row specifies the sequence column, we should delete the current row becase the
         // flexible partial update on the current row has been `overwritten` by the previous one with larger sequence
@@ -1175,17 +1171,9 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         for (auto it = rids_be_overwritten.begin(); it != rids_be_overwritten.end();) {
             auto rid = *it;
             if (!skip_bitmaps->at(rid).contains(seq_col_unique_id)) {
-                VLOG_DEBUG << fmt::format(
-                        "BaseTablet::generate_new_block_for_flexible_partial_update: rid={} "
-                        "filtered",
-                        rid);
                 ++it;
             } else {
                 it = rids_be_overwritten.erase(it);
-                VLOG_DEBUG << fmt::format(
-                        "BaseTablet::generate_new_block_for_flexible_partial_update: rid={} "
-                        "keeped",
-                        rid);
             }
         }
     }
