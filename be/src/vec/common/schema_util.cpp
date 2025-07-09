@@ -940,7 +940,8 @@ void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
         // 2. this path is in sparse paths
         // 3. the sparse paths are too much
         TabletSchema::SubColumnInfo sub_column_info;
-        if (parent_column->variant_enable_typed_paths_to_sparse() && generate_sub_column_info(*target, parent_column->unique_id(), std::string(subpath),
+        if (parent_column->variant_enable_typed_paths_to_sparse() &&
+            generate_sub_column_info(*target, parent_column->unique_id(), std::string(subpath),
                                      &sub_column_info)) {
             vectorized::schema_util::inherit_column_attributes(*parent_column,
                                                                sub_column_info.column);
