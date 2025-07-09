@@ -639,6 +639,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find copy source replica");
         }
 
+        // make candidates more random
+        Collections.shuffle(candidates);
+
         // choose a replica which slot is available from candidates.
         // sort replica by version count asc and isUserDrop, so that we prefer to choose replicas with fewer versions
         Collections.sort(candidates, CLONE_SRC_COMPARATOR);
