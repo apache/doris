@@ -80,6 +80,8 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         }
         CloudTabletSPtr tablet = std::move(res.value());
         auto rowsets = tablet->get_snapshot_rowset();
+        LOG(INFO) << "warm up get meta from tablet_id=" << tablet_id
+                  << "rowsets size=" << rowsets.size();
         std::for_each(rowsets.cbegin(), rowsets.cend(), [&](const RowsetSharedPtr& rowset) {
             std::string rowset_id = rowset->rowset_id().to_string();
             for (int64_t segment_id = 0; segment_id < rowset->num_segments(); segment_id++) {
@@ -103,6 +105,8 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
             }
         });
     }
+    VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
+               << ", response=" << response->DebugString();
 }
 
 } // namespace doris
