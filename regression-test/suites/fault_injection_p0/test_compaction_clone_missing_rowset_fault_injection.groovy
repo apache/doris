@@ -25,7 +25,7 @@ suite('test_compaction_clone_missing_rowset_fault_injection', 'docker') {
     options.cloudMode = false
     options.enableDebugPoints()
     options.feConfigs += [ "disable_tablet_scheduler=true" ]
-    options.beConfigs += [ "enable_compaction_clone_missing_rowset=true" ]
+    options.beConfigs += [ "enable_auto_clone_on_compaction_missing_version=true" ]
     options.beNum = 3
     docker(options) {
 

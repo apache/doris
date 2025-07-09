@@ -623,7 +623,7 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskReq
         std::lock_guard lock(s_task_signatures_mtx);
         auto& set = s_task_signatures[task_type];
         if (!set.contains(signature)) {
-            // 如果不存在，直接放到优先队列
+            // If it doesn't exist, put it directly into the priority queue
             add_task_count(*req, 1);
             set.insert(signature);
             std::lock_guard lock(_mtx);
@@ -634,18 +634,18 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskReq
         } else {
             std::lock_guard lock(_mtx);
             for (auto it = _normal_queue.begin(); it != _normal_queue.end();) {
-                // 如果存在普通队列，将普通队列中的task cancel
+                // If it exists in the normal queue, cancel the task in the normal queue
                 if ((*it)->signature == signature) {
-                    _normal_queue.erase(it);                     // cancel 原来的任务
-                    _high_prior_queue.push_back(std::move(req)); // 将新任务添加到队列
+                    _normal_queue.erase(it);                     // cancel the original task
+                    _high_prior_queue.push_back(std::move(req)); // add the new task to the queue
                     _high_prior_condv.notify_one();
                     _normal_condv.notify_one();
                     break;
                 } else {
-                    ++it; // 不满足条件，继续下一个
+                    ++it; // doesn't meet the condition, continue to the next one
                 }
             }
-            // 如果存在高优队列，不需要任何操作
+            // If it exists in the high priority queue, no operation is needed
             LOG_INFO("task has already existed in high prior queue.").tag("signature", signature);
         }
     } while (true);

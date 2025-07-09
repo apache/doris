@@ -31,7 +31,7 @@ suite('test_mow_publish_clone_missing_rowset_fault_injection', 'docker') {
     options.cloudMode = false
     options.enableDebugPoints()
     options.feConfigs += [ "disable_tablet_scheduler=true" ]
-    options.beConfigs += [ "enable_mow_publish_clone_missing_rowset=false" ]
+    options.beConfigs += [ "enable_auto_clone_on_mow_publish_missing_version=false" ]
     options.beNum = 3
     docker(options) {
 
@@ -92,7 +92,7 @@ suite('test_mow_publish_clone_missing_rowset_fault_injection', 'docker') {
             assertFalse(out.contains("[5-5]"))
             assertFalse(out.contains("[6-6]"))
 
-            set_be_param("enable_mow_publish_clone_missing_rowset", "true", injectBe.Host, injectBe.HttpPort);
+            set_be_param("enable_auto_clone_on_mow_publish_missing_version", "true", injectBe.Host, injectBe.HttpPort);
             Thread.sleep(10000)
             // submit clone task
             sql """ INSERT INTO ${tableName} VALUES (6,0)"""

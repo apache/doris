@@ -39,6 +39,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <set>
@@ -81,6 +82,7 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
+#include "vec/common/assert_cast.h"
 
 using std::filesystem::directory_iterator;
 using std::filesystem::path;
@@ -1692,6 +1694,36 @@ Status StorageEngine::_persist_broken_paths() {
         return st;
     }
 
+    return Status::OK();
+}
+
+Status StorageEngine::submit_clone_task(Tablet* tablet, int64_t version) {
+    std::vector<TBackend> backends;
+    if (!get_peers_replica_backends(tablet->tablet_id(), &backends)) {
+        LOG(WARNING) << tablet->tablet_id() << " tablet doesn't have peer replica backends";
+        return Status::InternalError("");
+    }
+    TAgentTaskRequest task;
+    TCloneReq req;
+    req.__set_tablet_id(tablet->tablet_id());
+    req.__set_schema_hash(tablet->schema_hash());
+    req.__set_src_backends(backends);
+    req.__set_version(version);
+    req.__set_replica_id(tablet->replica_id());
+    req.__set_partition_id(tablet->partition_id());
+    req.__set_table_id(tablet->table_id());
+    task.__set_task_type(TTaskType::CLONE);
+    task.__set_clone_req(req);
+    task.__set_priority(TPriority::HIGH);
+    task.__set_signature(tablet->tablet_id());
+    LOG_INFO("BE start to submit missing rowset clone task.")
+            .tag("tablet_id", tablet->tablet_id())
+            .tag("version", version)
+            .tag("replica_id", tablet->replica_id())
+            .tag("partition_id", tablet->partition_id())
+            .tag("table_id", tablet->table_id());
+    RETURN_IF_ERROR(assert_cast<PriorTaskWorkerPool*>(workers->at(TTaskType::CLONE).get())
+                           ->submit_high_prior_and_cancel_low(task));
     return Status::OK();
 }
 

@@ -344,7 +344,9 @@ public:
 
     std::set<std::string> get_broken_paths() { return _broken_paths; }
 
-    PriorTaskWorkerPool* missing_rowset_thread_pool;
+    Status submit_clone_task(Tablet* tablet, int64_t version);
+
+    std::unordered_map<int64_t, std::unique_ptr<TaskWorkerPoolIf>>* workers;
 
 private:
     // Instance should be inited from `static open()`

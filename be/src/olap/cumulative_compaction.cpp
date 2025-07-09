@@ -26,7 +26,6 @@
 #include <ostream>
 #include <vector>
 
-#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_policy.h"
@@ -193,34 +192,23 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                      << ", first missed version prev rowset verison=" << missing_versions[0]
                      << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
-        if (config::enable_compaction_clone_missing_rowset) {
-            std::vector<TBackend> backends;
-            if (!_engine.get_peers_replica_backends(_tablet->tablet_id(), &backends)) {
-                LOG(WARNING) << _tablet->tablet_id() << " tablet don't have peer replica backends";
-                return Status::InternalError("");
-            }
-            TAgentTaskRequest task;
-            TCloneReq req;
-            req.__set_tablet_id(_tablet->tablet_id());
-            req.__set_schema_hash(_tablet->schema_hash());
-            req.__set_src_backends(backends);
-            req.__set_version(missing_versions.back().first);
-            req.__set_replica_id(tablet()->replica_id());
-            req.__set_partition_id(_tablet->partition_id());
-            req.__set_table_id(_tablet->table_id());
-            task.__set_task_type(TTaskType::CLONE);
-            task.__set_clone_req(req);
-            task.__set_priority(TPriority::HIGH);
-            task.__set_signature(_tablet->tablet_id());
-            PriorTaskWorkerPool* thread_pool =
-                    ExecEnv::GetInstance()->storage_engine().to_local().missing_rowset_thread_pool;
+        if (config::enable_auto_clone_on_compaction_missing_version) {
             LOG_INFO("cumulative compaction submit missing rowset clone task.")
                     .tag("tablet_id", _tablet->tablet_id())
                     .tag("version", missing_versions.back().first)
                     .tag("replica_id", tablet()->replica_id())
                     .tag("partition_id", _tablet->partition_id())
                     .tag("table_id", _tablet->table_id());
-            RETURN_IF_ERROR(thread_pool->submit_high_prior_and_cancel_low(task));
+            Status st = _engine.submit_clone_task(tablet(), missing_versions.back().first);
+            if (!st) {
+                LOG_WARNING("cumulative compaction failed to submit missing rowset clone task.")
+                        .tag("st", st.to_string())
+                        .tag("tablet_id", _tablet->tablet_id())
+                        .tag("version", missing_versions.back().first)
+                        .tag("replica_id", tablet()->replica_id())
+                        .tag("partition_id", _tablet->partition_id())
+                        .tag("table_id", _tablet->table_id());
+            }
         }
     }
 

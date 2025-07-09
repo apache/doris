@@ -217,39 +217,23 @@ Status EnginePublishVersionTask::execute() {
                         continue;
                     }
                     auto handle_version_not_continuous = [&]() {
-                        if (config::enable_mow_publish_clone_missing_rowset) {
-                            std::vector<TBackend> backends;
-                            if (!_engine.get_peers_replica_backends(tablet->tablet_id(),
-                                                                    &backends)) {
-                                LOG(WARNING) << tablet->tablet_id()
-                                             << " tablet don't have peer replica backends";
-                            }
-                            TAgentTaskRequest task;
-                            TCloneReq req;
-                            req.__set_tablet_id(tablet->tablet_id());
-                            req.__set_schema_hash(tablet->schema_hash());
-                            req.__set_src_backends(backends);
-                            req.__set_version(version.first - 1);
-                            req.__set_replica_id(tablet->replica_id());
-                            req.__set_partition_id(tablet->partition_id());
-                            req.__set_table_id(tablet->table_id());
-                            task.__set_task_type(TTaskType::CLONE);
-                            task.__set_clone_req(req);
-                            task.__set_priority(TPriority::HIGH);
-                            task.__set_signature(tablet->tablet_id());
-                            PriorTaskWorkerPool* thread_pool = ExecEnv::GetInstance()
-                                                                       ->storage_engine()
-                                                                       .to_local()
-                                                                       .missing_rowset_thread_pool;
-                            LOG_INFO("cumulative compaction submit missing rowset clone task.")
+                        if (config::enable_auto_clone_on_mow_publish_missing_version) {
+                            LOG_INFO("mow publish submit missing rowset clone task.")
                                     .tag("tablet_id", tablet->tablet_id())
                                     .tag("version", version.first - 1)
                                     .tag("replica_id", tablet->replica_id())
                                     .tag("partition_id", tablet->partition_id())
                                     .tag("table_id", tablet->table_id());
-                            auto st = thread_pool->submit_high_prior_and_cancel_low(task);
-                            if (!st.ok()) {
-                                LOG_WARNING("mow clone missing rowset fail");
+                            Status st = _engine.submit_clone_task(tablet.get(), version.first - 1);
+                            if (!st) {
+                                LOG_WARNING(
+                                        "mow publish failed to submit missing rowset clone task.")
+                                        .tag("st", st.to_string())
+                                        .tag("tablet_id", tablet->tablet_id())
+                                        .tag("version", version.first - 1)
+                                        .tag("replica_id", tablet->replica_id())
+                                        .tag("partition_id", tablet->partition_id())
+                                        .tag("table_id", tablet->table_id());
                             }
                         }
                         add_error_tablet_id(tablet_info.tablet_id);
