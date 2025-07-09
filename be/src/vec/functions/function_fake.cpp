@@ -152,14 +152,6 @@ void register_table_function_expand(SimpleFunctionFactory& factory, const std::s
     factory.register_function<FunctionFake<FunctionImpl>>(name + suffix);
 };
 
-template <typename FunctionImpl>
-void register_table_alternative_function_expand(SimpleFunctionFactory& factory,
-                                                const std::string& name,
-                                                const std::string& suffix) {
-    factory.register_alternative_function<FunctionFake<FunctionImpl>>(name);
-    factory.register_alternative_function<FunctionFake<FunctionImpl>>(name + suffix);
-};
-
 template <typename ReturnType, bool VARIADIC>
 void register_table_function_expand_default(SimpleFunctionFactory& factory, const std::string& name,
                                             const std::string& suffix) {
@@ -169,26 +161,9 @@ void register_table_function_expand_default(SimpleFunctionFactory& factory, cons
             name + suffix);
 };
 
-template <typename ReturnType, bool VARIADIC>
-void register_table_alternative_function_expand_default(SimpleFunctionFactory& factory,
-                                                        const std::string& name,
-                                                        const std::string& suffix) {
-    factory.register_alternative_function<
-            FunctionFake<FunctionFakeBaseImpl<ReturnType, false, VARIADIC>>>(name);
-    factory.register_alternative_function<
-            FunctionFake<FunctionFakeBaseImpl<ReturnType, true, VARIADIC>>>(name + suffix);
-};
-
 template <typename FunctionImpl>
 void register_table_function_expand_outer(SimpleFunctionFactory& factory, const std::string& name) {
     register_table_function_expand<FunctionImpl>(factory, name, COMBINATOR_SUFFIX_OUTER);
-};
-
-template <typename FunctionImpl>
-void register_table_alternative_function_expand_outer(SimpleFunctionFactory& factory,
-                                                      const std::string& name) {
-    register_table_alternative_function_expand<FunctionImpl>(factory, name,
-                                                             COMBINATOR_SUFFIX_OUTER);
 };
 
 template <typename ReturnType, bool VARIADIC>
@@ -196,13 +171,6 @@ void register_table_function_expand_outer_default(SimpleFunctionFactory& factory
                                                   const std::string& name) {
     register_table_function_expand_default<ReturnType, VARIADIC>(factory, name,
                                                                  COMBINATOR_SUFFIX_OUTER);
-};
-
-template <typename ReturnType, bool VARIADIC>
-void register_table_alternative_function_expand_outer_default(SimpleFunctionFactory& factory,
-                                                              const std::string& name) {
-    register_table_alternative_function_expand_default<ReturnType, VARIADIC>(
-            factory, name, COMBINATOR_SUFFIX_OUTER);
 };
 
 template <typename FunctionImpl>
@@ -214,8 +182,10 @@ void register_table_function_with_impl(SimpleFunctionFactory& factory, const std
 void register_function_fake(SimpleFunctionFactory& factory) {
     register_function<FunctionEsquery>(factory, "esquery");
 
-    register_table_function_expand_outer<FunctionExplodeV2>(factory, "explode");
-    register_table_alternative_function_expand_outer<FunctionExplode>(factory, "explode");
+    register_table_function_expand_outer<FunctionExplodeV2>(factory, "explode_v2");
+    register_table_function_expand_outer<FunctionExplode>(factory, "explode_v1");
+    factory.register_alias("explode_v1", "explode");
+    factory.register_alias("explode_v1_outer", "explode_outer");
 
     register_table_function_expand_outer<FunctionExplodeMap>(factory, "explode_map");
 

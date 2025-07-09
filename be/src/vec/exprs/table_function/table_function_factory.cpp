@@ -63,11 +63,12 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
                 {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
                 {"posexplode", TableFunctionCreator<VPosExplodeTableFunction> {}},
-                {"explode", TableFunctionCreator<VExplodeV2TableFunction> {}},
-                {"explode_old", TableFunctionCreator<VExplodeTableFunction> {}}};
+                {"explode_v2", TableFunctionCreator<VExplodeV2TableFunction> {}},
+                {"explode_v1", TableFunctionCreator<VExplodeTableFunction> {}}};
 
-const std::unordered_map<std::string, std::string> TableFunctionFactory::_function_to_replace = {
-        {"explode", "explode_old"}};
+// key is alias name ---> function name
+std::unordered_map<std::string, std::string> TableFunctionFactory::_function_alias = {
+        {"explode", "explode_v1"}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* pool,
                                     TableFunction** fn,
@@ -76,7 +77,9 @@ Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* 
     std::string fn_name_real =
             is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;
 
-    temporary_function_update(be_version, fn_name_real);
+    if (_function_alias.contains(fn_name_real)) {
+        fn_name_real = _function_alias[fn_name_real];
+    }
 
     auto fn_iterator = _function_map.find(fn_name_real);
     if (fn_iterator != _function_map.end()) {

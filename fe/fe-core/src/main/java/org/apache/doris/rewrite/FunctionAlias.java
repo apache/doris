@@ -42,7 +42,8 @@ public final class FunctionAlias implements ExprRewriteRule {
             .put("inet6_aton", "ipv6_string_to_num_or_null").put("lcase", "lower").put("add_months", "months_add")
             .put("current_timestamp", "now").put("localtime", "now").put("localtimestamp", "now").put("nvl", "ifnull")
             .put("rand", "random").put("sha", "sha1").put("substr", "substring").put("ucase", "upper")
-            .put("approx_count_distinct", "ndv").build();
+            .put("approx_count_distinct", "ndv").put("explode", "explode_v2").put("explode_outer", "explode_v2_outer")
+            .build();
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
