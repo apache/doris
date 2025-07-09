@@ -47,6 +47,8 @@ public:
     bool has_enough_capacity(const IColumn& src) const override { return false; }
     int compare_at(size_t, size_t, const IColumn&, int) const override { return 0; }
 
+    PrimitiveType get_primitive_type() const override { return TYPE_NULL; }
+
     [[noreturn]] Field operator[](size_t) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Cannot get value from {}", get_name());
         __builtin_unreachable();

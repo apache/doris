@@ -112,6 +112,8 @@ private:
 public:
     ColumnPtr convert_to_full_column() const;
 
+    PrimitiveType get_primitive_type() const override { return data->get_primitive_type(); }
+
     ColumnPtr convert_to_full_column_if_const() const override {
         return convert_to_full_column()->convert_to_full_column_if_const();
     }

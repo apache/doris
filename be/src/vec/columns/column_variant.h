@@ -374,6 +374,8 @@ public:
 
     void clear_subcolumns_data();
 
+    PrimitiveType get_primitive_type() const override { return TYPE_VARIANT; }
+
     std::string get_name() const override {
         if (is_scalar_variant()) {
             return "variant_scalar(" + get_root()->get_name() + ")";

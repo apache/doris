@@ -105,6 +105,8 @@ public:
     // TODO: Make dict memory usage more precise
     size_t byte_size() const override { return _codes.size() * sizeof(_codes[0]); }
 
+    PrimitiveType get_primitive_type() const override { return INVALID_TYPE; }
+    
     size_t allocated_bytes() const override { return byte_size(); }
 
     bool has_enough_capacity(const IColumn& src) const override {

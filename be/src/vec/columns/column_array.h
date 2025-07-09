@@ -30,6 +30,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -117,6 +118,8 @@ public:
     }
 
     void shrink_padding_chars() override;
+
+    PrimitiveType get_primitive_type() const override { return TYPE_ARRAY; }
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnOffset64;
