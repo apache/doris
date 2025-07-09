@@ -324,7 +324,7 @@ public:
         vec_res.resize(input_rows_count * (IPV6_MAX_TEXT_LENGTH + 1));
         offsets_res.resize(input_rows_count);
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
 
         unsigned char ipv6_address_data[IPV6_BINARY_LENGTH];
 
