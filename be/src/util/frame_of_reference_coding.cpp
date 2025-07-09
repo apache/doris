@@ -426,52 +426,30 @@ template <typename T>
 template <typename U>
 void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, int bit_width,
                                         T* output) {
-    U s = 0;
+    static_assert(std::is_same<U, int64_t>::value || std::is_same<U, __int128_t>::value,
+                  "bit_unpack_optimize only supports U = int64_t or __int128_t");
+    U s = 0; // Temporary buffer for bitstream: aggregates input bytes into a large integer for unpacking
     int valid_bit = 0; // How many valid bits
     int need_bit = 0;  // still need
     T output_mask = ((static_cast<T>(1)) << bit_width) - 1;
-    int u_size = sizeof(U);                            // Size of U
     size_t input_size = (in_num * bit_width + 7) >> 3; // input's size
     int full_batch_size =
             (input_size / u_size) * u_size;     // Adjust input_size to a multiple of u_size
     int tail_count = input_size & (u_size - 1); // The remainder of input_size modulo u_size.
     // The number of bits in input to adjust to multiples of 8 and thus more
     int more_bit = (input_size << 3) - (in_num * bit_width);
+    constexpr int shift_size = sizeof(int64_t); // For moving s
+    constexpr int u_size = sizeof(U);           // Size of U
 
     for (int i = 0; i < full_batch_size; i += u_size) {
-        s |= static_cast<U>(input[i]);
-        s <<= 8;
-        s |= static_cast<U>(input[i + 1]);
-        s <<= 8;
-        s |= static_cast<U>(input[i + 2]);
-        s <<= 8;
-        s |= static_cast<U>(input[i + 3]);
-        s <<= 8;
-        s |= static_cast<U>(input[i + 4]);
-        s <<= 8;
-        s |= static_cast<U>(input[i + 5]);
-        s <<= 8;
-        s |= static_cast<U>(input[i + 6]);
-        s <<= 8;
-        s |= static_cast<U>(input[i + 7]);
+        s = 0;
 
-        if (u_size == 16) {
-            s <<= 8;
-            s |= static_cast<U>(input[i + 8]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 9]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 10]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 11]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 12]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 13]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 14]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 15]);
+        s |= *((int64_t*)(intput + i));
+        s <<= shift_size * 8;
+
+        if constexpr (u_size == 16) {
+            s |= *((int64_t*)(intput + i + 8));
+            s <<= shift_size * 8;
         }
 
         // Determine what the valid bits are based on u_size
@@ -517,8 +495,6 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
         } else {
             need_bit = 0;
         }
-
-        s = 0;
     }
 
     // remainder
