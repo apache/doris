@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
@@ -109,20 +110,25 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
                 getDbName(), getName(), false);
     }
 
-    private void addOneColumn(UpdateSchema updateSchema, Column column) {
+    private void addOneColumn(UpdateSchema updateSchema, Column column)
+            throws DdlException {
+        if (!column.isAllowNull()) {
+            throw new DdlException("can't add a non-nullable column to an Iceberg table");
+        }
         org.apache.iceberg.types.Type dorisType = IcebergUtils.dorisTypeToIcebergType(column.getType());
         Literal<?> defaultValue = IcebergUtils.parseIcebergLiteral(column.getDefaultValue(), dorisType);
-        if (column.isAllowNull()) {
-            updateSchema.addColumn(column.getName(), dorisType, column.getComment(), defaultValue);
-        } else {
-            updateSchema.addRequiredColumn(column.getName(), dorisType, column.getComment(), defaultValue);
-        }
+        updateSchema.addColumn(column.getName(), dorisType, column.getComment(), defaultValue);
     }
 
     @Override
-    public void addColumn(Column column) throws DdlException {
+    public void addColumn(Column column, ColumnPosition columnPosition) throws DdlException {
         UpdateSchema updateSchema = table.updateSchema();
         addOneColumn(updateSchema, column);
+        if (columnPosition.isFirst()) {
+            updateSchema.moveFirst(column.getName());
+        } else {
+            updateSchema.moveAfter(column.getName(), columnPosition.getLastCol());
+        }
         try {
             catalog.getPreExecutionAuthenticator().execute(() -> {
                 updateSchema.commit();
@@ -184,13 +190,23 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
-    public void updateColumn(Column column) throws DdlException {
+    public void updateColumn(Column column, ColumnPosition columnPosition) throws DdlException {
         org.apache.iceberg.types.Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
         if (!icebergType.isPrimitiveType()) {
             throw new DdlException("Update column type to non-primitive type is not supported: " + column.getType());
         }
         UpdateSchema updateSchema = table.updateSchema().updateColumn(column.getName(), icebergType.asPrimitiveType(),
                 column.getComment());
+        if (column.isAllowNull()) {
+            // we can change a required column to optional, but not the other way around
+            // because we don't know whether there is existing data with null values.
+            updateSchema.makeColumnOptional(column.getName());
+        }
+        if (columnPosition.isFirst()) {
+            updateSchema.moveFirst(column.getName());
+        } else {
+            updateSchema.moveAfter(column.getName(), columnPosition.getLastCol());
+        }
         try {
             catalog.getPreExecutionAuthenticator().execute(() -> {
                 updateSchema.commit();
