@@ -506,7 +506,7 @@ TEST(DetachSchemaKVTest, RowsetTest) {
     auto insert_and_get_rowset = [&meta_service](int64_t table_id, int64_t index_id,
                                                  int64_t partition_id, int64_t tablet_id,
                                                  int label_base,
-                                                 google::protobuf::Arena* arena = nullptr,
+                                                 google::protobuf::Arena& arena = nullptr,
                                                  const TabletSchemaCloudPB* schema = nullptr) {
         config::write_schema_kv = false;
         std::mt19937 rng(std::chrono::system_clock::now().time_since_epoch().count());
@@ -631,7 +631,7 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
     auto insert_existed_rowset = [&meta_service](int64_t table_id, int64_t index_id,
                                                  int64_t partition_id, int64_t tablet_id,
                                                  int64_t txn_id,
-                                                 google::protobuf::Arena* arena = nullptr) {
+                                                 google::protobuf::Arena& arena = nullptr) {
         config::write_schema_kv = true;
         ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
                                               tablet_id, next_rowset_id(), 1));
