@@ -407,17 +407,18 @@ public class InternalSchemaInitializer extends Thread {
         }
 
         String template =
-                "CREATE TABLE IF NOT EXISTS `" + catalogName + "`.`" + dbName + "`.`" + tableName + "` (\n"
-                        + "{COLUMN_DEFINITIONS}\n"
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
                         + ") ENGINE = olap\n"
-                        + "UNIQUE KEY(" + uniqueKeyStr + ")\n"
+                        + "UNIQUE KEY(%s)\n"
                         + "COMMENT \"Doris internal statistics table, DO NOT MODIFY IT\"\n"
-                        + "DISTRIBUTED BY HASH(" + uniqueKeyStr + ")\n"
-                        + "BUCKETS " + bucketNum + "\n"
-                        + "PROPERTIES (" + getPropertyStr(properties) + ")";
+                        + "DISTRIBUTED BY HASH(%s)\n"
+                        + "BUCKETS %d\n"
+                        + "PROPERTIES (%s)";
 
-        return template.replace("{COLUMN_DEFINITIONS}",
-                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)));
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), uniqueKeyStr, uniqueKeyStr,
+                bucketNum, getPropertyStr(properties));
     }
 
     private static String getAuditLogCreateSql() throws UserException {
@@ -439,8 +440,8 @@ public class InternalSchemaInitializer extends Thread {
         };
 
         String template =
-                "CREATE TABLE IF NOT EXISTS `" + catalogName + "`.`" + dbName + "`.`" + tableName + "` (\n"
-                        + "{COLUMN_DEFINITIONS}\n"
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
                         + ") ENGINE = olap\n"
                         + "DUPLICATE KEY(`query_id`, `time`, `client_ip`)\n"
                         + "COMMENT \"Doris internal audit table, DO NOT MODIFY IT\"\n"
@@ -450,9 +451,9 @@ public class InternalSchemaInitializer extends Thread {
                         + ")\n"
                         + "DISTRIBUTED BY HASH(`query_id`)\n"
                         + "BUCKETS 2\n"
-                        + "PROPERTIES (" + getPropertyStr(properties) + ")";
-        return template.replace("{COLUMN_DEFINITIONS}",
-                generateColumnDefinitions(InternalSchema.getCopiedSchema(AuditLoader.AUDIT_LOG_TABLE)));
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
     }
 
     private static String getPropertyStr(Map<String, String> properties) {
