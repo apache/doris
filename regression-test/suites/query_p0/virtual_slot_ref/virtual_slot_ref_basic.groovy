@@ -16,7 +16,7 @@
 // under the License.
 
 suite("virtual_slot_ref_basic") {
-    sql """drop table if exists  virtual_slot_ref_basic;"""
+    sql "drop table if exists virtual_slot_ref_basic;"
     sql """
     CREATE TABLE `virtual_slot_ref_basic` (
         `id` int NULL,

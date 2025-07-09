@@ -1410,6 +1410,10 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                     _opts.runtime_state->get_query_ctx()->get_runtime_predicate(id);
             _col_predicates.push_back(
                     runtime_predicate.get_predicate(_opts.topn_filter_target_node_id).get());
+            VLOG_DEBUG << fmt::format(
+                    "After appending topn filter to col_predicates, "
+                    "col_predicates size: {}, col_predicate: {}",
+                    _col_predicates.size(), _col_predicates.back()->debug_string());
         }
     }
 
@@ -1567,14 +1571,16 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     VLOG_DEBUG << fmt::format(
             "Laze materialization init end. "
             "lazy_materialization_read: {}, "
+            "_col_predicates size: {}, "
             "_cols_read_by_column_predicate: [{}], "
             "_non_predicate_columns: [{}], "
             "_cols_read_by_common_expr: [{}], "
             "columns_to_filter: [{}], "
             "_schema_block_id_map: [{}]",
-            _lazy_materialization_read, fmt::join(_cols_read_by_column_predicate, ","),
-            fmt::join(_non_predicate_columns, ","), fmt::join(_cols_read_by_common_expr, ","),
-            fmt::join(_columns_to_filter, ","), fmt::join(_schema_block_id_map, ","));
+            _lazy_materialization_read, _col_predicates.size(),
+            fmt::join(_cols_read_by_column_predicate, ","), fmt::join(_non_predicate_columns, ","),
+            fmt::join(_cols_read_by_common_expr, ","), fmt::join(_columns_to_filter, ","),
+            fmt::join(_schema_block_id_map, ","));
     return Status::OK();
 }
 
@@ -1743,12 +1749,6 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
             fmt::join(_non_predicate_columns, ","), fmt::join(_schema_block_id_map, ","));
     for (auto cid : _non_predicate_columns) {
         auto loc = _schema_block_id_map[cid];
-        bool return_column_is_nothing =
-                vectorized::check_and_get_column<const vectorized::ColumnNothing>(
-                        _current_return_columns[cid].get());
-        if (return_column_is_nothing) {
-            VLOG_DEBUG << fmt::format("Column {} of pos {} will be ColumnNothing.", cid, loc);
-        }
         // if loc > block->columns() means the column is delete column and should
         // not output by block, so just skip the column.
         if (loc < block->columns()) {
@@ -1756,8 +1756,20 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
                     vectorized::check_and_get_column<const vectorized::ColumnNothing>(
                             block->get_by_position(loc).column.get());
             bool column_is_normal = !_vir_cid_to_idx_in_block.contains(cid);
+            bool return_column_is_nothing =
+                    vectorized::check_and_get_column<const vectorized::ColumnNothing>(
+                            _current_return_columns[cid].get());
+            LOG_INFO(
+                    "Cid {} loc {}, column_in_block_is_nothing {}, column_is_normal {}, "
+                    "return_column_is_nothing {}",
+                    cid, loc, column_in_block_is_nothing, column_is_normal,
+                    return_column_is_nothing);
+
             if (column_in_block_is_nothing || column_is_normal) {
                 block->replace_by_position(loc, std::move(_current_return_columns[cid]));
+                VLOG_DEBUG << fmt::format(
+                        "Output non-predicate column, cid: {}, loc: {}, col_name: {}", cid, loc,
+                        _schema->column(cid)->name());
             }
             // Means virtual column in block has been materialized(maybe by common expr).
             // so do nothing here.
