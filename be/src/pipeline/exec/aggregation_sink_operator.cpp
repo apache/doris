@@ -59,23 +59,24 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     SCOPED_TIMER(Base::_init_timer);
     _agg_data = Base::_shared_state->agg_data.get();
     _agg_arena_pool = Base::_shared_state->agg_arena_pool.get();
-    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
+    _hash_table_size_counter = ADD_COUNTER(custom_profile(), "HashTableSize", TUnit::UNIT);
     _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _serialize_key_arena_memory_usage = ADD_COUNTER_WITH_LEVEL(
-            Base::profile(), "MemoryUsageSerializeKeyArena", TUnit::BYTES, 1);
+            Base::custom_profile(), "MemoryUsageSerializeKeyArena", TUnit::BYTES, 1);
 
-    _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
-    _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
-    _expr_timer = ADD_TIMER(Base::profile(), "ExprTime");
-    _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
-    _hash_table_limit_compute_timer = ADD_TIMER(Base::profile(), "DoLimitComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
-    _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
+    _build_timer = ADD_TIMER(Base::custom_profile(), "BuildTime");
+    _merge_timer = ADD_TIMER(Base::custom_profile(), "MergeTime");
+    _expr_timer = ADD_TIMER(Base::custom_profile(), "ExprTime");
+    _deserialize_data_timer = ADD_TIMER(Base::custom_profile(), "DeserializeAndMergeTime");
+    _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
+    _hash_table_limit_compute_timer = ADD_TIMER(Base::custom_profile(), "DoLimitComputeTime");
+    _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
+    _hash_table_input_counter =
+            ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
 
-    _memory_usage_container = ADD_COUNTER(profile(), "MemoryUsageContainer", TUnit::BYTES);
-    _memory_usage_arena = ADD_COUNTER(profile(), "MemoryUsageArena", TUnit::BYTES);
+    _memory_usage_container = ADD_COUNTER(custom_profile(), "MemoryUsageContainer", TUnit::BYTES);
+    _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
 
     return Status::OK();
 }

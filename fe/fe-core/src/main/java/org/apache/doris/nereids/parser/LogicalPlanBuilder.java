@@ -437,6 +437,7 @@ import org.apache.doris.nereids.DorisParser.UninstallPluginContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UnlockTablesContext;
 import org.apache.doris.nereids.DorisParser.UnsupportedContext;
+import org.apache.doris.nereids.DorisParser.UnsupportedStartTransactionContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
 import org.apache.doris.nereids.DorisParser.UpdateContext;
@@ -810,6 +811,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWorkloadGroupsCommand;
+import org.apache.doris.nereids.trees.plans.commands.StartTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
@@ -948,6 +950,8 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
+import org.apache.doris.nereids.trees.plans.commands.load.MysqlDataDescription;
+import org.apache.doris.nereids.trees.plans.commands.load.MysqlLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
@@ -1622,6 +1626,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             alterMTMVInfo = new AlterMTMVReplaceInfo(mvName, newName, properties);
         }
         return new AlterMTMVCommand(alterMTMVInfo);
+    }
+
+    @Override
+    public Object visitUnsupportedStartTransaction(UnsupportedStartTransactionContext ctx) {
+        return new StartTransactionCommand();
     }
 
     @Override
@@ -2973,9 +2982,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
                     }
                     if (ctx.windowSpec() != null) {
-                        if (isDistinct) {
-                            throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
-                        }
                         return withWindowSpec(ctx.windowSpec(), new Count());
                     }
                     return new Count();
@@ -2988,7 +2994,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params);
                 if (ctx.windowSpec() != null) {
-                    if (isDistinct) {
+                    if (isDistinct
+                            && !("count".equalsIgnoreCase(functionName))
+                            && !("sum".equalsIgnoreCase(functionName))
+                            && !("group_concat".equalsIgnoreCase(functionName))) {
                         throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
                     }
                     return withWindowSpec(ctx.windowSpec(), function);
@@ -7458,6 +7467,99 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public List<Expression> visitColMappingList(DorisParser.ColMappingListContext ctx) {
+        List<Expression> columnMappingList;
+        if (ctx != null) {
+            columnMappingList = new ArrayList<>();
+            for (DorisParser.MappingExprContext mappingExpr : ctx.mappingSet) {
+                UnboundSlot left = new UnboundSlot(mappingExpr.mappingCol.getText());
+                Expression right = getExpression(mappingExpr.expression());
+                EqualTo equalTo = new EqualTo(left, right);
+                columnMappingList.add(equalTo);
+            }
+        } else {
+            columnMappingList = ImmutableList.of();
+        }
+        return columnMappingList;
+    }
+
+    @Override
+    public MysqlDataDescription visitMysqlDataDesc(DorisParser.MysqlDataDescContext ctx) {
+        List<String> filePaths = new ArrayList<>();
+        filePaths.add(stripQuotes(ctx.filePath.getText()));
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
+        boolean isClientLocal = ctx.LOCAL() != null;
+
+        List<String> partitions;
+        if (ctx.partition != null) {
+            partitions = visitIdentifierList(ctx.partition);
+        } else {
+            partitions = ImmutableList.of();
+        }
+        PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false, partitions);
+
+        Optional<String> columnSeparator;
+        Optional<String> lineDelimiter;
+        if (ctx.comma != null) {
+            columnSeparator = Optional.of(ctx.comma.getText().substring(1, ctx.comma.getText().length() - 1));
+        } else {
+            columnSeparator = Optional.empty();
+        }
+        if (ctx.separator != null) {
+            lineDelimiter = Optional.of(ctx.separator.getText().substring(1, ctx.separator.getText().length() - 1));
+        } else {
+            lineDelimiter = Optional.empty();
+        }
+
+        int skipLines = ctx.skipLines() == null
+                ? 0 : Integer.parseInt(ctx.skipLines().INTEGER_VALUE().getText());
+
+        List<String> columns;
+        if (ctx.columns != null) {
+            columns = visitIdentifierList(ctx.columns);
+        } else {
+            columns = ImmutableList.of();
+        }
+
+        List<Expression> columnMappingList = visitColMappingList(ctx.colMappingList());
+
+        Map<String, String> properties;
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyItemList(ctx.propertyClause().propertyItemList());
+        } else {
+            properties = ImmutableMap.of();
+        }
+
+        MysqlDataDescription mysqlDataDescription = new MysqlDataDescription(
+                filePaths,
+                tableNameInfo,
+                isClientLocal,
+                partitionNamesInfo,
+                columnSeparator,
+                lineDelimiter,
+                skipLines,
+                columns,
+                columnMappingList,
+                properties
+        );
+        return mysqlDataDescription;
+    }
+
+    @Override
+    public LogicalPlan visitMysqlLoad(DorisParser.MysqlLoadContext ctx) {
+        MysqlDataDescription mysqlDataDescription = visitMysqlDataDesc(ctx.mysqlDataDesc());
+        Map<String, String> properties;
+        if (ctx.properties != null) {
+            properties = new HashMap<>();
+            properties.putAll(visitPropertyItemList(ctx.properties));
+        } else {
+            properties = ImmutableMap.of();
+        }
+        String comment = visitCommentSpec(ctx.commentSpec());
+        return new MysqlLoadCommand(mysqlDataDescription, properties, comment);
+    }
+
+    @Override
     public LogicalPlan visitCancelAlterTable(DorisParser.CancelAlterTableContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
 
@@ -7603,6 +7705,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
+    @Override
     public LogicalPlan visitDropResource(DorisParser.DropResourceContext ctx) {
         boolean ifExist = ctx.EXISTS() != null;
         String resouceName = visitIdentifierOrText(ctx.identifierOrText());

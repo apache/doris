@@ -20,7 +20,7 @@ suite("test_json_extract") {
     qt_sql_string2 """ SELECT JSON_EXTRACT_STRING(null, '\$.k1'); """
     qt_sql_string3 """ SELECT JSON_EXTRACT_STRING('{"k1":"v31","k2":300}', NULL); """
     qt_sql_string4 """ SELECT JSON_EXTRACT_STRING('{"k1":"v31","k2":{"sub_key": 1234.56}}', '\$.k2.sub_key'); """
-    qt_sql_string5 """ SELECT JSON_EXTRACT_STRING(json_array("abc", 123, STR_TO_DATE('2025-06-05 14:47:01', '%Y-%m-%d %H:%i:%s')), '\$.[2]'); """
+    qt_sql_string5 """ SELECT JSON_EXTRACT_STRING(json_array("abc", 123, '2025-06-05 14:47:01'), '\$.[2]'); """
     qt_sql_string6 """ SELECT JSON_EXTRACT_STRING('{"k1":"v31","k2": null}', '\$.k2'); """
     qt_sql_string7 """ SELECT JSON_EXTRACT_STRING('{"k1":"v31","k2":300}', '\$.k3'); """
 
@@ -28,4 +28,12 @@ suite("test_json_extract") {
         sql """ SELECT JSON_EXTRACT_STRING('{"id": 123, "name": "doris"}', '\$.'); """
         exception "Invalid Json Path for value: \$."
     }
+
+    qt_fix_array_path """
+        select 
+            JSON_EXTRACT('[{"key": [123]}]', '\$[0].key') v1
+            , JSON_EXTRACT('[{"key": [123]}]', '\$.[0].key') v2
+            , JSONB_EXTRACT('[{"key": [123]}]', '\$[0].key') v3
+            , JSONB_EXTRACT('[{"key": [123]}]', '\$.[0].key') v4;
+    """
 }

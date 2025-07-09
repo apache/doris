@@ -57,6 +57,7 @@ import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
+import org.apache.doris.nereids.rules.rewrite.DistinctWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
@@ -144,6 +145,7 @@ import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.SplitMultiDistinct;
+import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
@@ -290,6 +292,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("Window analysis",
                         topDown(
                                 new ExtractAndNormalizeWindowExpression(),
+                                new DistinctWindowExpression(),
                                 new CheckAndStandardizeWindowFunctionAndFrame(),
                                 new SimplifyWindowExpression()
                         )
@@ -660,6 +663,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                         () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
                                 )
                         ),
+                        topic("stats related jobs",
+                                custom(RuleType.STATS_DERIVER, StatsDerive::new)),
                         topic("whole plan check",
                                 custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                         ),

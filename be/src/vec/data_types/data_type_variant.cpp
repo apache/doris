@@ -119,7 +119,7 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
         std::string meta_binary;
         column_meta_pb.SerializeToString(&meta_binary);
         // Safe cast
-        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(meta_binary.size());
+        unaligned_store<uint32_t>(buf, static_cast<UInt32>(meta_binary.size()));
         buf += sizeof(uint32_t);
         memcpy(buf, meta_binary.data(), meta_binary.size());
         buf += meta_binary.size();
@@ -129,10 +129,10 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
     }
     // serialize num of subcolumns
     // Safe case
-    *reinterpret_cast<uint32_t*>(size_pos) = static_cast<UInt32>(num_of_columns);
+    unaligned_store<uint32_t>(size_pos, static_cast<UInt32>(num_of_columns));
     // serialize num of rows, only take effect when subcolumns empty
     if (be_exec_version >= VARIANT_SERDE) {
-        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(column_variant.rows());
+        unaligned_store<uint32_t>(buf, static_cast<UInt32>(column_variant.rows()));
         buf += sizeof(uint32_t);
     }
 
@@ -157,13 +157,13 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
     auto column_variant = assert_cast<ColumnVariant*>(column->get());
 
     // 1. deserialize num of subcolumns
-    uint32_t num_subcolumns = *reinterpret_cast<const uint32_t*>(buf);
+    uint32_t num_subcolumns = unaligned_load<uint32_t>(buf);
     buf += sizeof(uint32_t);
 
     // 2. deserialize each subcolumn in a loop
     for (uint32_t i = 0; i < num_subcolumns; i++) {
         // 2.1 deserialize subcolumn column path (str size + str data)
-        uint32_t size = *reinterpret_cast<const uint32_t*>(buf);
+        uint32_t size = unaligned_load<uint32_t>(buf);
         buf += sizeof(uint32_t);
         std::string meta_binary {buf, size};
         buf += size;
@@ -189,7 +189,7 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
     size_t num_rows = 0;
     // serialize num of rows, only take effect when subcolumns empty
     if (be_exec_version >= VARIANT_SERDE) {
-        num_rows = *reinterpret_cast<const uint32_t*>(buf);
+        num_rows = unaligned_load<uint32_t>(buf);
         column_variant->set_num_rows(num_rows);
         buf += sizeof(uint32_t);
     }

@@ -29,6 +29,8 @@ using namespace std;
 
 namespace doris {
 
+class RuntimeProfileTest : public testing::Test {};
+
 TEST(RuntimeProfileTest, Basic) {
     RuntimeProfile profile_a("ProfileA");
     RuntimeProfile profile_a1("ProfileA1");
@@ -298,5 +300,33 @@ TEST(RuntimeProfileTest, InfoStringTest) {
 //     // Adding the same counter again should fail.
 //     EXPECT_THROW(profile.add_counter("counter", TUnit::UNIT), doris::Exception);
 // }
+
+TEST(RuntimeProfileTest, TestGetChild) {
+    // Create root profile
+    RuntimeProfile root("Root");
+
+    // Test get non-existing child
+    ASSERT_EQ(nullptr, root.get_child("NonExistingChild"));
+
+    // Create child1 and verify get_child
+    RuntimeProfile* child1 = root.create_child("Child1");
+    ASSERT_NE(nullptr, child1);
+    ASSERT_EQ(child1, root.get_child("Child1"));
+
+    // Create child2 and verify get_child
+    RuntimeProfile* child2 = root.create_child("Child2");
+    ASSERT_NE(nullptr, child2);
+    ASSERT_EQ(child2, root.get_child("Child2"));
+
+    // Create nested child and verify get_child
+    RuntimeProfile* grandchild = child1->create_child("GrandChild");
+    ASSERT_NE(nullptr, grandchild);
+    ASSERT_EQ(grandchild, child1->get_child("GrandChild"));
+    ASSERT_EQ(nullptr, root.get_child("GrandChild")); // Cannot get grandchild directly from root
+
+    // Verify original children still accessible
+    ASSERT_EQ(child1, root.get_child("Child1"));
+    ASSERT_EQ(child2, root.get_child("Child2"));
+}
 
 } // namespace doris

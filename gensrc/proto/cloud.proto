@@ -794,6 +794,14 @@ message ServiceRegistryPB {
     repeated Item items = 1;
 }
 
+// A special message, to test the message splitting logic.
+message SplitSingleMessagePB {
+    optional KeyBoundsPB segment_key_bounds = 1;
+    optional int64 other_fields = 2;
+
+    optional SplitSchemaPB __split_schema = 3; // A special field, DO NOT change it.
+}
+
 //==============================================================================
 // Rpc structures
 //==============================================================================
@@ -1646,7 +1654,7 @@ message DeleteBitmapUpdateLockPB {
     repeated int64 initiators = 3;
 }
 
-message MowTabletCompactionPB {
+message MowTabletJobPB {
     optional int64 expiration = 1;
 }
 

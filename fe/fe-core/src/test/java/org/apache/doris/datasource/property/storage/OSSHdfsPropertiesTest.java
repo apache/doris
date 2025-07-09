@@ -112,6 +112,18 @@ public class OSSHdfsPropertiesTest {
         origProps.put("oss.endpoint", "cn-north-2-gov-1.oss-dls.aliyuncs.com");
         props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("cn-north-2-gov-1", props.getBackendConfigProperties().get("fs.oss.region"));
+        origProps.put("dlf.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
+        props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("cn-north-2-gov-1", props.getBackendConfigProperties().get("fs.oss.region"));
+        origProps.remove("oss.endpoint");
+        props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("cn-beijing", props.getBackendConfigProperties().get("fs.oss.region"));
+        origProps.put("dlf.endpoint", "dlf-vpc.ap-southeast-5.aliyuncs.com");
+        props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("ap-southeast-5", props.getBackendConfigProperties().get("fs.oss.region"));
+        origProps.put("dlf.endpoint", "dlf.us-east-1.aliyuncs.com");
+        props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-east-1", props.getBackendConfigProperties().get("fs.oss.region"));
     }
 
     @Test
@@ -135,7 +147,7 @@ public class OSSHdfsPropertiesTest {
         origProps.put("oss.secret_key", "testSecretKey");
         origProps.put("oss.region", "cn-shanghai");
         OSSHdfsProperties props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
-        Assertions.assertEquals("HDFS", props.getStorageName());
+        Assertions.assertEquals("OSSHDFS", props.getStorageName());
     }
 
     @Test

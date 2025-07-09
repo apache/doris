@@ -60,6 +60,11 @@ message KeyBoundsPB {
     required bytes max_key = 2;
 }
 
+message SplitSchemaPB {
+    repeated int64 split_field_ids = 1; // The split fields ids
+    optional uint64 num_split_keys = 2; // The num of split keys, used to limit the scan range.
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -141,6 +146,8 @@ message RowsetMetaPB {
     optional bool enable_inverted_index_file_info = 1006;
     repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
     optional SchemaDictKeyList schema_dict_key_list = 1008; // align to cloud rowset
+
+    optional SplitSchemaPB __split_schema = 1009;  // A special field, DO NOT change it.
 }
 
 message SchemaDictKeyList {
@@ -234,6 +241,8 @@ message RowsetMetaCloudPB {
 
     optional bool enable_inverted_index_file_info = 106;
     repeated InvertedIndexFileInfo inverted_index_file_info = 107;
+
+    optional SplitSchemaPB __split_schema = 108;  // A special field, DO NOT change it.
 }
 
 message SegmentStatisticsPB {

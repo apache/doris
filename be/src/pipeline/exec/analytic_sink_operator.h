@@ -88,6 +88,7 @@ private:
     bool _get_next_for_sliding_rows(int64_t current_block_rows, int64_t current_block_base_pos);
 
     void _init_result_columns();
+    template <bool incremental = false>
     void _execute_for_function(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                int64_t frame_end);
     void _insert_result_info(int64_t start, int64_t end);
@@ -144,8 +145,10 @@ private:
     };
     executor _executor;
 
-    bool _current_window_empty = false;
+    std::vector<uint8_t> _use_null_result;
+    std::vector<uint8_t> _could_use_previous_result;
     bool _streaming_mode = false;
+    bool _support_incremental_calculate = true;
     bool _need_more_data = false;
     int64_t _current_row_position = 0;
     int64_t _output_block_index = 0;

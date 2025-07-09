@@ -10,6 +10,8 @@ set(TEST_LINK_LIBS ResourceManager ${TEST_LINK_LIBS})
 
 add_executable(codec_test codec_test.cpp)
 
+add_executable(document_message_test document_message_test.cpp)
+
 add_executable(keys_test keys_test.cpp)
 
 add_executable(doris_txn_test doris_txn_test.cpp)
@@ -111,6 +113,11 @@ target_link_libraries(versionstamp_test ${TEST_LINK_LIBS})
 # FDB related tests need to be linked with libfdb_c
 set(FDB_LINKER_FLAGS "-lfdb_c -L${THIRDPARTY_DIR}/lib")
 
+target_link_libraries(document_message_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS}
+)
+
 target_link_libraries(doris_txn_test
     ${FDB_LINKER_FLAGS}
     ${TEST_LINK_LIBS}
@@ -139,7 +146,7 @@ install(FILES
     ${BASE_DIR}/script/run_all_tests.sh
     ${BASE_DIR}/conf/fdb.cluster
     ${BASE_DIR}/conf/doris_cloud.conf
-    ${BASE_DIR}/conf/lsan_suppression.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
     ${BASE_DIR}/test/fdb_metric_example.json
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
