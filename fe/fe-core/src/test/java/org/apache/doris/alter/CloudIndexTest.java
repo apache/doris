@@ -36,7 +36,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudEnvFactory;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
@@ -76,30 +75,9 @@ import java.util.Map;
 
 public class CloudIndexTest {
     private static final Logger LOG = LogManager.getLogger(CloudIndexTest.class);
-
-    // Simple ComputeGroupMgr wrapper for CloudSystemInfoService
-    public static class ComputeGroupMgr {
-        private final SystemInfoService systemInfoService;
-
-        public ComputeGroupMgr(SystemInfoService systemInfoService) {
-            this.systemInfoService = systemInfoService;
-        }
-
-        public ComputeGroup getComputeGroupByName(String name) {
-            if (systemInfoService instanceof CloudSystemInfoService) {
-                return ((CloudSystemInfoService) systemInfoService).getComputeGroupByName(name);
-            }
-            return null;
-        }
-
-        public ComputeGroup getAllBackendComputeGroup() {
-            // Return a default compute group for all backends
-            return new ComputeGroup("default_compute_group", "default_compute_group",
-                                    ComputeGroup.ComputeTypeEnum.SQL);
-        }
-    }
-
     private static String fileName = "./CloudIndexTest";
+    private static String clusterName = "test_cluster";
+    private static String clusterID = "test_id";
 
     private static FakeEditLog fakeEditLog;
     private static FakeEnv fakeEnv;
@@ -157,7 +135,7 @@ public class CloudIndexTest {
             public Cloud.GetClusterResponse getCluster(Cloud.GetClusterRequest request) {
                 Cloud.GetClusterResponse.Builder getClusterResponseBuilder = Cloud.GetClusterResponse.newBuilder();
                 Cloud.ClusterPB.Builder clusterBuilder = Cloud.ClusterPB.newBuilder();
-                clusterBuilder.setClusterId("test_id").setClusterName("test_group");
+                clusterBuilder.setClusterId(clusterID).setClusterName(clusterName);
 
                 Cloud.NodeInfoPB.Builder node1 = Cloud.NodeInfoPB.newBuilder();
                 node1.setCloudUniqueId("test_cloud")
@@ -252,7 +230,7 @@ public class CloudIndexTest {
         rootUser.setIsAnalyzed();
         ctx.setCurrentUserIdentity(rootUser);
         ctx.setThreadLocalInfo();
-        ctx.setCloudCluster("test_group");
+        ctx.setCloudCluster(clusterName);
         Assert.assertTrue(envFactory instanceof CloudEnvFactory);
         Assert.assertTrue(masterEnv instanceof CloudEnv);
         new MockUp<Env>() {
@@ -270,11 +248,6 @@ public class CloudIndexTest {
                     };
                 }
                 return testEditLog;
-            }
-
-            @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return new ComputeGroupMgr(Env.getCurrentSystemInfo());
             }
 
             @Mock
@@ -302,7 +275,7 @@ public class CloudIndexTest {
         new MockUp<Auth>() {
             @Mock
             public String getDefaultCloudCluster(String user) {
-                return "test_group"; // Return default cluster for test
+                return clusterName; // Return default cluster for test
             }
         };
 
@@ -318,7 +291,7 @@ public class CloudIndexTest {
         new MockUp<ConnectContext>() {
             @Mock
             public String getCloudCluster() {
-                return "test_group";
+                return clusterName;
             }
 
             @Mock
@@ -333,8 +306,6 @@ public class CloudIndexTest {
 
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
-        ComputeGroup pcg1 = new ComputeGroup("test_id", "test_group", ComputeGroup.ComputeTypeEnum.COMPUTE);
-        systemInfo.addComputeGroup("test_id", pcg1);
         Backend backend = new Backend(10001L, "host1", 123);
         backend.setAlive(true);
         backend.setBePort(456);
@@ -342,8 +313,8 @@ public class CloudIndexTest {
         backend.setBrpcPort(321);
         Map<String, String> newTagMap = org.apache.doris.resource.Tag.DEFAULT_BACKEND_TAG.toMap();
         newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_STATUS, "NORMAL");
-        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_NAME, "test_cluster");
-        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_ID, "test_id");
+        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_NAME, clusterName);
+        newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_ID, clusterID);
         newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, "");
         newTagMap.put(org.apache.doris.resource.Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, "");
         newTagMap.put(org.apache.doris.resource.Tag.CLOUD_UNIQUE_ID, "test_cloud");
