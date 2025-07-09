@@ -329,11 +329,14 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
     }
+    /// The exact size to serialize the `row`-th row data in this column.
     virtual size_t serialize_size_at(size_t row) const = 0;
+    /// `serialize_impl` is the implementation to serialize a column into a continuous memory.
     virtual size_t serialize_impl(char* pos, const size_t row) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method serialize_impl is not supported for " + get_name());
     }
+    /// `deserialize_impl` will deserialize data which is serialized by `serialize_impl`.
     virtual size_t deserialize_impl(const char* pos) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_impl is not supported for " + get_name());

@@ -249,9 +249,7 @@ public:
         data.resize(remain_size);
     }
 
-    size_t serialize_size_at(size_t row) const override {
-        return sizeof(data[row]);
-    }
+    size_t serialize_size_at(size_t row) const override { return sizeof(data[row]); }
 
 private:
     Container data;
