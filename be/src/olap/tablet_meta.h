@@ -427,8 +427,8 @@ public:
     /**
      * Move c-tor for making delete bitmap snapshot on read path
      */
-    DeleteBitmap(DeleteBitmap&& r);
-    DeleteBitmap& operator=(DeleteBitmap&& r);
+    DeleteBitmap(DeleteBitmap&& r) noexcept;
+    DeleteBitmap& operator=(DeleteBitmap&& r) noexcept;
 
     /**
      * Makes a snapshot of delete bitmap, read lock will be acquired in this
