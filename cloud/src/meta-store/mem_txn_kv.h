@@ -29,8 +29,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "meta-service/txn_kv_error.h"
 #include "txn_kv.h"
+#include "txn_kv_error.h"
 
 namespace doris::cloud {
 
