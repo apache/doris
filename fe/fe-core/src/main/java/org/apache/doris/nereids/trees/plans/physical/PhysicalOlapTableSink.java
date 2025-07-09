@@ -188,7 +188,8 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, singleReplicaLoad,
-                isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, groupExpression, getLogicalProperties(), child());
+                isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, groupExpression, getLogicalProperties(),
+                        child());
     }
 
     @Override

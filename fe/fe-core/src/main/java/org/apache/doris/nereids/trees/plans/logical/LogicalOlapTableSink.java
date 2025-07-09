@@ -168,7 +168,8 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                partialUpdateNewKeyPolicy, dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
+                partialUpdateNewKeyPolicy, dmlCommandType, groupExpression, Optional.of(getLogicalProperties()),
+                        child());
     }
 
     @Override
