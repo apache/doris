@@ -20,7 +20,6 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
-
 #include <cstring>
 #include <random>
 #include <vector>
@@ -276,7 +275,6 @@ TEST_F(TestForCoding, TestValueSeek) {
     found = decoder.seek_at_or_after_value(&target, &exact_match);
     EXPECT_EQ(found, false);
 }
-
 
 TEST_F(TestForCoding, accuracy_unpack_64_test) {
     std::default_random_engine e;
