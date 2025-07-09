@@ -283,4 +283,5 @@ void convert_field_to_type(const Field& from_value, const IDataType& to_type, Fi
         return convert_field_to_typeImpl(from_value, to_type, from_type_hint, to);
     }
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
