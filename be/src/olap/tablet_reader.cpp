@@ -533,6 +533,12 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             predicates.emplace_back(predicate);
         }
     };
+    LOG_INFO(
+            "conditions {}, bloom_filters {}, bitmap_filters {}, in_filters {}, function_filters "
+            "{}",
+            read_params.conditions.size(), read_params.bloom_filters.size(),
+            read_params.bitmap_filters.size(), read_params.in_filters.size(),
+            read_params.function_filters.size());
 
     for (const auto& param : read_params.conditions) {
         TCondition tmp_cond = param.filter;
@@ -591,6 +597,9 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             _col_predicates.push_back(predicate);
         }
     }
+
+    LOG_INFO("init conditions, col_predicates size={}, value_col_predicates size={}",
+             _col_predicates.size(), _value_col_predicates.size());
 
     for (int id : read_params.topn_filter_source_node_ids) {
         auto& runtime_predicate =

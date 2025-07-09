@@ -185,7 +185,12 @@ class ScanLocalState : public ScanLocalStateBase {
                 continue;
             }
             if (_push_down_topn(pred) == push_down) {
+                LOG_INFO("push down topn filter, source node id: {}, target node id: {}", id,
+                         _parent->node_id());
                 result.push_back(id);
+            } else {
+                LOG_INFO("not push down topn filter, source node id: {}, target node id: {}", id,
+                         _parent->node_id());
             }
         }
         return result;
