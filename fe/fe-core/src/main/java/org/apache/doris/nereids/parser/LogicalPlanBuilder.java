@@ -203,6 +203,7 @@ import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
+import org.apache.doris.nereids.DorisParser.ExpressionWithOrderContext;
 import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.FunctionArgumentsContext;
@@ -3379,6 +3380,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
+    @Override
+    public GroupKeyWithOrder visitExpressionWithOrder(ExpressionWithOrderContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            boolean hasOrder = ctx.ASC() != null || ctx.DESC() != null;
+            boolean isAsc = ctx.DESC() == null;
+            Expression expression = typedVisit(ctx.expression());
+            return new GroupKeyWithOrder(expression, hasOrder, isAsc);
+        });
+    }
+
     private <T> List<T> visit(List<? extends ParserRuleContext> contexts, Class<T> clazz) {
         return contexts.stream()
                 .map(this::visit)
@@ -3872,7 +3883,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // from -> where -> group by -> having -> select
             LogicalPlan filter = withFilter(inputRelation, whereClause);
             SelectColumnClauseContext selectColumnCtx = selectClause.selectColumnClause();
-            LogicalPlan aggregate = withAggregate(filter, selectColumnCtx, aggClause);
+            List<OrderKey> orderKeys = Lists.newArrayList();
+            LogicalPlan aggregate = withAggregate(filter, selectColumnCtx, aggClause, orderKeys);
             boolean isDistinct = (selectClause.DISTINCT() != null);
             LogicalPlan selectPlan;
             if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
@@ -3890,6 +3902,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (qualifyClause.isPresent()) {
                 Expression qualifyExpr = getExpression(qualifyClause.get().booleanExpression());
                 selectPlan = new LogicalQualify<>(ExpressionUtils.extractConjunctionToSet(qualifyExpr), selectPlan);
+            }
+            if (!orderKeys.isEmpty()) {
+                selectPlan = new LogicalSort<>(orderKeys, selectPlan);
             }
             return selectPlan;
         });
@@ -4166,7 +4181,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withAggregate(LogicalPlan input, SelectColumnClauseContext selectCtx,
-            Optional<AggClauseContext> aggCtx) {
+            Optional<AggClauseContext> aggCtx, List<OrderKey> orderKeys) {
         return input.optionalMap(aggCtx, () -> {
             GroupingElementContext groupingElementContext = aggCtx.get().groupingElement();
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
@@ -4180,13 +4195,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 List<Expression> cubeExpressions = visit(groupingElementContext.expression(), Expression.class);
                 List<List<Expression>> groupingSets = ExpressionUtils.cubeToGroupingSets(cubeExpressions);
                 return new LogicalRepeat<>(groupingSets, namedExpressions, input);
-            } else if (groupingElementContext.ROLLUP() != null) {
+            } else if (groupingElementContext.ROLLUP() != null && groupingElementContext.WITH() == null) {
                 List<Expression> rollupExpressions = visit(groupingElementContext.expression(), Expression.class);
                 List<List<Expression>> groupingSets = ExpressionUtils.rollupToGroupingSets(rollupExpressions);
                 return new LogicalRepeat<>(groupingSets, namedExpressions, input);
             } else {
-                List<Expression> groupByExpressions = visit(groupingElementContext.expression(), Expression.class);
-                return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+                List<GroupKeyWithOrder> groupKeyWithOrders = visit(groupingElementContext.expressionWithOrder(),
+                        GroupKeyWithOrder.class);
+                ImmutableList<Expression> groupByExpressions = groupKeyWithOrders.stream()
+                        .map(GroupKeyWithOrder::getExpr)
+                        .collect(ImmutableList.toImmutableList());
+                if (groupKeyWithOrders.stream().anyMatch(GroupKeyWithOrder::hasOrder)) {
+                    groupKeyWithOrders.stream()
+                            .map(e -> new OrderKey(e.getExpr(), e.isAsc(), e.isAsc()))
+                            .forEach(orderKeys::add);
+                }
+                if (groupingElementContext.ROLLUP() != null) {
+                    List<List<Expression>> groupingSets = ExpressionUtils.rollupToGroupingSets(groupByExpressions);
+                    return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+                } else {
+                    return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+                }
             }
         });
     }
