@@ -127,7 +127,7 @@ function report_coverage() {
         ${binary_objects_options[*]}
 }
 
-export LSAN_OPTIONS=suppressions=./lsan_suppression.conf
+export LSAN_OPTIONS=suppressions=./lsan_suppr.conf
 unittest_files=()
 for i in *_test; do
     [[ -e "${i}" ]] || break
