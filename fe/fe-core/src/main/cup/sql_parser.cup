@@ -733,8 +733,6 @@ nonterminal List<ImportColumnDesc> import_column_descs;
 // unsupported statement
 nonterminal opt_with_consistent_snapshot, opt_work, opt_chain, opt_release;
 
-nonterminal ValueList value_clause;
-
 // No return.
 nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_or_index, opt_storage, opt_wild_where,
             charset, equal, transaction_characteristics, isolation_level,
@@ -4497,18 +4495,6 @@ set_expr_or_default ::=
     :}
     ;
 
-value_clause ::=
-    KW_VALUES row_value:value
-    {:
-        RESULT = new ValueList(value);
-    :}
-    | value_clause:valueClause COMMA row_value:value
-    {:
-        valueClause.addRow(value);
-        RESULT = valueClause;
-    :}
-    ;
-
 row_value ::=
     LPAREN opt_values:values RPAREN
     {:
@@ -4517,11 +4503,6 @@ row_value ::=
     ;
 
 opt_values ::=
-    values:valueList
-    {:
-        RESULT = valueList;
-    :}
-    |
     {:
         RESULT = Lists.newArrayList();
     :}
@@ -4531,11 +4512,6 @@ values ::=
     expr_or_default:value
     {:
         RESULT = Lists.newArrayList(value);
-    :}
-    | values:valueList COMMA expr_or_default:value
-    {:
-        valueList.add(value);
-        RESULT = valueList;
     :}
     ;
 

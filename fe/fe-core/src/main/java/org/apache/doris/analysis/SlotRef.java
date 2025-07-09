@@ -22,7 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -403,11 +402,6 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public void markAgg() {
-        desc.setIsAgg(true);
-    }
-
-    @Override
     public int hashCode() {
         if (desc != null) {
             return desc.getId().hashCode();
@@ -496,21 +490,6 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public boolean hasAggregateSlot() {
-        return desc.getColumn().isAggregated();
-    }
-
-    @Override
-    public boolean hasAutoInc() {
-        return desc.getColumn().isAutoInc();
-    }
-
-    @Override
-    public boolean isRelativedByTupleIds(List<TupleId> tids) {
-        return isBoundByTupleIds(tids);
-    }
-
-    @Override
     public boolean isBound(SlotId slotId) {
         Preconditions.checkState(isAnalyzed);
         return desc.getId().equals(slotId);
@@ -587,10 +566,6 @@ public class SlotRef extends Expr {
         this.table = table;
     }
 
-    public TableIf getTableDirect() {
-        return this.table;
-    }
-
     public TableIf getTable() {
         if (desc == null && table != null) {
             return table;
@@ -601,14 +576,6 @@ public class SlotRef extends Expr {
 
     public void setLabel(String label) {
         this.label = label;
-    }
-
-    public void setSubColPath(List<String> subColPath) {
-        this.subColPath = subColPath;
-    }
-
-    public boolean hasCol() {
-        return this.col != null;
     }
 
     public String getColumnName() {
@@ -641,15 +608,6 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public boolean haveMvSlot(TupleId tid) {
-        if (!isBound(tid)) {
-            return false;
-        }
-        String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
-        return CreateMaterializedViewStmt.isMVColumn(name);
-    }
-
-    @Override
     public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
         if (!forPushDownPredicatesToView) {
             return this;
@@ -669,15 +627,5 @@ public class SlotRef extends Expr {
             return expr;
         }
         return this;
-    }
-
-    @Override
-    public void replaceSlot(TupleDescriptor tuple) {
-        // do not analyze slot after replaceSlot to avoid duplicate columns in desc
-        desc = tuple.getColumnSlot(col);
-        type = desc.getType();
-        if (!isAnalyzed) {
-            analysisDone();
-        }
     }
 }
