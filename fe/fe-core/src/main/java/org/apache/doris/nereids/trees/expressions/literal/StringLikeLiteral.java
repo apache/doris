@@ -130,7 +130,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             return castToIntegral(targetType, strictCast);
         }
         if (targetType.isDateType() || targetType.isDateV2Type()) {
-            Expression expression = castToDateTime(DateTimeV2Type.MAX, strictCast);
+            Expression expression = castToDateTime(DateTimeV2Type.MAX, strictCast, false);
             DateTimeV2Literal datetime = (DateTimeV2Literal) expression;
             if (targetType.isDateType()) {
                 return new DateLiteral(datetime.year, datetime.month, datetime.day);
@@ -138,12 +138,12 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 return new DateV2Literal(datetime.year, datetime.month, datetime.day);
             }
         } else if (targetType.isDateTimeType()) {
-            Expression expression = castToDateTime(DateTimeV2Type.MAX, strictCast);
+            Expression expression = castToDateTime(DateTimeV2Type.MAX, strictCast, true);
             DateTimeV2Literal datetime = (DateTimeV2Literal) expression;
             return new DateTimeLiteral((DateTimeType) targetType, datetime.year, datetime.month, datetime.day,
                     datetime.hour, datetime.minute, datetime.second, datetime.microSecond);
         } else if (targetType.isDateTimeV2Type()) {
-            return castToDateTime(targetType, strictCast);
+            return castToDateTime(targetType, strictCast, true);
         } else if (targetType.isFloatType()) {
             return castToFloat();
         } else if (targetType.isDoubleType()) {
@@ -252,7 +252,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         throw new CastException(String.format("%s can't cast to decimal in strict mode.", value));
     }
 
-    protected Expression castToDateTime(DataType targetType, boolean strictCast) {
+    protected Expression castToDateTime(DataType targetType, boolean strictCast, boolean isDatetime) {
         Matcher strictMatcher = dateStrictPattern.matcher(value);
         String year;
         String month;
@@ -294,7 +294,14 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (tz != null && tz.equalsIgnoreCase("CST")) {
                 tz = "+08:00";
             }
-            return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
+            DateTimeV2Literal dt = getDateTimeLiteral(year, month, date, hour, minute, second,
+                    fraction, tz, targetType);
+            if (isDatetime) {
+                return dt;
+            } else {
+                return new DateTimeV2Literal(Long.parseLong(year), Long.parseLong(month), Long.parseLong(date),
+                        0, 0, 0);
+            }
         } else if (!strictCast) {
             Matcher unStrictMatcher = dateUnStrictPattern.matcher(value);
             if (unStrictMatcher.matches()) {
@@ -309,7 +316,14 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 if (tz != null && tz.equalsIgnoreCase("CST")) {
                     tz = "+08:00";
                 }
-                return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
+                DateTimeV2Literal dt = getDateTimeLiteral(year, month, date, hour, minute, second,
+                        fraction, tz, targetType);
+                if (isDatetime) {
+                    return dt;
+                } else {
+                    return new DateTimeV2Literal(Long.parseLong(year), Long.parseLong(month), Long.parseLong(date),
+                            0, 0, 0);
+                }
             }
         }
         throw new CastException(String.format("[%s] can't cast to %s.", value, targetType));
