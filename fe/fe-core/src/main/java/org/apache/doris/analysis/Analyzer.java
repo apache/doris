@@ -37,7 +37,6 @@ import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -808,116 +807,6 @@ public class Analyzer {
     }
 
     /**
-     * Register tids as being outer-joined by a full outer join clause represented by
-     * rhsRef.
-     */
-    public void registerFullOuterJoinedTids(List<TupleId> tids, TableRef rhsRef) {
-        for (TupleId tid : tids) {
-            globalState.fullOuterJoinedTupleIds.put(tid, rhsRef);
-        }
-        if (LOG.isTraceEnabled()) {
-            LOG.trace("registerFullOuterJoinedTids: " + globalState.fullOuterJoinedTupleIds);
-        }
-    }
-
-    /**
-     * Register tids as being outer-joined by Join clause represented by rhsRef.
-     * All tuple of outer join should be null in slot desc
-     */
-    public void registerOuterJoinedTids(List<TupleId> tids, TableRef rhsRef) {
-        for (TupleId tid : tids) {
-            globalState.outerJoinedTupleIds.put(tid, rhsRef);
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("registerOuterJoinedTids: " + globalState.outerJoinedTupleIds);
-        }
-    }
-
-    public void registerOuterJoinedRightSideTids(List<TupleId> tids) {
-        globalState.outerRightSideJoinTupleIds.addAll(tids);
-    }
-
-    public void registerOuterJoinedLeftSideTids(List<TupleId> tids) {
-        globalState.outerLeftSideJoinTupleIds.addAll(tids);
-    }
-
-    /**
-     * Register the given tuple id as being the invisible side of a semi-join.
-     */
-    public void registerSemiJoinedTid(TupleId tid, TableRef rhsRef) {
-        globalState.semiJoinedTupleIds.put(tid, rhsRef);
-    }
-
-    /**
-     * Register the relationship between any two tables
-     */
-    public void registerAnyTwoTalesJoinOperator(Pair<TupleId, TupleId> tids, JoinOperator joinOperator) {
-        if (joinOperator == null) {
-            joinOperator = JoinOperator.INNER_JOIN;
-        }
-        inferPredicateState.anyTwoTalesJoinOperator.put(tids, joinOperator);
-    }
-
-    public void registerOnSlotEqSlotExpr(Expr expr) {
-        inferPredicateState.onSlotEqSlotExpr.add(expr);
-    }
-
-    public void registerOnSlotEqSlotDeDuplication(Pair<Expr, Expr> pair) {
-        inferPredicateState.onSlotEqSlotDeDuplication.add(pair);
-    }
-
-    public void registerOnSlotToLiteralExpr(Expr expr) {
-        inferPredicateState.onSlotToLiteralExpr.add(expr);
-    }
-
-    public void registerOnSlotToLiteralDeDuplication(Pair<Expr, Expr> pair) {
-        inferPredicateState.onSlotToLiteralDeDuplication.add(pair);
-    }
-
-    public void registerInExpr(Expr expr) {
-        inferPredicateState.onInExpr.add(expr);
-    }
-
-    public void registerInDeDuplication(Expr expr) {
-        inferPredicateState.onInDeDuplication.add(expr);
-    }
-
-    public void registerOnIsNullExpr(Expr expr) {
-        inferPredicateState.onIsNullExpr.add(expr);
-    }
-
-    public void registerOnIsNullDeDuplication(Expr expr) {
-        inferPredicateState.onIsNullDeDuplication.add(expr);
-    }
-
-    public void registerGlobalSlotToLiteralDeDuplication(Pair<Expr, Expr> pair) {
-        inferPredicateState.globalSlotToLiteralDeDuplication.add(pair);
-    }
-
-    public void registerGlobalInDeDuplication(Expr expr) {
-        inferPredicateState.globalInDeDuplication.add(expr);
-    }
-
-    private void registerConstantConjunct(TupleId id, Expr e) {
-        if (id != null && e.isConstant()) {
-            Set<Expr> set = globalState.constantConjunct.get(id);
-            if (set == null) {
-                set = Sets.newHashSet();
-                globalState.constantConjunct.put(id, set);
-            }
-            set.add(e);
-        }
-    }
-
-    /**
-     * register expr id
-     * @param expr
-     */
-    void registerExprId(Expr expr) {
-        expr.setId(globalState.conjunctIdGenerator.getNextId());
-    }
-
-    /**
      * Register individual conjunct with all tuple and slot ids it references
      * and with the global conjunct list.
      */
@@ -1113,17 +1002,6 @@ public class Analyzer {
         return globalState.outerJoinedTupleIds.get(id);
     }
 
-    /**
-     * Return JoinOperator between two tables
-     */
-    public JoinOperator getAnyTwoTablesJoinOp(Pair<TupleId, TupleId> tids) {
-        return inferPredicateState.anyTwoTalesJoinOperator.get(tids);
-    }
-
-    public boolean isContainTupleIds(Pair<TupleId, TupleId> tids) {
-        return inferPredicateState.anyTwoTalesJoinOperator.containsKey(tids);
-    }
-
     public boolean isSemiJoined(TupleId tid) {
         return globalState.semiJoinedTupleIds.containsKey(tid);
     }
@@ -1138,18 +1016,6 @@ public class Analyzer {
             return null;
         }
         return (tblRef.getJoinOp().isAntiJoin()) ? tblRef : null;
-    }
-
-    public boolean isAntiJoinedNoNullAwareConjunct(Expr e) {
-        return getAntiJoinNoNullAwareRef(e) != null;
-    }
-
-    public TableRef getAntiJoinNoNullAwareRef(Expr e) {
-        TableRef tblRef = globalState.sjClauseByConjunct.get(e.getId());
-        if (tblRef == null) {
-            return null;
-        }
-        return (tblRef.getJoinOp().isAntiJoinNoNullAware()) ? tblRef : null;
     }
 
     public boolean isVisible(TupleId tid) {
@@ -1185,43 +1051,12 @@ public class Analyzer {
         return Sets.newHashSet(inferPredicateState.globalInDeDuplication);
     }
 
-    /**
-     * Makes the given semi-joined tuple visible such that its slots can be referenced.
-     * If tid is null, makes the currently visible semi-joined tuple invisible again.
-     */
-    public void setVisibleSemiJoinedTuple(TupleId tid) {
-        Preconditions.checkState(tid == null
-                || globalState.semiJoinedTupleIds.containsKey(tid));
-        Preconditions.checkState(tid == null || visibleSemiJoinedTupleId == null);
-        visibleSemiJoinedTupleId = tid;
-    }
-
-    /**
-     * Return true if this analyzer has no ancestors. (i.e. false for the analyzer created
-     * for inline views/ union operands, etc.)
-     */
-    public boolean isRootAnalyzer() {
-        return ancestors.isEmpty();
-    }
-
     public boolean hasAncestors() {
         return !ancestors.isEmpty();
     }
 
     public Analyzer getParentAnalyzer() {
         return hasAncestors() ? ancestors.get(0) : null;
-    }
-
-    /**
-     * Register all conjuncts in 'conjuncts' that make up the On-clause of the given
-     * right-hand side of a join. Assigns each conjunct a unique id. If rhsRef is
-     * the right-hand side of an outer join, then the conjuncts conjuncts are
-     * registered such that they can only be evaluated by the node implementing that
-     * join.
-     */
-    public void registerOnClauseConjuncts(List<Expr> conjuncts, TableRef rhsRef)
-            throws AnalysisException {
-
     }
 
 
@@ -1262,74 +1097,6 @@ public class Analyzer {
         return result;
     }
 
-    /**
-     * Returns assignment-compatible type of expr.getType() and lastCompatibleType.
-     * If lastCompatibleType is null, returns expr.getType() (if valid).
-     * If types are not compatible throws an exception reporting
-     * the incompatible types and their expr.toSql().
-     *
-     * lastCompatibleExpr is passed for error reporting purposes,
-     * but note that lastCompatibleExpr may not yet have lastCompatibleType,
-     * because it was not cast yet.
-     */
-    public Type getCompatibleType(Type lastCompatibleType, Expr lastCompatibleExpr, Expr expr)
-            throws AnalysisException {
-        Type newCompatibleType;
-        if (lastCompatibleType == null) {
-            newCompatibleType = expr.getType();
-        } else {
-            newCompatibleType = Type.getAssignmentCompatibleType(
-                lastCompatibleType, expr.getType(), false, SessionVariable.getEnableDecimal256());
-        }
-        if (!newCompatibleType.isValid()) {
-            throw new AnalysisException(String.format(
-                    "Incompatible return types '%s' and '%s' of exprs '%s' and '%s'.",
-                    lastCompatibleType.toSql(), expr.getType().toSql(),
-                    lastCompatibleExpr.toSql(), expr.toSql()));
-        }
-        return newCompatibleType;
-    }
-
-    /**
-     * Determines compatible type for given exprs, and casts them to compatible
-     * type. Calls analyze() on each of the exprs. Throw an AnalysisException if
-     * the types are incompatible, returns compatible type otherwise.
-     */
-    public Type castAllToCompatibleType(List<Expr> exprs) throws AnalysisException {
-        // Determine compatible type of exprs.
-        exprs.get(0).analyze(this);
-        Type compatibleType = exprs.get(0).getType();
-        for (int i = 1; i < exprs.size(); ++i) {
-            exprs.get(i).analyze(this);
-            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
-            if (compatibleType.isDateV2() && exprs.get(i) instanceof StringLiteral
-                    && ((StringLiteral) exprs.get(i)).canConvertToDateType(compatibleType)) {
-                // If string literal can be converted to dateV2, we use datev2 as the compatible type
-                // instead of datetimev2.
-            } else if (exprs.get(i).isConstantImpl()) {
-                exprs.get(i).compactForLiteral(compatibleType);
-                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType(), enableDecimal256);
-            } else {
-                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType(), enableDecimal256);
-            }
-        }
-        if (compatibleType.equals(Type.VARCHAR)) {
-            if (exprs.get(0).getType().isDateType()) {
-                compatibleType = exprs.get(0).getType().isDateOrDateTime()
-                        ? Type.DATETIME : exprs.get(0).getType().isDatetimeV2()
-                        ? exprs.get(0).getType() : Type.DATETIMEV2;
-            }
-        }
-        // Add implicit casts if necessary.
-        for (int i = 0; i < exprs.size(); ++i) {
-            if (!exprs.get(i).getType().equals(compatibleType)) {
-                Expr castExpr = exprs.get(i).castTo(compatibleType);
-                exprs.set(i, castExpr);
-            }
-        }
-        return compatibleType;
-    }
-
     public long getConnectId() {
         return globalState.context.getConnectionId();
     }
@@ -1360,13 +1127,6 @@ public class Analyzer {
         return globalState.context;
     }
 
-    public boolean enableInferPredicate() {
-        if (globalState.context == null) {
-            return false;
-        }
-        return globalState.context.getSessionVariable().isEnableInferPredicate();
-    }
-
     // The cost based join reorder is turned on
     // when 'enable_join_reorder_based_cost = true' and 'disable_join_reorder = false'
     // Load plan and query plan are the same framework
@@ -1378,13 +1138,6 @@ public class Analyzer {
         }
         return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost()
                 && !globalState.context.getSessionVariable().isDisableJoinReorder();
-    }
-
-    public boolean safeIsEnableFoldConstantByBe() {
-        if (globalState.context == null) {
-            return false;
-        }
-        return globalState.context.getSessionVariable().isEnableFoldConstantByBe();
     }
 
     /**
