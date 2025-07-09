@@ -65,9 +65,9 @@ public class ExpressionParserTest extends ParserTestBase {
         parseExpression("'\\0'")
                 .assertEquals(new StringLiteral("\0"));
         parseExpression("'It\\'s a test'")
-            .assertEquals(new StringLiteral("It's a test"));
+                .assertEquals(new StringLiteral("It's a test"));
         parseExpression("'It\\\\\\'s a test'")
-            .assertEquals(new StringLiteral("It\\'s a test"));
+                .assertEquals(new StringLiteral("It\\'s a test"));
         ConnectContext.get().getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
         Assertions.assertThrows(ParseException.class, () -> parseExpression("'\\b'"),
                 "invalid escape character when sql_mode='NO_BACKSLASH_ESCAPES'(line 1, pos 1)");
