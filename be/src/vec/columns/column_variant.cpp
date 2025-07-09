@@ -891,6 +891,8 @@ void ColumnVariant::Subcolumn::get(size_t n, Field& res) const {
         return;
     }
     if (is_finalized()) {
+        // TODO(hangyu) : we should use data type to get the field value
+        // here is a special case for Array<JsonbField>
         if (least_common_type.get_type_id() == PrimitiveType::TYPE_ARRAY &&
             least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
             // Array of JsonbField is special case
@@ -900,12 +902,16 @@ void ColumnVariant::Subcolumn::get(size_t n, Field& res) const {
             return;
         }
 
+        // here is a special case for JsonbField
         if (least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
-            // JsonbFiled is special case
             res = Field::create_field<TYPE_JSONB>(JsonbField());
             get_finalized_column().get(n, res);
             return;
         }
+
+        // common type to get the field value
+        get_finalized_column().get(n, res);
+        return;
     }
 
     size_t ind = n;

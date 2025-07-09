@@ -77,6 +77,8 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
         } else {
             traverseArray(element.getArray(), ctx);
         }
+        // we should set has_nested_in_flatten to false when traverse array finished for next array otherwise it will be true for next array
+        ctx.has_nested_in_flatten = false;
     } else {
         ctx.paths.push_back(ctx.builder.get_parts());
         ctx.values.push_back(getValueAsField(element));
