@@ -167,45 +167,46 @@ static void export_fdb_status_details(const std::string& status_str) {
             // If it is an object, recursively obtain the full name and corresponding value.
             // such as: {"disk": {"reads": {"counter": 123, "hz": 0}}}
             // component is "disk", the names of these two values should be "reads_counter" and "reads_hz"
+            auto recursive_name_helper = [](std::string& origin_name,
+                                            const char* next_level_name) -> std::string {
+                return origin_name + '_' + next_level_name;
+            };
             // proved two type lambda func to handle object and other type
 
             // set_bvar_value is responsible for setting integer and float values to the corresponding bvar.
             auto set_bvar_value = [&process_id, &component](
-                                          RecursiveNameHelper& name_helper,
+                                          std::string& name,
                                           decltype(process_node)& temp_node) -> void {
                 if (temp_node->value.IsInt64()) {
-                    g_bvar_fdb_process_status_int.put(
-                            {process_id, component, name_helper.get_name()},
-                            temp_node->value.GetInt64());
+                    g_bvar_fdb_process_status_int.put({process_id, component, name},
+                                                      temp_node->value.GetInt64());
                     return;
                 }
                 if (temp_node->value.IsDouble()) {
-                    g_bvar_fdb_process_status_float.put(
-                            {process_id, component, name_helper.get_name()},
-                            temp_node->value.GetDouble());
+                    g_bvar_fdb_process_status_float.put({process_id, component, name},
+                                                        temp_node->value.GetDouble());
                     return;
                 }
                 LOG(WARNING) << fmt::format(
-                        "Get process metrics set_bvar_value input a wrong type node {}",
-                        name_helper.get_name());
+                        "Get process metrics set_bvar_value input a wrong type node {}", name);
             };
-            auto object_recursive = [&set_bvar_value](auto&& self, RecursiveNameHelper name_helper,
-                                                      decltype(process_node) temp_node) -> void {
+            auto object_recursive = [&set_bvar_value, &recursive_name_helper](
+                                            auto&& self, std::string name,
+                                            decltype(process_node) temp_node) -> void {
                 if (temp_node->value.IsObject()) {
                     for (auto iter = temp_node->value.MemberBegin();
                          iter != temp_node->value.MemberEnd(); iter++) {
-                        self(self, name_helper.next_level_name(iter->name.GetString()), iter);
+                        self(self, recursive_name_helper(name, iter->name.GetString()), iter);
                     }
                 }
                 // Note that the parameter passed to set_bvar_value here is the current node, not its Member.
                 // so we can directly call object_recursive in the loop below(metric_node).
                 // if the node is a object, then get Member(iter) and recursive with iter as arg
-                set_bvar_value(name_helper, temp_node);
+                set_bvar_value(name, temp_node);
             };
             for (auto metric_node = component_node->value.MemberBegin();
                  metric_node != component_node->value.MemberEnd(); metric_node++) {
-                object_recursive(object_recursive,
-                                 RecursiveNameHelper(metric_node->name.GetString()), metric_node);
+                object_recursive(object_recursive, metric_node->name.GetString(), metric_node);
             }
         }
     };
