@@ -220,6 +220,7 @@ function stop_doris_grace() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local ret=0
     local keywords="detected memory leak|undefined-behavior"
+    sudo mkdir -p /tmp/be/bin && cp -rf "${DORIS_HOME}"/be/bin/be.pid /tmp/be/bin/be.pid
     if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
         echo "INFO: doris be stopped gracefully."
         if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
@@ -227,6 +228,9 @@ function stop_doris_grace() {
             if [[ -f "${DORIS_HOME}"/be/log/be.out ]]; then
                 if grep -E "${keywords}" "${DORIS_HOME}"/be/log/be.out; then
                     echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
+                    echo "====================================head -n 200 be/log/be.out===================================="
+                    head -n 200 "${DORIS_HOME}"/be/log/be.out
+                    echo "================================================================================================="
                     echo "ERROR: found memory leaks or undefined behavior in be.out" && ret=1
                 else
                     echo "INFO: no memory leaks or undefined behavior found in be.out"
@@ -245,6 +249,7 @@ function stop_doris_grace() {
         echo "ERROR: doris fe stop grace failed." && ret=1
     fi
     if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then
+        sudo mkdir -p /tmp/ms/bin && cp -rf "${DORIS_HOME}"/ms/bin/doris_cloud.pid /tmp/ms/bin/doris_cloud.pid
         if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; then
             echo "INFO: doris ms stopped gracefully."
             if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
@@ -252,6 +257,9 @@ function stop_doris_grace() {
                 if [[ -f "${DORIS_HOME}"/ms/log/doris_cloud.out ]]; then
                     if grep -E "${keywords}" "${DORIS_HOME}"/ms/log/doris_cloud.out; then
                         echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
+                        echo "====================================head -n 200 ms/log/doris_cloud.out===================================="
+                        head -n 200 "${DORIS_HOME}"/ms/log/doris_cloud.out
+                        echo "=========================================================================================================="
                         echo "ERROR: found memory leaks or undefined behavior in ms/log/doris_cloud.out" && ret=1
                     else
                         echo "INFO: no memory leaks or undefined behavior found in ms/log/doris_cloud.out"
@@ -266,6 +274,7 @@ function stop_doris_grace() {
         fi
     fi
     if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then
+        sudo mkdir -p /tmp/recycler/bin && cp -rf "${DORIS_HOME}"/recycler/bin/doris_cloud.pid /tmp/recycler/bin/doris_cloud.pid
         if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; then
             echo "INFO: doris recycler stopped gracefully."
             # if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
@@ -273,6 +282,9 @@ function stop_doris_grace() {
             #     if [[ -f "${DORIS_HOME}"/recycler/log/doris_cloud.out ]]; then
             #         if grep -E "${keywords}" "${DORIS_HOME}"/recycler/log/doris_cloud.out; then
             #             echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
+            #             echo "=================================head -n 200 recycler/log/doris_cloud.out================================="
+            #             head -n 200 "${DORIS_HOME}"/recycler/log/doris_cloud.out
+            #             echo "=========================================================================================================="
             #             echo "ERROR: found memory leaks or undefined behavior in recycler/log/doris_cloud.out" && ret=1
             #         else
             #             echo "INFO: no memory leaks or undefined behavior found in recycler/log/doris_cloud.out"
@@ -725,9 +737,9 @@ archive_doris_coredump() {
     rm -rf "${DORIS_HOME:?}/${archive_dir}"
     mkdir -p "${DORIS_HOME}/${archive_dir}"
     declare -A pids
-    pids['be']="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
-    pids['ms']="$(cat "${DORIS_HOME}"/ms/bin/doris_cloud.pid)"
-    pids['recycler']="$(cat "${DORIS_HOME}"/recycler/bin/doris_cloud.pid)"
+    pids['be']="$(cat /tmp/be/bin/be.pid)"
+    pids['ms']="$(cat /tmp/ms/bin/doris_cloud.pid)"
+    pids['recycler']="$(cat /tmp/recycler/bin/doris_cloud.pid)"
     local has_core=false
     for p in "${!pids[@]}"; do
         pid="${pids[${p}]}"
