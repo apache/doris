@@ -1774,13 +1774,10 @@ public class OlapScanNode extends ScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             if (slot.getVirtualColumn() != null) {
                 virtualColumnIdx++;
-                Column column = new Column();
                 // Set the name of virtual column to be unique.
-                column.setName("__DORIS_VIRTUAL_COL__" + virtualColumnIdx);
+                Column column = new Column("__DORIS_VIRTUAL_COL__" + virtualColumnIdx, slot.getType());
                 // Just make sure the unique id is not conflict with other columns.
                 column.setUniqueId(Integer.MAX_VALUE - virtualColumnIdx);
-                column.setType(slot.getType());
-                column.setIsAllowNull(slot.getIsNullable());
                 slot.setColumn(column);
             }
         }

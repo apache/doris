@@ -69,7 +69,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
     // Configuration constants for sub-expression extraction
     private static final int MIN_OCCURRENCE_COUNT = 2; // Minimum times an expression must appear to be considered
     private static final int MIN_EXPRESSION_DEPTH = 2; // Minimum depth of expression tree to be beneficial
-    private static final int MAX_VIRTUAL_COLUMNS = 50; // Maximum number of virtual columns to avoid explosion
+    private static final int MAX_VIRTUAL_COLUMNS = 1; // Maximum number of virtual columns to avoid explosion
 
     // Logger for debugging
     private static final Logger logger = LogManager.getLogger(PushDownVirtualColumnsIntoOlapScan.class);
