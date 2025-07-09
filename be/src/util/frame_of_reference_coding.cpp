@@ -428,18 +428,19 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
                                         T* output) {
     static_assert(std::is_same<U, int64_t>::value || std::is_same<U, __int128_t>::value,
                   "bit_unpack_optimize only supports U = int64_t or __int128_t");
-    U s = 0; // Temporary buffer for bitstream: aggregates input bytes into a large integer for unpacking
-    int valid_bit = 0; // How many valid bits
-    int need_bit = 0;  // still need
+    constexpr int shift_size = sizeof(int64_t);         // For moving s
+    constexpr int u_size = sizeof(U);                   // Size of U
+    constexpr int u_size_shift = (u_size == 8) ? 3 : 4; // log2(u_size)
+    int valid_bit = 0;                                  // How many valid bits
+    int need_bit = 0;                                   // still need
     T output_mask = ((static_cast<T>(1)) << bit_width) - 1;
     size_t input_size = (in_num * bit_width + 7) >> 3; // input's size
     int full_batch_size =
-            (input_size / u_size) * u_size;     // Adjust input_size to a multiple of u_size
-    int tail_count = input_size & (u_size - 1); // The remainder of input_size modulo u_size.
+            (input_size >> u_size_shift) * u_size; // Adjust input_size to a multiple of u_size
+    int tail_count = input_size & (u_size - 1);    // The remainder of input_size modulo u_size.
     // The number of bits in input to adjust to multiples of 8 and thus more
     int more_bit = (input_size << 3) - (in_num * bit_width);
-    constexpr int shift_size = sizeof(int64_t); // For moving s
-    constexpr int u_size = sizeof(U);           // Size of U
+    U s = 0; // Temporary buffer for bitstream: aggregates input bytes into a large integer for unpacking
 
     for (int i = 0; i < full_batch_size; i += u_size) {
         s = 0;
@@ -471,8 +472,8 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
             valid_bit -= need_bit;
         }
 
-        int num = valid_bit / bit_width;       // How many outputs can be processed at a time
-        int remainder = valid_bit % bit_width; // How many bits are left to store
+        int num = valid_bit / bit_width;             // How many outputs can be processed at a time
+        int remainder = valid_bit - num * bit_width; // How many bits are left to store
 
         // Starting with the highest valid bit, take out bit_width bits in sequence
         // perform an AND operation with output_mask to ensure that only bit_width bits are valid
