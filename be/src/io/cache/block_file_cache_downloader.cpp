@@ -93,8 +93,8 @@ void FileCacheBlockDownloader::submit_download_task(DownloadTask task) {
             LOG(INFO) << "submit_download_task: task queue full, pop front";
             _task_queue.pop_front(); // Eliminate the earliest task in the queue
         }
-        LOG(INFO) << "submit_download_task: push task, queue size before push: "
-                  << _task_queue.size();
+        VLOG_DEBUG << "submit_download_task: push task, queue size before push: "
+                   << _task_queue.size();
         _task_queue.push_back(std::move(task));
         _empty.notify_all();
     }
@@ -166,8 +166,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
         auto id_to_rowset_meta_map = snapshot_rs_metas(tablet.get());
         auto find_it = id_to_rowset_meta_map.find(meta.rowset_id());
         if (find_it == id_to_rowset_meta_map.end()) {
-            LOG(WARNING) << "download_file_cache_block: rowset_id not found, rowset_id="
-                         << meta.rowset_id();
+            LOG(WARNING) << "download_file_cache_block: tablet_id=" << meta.tablet_id()
+                         << "rowset_id not found, rowset_id=" << meta.rowset_id();
             return;
         }
 
@@ -194,7 +194,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
                               << "]";
                 }
             }
-            LOG(INFO) << "download_file_cache_block: download_done, status=" << st.to_string();
+            LOG(INFO) << "download_file_cache_block: download_done, tablet_Id=" << tablet_id
+                      << "status=" << st.to_string();
         };
 
         DownloadFileMeta download_meta {
@@ -229,7 +230,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     };
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to download file: " << st;
+        LOG(WARNING) << "failed to download file path=" << meta.path << ", st=" << st;
         if (meta.download_done) {
             meta.download_done(std::move(st));
         }
@@ -248,14 +249,15 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         size_t size =
                 std::min(one_single_task_size, static_cast<size_t>(meta.download_size - offset));
         size_t bytes_read;
-        LOG(INFO) << "download_segment_file: read_at offset=" << offset << ", size=" << size;
+        VLOG_DEBUG << "download_segment_file, path=" << meta.path << ", read_at offset=" << offset
+                   << ", size=" << size;
         // TODO(plat1ko):
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
         DCHECK(meta.ctx.is_dryrun == config::enable_reader_dryrun_when_download_file_cache);
         auto st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
         if (!st.ok()) {
-            LOG(WARNING) << "failed to download file: " << st;
+            LOG(WARNING) << "failed to download file path=" << meta.path << ", st=" << st;
             if (meta.download_done) {
                 meta.download_done(std::move(st));
             }

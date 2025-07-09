@@ -157,13 +157,13 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
                                               const TWarmUpCacheAsyncRequest& request) {
     std::ostringstream oss;
     oss << "[";
-    for (size_t i = 0; i < request.tablet_ids.size(); ++i) {
+    for (size_t i = 0; i < request.tablet_ids.size() && i < 10; ++i) {
         if (i > 0) oss << ",";
         oss << request.tablet_ids[i];
     }
     oss << "]";
     LOG(INFO) << "warm_up_cache_async: enter, request=" << request.host << ":" << request.brpc_port
-              << ", tablet_ids=" << oss.str();
+              << ", tablets num=" << request.tablet_ids.size() << ", tablet_ids=" << oss.str();
 
     std::string host = request.host;
     auto dns_cache = ExecEnv::GetInstance()->dns_cache();
@@ -212,12 +212,13 @@ void CloudBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncRespon
                                                     const TCheckWarmUpCacheAsyncRequest& request) {
     std::ostringstream oss;
     oss << "[";
-    for (size_t i = 0; i < request.tablets.size(); ++i) {
+    for (size_t i = 0; i < request.tablets.size() && i < 10; ++i) {
         if (i > 0) oss << ",";
         oss << request.tablets[i];
     }
     oss << "]";
-    LOG(INFO) << "check_warm_up_cache_async: enter, request tablet_ids=" << oss.str();
+    LOG(INFO) << "check_warm_up_cache_async: enter, request tablets num=" << request.tablets.size()
+              << ", tablet_ids=" << oss.str();
     std::map<int64_t, bool> task_done;
     _engine.file_cache_block_downloader().check_download_task(request.tablets, &task_done);
     DBUG_EXECUTE_IF("CloudBackendService.check_warm_up_cache_async.return_task_false", {
