@@ -364,6 +364,7 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(oneRowRelation, cascadesContext, ImmutableList.of());
         List<NamedExpression> projects = analyzer.analyzeToList(oneRowRelation.getProjects());
+        projects = adjustProjectionAggNullable(projects);
         return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
     }
 
@@ -674,12 +675,13 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children());
-        List<NamedExpression> boundProjections = Lists.newArrayListWithExpectedSize(project.getProjects().size());
+        Builder<NamedExpression> boundProjectionsBuilder
+                = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
             if (!(expr instanceof BoundStar)) {
-                boundProjections.add((NamedExpression) expr);
+                boundProjectionsBuilder.add((NamedExpression) expr);
             } else {
                 UnboundStar unboundStar = (UnboundStar) expression;
                 List<NamedExpression> excepts = unboundStar.getExceptedSlots();
@@ -714,7 +716,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         if (s != e) {
                             replaced.add(s);
                         }
-                        boundProjections.add((NamedExpression) e);
+                        boundProjectionsBuilder.add((NamedExpression) e);
                     }
 
                     if (replaced.size() != replaceMap.size()) {
@@ -722,7 +724,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
                     }
                 } else {
-                    boundProjections.addAll(slots);
+                    boundProjectionsBuilder.addAll(slots);
                 }
 
                 // for create view stmt expand star
@@ -732,29 +734,32 @@ public class BindExpression implements AnalysisRuleFactory {
                 });
             }
         }
-        boolean hasAggregation = boundProjections
-                .stream()
-                .anyMatch(e -> e.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
-        if (hasAggregation) {
-            boolean hasOnlyFullGroupBy = SqlModeHelper.hasOnlyFullGroupBy();
-            boundProjections.replaceAll(expression ->
-                    adjustProjectionAggNullable(expression, hasOnlyFullGroupBy));
-        }
-        return project.withProjects(ImmutableList.copyOf(boundProjections));
+        List<NamedExpression> projects = adjustProjectionAggNullable(boundProjectionsBuilder.build());
+        return project.withProjects(projects);
     }
 
-    private NamedExpression adjustProjectionAggNullable(NamedExpression expr, boolean hasOnlyFullGroupBy) {
-        expr = (NamedExpression) expr.rewriteDownShortCircuit(e -> {
-            // for `select sum(a) from t`, sum(a) is nullable
-            if (e instanceof NullableAggregateFunction) {
-                return ((NullableAggregateFunction) e).withAlwaysNullable(true);
-            }
-            return e;
-        });
-        if (!hasOnlyFullGroupBy && expr instanceof SlotReference) {
-            expr = new Alias(expr, expr.getName());
+    private List<NamedExpression> adjustProjectionAggNullable(List<NamedExpression> expressions) {
+        boolean hasAggregation = expressions.stream()
+                .anyMatch(e -> e.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
+        if (!hasAggregation) {
+            return expressions;
         }
-        return expr;
+        boolean hasOnlyFullGroupBy = SqlModeHelper.hasOnlyFullGroupBy();
+        Builder<NamedExpression> newExpressionsBuilder = ImmutableList.builderWithExpectedSize(expressions.size());
+        for (NamedExpression expr : expressions) {
+            expr = (NamedExpression) expr.rewriteDownShortCircuit(e -> {
+                // for `select sum(a) from t`, sum(a) is nullable
+                if (e instanceof NullableAggregateFunction) {
+                    return ((NullableAggregateFunction) e).withAlwaysNullable(true);
+                }
+                return e;
+            });
+            if (!hasOnlyFullGroupBy && expr instanceof SlotReference) {
+                expr = new Alias(expr, expr.getName());
+            }
+            newExpressionsBuilder.add(expr);
+        }
+        return newExpressionsBuilder.build();
     }
 
     private Plan bindLoadProject(MatchingContext<LogicalLoadProject<Plan>> ctx) {
