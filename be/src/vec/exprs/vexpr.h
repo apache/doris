@@ -134,7 +134,7 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
+    virtual Status execute_runtime_filter(VExprContext* context, Block* block,
                                           int* result_column_id, ColumnNumbers& args) {
         return execute(context, block, result_column_id);
     };
