@@ -31,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -62,18 +63,15 @@ public class ScalarSubquery extends SubqueryExpr {
     }
 
     /**
-    * getTopLevelScalarAggFunction
-    */
-    public Optional<NamedExpression> getTopLevelScalarAggFunction() {
-        Plan plan = findTopLevelScalarAgg(queryPlan, ImmutableSet.copyOf(correlateSlots));
-        if (plan != null) {
-            LogicalAggregate aggregate = (LogicalAggregate) plan;
-            Preconditions.checkState(aggregate.getAggregateFunctions().size() == 1,
-                    "in scalar subquery, should only return 1 column 1 row, "
-                            + "but we found multiple columns ", aggregate.getOutputExpressions());
-            return Optional.of((NamedExpression) aggregate.getOutputExpressions().get(0));
+     * get Top Level ScalarAgg Functions
+     */
+    public static List<NamedExpression> getTopLevelScalarAggFunctions(Plan queryPlan,
+            List<Slot> correlateSlots) {
+        LogicalAggregate<?> aggregate = findTopLevelScalarAgg(queryPlan, ImmutableSet.copyOf(correlateSlots));
+        if (aggregate != null) {
+            return aggregate.getOutputExpressions();
         } else {
-            return Optional.empty();
+            return new ArrayList<>();
         }
     }
 
@@ -115,17 +113,19 @@ public class ScalarSubquery extends SubqueryExpr {
      * 1. The agg or its child contains correlated slots
      * 2. only project, sort and subquery alias node can be agg's parent
      */
-    public static Plan findTopLevelScalarAgg(Plan plan, ImmutableSet<Slot> slots) {
+    public static LogicalAggregate<?> findTopLevelScalarAgg(Plan plan, ImmutableSet<Slot> slots) {
         if (plan instanceof LogicalAggregate) {
-            if (((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty() && plan.containsSlots(slots)) {
-                return plan;
+            LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
+            if (agg.getGroupByExpressions().isEmpty()
+                    && (plan.containsSlots(slots) || slots.isEmpty())) {
+                return agg;
             } else {
                 return null;
             }
         } else if (plan instanceof LogicalProject || plan instanceof LogicalSubQueryAlias
                 || plan instanceof LogicalSort) {
             for (Plan child : plan.children()) {
-                Plan result = findTopLevelScalarAgg(child, slots);
+                LogicalAggregate<?> result = findTopLevelScalarAgg(child, slots);
                 if (result != null) {
                     return result;
                 }
