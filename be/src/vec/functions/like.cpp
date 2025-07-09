@@ -509,11 +509,12 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
                                       size_t input_rows_count) const {
     const auto values_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-    const auto* values = check_and_get_column<ColumnString>(values_col.get());
+    const auto* values =
+            assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(values_col.get());
 
-    if (!values) {
-        return Status::InternalError("Not supported input arguments types");
-    }
+    //    if (!values) {
+    //        return Status::InternalError("Not supported input arguments types");
+    //    }
     // result column
     auto res = ColumnUInt8::create();
     ColumnUInt8::Container& vec_res = res->get_data();
@@ -578,9 +579,7 @@ Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
         }
 
         /// We check that the entry does not pass through the boundaries of strings.
-        if (pos + needle_size <= begin + value_offsets[i]) {
-            result[i] = 1;
-        }
+        result[i] = pos + needle_size <= begin + value_offsets[i];
 
         // move to next string offset
         pos = begin + value_offsets[i];
