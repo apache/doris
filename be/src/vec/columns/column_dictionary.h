@@ -510,6 +510,8 @@ public:
         size_t _total_str_len;
     };
 
+    size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
+
 private:
     size_t _reserve_size;
     bool _dict_sorted = false;

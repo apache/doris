@@ -252,7 +252,7 @@ struct MethodSerialized : public MethodBase<TData> {
             }
 
             for (const auto& column : key_columns) {
-                column->serialize_vec(input_keys.data(), num_rows, max_one_row_byte_size);
+                column->serialize_vec(input_keys.data(), num_rows);
             }
         }
         Base::keys = input_keys.data();
