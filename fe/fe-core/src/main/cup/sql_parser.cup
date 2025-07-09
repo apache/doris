@@ -59,11 +59,13 @@ import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.mysql.MysqlPassword;
+import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
-import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RetentionSnapshots;
+import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
@@ -1811,6 +1813,16 @@ alter_table_clause ::=
     {:
         CreateOrReplaceTagInfo tagInfo = new CreateOrReplaceTagInfo(tagName, true, true, false, tagOptions);
         RESULT = new CreateOrReplaceTagClause(tagInfo);
+    :}
+    | KW_DROP KW_BRANCH opt_if_exists:ifExists ident:branchName
+    {:
+        DropBranchInfo branchInfo = new DropBranchInfo(branchName, ifExists);
+        RESULT = new DropBranchClause(branchInfo);
+    :}
+    | KW_DROP KW_TAG opt_if_exists:ifExists ident:tagName
+    {:
+        DropTagInfo tagInfo = new DropTagInfo(tagName, ifExists);
+        RESULT = new DropTagClause(tagInfo);
     :}
     ;
 

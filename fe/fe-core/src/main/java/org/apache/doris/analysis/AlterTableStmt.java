@@ -188,7 +188,9 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                     || alterClause instanceof ReorderColumnsClause
                     || alterClause instanceof ModifyEngineClause
                     || alterClause instanceof CreateOrReplaceBranchClause
-                    || alterClause instanceof CreateOrReplaceTagClause) {
+                    || alterClause instanceof CreateOrReplaceTagClause
+                    || alterClause instanceof DropBranchClause
+                    || alterClause instanceof DropTagClause) {
                 clauses.add(alterClause);
             } else {
                 throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] "

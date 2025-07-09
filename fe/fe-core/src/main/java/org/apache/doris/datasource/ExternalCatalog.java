@@ -62,6 +62,8 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
@@ -1333,9 +1335,43 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void replayCreateOrReplaceBranchOrTag(String dbName, String tblName) {
+    public void replayOperateOnBranchOrTag(String dbName, String tblName) {
         if (metadataOps != null) {
-            metadataOps.afterCreateOrReplaceBranchOrTag(dbName, tblName);
+            metadataOps.afterOperateOnBranchOrTag(dbName, tblName);
+        }
+    }
+
+    @Override
+    public void dropBranch(String db, String tbl, DropBranchInfo branchInfo) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("DropBranch operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.dropBranch(db, tbl, branchInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), db, tbl);
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop branch for table {}.{} in catalog {}",
+                    db, tbl, getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void dropTag(String db, String tbl, DropTagInfo tagInfo) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("DropTag operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.dropTag(db, tbl, tagInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), db, tbl);
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop tag for table {}.{} in catalog {}",
+                    db, tbl, getName(), e);
+            throw e;
         }
     }
 }
