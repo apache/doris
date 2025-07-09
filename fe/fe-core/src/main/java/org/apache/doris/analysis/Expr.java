@@ -133,7 +133,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
     }
 
     // id that's unique across the entire query statement and is assigned by
-    // Analyzer.registerConjuncts(); only assigned for the top-level terms of a
+    // registerConjuncts(); only assigned for the top-level terms of a
     // conjunction, and therefore null for most Exprs
     protected ExprId id;
 
@@ -145,7 +145,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
     @SerializedName("type")
     protected Type type;  // result of analysis
 
-    protected boolean isOnClauseConjunct; // set by analyzer
+    protected boolean isOnClauseConjunct;
 
     protected boolean isAnalyzed = false;  // true after analyze() has been called
 
@@ -450,18 +450,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return result;
     }
 
-    /**
-     * Returns true if the list contains an aggregate expr.
-     */
-    public static <C extends Expr> boolean containsAggregate(List<? extends Expr> input) {
-        for (Expr e : input) {
-            if (e.containsAggregate()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     public static void extractSlots(Expr root, Set<SlotId> slotIdSet) {
         if (root instanceof SlotRef) {
             slotIdSet.add(((SlotRef) root).getDesc().getId());
@@ -749,13 +737,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
             result.children.add(((Expr) child).clone(sMap));
         }
         return result;
-    }
-
-    public boolean containsAggregate() {
-        if (isAggregate()) {
-            return true;
-        }
-        return containsAggregate(children);
     }
 
     /**
@@ -1170,18 +1151,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return false;
     }
 
-    public boolean contains(List<Expr> exprs) {
-        if (exprs.isEmpty()) {
-            return false;
-        }
-        for (Expr expr : exprs) {
-            if (contains(expr)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     public Expr findEqual(List<Expr> exprs) {
         if (exprs.isEmpty()) {
             return null;
@@ -1510,11 +1479,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return new AggStateType(name, Expr.getResultIsNullable(name, typeList, nullableList), typeList, nullableList);
     }
 
-    public static AggStateType createAggStateType(AggStateType type, List<Type> typeList, List<Boolean> nullableList) {
-        return new AggStateType(type.getFunctionName(),
-                Expr.getResultIsNullable(type.getFunctionName(), typeList, nullableList), typeList, nullableList);
-    }
-
     public static List<Expr> getMockedExprs(List<Type> typeList, List<Boolean> nullableList) {
         List<Expr> mockedExprs = Lists.newArrayList();
         for (int i = 0; i < typeList.size(); i++) {
@@ -1549,13 +1513,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         } else {
             return this instanceof LiteralExpr;
         }
-    }
-
-    public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
-        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
-            return true;
-        }
-        return false;
     }
 
     public Expr replaceSubPredicate(Expr subExpr) {
@@ -1615,15 +1572,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
 
     private ArrayType getActualArrayType(ArrayType originArrayType) {
         return new ArrayType(getActualType(originArrayType.getItemType()));
-    }
-
-    public boolean haveFunction(String functionName) {
-        for (Expr expr : children) {
-            if (expr.haveFunction(functionName)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     public boolean isNullLiteral() {

@@ -20,12 +20,10 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
@@ -143,55 +141,10 @@ public class TimestampArithmeticExpr extends Expr {
         return new TimestampArithmeticExpr(this);
     }
 
-    private Type fixType() {
-        PrimitiveType t1 = getChild(0).getType().getPrimitiveType();
-        if (t1 == PrimitiveType.DATETIME) {
-            return Type.DATETIME;
-        }
-        if (t1 == PrimitiveType.DATE) {
-            return Type.DATE;
-        }
-        if (t1 == PrimitiveType.DATETIMEV2) {
-            return Type.DATETIMEV2;
-        }
-        if (t1 == PrimitiveType.DATEV2) {
-            return Type.DATEV2;
-        }
-        // could try cast to date first, then cast to datetime
-        if (t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING) {
-            Expr expr = getChild(0);
-            if ((expr instanceof StringLiteral) && ((StringLiteral) expr).canConvertToDateType(Type.DATEV2)) {
-                try {
-                    setChild(0, new DateLiteral(((StringLiteral) expr).getValue(), Type.DATEV2));
-                } catch (AnalysisException e) {
-                    return Type.INVALID;
-                }
-                return Type.DATEV2;
-            }
-        }
-        if (PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIME)) {
-            if (Config.enable_date_conversion) {
-                if (t1 == PrimitiveType.NULL_TYPE) {
-                    getChild(0).type = Type.DATETIMEV2_WITH_MAX_SCALAR;
-                }
-                return Type.DATETIMEV2_WITH_MAX_SCALAR;
-            }
-            if (t1 == PrimitiveType.NULL_TYPE) {
-                getChild(0).type = Type.DATETIME;
-            }
-            return Type.DATETIME;
-        }
-        return Type.INVALID;
-    }
-
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.COMPUTE_FUNCTION_CALL;
         msg.setOpcode(opcode);
-    }
-
-    public ArithmeticExpr.Operator getOp() {
-        return op;
     }
 
     private TExprOpcode getOpCode() throws AnalysisException {

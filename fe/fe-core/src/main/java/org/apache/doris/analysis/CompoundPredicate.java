@@ -36,7 +36,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -166,51 +165,6 @@ public class CompoundPredicate extends Predicate {
         return new CompoundPredicate(newOp, negatedLeft, negatedRight);
     }
 
-    // Create an AND predicate between two exprs, 'lhs' and 'rhs'. If
-    // 'rhs' is null, simply return 'lhs'.
-    public static Expr createConjunction(Expr lhs, Expr rhs) {
-        if (rhs == null) {
-            return lhs;
-        }
-        return new CompoundPredicate(Operator.AND, rhs, lhs);
-    }
-
-    /**
-     * Creates a conjunctive predicate from a list of exprs.
-     */
-    public static Expr createConjunctivePredicate(List<Expr> conjuncts) {
-        Expr conjunctivePred = null;
-        for (Expr expr : conjuncts) {
-            if (conjunctivePred == null) {
-                conjunctivePred = expr;
-                continue;
-            }
-            conjunctivePred = new CompoundPredicate(CompoundPredicate.Operator.AND, expr, conjunctivePred);
-        }
-        return conjunctivePred;
-    }
-
-    /**
-     * Creates a disjunctive predicate from a list of exprs,
-     * reserve the expr order
-     */
-    public static Expr createDisjunctivePredicate(List<Expr> disjunctions) {
-        Expr result = null;
-        for (Expr expr : disjunctions) {
-            if (result == null) {
-                result = expr;
-                continue;
-            }
-            result = new CompoundPredicate(CompoundPredicate.Operator.OR, result, expr);
-        }
-        return result;
-    }
-
-    public static boolean isOr(Expr expr) {
-        return expr instanceof CompoundPredicate
-                && ((CompoundPredicate) expr).getOp() == Operator.OR;
-    }
-
     @Override
     public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
         recursiveResetChildrenResult(forPushDownPredicatesToView);
@@ -258,18 +212,6 @@ public class CompoundPredicate extends Predicate {
     @Override
     public String toString() {
         return toSqlImpl();
-    }
-
-    @Override
-    public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
-        if (op.equals(Operator.AND)) {
-            for (Expr child : children) {
-                if (child.containsSubPredicate(subExpr)) {
-                    return true;
-                }
-            }
-        }
-        return super.containsSubPredicate(subExpr);
     }
 
     @Override

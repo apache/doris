@@ -22,16 +22,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TCaseExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -130,10 +127,6 @@ public class CaseExpr extends Expr {
         return hasCaseExpr == expr.hasCaseExpr && hasElseExpr == expr.hasElseExpr;
     }
 
-    public boolean hasCaseExpr() {
-        return hasCaseExpr;
-    }
-
     @Override
     public String toSqlImpl() {
         StringBuilder output = new StringBuilder("CASE");
@@ -197,137 +190,6 @@ public class CaseExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CASE_EXPR;
         msg.case_expr = new TCaseExpr(hasCaseExpr, hasElseExpr);
-    }
-
-    // case and when
-    public List<Expr> getConditionExprs() {
-        List<Expr> exprs = Lists.newArrayList();
-        int childIdx = 0;
-        if (hasCaseExpr) {
-            exprs.add(children.get(childIdx++));
-        }
-        while (childIdx + 2 <= children.size()) {
-            exprs.add(children.get(childIdx++));
-            childIdx++;
-        }
-        return exprs;
-    }
-
-    // then
-    public List<Expr> getReturnExprs() {
-        List<Expr> exprs = Lists.newArrayList();
-        int childIdx = 0;
-        if (hasCaseExpr) {
-            childIdx++;
-        }
-        while (childIdx + 2 <= children.size()) {
-            childIdx++;
-            exprs.add(children.get(childIdx++));
-        }
-        if (hasElseExpr) {
-            exprs.add(children.get(children.size() - 1));
-        }
-        return exprs;
-    }
-
-    // this method just compare literal value and not completely consistent with be,for two cases
-    // 1 not deal float
-    // 2 just compare literal value with same type.
-    //      for a example sql 'select case when 123 then '1' else '2' end as col'
-    //      for be will return '1', because be only regard 0 as false
-    //      but for current LiteralExpr.compareLiteral, `123`' won't be regard as true
-    //  the case which two values has different type left to be
-    public static Expr computeCaseExpr(CaseExpr expr) {
-        if (expr.getType() == Type.NULL) {
-            // if expr's type is NULL_TYPE, means all possible return values are nulls
-            // it's safe to return null literal here
-            return new NullLiteral();
-        }
-        LiteralExpr caseExpr;
-        int startIndex = 0;
-        int endIndex = expr.getChildren().size();
-
-        // CastExpr contains SlotRef child should be reset to re-analyze in selectListItem
-        for (Expr child : expr.getChildren()) {
-            if (child instanceof CastExpr && (child.contains(SlotRef.class))) {
-                List<CastExpr> castExprList = Lists.newArrayList();
-                child.collect(CastExpr.class, castExprList);
-                for (CastExpr castExpr : castExprList) {
-                    castExpr.resetAnalysisState();
-                }
-            }
-        }
-
-        if (expr.hasCaseExpr()) {
-            // just deal literal here
-            // and avoid `float compute` in java,float should be dealt in be
-            Expr caseChildExpr = expr.getChild(0);
-            if (!caseChildExpr.isLiteral()
-                    || caseChildExpr instanceof DecimalLiteral || caseChildExpr instanceof FloatLiteral) {
-                return expr;
-            }
-            caseExpr = (LiteralExpr) expr.getChild(0);
-            startIndex++;
-        } else {
-            caseExpr = new BoolLiteral(true);
-        }
-
-        if (caseExpr instanceof NullLiteral) {
-            return expr.getFinalResult();
-        }
-
-        if (expr.hasElseExpr) {
-            endIndex--;
-        }
-
-        // early return when the `when expr` can't be converted to constants
-        Expr startExpr = expr.getChild(startIndex);
-        if ((!startExpr.isLiteral() || startExpr instanceof DecimalLiteral || startExpr instanceof FloatLiteral)
-                || (!(startExpr instanceof NullLiteral)
-                && !startExpr.getClass().toString().equals(caseExpr.getClass().toString()))) {
-            return expr;
-        }
-
-        for (int i = startIndex; i < endIndex; i = i + 2) {
-            Expr currentWhenExpr = expr.getChild(i);
-            // skip null literal
-            if (currentWhenExpr instanceof NullLiteral) {
-                continue;
-            }
-            // stop convert in three cases
-            // 1 not literal
-            // 2 float
-            // 3 `case expr` and `when expr` don't have same type
-            if ((!currentWhenExpr.isLiteral()
-                    || currentWhenExpr instanceof DecimalLiteral
-                    || currentWhenExpr instanceof FloatLiteral)
-                    || !currentWhenExpr.getClass().toString().equals(caseExpr.getClass().toString())) {
-                // remove the expr which has been evaluated
-                List<Expr> exprLeft = new ArrayList<>();
-                if (expr.hasCaseExpr()) {
-                    exprLeft.add(caseExpr);
-                }
-                for (int j = i; j < expr.getChildren().size(); j++) {
-                    exprLeft.add(expr.getChild(j));
-                }
-                Expr retCaseExpr = expr.clone();
-                retCaseExpr.getChildren().clear();
-                retCaseExpr.addChildren(exprLeft);
-                return retCaseExpr;
-            } else if (caseExpr.compareLiteral((LiteralExpr) currentWhenExpr) == 0) {
-                return expr.getChild(i + 1);
-            }
-        }
-
-        return expr.getFinalResult();
-    }
-
-    public Expr getFinalResult() {
-        if (hasElseExpr) {
-            return getChild(getChildren().size() - 1);
-        } else {
-            return new NullLiteral();
-        }
     }
 
     @Override
