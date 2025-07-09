@@ -677,7 +677,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "    \"replication_num\" = \"1\",    \n"
                         + "    \"light_schema_change\" = \"true\"    \n"
                         + ");"));
-        
+
         checkThrow(AnalysisException.class, "ARRAY unsupported sub-type: time(0)",
                 () -> createTable("create table test.test_array_time( \n"
                         + "id BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
