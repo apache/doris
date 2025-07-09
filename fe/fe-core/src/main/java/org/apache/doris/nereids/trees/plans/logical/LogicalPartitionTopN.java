@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
+import org.apache.doris.nereids.trees.plans.algebra.CouldPushed;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -45,25 +46,26 @@ import java.util.Optional;
  * Logical partition-top-N plan.
  */
 public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements PartitionTopN, PropagateFuncDeps {
+        implements PartitionTopN, PropagateFuncDeps, CouldPushed {
     private final WindowFuncType function;
     private final List<Expression> partitionKeys;
     private final List<OrderExpression> orderKeys;
     private final boolean hasGlobalLimit;
     private final long partitionLimit;
+    private final boolean pushed;
 
     public LogicalPartitionTopN(WindowExpression windowExpr, boolean hasGlobalLimit, long partitionLimit,
-                                CHILD_TYPE child) {
+                                CHILD_TYPE child, boolean pushed) {
         this(windowExpr.getFunction(), windowExpr.getPartitionKeys(), windowExpr.getOrderKeys(),
                 hasGlobalLimit, partitionLimit, Optional.empty(),
-                Optional.empty(), child);
+                Optional.empty(), child, pushed);
     }
 
     public LogicalPartitionTopN(WindowFuncType windowFuncType, List<Expression> partitionKeys,
                                 List<OrderExpression> orderKeys, boolean hasGlobalLimit, long partitionLimit,
-                                CHILD_TYPE child) {
+                                CHILD_TYPE child, boolean pushed) {
         this(windowFuncType, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-                Optional.empty(), Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child, pushed);
     }
 
     /**
@@ -72,7 +74,8 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     public LogicalPartitionTopN(WindowFuncType windowFuncType, List<Expression> partitionKeys,
                                 List<OrderExpression> orderKeys, boolean hasGlobalLimit,
                                 long partitionLimit, Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child,
+            boolean pushed) {
         super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child);
         this.function = windowFuncType;
         this.partitionKeys = ImmutableList.copyOf(Objects.requireNonNull(partitionKeys,
@@ -81,6 +84,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
             "orderKeys can not be null"));
         this.hasGlobalLimit = hasGlobalLimit;
         this.partitionLimit = partitionLimit;
+        this.pushed = pushed;
     }
 
     /**
@@ -88,7 +92,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
      */
     public LogicalPartitionTopN(Expression expr, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
                                 boolean hasGlobalLimit, long partitionLimit, Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, boolean pushed) {
         super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child);
         if (expr instanceof RowNumber) {
             this.function = WindowFuncType.ROW_NUMBER;
@@ -104,6 +108,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
             Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.hasGlobalLimit = hasGlobalLimit;
         this.partitionLimit = partitionLimit;
+        this.pushed = pushed;
     }
 
     @Override
@@ -180,20 +185,20 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     public LogicalPartitionTopN<Plan> withPartitionKeysAndOrderKeys(
             List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-                Optional.empty(), Optional.of(getLogicalProperties()), child());
+                Optional.empty(), Optional.of(getLogicalProperties()), child(), this.pushed);
     }
 
     @Override
     public LogicalPartitionTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            children.get(0));
+            children.get(0), this.pushed);
     }
 
     @Override
     public LogicalPartitionTopN<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            groupExpression, Optional.of(getLogicalProperties()), child());
+            groupExpression, Optional.of(getLogicalProperties()), child(), this.pushed);
     }
 
     @Override
@@ -201,6 +206,16 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-                groupExpression, logicalProperties, children.get(0));
+                groupExpression, logicalProperties, children.get(0), this.pushed);
+    }
+
+    @Override
+    public boolean needRemain() {
+        return true;
+    }
+
+    @Override
+    public boolean isPushed() {
+        return pushed;
     }
 }

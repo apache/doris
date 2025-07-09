@@ -67,7 +67,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                         .then(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child();
                             List<OrderKey> orderKeys = generateOrderKeyByGroupKey(agg);
-                            return new LogicalTopN<>(orderKeys, limit.getLimit(), limit.getOffset(), agg);
+                            return new LogicalTopN<>(orderKeys, limit.getLimit(), limit.getOffset(), agg, false);
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),
                 //limit->project->agg to project->topn->agg
                 logicalLimit(logicalProject(logicalAggregate()))
@@ -85,7 +85,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                             LogicalAggregate<? extends Plan> agg = (LogicalAggregate<? extends Plan>) project.child();
                             List<OrderKey> orderKeys = generateOrderKeyByGroupKey(agg);
                             LogicalTopN topn = new LogicalTopN<>(orderKeys, limit.getLimit(),
-                                    limit.getOffset(), agg);
+                                    limit.getOffset(), agg, false);
                             project = (LogicalProject<? extends Plan>) project.withChildren(topn);
                             return project;
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),

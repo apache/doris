@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.algebra.CouldPushed;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -630,6 +631,15 @@ public class StructInfo {
     }
 
     /**
+     * Limit, topN or partitionTopN which is pushed down doesn't participation in query rewritten by mv
+     * should be valid
+     */
+    public static boolean isValidPushedNode(Plan plan) {
+        return plan instanceof CouldPushed && ((CouldPushed) plan).needRemain()
+                && ((CouldPushed) plan).isPushed();
+    }
+
+    /**
      * PlanPatternChecker, this is used to check the plan pattern is valid or not
      */
     public static class PlanPatternChecker extends DefaultPlanVisitor<Boolean, PlanCheckContext> {
@@ -668,7 +678,8 @@ public class StructInfo {
                     || plan instanceof LogicalSort
                     || plan instanceof LogicalAggregate
                     || plan instanceof GroupPlan
-                    || plan instanceof LogicalRepeat) {
+                    || plan instanceof LogicalRepeat
+                    || isValidPushedNode(plan)) {
                 return doVisit(plan, checkContext);
             }
             return false;
