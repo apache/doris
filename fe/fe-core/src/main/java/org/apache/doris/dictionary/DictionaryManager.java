@@ -374,7 +374,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
      * @param adaptiveLoad if only load to outdated BE, true. if must load to all BE, false.
      */
     private void submitDataLoad(Dictionary dictionary, boolean adaptiveLoad) {
-        LOG.info("Submit dictionary {} refresh task", dictionary.getName());
+        LOG.info("Submit dictionary {} refresh task, it's {} now", dictionary.getName(), dictionary.getStatus());
         executor.execute(() -> {
             try {
                 dataLoad(null, dictionary, adaptiveLoad);
@@ -770,7 +770,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 LOG.warn("Dictionary {} not found when collecting status", dictId);
             }
         }
-        LOG.info("Collect all dictionaries status succeed");
+        LOG.info("Collect {} dictionaries status succeed", newDataDistributions.size());
         return unknownDictionaries;
     }
 
