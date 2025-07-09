@@ -547,6 +547,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         List<Table> copiedTables = Lists.newArrayList();
         List<Resource> copiedResources = Lists.newArrayList();
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
+        // Track if we have any valid tables for backup
+        boolean hasValidTables = false;
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
             Table tbl = db.getTableNullable(tblName);
@@ -556,6 +558,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                         tblName, this);
                 continue;
             }
+            hasValidTables = true;
             tbl.readLock();
             try {
                 switch (tbl.getType()) {
@@ -589,7 +592,11 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 return;
             }
         }
-
+        // If no valid tables found, cancel the job
+        if (!hasValidTables) {
+            status = new Status(ErrCode.NOT_FOUND, "no valid tables found for backup");
+            return;
+        }
         // Limit the max num of tablets involved in a backup job, to avoid OOM.
         if (unfinishedTaskIds.size() > Config.max_backup_tablets_per_job) {
             String msg = String.format("the num involved tablets %d exceeds the limit %d, "
