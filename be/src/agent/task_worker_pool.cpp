@@ -648,7 +648,7 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskReq
             // If it exists in the high priority queue, no operation is needed
             LOG_INFO("task has already existed in high prior queue.").tag("signature", signature);
         }
-    } while (true);
+    } while (false);
 
     // Set the receiving time of task so that we can determine whether it is timed out later
     (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
