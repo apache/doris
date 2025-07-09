@@ -641,6 +641,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // choose a replica which slot is available from candidates.
         // sort replica by version count asc, so that we prefer to choose replicas with fewer versions
         Collections.sort(candidates, VERSION_COUNTER_COMPARATOR);
+        Replica userDropReplica = null;
         for (Replica srcReplica : candidates) {
             long replicaBeId = srcReplica.getBackendIdWithoutException();
             PathSlot slot = backendsWorkingSlots.get(replicaBeId);
@@ -660,7 +661,20 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 }
                 continue;
             }
+            if (srcReplica.isUserDrop()) {
+                userDropReplica = srcReplica;
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("replica's backend {} has been set dropped, skip. tablet: {}",
+                            replicaBeId, tabletId);
+                }
+                continue;
+            }
             setSrc(srcReplica);
+            return;
+        }
+        if (userDropReplica != null) {
+            LOG.info("can not find a src replica, use user drop replica");
+            setSrc(userDropReplica);
             return;
         }
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
