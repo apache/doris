@@ -196,7 +196,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // merge normal filter and hidden column filter
                     new MergeFilters()
             ),
-            custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
+            custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
         );
     }
 }

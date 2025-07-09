@@ -168,6 +168,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -655,7 +656,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("stats related jobs",
                                 custom(RuleType.STATS_DERIVER, StatsDerive::new)),
                         topic("whole plan check",
-                                custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
+                                custom(RuleType.ADJUST_NULLABLE,
+                                        () -> new AdjustNullable(ConnectContext.get().getSessionVariable().feDebug))
                         ),
                         // NullableDependentExpressionRewrite need to be done after nullable fixed
                         topic("condition function", bottomUp(ImmutableList.of(

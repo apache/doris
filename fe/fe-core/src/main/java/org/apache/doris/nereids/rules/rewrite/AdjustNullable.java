@@ -49,7 +49,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -71,6 +70,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * So, we need add a rule to adjust all expression's nullable attribute after rewrite.
  */
 public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> implements CustomRewriter {
+
+    private final boolean assertConvertNullable;
+
+    public AdjustNullable(boolean assertConvertNullable) {
+        this.assertConvertNullable = assertConvertNullable;
+    }
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -418,8 +423,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                         newSlotReference = slotReference.withNullable(replacedSlot.nullable());
                     }
                 }
-                if (!slotReference.nullable() && newSlotReference.nullable()
-                        && ConnectContext.get().getSessionVariable().feDebug) {
+                if (assertConvertNullable && !slotReference.nullable() && newSlotReference.nullable()) {
                     throw new AnalysisException("Slot " + slotReference + " convert to nullable");
                 }
                 return newSlotReference;
