@@ -138,19 +138,6 @@ static void export_fdb_status_details(const std::string& status_str) {
         return static_cast<int64_t>(node->value.GetDouble() * NANOSECONDS);
     };
     auto get_process_metric = [&](std::string component) {
-        class RecursiveNameHelper {
-        public:
-            explicit RecursiveNameHelper(std::string name) : name_(std::move(name)) {}
-
-            RecursiveNameHelper next_level_name(std::string name) const {
-                return RecursiveNameHelper(name_ + '_' + name);
-            }
-
-            std::string& get_name() { return name_; }
-
-        private:
-            std::string name_;
-        };
         auto node = document.FindMember("cluster");
         if (!node->value.HasMember("processes")) return;
         node = node->value.FindMember("processes");
