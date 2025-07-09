@@ -21,7 +21,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -84,19 +83,6 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
                 Map<ExprId, Expression> exprIdExpressionMap) {
             Expression childExpr = exprIdExpressionMap.get(namedExpression.getExprId());
             if (childExpr != null) {
-                List<Expression> children = childExpr.children();
-                for (Expression child : children) {
-                    if (!(child instanceof NamedExpression)) {
-                        continue;
-                    }
-                    NamedExpression childNamedExpression = (NamedExpression) child;
-                    if (childNamedExpression.getExprId().equals(namedExpression.getExprId())) {
-                        // if slot id is the same with exist alias, this happens loop, maybe because
-                        // preAggForRandomDistribution alias id is the same as it's input
-                        // such as namedExpression is alias#1,and it's child is sum(alias#1)
-                        return childExpr;
-                    }
-                }
                 // remove alias
                 return visit(childExpr, exprIdExpressionMap);
             }
@@ -135,12 +121,6 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         @Override
         public Void visitNamedExpression(NamedExpression namedExpression, ExpressionReplaceContext context) {
             context.getUsedExprIdSet().add(namedExpression.getExprId());
-            if (namedExpression instanceof Slot
-                    && context.getExprIdExpressionMap().containsKey(namedExpression.getExprId())) {
-                // if slot id is the same with exist alias, this happens loop, maybe because
-                // preAggForRandomDistribution alias id is the same as it's input
-                return null;
-            }
             return super.visitNamedExpression(namedExpression, context);
         }
 
