@@ -182,6 +182,7 @@ private:
     void _init_profile();
     void _fresh_profile_counter();
     Status _open();
+    Status _prepare();
 
     // Operator `op` try to reserve memory before executing. Return false if reserve failed
     // otherwise return true.
@@ -239,7 +240,6 @@ private:
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     std::vector<Dependency*> _execution_dependencies;
-    std::atomic_bool _hold_cloud_tablet = false;
 
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;

@@ -41,7 +41,8 @@ public:
     using Base = ScanLocalState<OlapScanLocalState>;
     ENABLE_FACTORY_CREATOR(OlapScanLocalState);
     OlapScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
-
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status prepare(RuntimeState* state) override;
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
@@ -49,23 +50,19 @@ public:
                            std::to_string(_parent->node_id()),
                            std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
-    Status hold_tablets();
     std::vector<Dependency*> execution_dependencies() override {
-        if (_cloud_tablet_dependencies.empty()) {
+        if (!_cloud_tablet_dependency) {
             return Base::execution_dependencies();
         }
-        std::vector<Dependency*> res(_cloud_tablet_dependencies.size());
-        std::transform(_cloud_tablet_dependencies.begin(), _cloud_tablet_dependencies.end(),
-                       res.begin(), [](DependencySPtr dep) { return dep.get(); });
-        std::vector<Dependency*> tmp = Base::execution_dependencies();
-        std::copy(tmp.begin(), tmp.end(), std::inserter(res, res.end()));
+        std::vector<Dependency*> res = Base::execution_dependencies();
+        res.push_back(_cloud_tablet_dependency.get());
         return res;
     }
-    Status sync_cloud_tablets(RuntimeState* state) override;
 
 private:
     friend class vectorized::OlapScanner;
 
+    Status _sync_cloud_tablets(RuntimeState* state);
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
@@ -103,7 +100,9 @@ private:
     std::vector<SyncRowsetStats> _sync_statistics;
     std::vector<std::function<Status()>> _tasks;
     int64_t _duration_ns = 0;
-    std::vector<std::shared_ptr<Dependency>> _cloud_tablet_dependencies;
+    std::shared_ptr<Dependency> _cloud_tablet_dependency;
+    std::atomic_int32_t _pending_tablets_num = 0;
+    bool _prepared = false;
     std::future<Status> _cloud_tablet_future;
     std::atomic_bool _sync_tablet = false;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
@@ -250,7 +249,6 @@ public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
-    Status hold_tablets(RuntimeState* state) override;
 
 private:
     friend class OlapScanLocalState;

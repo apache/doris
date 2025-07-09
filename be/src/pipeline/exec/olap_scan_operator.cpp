@@ -46,6 +46,12 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
+Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    RETURN_IF_ERROR(_sync_cloud_tablets(state));
+    return Status::OK();
+}
+
 Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
     // Rows read from storage.
@@ -449,14 +455,11 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     return Status::OK();
 }
 
-Status OlapScanLocalState::sync_cloud_tablets(RuntimeState* state) {
+Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
     if (config::is_cloud_mode() && !_sync_tablet) {
-        _cloud_tablet_dependencies.resize(_scan_ranges.size());
-        for (size_t i = 0; i < _scan_ranges.size(); i++) {
-            _cloud_tablet_dependencies[i] =
-                    Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                              "CLOUD_TABLET_DEP_" + std::to_string(i));
-        }
+        _cloud_tablet_dependency = Dependency::create_shared(
+                _parent->operator_id(), _parent->node_id(), "CLOUD_TABLET_DEP");
+        _pending_tablets_num = cast_set<int>(_scan_ranges.size());
 
         _tablets.resize(_scan_ranges.size());
         _tasks.reserve(_scan_ranges.size());
@@ -474,7 +477,11 @@ Status OlapScanLocalState::sync_cloud_tablets(RuntimeState* state) {
                 if (task_lock == nullptr) {
                     return Status::OK();
                 }
-                Defer defer([&] { this->_cloud_tablet_dependencies[i]->set_ready(); });
+                Defer defer([&] {
+                    if (_pending_tablets_num.fetch_sub(1) == 1) {
+                        _cloud_tablet_dependency->set_ready();
+                    }
+                });
                 auto tablet =
                         DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id, sync_stats));
                 _tablets[i] = {std::move(tablet), version};
@@ -492,20 +499,23 @@ Status OlapScanLocalState::sync_cloud_tablets(RuntimeState* state) {
         RETURN_IF_ERROR(cloud::bthread_fork_join(
                 _tasks, config::init_scanner_sync_rowsets_parallelism, &_cloud_tablet_future));
         _sync_tablet = true;
-        return Status::OK();
     }
     return Status::OK();
 }
 
-Status OlapScanLocalState::hold_tablets() {
+Status OlapScanLocalState::prepare(RuntimeState* state) {
+    if (_prepared) {
+        return Status::OK();
+    }
     MonotonicStopWatch timer;
     timer.start();
     _read_sources.resize(_scan_ranges.size());
 
     if (config::is_cloud_mode()) {
-        DCHECK(std::all_of(
-                _cloud_tablet_dependencies.begin(), _cloud_tablet_dependencies.end(),
-                [&](DependencySPtr dep) -> bool { return !dep->is_blocked_by(nullptr); }));
+        if (_cloud_tablet_dependency->is_blocked_by(nullptr) != nullptr) {
+            // Remote tablet still in-flight.
+            return Status::OK();
+        }
         DCHECK(_cloud_tablet_future.valid() && _cloud_tablet_future.get().ok());
         COUNTER_UPDATE(_sync_rowset_timer, _duration_ns);
         auto total_rowsets = std::accumulate(
@@ -601,6 +611,7 @@ Status OlapScanLocalState::hold_tablets() {
                 cost_secs, print_id(PipelineXLocalState<>::_state->query_id()), _parent->node_id(),
                 _scan_ranges.size());
     }
+    _prepared = true;
     return Status::OK();
 }
 
@@ -781,11 +792,6 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
-}
-
-Status OlapScanOperatorX::hold_tablets(RuntimeState* state) {
-    auto& local_state = ScanOperatorX<OlapScanLocalState>::get_local_state(state);
-    return local_state.hold_tablets();
 }
 
 #include "common/compile_check_end.h"

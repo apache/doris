@@ -257,6 +257,16 @@ Status PipelineTask::_open() {
     return Status::OK();
 }
 
+Status PipelineTask::_prepare() {
+    SCOPED_TIMER(_task_profile->total_time_counter());
+    SCOPED_CPU_TIMER(_task_cpu_timer);
+    for (auto& o : _operators) {
+        RETURN_IF_ERROR(_state->get_local_state(o->operator_id())->prepare(_state));
+    }
+    RETURN_IF_ERROR(_state->get_sink_local_state()->prepare(_state));
+    return Status::OK();
+}
+
 bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
@@ -398,6 +408,9 @@ Status PipelineTask::execute(bool* done) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
 
+    if (!_wake_up_early) {
+        RETURN_IF_ERROR(_prepare());
+    }
     DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
         return status;
@@ -406,10 +419,6 @@ Status PipelineTask::execute(bool* done) {
     if (_wait_to_start() || _wake_up_early) {
         return Status::OK();
     }
-    if (!_hold_cloud_tablet && !_wake_up_early) {
-        RETURN_IF_ERROR(_source->hold_tablets(_state));
-    }
-    _hold_cloud_tablet = true;
 
     // The status must be runnable
     if (!_opened && !fragment_context->is_canceled()) {

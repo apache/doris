@@ -80,8 +80,6 @@ public:
     virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
-    virtual Status sync_cloud_tablets(RuntimeState* state) = 0;
-
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
     virtual int64_t get_push_down_count() = 0;
@@ -152,7 +150,6 @@ class ScanLocalState : public ScanLocalStateBase {
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
-    Status sync_cloud_tablets(RuntimeState* state) override { return Status::OK(); }
 
     TPushAggOp::type get_push_down_agg_type() override;
 
