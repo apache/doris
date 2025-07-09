@@ -537,8 +537,6 @@ public:
     static const int sMaxKeyId = 65535;
     using keyid_type = uint16_t;
 
-    JsonbKeyValue() = delete;
-
     static const uint8_t sMaxKeyLen = 64;
 
     // size of the key. 0 indicates it is stored as id
@@ -695,8 +693,6 @@ struct JsonbValue {
     // }
 
     int128_t int_val() const;
-
-    JsonbValue() = delete;
 };
 
 // inline ObjectVal* JsonbDocument::operator->() {
@@ -715,7 +711,6 @@ template <typename T>
     requires std::is_integral_v<T> || std::is_floating_point_v<T>
 struct NumberValT {
 public:
-    NumberValT() = delete;
     T val() const { return num; }
 
     static unsigned int numPackedBytes() { return sizeof(JsonbValue) + sizeof(T); }
@@ -745,7 +740,6 @@ template <JsonbDecimalType T>
 struct JsonbDecimalVal {
 public:
     using NativeType = typename T::NativeType;
-    JsonbDecimalVal() = delete;
 
     // get the decimal value
     NativeType val() const {
@@ -782,8 +776,6 @@ public:
 
     uint32_t size;
     char payload[0];
-
-    JsonbBinaryVal() = delete;
 };
 
 /*
@@ -792,7 +784,6 @@ public:
  */
 struct JsonbStringVal : public JsonbBinaryVal {
 public:
-    JsonbStringVal() = delete;
     /*
     This function return the actual size of a string. Since for
     a string, it can be null-terminated with null paddings or it
@@ -846,8 +837,6 @@ struct ContainerVal {
 
     uint32_t size;
     char payload[0];
-
-    ContainerVal() = delete;
 };
 
 /*
@@ -859,8 +848,6 @@ struct ObjectVal : public ContainerVal {
     using const_pointer = const value_type*;
     using iterator = JsonbFwdIteratorT<pointer, ObjectVal>;
     using const_iterator = JsonbFwdIteratorT<const_pointer, ObjectVal>;
-
-    ObjectVal() = delete;
 
     const_iterator search(const char* key, hDictFind handler = nullptr) const {
         return const_cast<ObjectVal*>(this)->search(key, handler);
@@ -1018,7 +1005,6 @@ struct ArrayVal : public ContainerVal {
     using iterator = JsonbFwdIteratorT<pointer, ArrayVal>;
     using const_iterator = JsonbFwdIteratorT<const_pointer, ArrayVal>;
 
-    ArrayVal() = delete;
     // get the JSONB value at index
     JsonbValue* get(int idx) const {
         if (idx < 0) {
