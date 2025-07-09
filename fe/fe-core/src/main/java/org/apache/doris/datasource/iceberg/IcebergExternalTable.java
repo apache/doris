@@ -120,14 +120,20 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         updateSchema.addColumn(column.getName(), dorisType, column.getComment(), defaultValue);
     }
 
+    private void applyPosition(UpdateSchema updateSchema, ColumnPosition columnPosition, String columnName) {
+        if (columnPosition.isFirst()) {
+            updateSchema.moveFirst(columnName);
+        } else {
+            updateSchema.moveAfter(columnName, columnPosition.getLastCol());
+        }
+    }
+
     @Override
     public void addColumn(Column column, ColumnPosition columnPosition) throws DdlException {
         UpdateSchema updateSchema = table.updateSchema();
         addOneColumn(updateSchema, column);
-        if (columnPosition.isFirst()) {
-            updateSchema.moveFirst(column.getName());
-        } else {
-            updateSchema.moveAfter(column.getName(), columnPosition.getLastCol());
+        if (columnPosition != null) {
+            applyPosition(updateSchema, columnPosition, column.getName());
         }
         try {
             catalog.getPreExecutionAuthenticator().execute(() -> {
@@ -202,10 +208,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             // because we don't know whether there is existing data with null values.
             updateSchema.makeColumnOptional(column.getName());
         }
-        if (columnPosition.isFirst()) {
-            updateSchema.moveFirst(column.getName());
-        } else {
-            updateSchema.moveAfter(column.getName(), columnPosition.getLastCol());
+        if (columnPosition != null) {
+            applyPosition(updateSchema, columnPosition, column.getName());
         }
         try {
             catalog.getPreExecutionAuthenticator().execute(() -> {
