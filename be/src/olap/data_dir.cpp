@@ -635,14 +635,14 @@ Status DataDir::load() {
             }
             ++dbm_cnt;
             auto seg_id = delete_bitmap_pb.segment_ids(i);
-            auto iter = tablet->tablet_meta()->delete_bitmap().delete_bitmap.find(
+            auto iter = tablet->tablet_meta()->delete_bitmap()->delete_bitmap.find(
                     {rst_id, seg_id, version});
             // This version of delete bitmap already exists
-            if (iter != tablet->tablet_meta()->delete_bitmap().delete_bitmap.end()) {
+            if (iter != tablet->tablet_meta()->delete_bitmap()->delete_bitmap.end()) {
                 continue;
             }
             auto bitmap = delete_bitmap_pb.segment_delete_bitmaps(i).data();
-            tablet->tablet_meta()->delete_bitmap().delete_bitmap[{rst_id, seg_id, version}] =
+            tablet->tablet_meta()->delete_bitmap()->delete_bitmap[{rst_id, seg_id, version}] =
                     roaring::Roaring::read(bitmap);
         }
         return true;

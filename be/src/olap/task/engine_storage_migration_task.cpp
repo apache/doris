@@ -32,8 +32,10 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
+#include "olap/base_tablet.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -87,8 +89,10 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
                    << ", start_version=" << start_version << ", end_version=" << *end_version;
         return Status::OK();
     }
-    return _tablet->capture_consistent_rowsets_unlocked(Version(start_version, *end_version),
-                                                        consistent_rowsets);
+    auto ret = DORIS_TRY(_tablet->capture_consistent_rowsets_unlocked(
+            Version(start_version, *end_version), CaptureRowsetOps {}));
+    *consistent_rowsets = std::move(ret.rowsets);
+    return Status::OK();
 }
 
 bool EngineStorageMigrationTask::_is_timeout() {
@@ -354,7 +358,7 @@ void EngineStorageMigrationTask::_generate_new_header(
     }
     new_tablet_meta->revise_rs_metas(std::move(rs_metas));
     if (_tablet->keys_type() == UNIQUE_KEYS && _tablet->enable_unique_key_merge_on_write()) {
-        DeleteBitmap bm = _tablet->tablet_meta()->delete_bitmap().snapshot(end_version);
+        DeleteBitmap bm = _tablet->tablet_meta()->delete_bitmap()->snapshot(end_version);
         new_tablet_meta->revise_delete_bitmap_unlocked(bm);
     }
     new_tablet_meta->set_shard_id(new_shard);

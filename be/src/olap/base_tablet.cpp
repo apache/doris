@@ -541,7 +541,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
-            if (s.ok() && _tablet_meta->delete_bitmap().contains_agg_without_cache(
+            if (s.ok() && _tablet_meta->delete_bitmap()->contains_agg_without_cache(
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
@@ -1312,37 +1312,6 @@ void BaseTablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
     }
 }
 
-Status BaseTablet::_capture_consistent_rowsets_unlocked(
-        const std::vector<Version>& version_path, std::vector<RowsetSharedPtr>* rowsets) const {
-    DCHECK(rowsets != nullptr);
-    rowsets->reserve(version_path.size());
-    for (const auto& version : version_path) {
-        bool is_find = false;
-        do {
-            auto it = _rs_version_map.find(version);
-            if (it != _rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it->second);
-                break;
-            }
-
-            auto it_expired = _stale_rs_version_map.find(version);
-            if (it_expired != _stale_rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it_expired->second);
-                break;
-            }
-        } while (false);
-
-        if (!is_find) {
-            return Status::Error<CAPTURE_ROWSET_ERROR>(
-                    "fail to find Rowset for version. tablet={}, version={}", tablet_id(),
-                    version.to_string());
-        }
-    }
-    return Status::OK();
-}
-
 Status BaseTablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap,
                                                    int64_t max_version, int64_t txn_id,
                                                    const RowsetIdUnorderedSet& rowset_ids,
@@ -1763,7 +1732,7 @@ Status BaseTablet::update_delete_bitmap_without_lock(
         delete_bitmap->remove_sentinel_marks();
     }
     for (auto& iter : delete_bitmap->delete_bitmap) {
-        self->_tablet_meta->delete_bitmap().merge(
+        self->_tablet_meta->delete_bitmap()->merge(
                 {std::get<0>(iter.first), std::get<1>(iter.first), cur_version}, iter.second);
     }
 
@@ -1797,7 +1766,7 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto& rowset : pre_rowsets) {
         for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
-            auto d = tablet_meta()->delete_bitmap().get_agg_without_cache(
+            auto d = tablet_meta()->delete_bitmap()->get_agg_without_cache(
                     {rowset->rowset_id(), seg_id, end_version}, start_version);
             if (d->isEmpty()) {
                 continue;
@@ -1813,7 +1782,7 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
             remove_delete_bitmap_key_ranges.emplace_back(start_key, end_key);
         }
     }
-    tablet_meta()->delete_bitmap().merge(*new_delete_bitmap);
+    tablet_meta()->delete_bitmap()->merge(*new_delete_bitmap);
 }
 
 void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rowset_count,
@@ -1830,7 +1799,7 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
     std::set<RowsetId> useless_rowsets;
     std::map<RowsetId, std::vector<int64_t>> useless_rowset_versions;
     {
-        _tablet_meta->delete_bitmap().traverse_rowset_and_version(
+        _tablet_meta->delete_bitmap()->traverse_rowset_and_version(
                 // 0: rowset and rowset with version exists
                 // -1: rowset does not exist
                 // -2: rowset exist, rowset with version does not exist
@@ -2064,7 +2033,7 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
             }
             base_found = true;
             uint64_t base_rowset_delete_bitmap_count =
-                    this->tablet_meta()->delete_bitmap().get_count_with_range(
+                    this->tablet_meta()->delete_bitmap()->get_count_with_range(
                             {rowset->rowset_id(), 0, 0},
                             {rowset->rowset_id(), UINT32_MAX, UINT64_MAX});
             if (base_rowset_delete_bitmap_count > *max_base_rowset_delete_bitmap_score) {
@@ -2076,6 +2045,16 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
             LOG(WARNING) << "can not found base rowset for tablet " << tablet_id();
         }
     }
+}
+
+void TabletReadSource::fill_delete_predicates() {
+    DCHECK_EQ(delete_predicates.size(), 0);
+    auto delete_pred_view =
+            rs_splits | std::views::transform([](auto&& split) {
+                return split.rs_reader->rowset()->rowset_meta();
+            }) |
+            std::views::filter([](const auto& rs_meta) { return rs_meta->has_delete_predicate(); });
+    delete_predicates = {delete_pred_view.begin(), delete_pred_view.end()};
 }
 
 int32_t BaseTablet::max_version_config() {
