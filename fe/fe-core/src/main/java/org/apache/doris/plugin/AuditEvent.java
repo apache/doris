@@ -99,6 +99,10 @@ public class AuditEvent {
     @AuditField(value = "ShuffleSendBytes", colName = "shuffle_send_bytes")
     public long shuffleSendBytes = -1;
     @AuditField(value = "SpillWriteBytesToLocalStorage", colName = "spill_write_bytes_from_local_storage")
+    public long spillWriteBytesToLocalStorage = -1;
+    @AuditField(value = "SpillReadBytesFromLocalStorage", colName = "spill_read_bytes_from_local_storage")
+    public long spillReadBytesFromLocalStorage = -1;
+    @AuditField(value = "ScanBytesFromLocalStorage", colName = "scan_bytes_from_local_storage")
     public long scanBytesFromLocalStorage = -1;
     @AuditField(value = "ScanBytesFromRemoteStorage", colName = "scan_bytes_from_remote_storage")
     public long scanBytesFromRemoteStorage = -1;
