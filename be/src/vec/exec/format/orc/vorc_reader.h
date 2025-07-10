@@ -37,6 +37,7 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/tracing_file_reader.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "orc/Reader.hh"
@@ -124,9 +125,6 @@ public:
     }
 
     struct Statistics {
-        int64_t fs_read_time = 0;
-        int64_t fs_read_calls = 0;
-        int64_t fs_read_bytes = 0;
         int64_t column_read_time = 0;
         int64_t get_batch_time = 0;
         int64_t create_reader_time = 0;
@@ -227,6 +225,8 @@ public:
         return true;
     }
     static const orc::Type& remove_acid(const orc::Type& type);
+
+    bool count_read_rows() override { return true; }
 
 protected:
     void _collect_profile_before_close() override;
@@ -717,11 +717,9 @@ private:
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {
 public:
     StripeStreamInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
-                            OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
-                            RuntimeProfile* profile)
+                            const io::IOContext* io_ctx, RuntimeProfile* profile)
             : _file_name(file_name),
               _inner_reader(inner_reader),
-              _statistics(statistics),
               _io_ctx(io_ctx),
               _profile(profile) {}
 
@@ -758,7 +756,6 @@ private:
     const std::string& _file_name;
     io::FileReaderSPtr _inner_reader;
     // Owned by OrcReader
-    OrcReader::Statistics* _statistics = nullptr;
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
@@ -766,15 +763,16 @@ private:
 class ORCFileInputStream : public orc::InputStream, public ProfileCollector {
 public:
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
-                       OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
-                       RuntimeProfile* profile, int64_t orc_once_max_read_bytes,
-                       int64_t orc_max_merge_distance_bytes)
+                       const io::IOContext* io_ctx, RuntimeProfile* profile,
+                       int64_t orc_once_max_read_bytes, int64_t orc_max_merge_distance_bytes)
             : _file_name(file_name),
               _inner_reader(inner_reader),
               _file_reader(inner_reader),
+              _tracing_file_reader(io_ctx ? std::make_shared<io::TracingFileReader>(
+                                                    _file_reader, io_ctx->file_reader_stats)
+                                          : _file_reader),
               _orc_once_max_read_bytes(orc_once_max_read_bytes),
               _orc_max_merge_distance_bytes(orc_max_merge_distance_bytes),
-              _statistics(statistics),
               _io_ctx(io_ctx),
               _profile(profile) {}
 
@@ -809,6 +807,8 @@ public:
 
     io::FileReaderSPtr& get_inner_reader() { return _inner_reader; }
 
+    io::FileReaderSPtr& get_tracing_file_reader() { return _tracing_file_reader; }
+
 protected:
     void _collect_profile_at_runtime() override {};
     void _collect_profile_before_close() override;
@@ -829,6 +829,7 @@ private:
     const std::string& _file_name;
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
+    io::FileReaderSPtr _tracing_file_reader;
     bool _is_all_tiny_stripes = false;
     int64_t _orc_once_max_read_bytes;
     int64_t _orc_max_merge_distance_bytes;
@@ -836,7 +837,6 @@ private:
     std::vector<std::shared_ptr<StripeStreamInputStream>> _stripe_streams;
 
     // Owned by OrcReader
-    OrcReader::Statistics* _statistics = nullptr;
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };

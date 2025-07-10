@@ -842,6 +842,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
+        io::FileReaderStats file_reader_stats;
+        io_ctx.file_reader_stats = &file_reader_stats;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
