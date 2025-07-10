@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -77,6 +78,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_MIN_LOAD_REPLICA_NUM = "min_load_replica_num";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
+    public static final String PROPERTIES_MEDIUM_ALLOCATION_MODE = "medium_allocation_mode";
     public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
     // base time for the data in the partition
     public static final String PROPERTIES_DATA_BASE_TIME = "data_base_time_ms";
@@ -317,6 +319,22 @@ public class PropertyAnalyzer {
     }
 
     /**
+     * Validate medium allocation mode configuration consistency.
+     *
+     * @param mode medium allocation mode to validate
+     * @param storageMedium storage medium setting
+     * @throws AnalysisException if configuration is invalid
+     */
+    public static void validateMediumAllocationMode(MediumAllocationMode mode, TStorageMedium storageMedium)
+            throws AnalysisException {
+        if (mode == MediumAllocationMode.STRICT && storageMedium == null) {
+            throw new AnalysisException(
+                                    "medium_allocation_mode 'strict' requires storage_medium to be specified. "
+                        + "Please set storage_medium to 'SSD' or 'HDD', or use medium_allocation_mode 'adaptive'");
+        }
+    }
+
+    /**
      * check and replace members of DataProperty by properties.
      *
      * @param properties      key->value for members to change.
@@ -338,7 +356,7 @@ public class PropertyAnalyzer {
         // then we would just set the partition's storage policy the same as the table's
         String newStoragePolicy = oldStoragePolicy;
         boolean hasStoragePolicy = false;
-        boolean storageMediumSpecified = false;
+        MediumAllocationMode mediumAllocationMode = oldDataProperty.getMediumAllocationMode();
         boolean isBeingSynced = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -347,12 +365,17 @@ public class PropertyAnalyzer {
             if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
                 if (value.equalsIgnoreCase(TStorageMedium.SSD.name())) {
                     storageMedium = TStorageMedium.SSD;
-                    storageMediumSpecified = true;
                 } else if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
                     storageMedium = TStorageMedium.HDD;
-                    storageMediumSpecified = true;
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
+                }
+            } else if (key.equalsIgnoreCase(PROPERTIES_MEDIUM_ALLOCATION_MODE)) {
+                try {
+                    mediumAllocationMode = MediumAllocationMode.fromString(value);
+                } catch (AnalysisException e) {
+                    LOG.error("Failed to parse medium_allocation_mode value: '{}'. Error: {}", value, e.getMessage());
+                    throw e;
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
@@ -371,6 +394,7 @@ public class PropertyAnalyzer {
         } // end for properties
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
+        properties.remove(PROPERTIES_MEDIUM_ALLOCATION_MODE);
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
         properties.remove(PROPERTIES_STORAGE_POLICY);
         properties.remove(PROPERTIES_DATA_BASE_TIME);
@@ -449,11 +473,11 @@ public class PropertyAnalyzer {
         boolean mutable = PropertyAnalyzer.analyzeBooleanProp(properties, PROPERTIES_MUTABLE, true);
         properties.remove(PROPERTIES_MUTABLE);
 
-        DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
-        // check the state of data property
-        if (storageMediumSpecified) {
-            dataProperty.setStorageMediumSpecified(true);
-        }
+        // Validate medium allocation mode consistency
+        validateMediumAllocationMode(mediumAllocationMode, storageMedium);
+
+        DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable,
+                mediumAllocationMode);
         return dataProperty;
     }
 
@@ -1549,7 +1573,7 @@ public class PropertyAnalyzer {
                 try {
                     SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
                     systemInfoService.selectBackendIdsForReplicaCreation(
-                            replicaAlloc, nextIndexs, null, false, true);
+                            replicaAlloc, nextIndexs, null, MediumAllocationMode.ADAPTIVE, true);
                 } catch (DdlException ddlException) {
                     throw new AnalysisException(ddlException.getMessage());
                 }

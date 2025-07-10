@@ -19,6 +19,7 @@ package org.apache.doris.cloud.system;
 
 import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBackendHostNameClause;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -94,7 +95,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     @Override
     public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
-            TStorageMedium storageMedium, boolean isStorageMediumSpecified,
+            TStorageMedium storageMedium, DataProperty.MediumAllocationMode mediumAllocationMode,
             boolean isOnlyForCheck)
             throws DdlException {
         return Pair.of(Maps.newHashMap(), storageMedium);
