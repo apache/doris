@@ -19,14 +19,12 @@ import org.junit.Assert
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_f_auto_inc_compaction", "nonConcurrent") {
+suite("test_f_auto_inc_compaction") {
     if (isCloudMode()) {
         logger.info("skip test_f_auto_inc_compaction in cloud mode")
         return
     }
 
-    GetDebugPoint().clearDebugPointsForAllFEs()
-    GetDebugPoint().clearDebugPointsForAllBEs()
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_f_auto_inc_compaction"
     sql """ DROP TABLE IF EXISTS ${tableName} """

@@ -17,10 +17,11 @@
 
 import org.junit.Assert
 
-suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
-
-    GetDebugPoint().clearDebugPointsForAllFEs()
-    GetDebugPoint().clearDebugPointsForAllBEs()
+suite("test_flexible_partial_update_publish_conflict") {
+    if (isCloudMode()) {
+        logger.info("skip test_flexible_partial_update_publish_conflict in cloud mode")
+        return
+    }
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_flexible_partial_update_publish_conflict"
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE;"""

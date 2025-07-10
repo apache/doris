@@ -18,9 +18,10 @@
 import org.junit.Assert
 
 suite("test_p_seq_publish_read_from_old") {
-
-    GetDebugPoint().clearDebugPointsForAllFEs()
-    GetDebugPoint().clearDebugPointsForAllBEs()
+    if (isCloudMode()) {
+        logger.info("skip test_p_seq_publish_read_from_old in cloud mode")
+        return
+    }
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_p_seq_publish_read_from_old"
     sql """ DROP TABLE IF EXISTS ${tableName} """

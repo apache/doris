@@ -17,14 +17,11 @@
 
 import org.junit.Assert
 
-suite("test_f_seq_publish_read_from_old", "nonConcurrent") {
+suite("test_f_seq_publish_read_from_old") {
     if (isCloudMode()) {
         logger.info("skip test_f_seq_publish_read_from_old in cloud mode")
         return
     }
-
-    GetDebugPoint().clearDebugPointsForAllFEs()
-    GetDebugPoint().clearDebugPointsForAllBEs()
 
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_f_seq_publish_read_from_old"

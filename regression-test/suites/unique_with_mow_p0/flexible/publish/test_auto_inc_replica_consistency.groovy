@@ -19,14 +19,12 @@ import org.junit.Assert
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_auto_inc_replica_consistency", "nonConcurrent") {
+suite("test_auto_inc_replica_consistency") {
     if (isCloudMode()) {
         logger.info("skip test_auto_inc_replica_consistency in cloud mode")
         return
     }
 
-    GetDebugPoint().clearDebugPointsForAllFEs()
-    GetDebugPoint().clearDebugPointsForAllBEs()
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_auto_inc_replica_consistency"
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE;"""

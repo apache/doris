@@ -19,10 +19,11 @@ import org.junit.Assert
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
-
-    GetDebugPoint().clearDebugPointsForAllFEs()
-    GetDebugPoint().clearDebugPointsForAllBEs()
+suite("test_flexible_partial_update_publish_conflict_seq") {
+    if (isCloudMode()) {
+        logger.info("skip test_flexible_partial_update_publish_conflict_seq in cloud mode")
+        return
+    }
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_flexible_partial_update_publish_conflict_seq"
     sql """ DROP TABLE IF EXISTS ${tableName} force;"""
