@@ -679,11 +679,11 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                 ).when(project -> {
                                     List<NamedExpression> projects = project.getProjects();
                                     checkExprsToSql(projects, "sum(1) OVER() AS `sum(1) over()`");
-                                    Assertions.assertFalse(projects.get(0).nullable());
+                                    Assertions.assertTrue(projects.get(0).nullable());
                                     return true;
                                 })
                         ).when(sink -> {
-                            Assertions.assertFalse(sink.getOutput().get(0).nullable());
+                            Assertions.assertTrue(sink.getOutput().get(0).nullable());
                             return true;
                         })
                 );

@@ -449,7 +449,8 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                         && !isAnalyzedPhase && debugCheck
                         && ConnectContext.get() != null
                         && ConnectContext.get().getSessionVariable().feDebug) {
-                    throw new AnalysisException("Slot " + slotReference + " convert to nullable");
+                    throw new AnalysisException("AdjustNullable convert slot " + slotReference
+                            + " from not-nullable to nullable. You can disable this check by set fe_debug = false.");
                 }
                 return newSlotReference;
             } else {
