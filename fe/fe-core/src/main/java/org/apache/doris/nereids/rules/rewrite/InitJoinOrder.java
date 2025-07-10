@@ -28,9 +28,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-@DependsRules({
-        MergeFilters.class
-})
 public class InitJoinOrder extends OneRewriteRuleFactory{
     private static final Logger LOG = LoggerFactory.getLogger(InitJoinOrder.class);
 

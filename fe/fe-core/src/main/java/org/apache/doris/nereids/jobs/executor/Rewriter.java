@@ -336,6 +336,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(new EliminateNotNull()),
                         topDown(new ConvertInnerOrCrossJoin())
                 ),
+                topic("set initial join order",
+                        custom(RuleType.STATS_DERIVER, StatsDerive::new),
+                        bottomUp(ImmutableList.of(new InitJoinOrder()))),
                 topic("Set operation optimization",
                         topic("",
                                 cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
@@ -652,9 +655,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                         () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
                                 )
                         ),
-                        topic("set initial join order",
-                                custom(RuleType.STATS_DERIVER, StatsDerive::new),
-                                bottomUp(ImmutableList.of(new InitJoinOrder()))),
                         topic("whole plan check",
                                 custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                         ),
