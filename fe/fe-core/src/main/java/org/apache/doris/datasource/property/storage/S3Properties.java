@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
@@ -121,6 +122,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             required = false,
             description = "The external id of S3.")
     protected String s3ExternalId = "";
+    
+    public static S3Properties of(Map<String, String> properties) {
+        S3Properties propertiesObj = new S3Properties(properties);
+        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        return propertiesObj;
+    }
 
 
     /**
