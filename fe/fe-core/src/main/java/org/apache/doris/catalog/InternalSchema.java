@@ -91,7 +91,7 @@ public class InternalSchema {
         AUDIT_SCHEMA.add(new ColumnDef("stmt_id", TypeDef.create(PrimitiveType.BIGINT), true));
         AUDIT_SCHEMA.add(new ColumnDef("is_query", TypeDef.create(PrimitiveType.TINYINT), true));
         AUDIT_SCHEMA.add(new ColumnDef("is_nereids", TypeDef.create(PrimitiveType.TINYINT), true));
-        AUDIT_SCHEMA.add(new ColumnDef("frontend_ip", TypeDef.createVarchar(128), true));
+        AUDIT_SCHEMA.add(new ColumnDef("frontend_ip", TypeDef.createVarchar(1024), true));
         AUDIT_SCHEMA.add(new ColumnDef("cpu_time_ms", TypeDef.create(PrimitiveType.BIGINT), true));
         AUDIT_SCHEMA.add(new ColumnDef("sql_hash", TypeDef.createVarchar(128), true));
         AUDIT_SCHEMA.add(new ColumnDef("sql_digest", TypeDef.createVarchar(128), true));
