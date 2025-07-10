@@ -138,6 +138,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public synchronized void setUnInitialized(boolean invalidCache) {
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
+        this.lowerCaseToTableName = Maps.newConcurrentMap();
         if (extCatalog.getUseMetaCache().isPresent()) {
             if (extCatalog.getUseMetaCache().get() && metaCache != null) {
                 metaCache.invalidateAll();
