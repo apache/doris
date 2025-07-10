@@ -748,6 +748,7 @@ enum TMetadataType {
   PARTITIONS = 9,
   PARTITION_VALUES = 10,
   HUDI = 11,
+  PAIMON = 12,
 }
 
 enum THudiQueryType {

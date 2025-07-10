@@ -137,47 +137,47 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(sorted, buf);
-        write_binary(events_list.size(), buf);
+        buf.write_binary(sorted);
+        buf.write_binary(events_list.size());
 
         for (const auto& events : events_list) {
-            write_binary(events.first, buf);
-            write_binary(events.second.to_ulong(), buf);
+            buf.write_binary(events.first);
+            buf.write_binary(events.second.to_ulong());
         }
 
         // This is std::bitset<32>, which will not exceed 32 bits.
         UInt32 conditions_met_value = (UInt32)conditions_met.to_ulong();
-        write_binary(conditions_met_value, buf);
+        buf.write_binary(conditions_met_value);
 
-        write_binary(pattern, buf);
-        write_binary(arg_count, buf);
+        buf.write_binary(pattern);
+        buf.write_binary(arg_count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(sorted, buf);
+        buf.read_binary(sorted);
 
         size_t events_list_size;
-        read_binary(events_list_size, buf);
+        buf.read_binary(events_list_size);
 
         events_list.clear();
         events_list.reserve(events_list_size);
 
         for (size_t i = 0; i < events_list_size; ++i) {
             Timestamp timestamp;
-            read_binary(timestamp, buf);
+            buf.read_binary(timestamp);
 
             UInt64 events;
-            read_binary(events, buf);
+            buf.read_binary(events);
 
             events_list.emplace_back(timestamp, Events {events});
         }
 
         UInt32 conditions_met_value;
-        read_binary(conditions_met_value, buf);
+        buf.read_binary(conditions_met_value);
         conditions_met = conditions_met_value;
 
-        read_binary(pattern, buf);
-        read_binary(arg_count, buf);
+        buf.read_binary(pattern);
+        buf.read_binary(arg_count);
     }
 
 private:

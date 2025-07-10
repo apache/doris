@@ -15,34 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.encryption;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 
-public class IsNullPredicateTest {
-    @Mocked
-    Analyzer analyzer;
+public class KeyManager implements Writable {
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
 
-    @Test
-    public void testNullParam() {
-        IsNullPredicate isNullPredicate = new IsNullPredicate(new NullLiteral(), false);
-
-        try {
-            isNullPredicate.analyzeImpl(analyzer);
-        } catch (AnalysisException e) {
-            Assert.fail();
-        }
-
-        IsNullPredicate isNotNullPredicate = new IsNullPredicate(new NullLiteral(), true);
-
-        try {
-            isNotNullPredicate.analyzeImpl(analyzer);
-        } catch (AnalysisException e) {
-            Assert.fail();
-        }
+    public static KeyManager read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), KeyManager.class);
     }
 }

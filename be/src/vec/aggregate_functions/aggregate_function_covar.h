@@ -51,17 +51,17 @@ struct BaseData {
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
 
     void write(BufferWritable& buf) const {
-        write_binary(sum_x, buf);
-        write_binary(sum_y, buf);
-        write_binary(sum_xy, buf);
-        write_binary(count, buf);
+        buf.write_binary(sum_x);
+        buf.write_binary(sum_y);
+        buf.write_binary(sum_xy);
+        buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(sum_x, buf);
-        read_binary(sum_y, buf);
-        read_binary(sum_xy, buf);
-        read_binary(count, buf);
+        buf.read_binary(sum_x);
+        buf.read_binary(sum_y);
+        buf.read_binary(sum_xy);
+        buf.read_binary(count);
     }
 
     void reset() {

@@ -30,6 +30,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
@@ -1590,7 +1591,7 @@ public:
         }
 
         for (auto argument : arguments) {
-            auto&& [arg_column, _] = unpack_if_const(block.get_by_position(argument).column);
+            auto&& [arg_column, is_const] = unpack_if_const(block.get_by_position(argument).column);
 
             auto& data_type = block.get_by_position(argument).type;
             auto serde = data_type->get_serde();
@@ -1602,14 +1603,15 @@ public:
                 const auto& jsonb_column = assert_cast<const ColumnString&>(nested_column);
 
                 for (size_t i = 0; i < input_rows_count; ++i) {
-                    if (null_map[i]) {
+                    auto index = index_check_const(i, is_const);
+                    if (null_map[index]) {
                         if constexpr (ignore_null) {
                             continue;
                         } else {
                             writers[i].writeNull();
                         }
                     } else {
-                        auto jsonb_binary = jsonb_column.get_data_at(i);
+                        auto jsonb_binary = jsonb_column.get_data_at(index);
                         JsonbDocument* doc = nullptr;
                         auto st = JsonbDocument::checkAndCreateDocument(jsonb_binary.data,
                                                                         jsonb_binary.size, &doc);
@@ -1628,7 +1630,8 @@ public:
                 const auto& jsonb_column = assert_cast<const ColumnString&>(*arg_column);
 
                 for (size_t i = 0; i < input_rows_count; ++i) {
-                    auto jsonb_binary = jsonb_column.get_data_at(i);
+                    auto index = index_check_const(i, is_const);
+                    auto jsonb_binary = jsonb_column.get_data_at(index);
                     JsonbDocument* doc = nullptr;
                     auto st = JsonbDocument::checkAndCreateDocument(jsonb_binary.data,
                                                                     jsonb_binary.size, &doc);
@@ -1649,6 +1652,149 @@ public:
         column->reserve(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             writers[i].writeEndArray();
+            column->insert_data(writers[i].getOutput()->getBuffer(),
+                                writers[i].getOutput()->getSize());
+        }
+
+        block.get_by_position(result).column = std::move(column);
+        return Status::OK();
+    }
+};
+
+class FunctionJsonbObject : public IFunction {
+public:
+    static constexpr auto name = "json_object";
+    static constexpr auto alias = "jsonb_object";
+
+    static FunctionPtr create() { return std::make_shared<FunctionJsonbObject>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeJsonb>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        if (arguments.size() % 2 != 0) {
+            return Status::InvalidArgument(
+                    "JSON object must have an even number of arguments, but got: {}",
+                    arguments.size());
+        }
+
+        auto return_data_type = std::make_shared<DataTypeJsonb>();
+        DorisVector<JsonbWriter> writers(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            writers[i].writeStartObject();
+        }
+
+        auto write_keys = [&writers](const ColumnString& key_col, const bool is_const,
+                                     const NullMap* null_map, const size_t rows,
+                                     const size_t arg_index) {
+            for (size_t row_idx = 0; row_idx != rows; ++row_idx) {
+                auto index = index_check_const(row_idx, is_const);
+                if (null_map && (*null_map)[index]) {
+                    return Status::InvalidArgument(
+                            "JSON documents may not contain NULL member name(argument "
+                            "index:  "
+                            "{}, row index: {})",
+                            row_idx, arg_index);
+                }
+
+                auto key_string = key_col.get_data_at(index);
+                if (key_string.size > 255) {
+                    return Status::InvalidArgument(
+                            "JSON object keys(argument index: {}) must be less than 256 "
+                            "bytes, but got size: {}",
+                            arg_index, key_string.size);
+                }
+                writers[row_idx].writeKey(key_string.data, static_cast<uint8_t>(key_string.size));
+            }
+            return Status::OK();
+        };
+
+        auto write_values = [&writers](const ColumnString& value_col, const bool is_const,
+                                       const NullMap* null_map, const size_t rows,
+                                       const size_t arg_index) {
+            for (size_t row_idx = 0; row_idx != rows; ++row_idx) {
+                auto index = index_check_const(row_idx, is_const);
+                if (null_map && (*null_map)[index]) {
+                    writers[row_idx].writeNull();
+                    continue;
+                }
+
+                auto value_string = value_col.get_data_at(index);
+                JsonbDocument* doc = nullptr;
+                RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(value_string.data,
+                                                                      value_string.size, &doc));
+                writers[row_idx].writeValue(doc->getValue());
+            }
+            return Status::OK();
+        };
+
+        for (size_t i = 0; i < arguments.size(); i += 2) {
+            auto key_argument = arguments[i];
+            auto value_argument = arguments[i + 1];
+            auto&& [key_column, key_const] =
+                    unpack_if_const(block.get_by_position(key_argument).column);
+            auto&& [value_column, value_const] =
+                    unpack_if_const(block.get_by_position(value_argument).column);
+
+            auto& key_data_type = block.get_by_position(key_argument).type;
+            auto& value_data_type = block.get_by_position(value_argument).type;
+            if (!is_string_type(key_data_type->get_primitive_type())) {
+                return Status::InvalidArgument(
+                        "JSON object key(argument index: {}) must be String, but got type: "
+                        "{}(primitive type: {})",
+                        i, key_data_type->get_name(),
+                        static_cast<int>(key_data_type->get_primitive_type()));
+            }
+
+            if (value_data_type->get_primitive_type() != PrimitiveType::TYPE_JSONB) {
+                return Status::InvalidArgument(
+                        "JSON object value(argument index: {}) must be JSON, but got type: {}", i,
+                        value_data_type->get_name());
+            }
+
+            if (key_column->is_nullable()) {
+                const auto& nullable_column = assert_cast<const ColumnNullable&>(*key_column);
+                const auto& null_map = nullable_column.get_null_map_data();
+                const auto& nested_column = nullable_column.get_nested_column();
+                const auto& key_arg_column = assert_cast<const ColumnString&>(nested_column);
+
+                RETURN_IF_ERROR(
+                        write_keys(key_arg_column, key_const, &null_map, input_rows_count, i));
+            } else {
+                const auto& key_arg_column = assert_cast<const ColumnString&>(*key_column);
+                RETURN_IF_ERROR(
+                        write_keys(key_arg_column, key_const, nullptr, input_rows_count, i));
+            }
+
+            if (value_column->is_nullable()) {
+                const auto& nullable_column = assert_cast<const ColumnNullable&>(*value_column);
+                const auto& null_map = nullable_column.get_null_map_data();
+                const auto& nested_column = nullable_column.get_nested_column();
+                const auto& value_arg_column = assert_cast<const ColumnString&>(nested_column);
+
+                RETURN_IF_ERROR(write_values(value_arg_column, value_const, &null_map,
+                                             input_rows_count, i + 1));
+            } else {
+                const auto& value_arg_column = assert_cast<const ColumnString&>(*value_column);
+                RETURN_IF_ERROR(write_values(value_arg_column, value_const, nullptr,
+                                             input_rows_count, i + 1));
+            }
+        }
+
+        auto column = return_data_type->create_column();
+        column->reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            writers[i].writeEndObject();
             column->insert_data(writers[i].getOutput()->getBuffer(),
                                 writers[i].getOutput()->getSize());
         }
@@ -2123,6 +2269,9 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionJsonbArray<true>>("json_array_ignore_null");
     factory.register_alias("json_array_ignore_null", "jsonb_array_ignore_null");
+
+    factory.register_function<FunctionJsonbObject>();
+    factory.register_alias(FunctionJsonbObject::name, FunctionJsonbObject::alias);
 }
 
 } // namespace doris::vectorized

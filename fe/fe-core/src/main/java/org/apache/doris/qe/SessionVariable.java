@@ -2256,7 +2256,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SYNC_MV_COST_BASED_REWRITE, needForward = true,
             description = {"是否允许基于代价改写同步物化视图",
-                    "Whether enable cost based rewrite for sync mv"})
+                    "Whether enable cost based rewrite for sync mv"}, varType = VariableAnnotation.REMOVED)
     public boolean enableSyncMvCostBasedRewrite = true;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS, needForward = true,
@@ -4765,14 +4765,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewNestRewrite() {
         return enableMaterializedViewNestRewrite;
-    }
-
-    public boolean isEnableSyncMvCostBasedRewrite() {
-        return enableSyncMvCostBasedRewrite;
-    }
-
-    public void setEnableSyncMvCostBasedRewrite(boolean enableSyncMvCostBasedRewrite) {
-        this.enableSyncMvCostBasedRewrite = enableSyncMvCostBasedRewrite;
     }
 
     public int getMaterializedViewRelationMappingMaxCount() {

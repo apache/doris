@@ -736,7 +736,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ipv6FromUInt128StringOrNull.class, "ipv6_from_uint128_string_or_null"),
             scalar(JsonArray.class, "json_array", "jsonb_array"),
             scalar(JsonArrayIgnoreNull.class, "json_array_ignore_null", "jsonb_array_ignore_null"),
-            scalar(JsonObject.class, "json_object"),
+            scalar(JsonObject.class, "json_object", "jsonb_object"),
             scalar(JsonQuote.class, "json_quote"),
             scalar(JsonUnQuote.class, "json_unquote"),
             scalar(JsonExtract.class, "json_extract"),

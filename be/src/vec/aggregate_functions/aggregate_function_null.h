@@ -135,7 +135,7 @@ public:
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         bool flag = get_flag(place);
         if (result_is_nullable) {
-            write_binary(flag, buf);
+            buf.write_binary(flag);
         }
         if (flag) {
             nested_function->serialize(nested_place(place), buf);
@@ -146,7 +146,7 @@ public:
                      Arena* arena) const override {
         bool flag = true;
         if (result_is_nullable) {
-            read_binary(flag, buf);
+            buf.read_binary(flag);
         }
         if (flag) {
             set_flag(place);
@@ -158,7 +158,7 @@ public:
                                BufferReadable& buf, Arena* arena) const override {
         bool flag = true;
         if (result_is_nullable) {
-            read_binary(flag, buf);
+            buf.read_binary(flag);
         }
         if (flag) {
             set_flag(rhs);
@@ -204,7 +204,9 @@ public:
              Arena* arena) const override {
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
-        if (!column->is_null_at(row_num)) {
+        if (column->is_null_at(row_num)) {
+            this->null_count++;
+        } else {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add(this->nested_place(place), &nested_column, row_num, arena);
