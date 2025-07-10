@@ -116,9 +116,7 @@ import java.util.Set;
  *   +--LogicalOlapScan(t2)
  * ->
  * LogicalJoin(type:inner, t1.a=t2.a)
- *   |--LogicalFilter(t1.a is not null)
- *   |  +--LogicalOlapScan(t1)
- *   +--LogicalFilter(t2.a is not null)
+ *     |--LogicalOlapScan(t1)
  *     +--LogicalOlapScan(t2)
  * */
 public class SaltJoin extends OneRewriteRuleFactory {
