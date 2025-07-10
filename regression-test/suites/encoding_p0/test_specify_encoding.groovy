@@ -99,7 +99,7 @@ suite("test_specify_encoding")  {
             `bigint_plain` bigint encoding "plain" NULL,
             `largeint_bs` largeint encoding "bit_shuffle" NULL,
             -- `largeint_for` largeint encoding "for" NULL,
-            `largeint_plain` largeint encoding "plain" NULL,
+            -- `largeint_plain` largeint encoding "plain" NULL,
 
             `float_bs` float encoding "bit_shuffle" NULL,
             `float_plain` float encoding "plain" NULL,
@@ -134,12 +134,12 @@ suite("test_specify_encoding")  {
             -- `datetime_for` datetime encoding "for" NULL,
             
             `decimal_bs` decimal encoding "bit_shuffle" NULL,
-            `decimal_plain` decimal encoding "plain" NULL,
+            -- `decimal_plain` decimal encoding "plain" NULL,
             
             `ipv4_bs` ipv4 encoding "bit_shuffle" NULL,
             `ipv4_plain` ipv4 encoding "plain" NULL,
             `ipv6_bs` ipv6 encoding "bit_shuffle" NULL,
-            `ipv6_plain` ipv6 encoding "plain" NULL,
+            -- `ipv6_plain` ipv6 encoding "plain" NULL,
 
             `array_test` array<int encoding "bit_shuffle">  NULL,
             `map_test` map<int encoding "bit_shuffle", int encoding "bit_shuffle"> NULL,
@@ -161,7 +161,7 @@ suite("test_specify_encoding")  {
             -- 1,            
             -- 1,            
             -- 1,            
-            1,            
+            -- 1,            
             1,            
             1,            
             1,            
@@ -204,12 +204,12 @@ suite("test_specify_encoding")  {
             '2025-12-31 10:10:10',   
                         
             12.23,       
-            12.23,       
+            -- 12.23,       
                         
             to_ipv4('127.0.0.1'),  
             to_ipv4('127.0.0.1'),  
             to_ipv6('::1'),        
-            to_ipv6('::1'),        
+            -- to_ipv6('::1'),        
             
             [1,2,3],               
             map(1, 100, 2, 200),   

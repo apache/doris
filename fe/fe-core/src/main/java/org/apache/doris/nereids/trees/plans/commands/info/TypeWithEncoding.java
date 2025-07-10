@@ -71,6 +71,50 @@ public class TypeWithEncoding {
     private static final Map<String, EncodingTypePB> encodingMap = new HashMap<>();
     private static final Map<Class<? extends DataType>, Set<Integer>> supportedEncodingMap = new HashMap<>();
 
+    // Attention: Some types whose CPP type is `int128_t` can not support `PLAIN_ENCODING`.
+    // Read plan encoding int128_t in our cluster will cause be core. The stack is as follows:
+    // ==============================================================================================
+    // *** SIGSEGV unknown detail explain (@0x0) received by PID 20460 (TID 20899 OR 0x7f6ed2bf9700) from PID 0;
+    // stack trace: ***
+    //  0# doris::signal::(anonymous namespace)::FailureSignalHandler(int, siginfo_t*, void*)
+    //  at /root/doris/be/src/common/signal_handler.h:420
+    //  1# 0x00007F6FB619D400 in /lib64/libc.so.6
+    //  2# doris::segment_v2::PlainPageDecoder<(doris::FieldType)39>::read_by_rowids(unsigned int const*, unsigned long,
+    //  unsigned long*, doris::COW<doris::vectorized::IColumn>::mutable_ptr<doris::vectorized::IColumn>&)
+    //  at /root/doris/be/src/olap/rowset/segment_v2/plain_page.h:168
+    //  3# doris::segment_v2::FileColumnIterator::read_by_rowids(unsigned int const*, unsigned long,
+    //  doris::COW<doris::vectorized::IColumn>::mutable_ptr<doris::vectorized::IColumn>&)
+    //  at /root/doris/be/src/olap/rowset/segment_v2/column_reader.cpp:1373
+    //  4# doris::segment_v2::SegmentIterator::_read_columns_by_index(unsigned int, unsigned int&, bool)
+    //  at /root/doris/be/src/olap/rowset/segment_v2/segment_iterator.cpp:1772
+    //  5# doris::segment_v2::SegmentIterator::_next_batch_internal(doris::vectorized::Block*)
+    //  at /root/doris/be/src/olap/rowset/segment_v2/segment_iterator.cpp:2122
+    //  6# doris::segment_v2::SegmentIterator::next_batch(doris::vectorized::Block*)
+    //  at /root/doris/be/src/olap/rowset/segment_v2/segment_iterator.cpp:1953
+    //  7# doris::segment_v2::LazyInitSegmentIterator::next_batch(doris::vectorized::Block*)
+    //  at /root/doris/be/src/olap/rowset/segment_v2/lazy_init_segment_iterator.h:49
+    //  8# doris::BetaRowsetReader::next_block(doris::vectorized::Block*)
+    //  at /root/doris/be/src/olap/rowset/beta_rowset_reader.cpp:341
+    //  9# doris::vectorized::VCollectIterator::Level0Iterator::refresh_current_row()
+    //  at /root/doris/be/src/vec/olap/vcollect_iterator.cpp:510
+    // 10# doris::vectorized::VCollectIterator::Level0Iterator::ensure_first_row_ref()
+    // at /root/doris/be/src/vec/olap/vcollect_iterator.cpp:484
+    // 11# doris::vectorized::VCollectIterator::Level1Iterator::ensure_first_row_ref()
+    // in /opt/doris/be/lib/doris_be
+    // 12# doris::vectorized::VCollectIterator::build_heap(std::vector<std::shared_ptr<doris::RowsetReader>,
+    // std::allocator<std::shared_ptr<doris::RowsetReader> > >&)
+    // at /root/doris/be/src/vec/olap/vcollect_iterator.cpp:186
+    // 13# doris::vectorized::BlockReader::_init_collect_iter(doris::TabletReader::ReaderParams const&)
+    // at /root/doris/be/src/vec/olap/block_reader.cpp:152
+    // 14# doris::vectorized::BlockReader::init(doris::TabletReader::ReaderParams const&)
+    // at /root/doris/be/src/vec/olap/block_reader.cpp:226
+    // 15# doris::vectorized::OlapScanner::open(doris::RuntimeState*)
+    // at /root/doris/be/src/vec/exec/scan/olap_scanner.cpp:238
+    // 16# doris::vectorized::ScannerScheduler::_scanner_scan(std::shared_ptr<doris::vectorized::ScannerContext>,
+    // std::shared_ptr<doris::vectorized::ScanTask>) at /root/doris/be/src/vec/exec/scan/scanner_scheduler.cpp:178
+    // ==============================================================================================
+    // But, I don't know why. I have checked the core dump and don't find any NULL in current Stack frame.
+    // So, we disable plain encoding for largeint, decimalv2/v3 and ipv6.
     static {
         // same as BE cod: encoding_info.cpp
         Set<Integer> tinyIntEncoding = new HashSet<>();
@@ -99,7 +143,8 @@ public class TypeWithEncoding {
 
         Set<Integer> largeIntEncoding = new HashSet<>();
         largeIntEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
-        largeIntEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
+
+        // See Attention comment: largeIntEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         // largeIntEncoding.add(EncodingTypePB.FOR_ENCODING);
         supportedEncodingMap.put(LargeIntType.class, largeIntEncoding);
 
@@ -140,15 +185,19 @@ public class TypeWithEncoding {
 
         Set<Integer> decimalLikeEncoding = new HashSet<>();
         decimalLikeEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
-        decimalLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
+        // See Attention comment: decimalLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(DecimalV2Type.class, decimalLikeEncoding);
         supportedEncodingMap.put(DecimalV3Type.class, decimalLikeEncoding);
 
-        Set<Integer> ipLikeEncoding = new HashSet<>();
-        ipLikeEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
-        ipLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
-        supportedEncodingMap.put(IPv4Type.class, ipLikeEncoding);
-        supportedEncodingMap.put(IPv6Type.class, ipLikeEncoding);
+        Set<Integer> ipV4Encoding = new HashSet<>();
+        ipV4Encoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        ipV4Encoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
+        supportedEncodingMap.put(IPv4Type.class, ipV4Encoding);
+
+        Set<Integer> ipV6Encoding = new HashSet<>();
+        ipV6Encoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        // See Attention comment: ipV6Encoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
+        supportedEncodingMap.put(IPv6Type.class, ipV6Encoding);
 
         supportedEncodingMap.put(HllType.class, Sets.newHashSet(EncodingTypePB.PLAIN_ENCODING.getNumber()));
 
