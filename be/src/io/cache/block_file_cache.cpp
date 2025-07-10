@@ -376,10 +376,10 @@ void BlockFileCache::use_cell(const FileBlockCell& cell, FileBlocks* result, boo
     /// Move to the end of the queue. The iterator remains valid.
     if (cell.queue_iterator && move_iter_flag) {
         queue.move_to_end(*cell.queue_iterator, cache_lock);
+        _lru_recorder->record_queue_event(cell.file_block->cache_type(),
+                                          CacheLRULogType::MOVETOBACK, cell.file_block->_key.hash,
+                                          cell.file_block->_key.offset, cell.size());
     }
-    _lru_recorder->record_queue_event(cell.file_block->cache_type(), CacheLRULogType::MOVETOBACK,
-                                      cell.file_block->_key.hash, cell.file_block->_key.offset,
-                                      cell.size());
 
     cell.update_atime();
 }
