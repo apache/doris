@@ -185,14 +185,6 @@ TEST(MetricTest, FdbMetricExporterTest) {
         std::string fileContent((std::istreambuf_iterator<char>(inFile)),
                                 std::istreambuf_iterator<char>());
 
-        std::string word_to_replace = "cluster";
-        std::string new_word = "xxxx";
-
-        size_t start_pos = 0;
-        while ((start_pos = fileContent.find(word_to_replace, start_pos)) != std::string::npos) {
-            fileContent.replace(start_pos, word_to_replace.length(), new_word);
-            start_pos += new_word.length();
-        }
         std::shared_ptr<TxnKv> txn_kv = std::make_shared<MemTxnKv>();
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -204,7 +196,7 @@ TEST(MetricTest, FdbMetricExporterTest) {
         fdb_metric_exporter.start();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         fdb_metric_exporter.stop();
-        ASSERT_EQ(g_bvar_fdb_process_status_int.get(
+        ASSERT_EQ(g_bvar_fdb_process_status_float.get(
                           {"09ca90b9f3f413e5816b2610ed8b465d", "cpu", "usage_cores"}),
                   0.0012292);
         ASSERT_EQ(g_bvar_fdb_process_status_float.get(
@@ -251,7 +243,7 @@ TEST(MetricTest, FdbMetricExporterTest) {
                   122974208);
 
         // test second process
-        ASSERT_EQ(g_bvar_fdb_process_status_int.get(
+        ASSERT_EQ(g_bvar_fdb_process_status_float.get(
                           {"0a456165f04e1ec1a2ade0ce523d54a8", "cpu", "usage_cores"}),
                   0.0049765900000000004);
         ASSERT_EQ(g_bvar_fdb_process_status_float.get(

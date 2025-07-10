@@ -186,6 +186,7 @@ static void export_fdb_status_details(const std::string& status_str) {
                          iter != temp_node->value.MemberEnd(); iter++) {
                         self(self, recursive_name_helper(name, iter->name.GetString()), iter);
                     }
+                    return;
                 }
                 // if not object, set bvar value
                 set_bvar_value(name, temp_node);
