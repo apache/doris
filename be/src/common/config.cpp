@@ -2003,27 +2003,27 @@ Status set_fuzzy_configs() {
         fuzzy_field_and_value["max_hdfs_file_handle_cache_num"] =
                 (idx == 0) ? "0" : ((idx == 1) ? "10" : "20000");
 
-        int64_t idx = distribution3(*generator);
+        idx = distribution3(*generator);
         fuzzy_field_and_value["max_hdfs_file_handle_cache_time_sec"] =
                 (idx == 0) ? "1" : ((idx == 1) ? "10" : "28800");
 
-        int64_t idx = distribution3(*generator);
+        idx = distribution3(*generator);
         fuzzy_field_and_value["max_external_file_meta_cache_num"] =
                 (idx == 0) ? "0" : ((idx == 1) ? "10" : "1000");
 
-        int64_t idx = distribution3(*generator);
+        idx = distribution3(*generator);
         fuzzy_field_and_value["common_obj_lru_cache_stale_sweep_time_sec"] =
                 (idx == 0) ? "0" : ((idx == 1) ? "10" : "900");
 
-        int64_t idx = distribution3(*generator);
+        idx = distribution3(*generator);
         fuzzy_field_and_value["max_amplified_read_ratio"] =
                 (idx == 0) ? "0.1" : ((idx == 1) ? "0.8" : "1");
 
-        int64_t idx = distribution3(*generator);
+        idx = distribution3(*generator);
         fuzzy_field_and_value["merged_oss_min_io_size"] =
                 (idx == 0) ? "4096" : ((idx == 1) ? "8192" : "1048576");
 
-        int64_t idx = distribution3(*generator);
+        idx = distribution3(*generator);
         fuzzy_field_and_value["merged_hdfs_min_io_size"] =
                 (idx == 0) ? "4096" : ((idx == 1) ? "8192" : "1048576");
     }
