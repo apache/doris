@@ -62,7 +62,7 @@ suite("test_predefine_ddl", "p0"){
     sql "DROP TABLE IF EXISTS test_ddl_table"
     sql """CREATE TABLE test_ddl_table (
         `id` bigint NULL,
-        `var` variant NULL
+        `var` variant<properties("variant_max_subcolumns_count" = "10")> NULL
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
@@ -71,7 +71,7 @@ suite("test_predefine_ddl", "p0"){
         exception("Can not create index with field pattern")
     }
     
-    sql """ alter table test_ddl_table add column var2 variant<'ab' : string> NULL """
+    sql """ alter table test_ddl_table add column var2 variant<'ab' : string, properties("variant_max_subcolumns_count" = "5")> NULL """
 
     test {
         sql """ alter table test_ddl_table modify column var variant<'ab' : string> NULL """
@@ -121,12 +121,17 @@ suite("test_predefine_ddl", "p0"){
             `id` bigint NULL,
             `var` variant<
                 MATCH_NAME 'ab' : int,
-                MATCH_NAME 'ab' : string
+                MATCH_NAME 'ab' : string,
+                properties("variant_max_subcolumns_count" = "10", "variant_enable_typed_paths_to_sparse" = "true")
             > NULL,
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("Duplicate field name ab in struct variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text>")
+        exception("""Duplicate field name ab in variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text,
+PROPERTIES (
+"variant_max_subcolumns_count" = "10",
+"variant_enable_typed_paths_to_sparse" = "true"
+)>""")
     }
 
     test {
@@ -279,5 +284,31 @@ suite("test_predefine_ddl", "p0"){
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
         exception("VARIANT unsupported sub-type: array<array<int>>")
+    }
+
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant <'c' :text, properties("variant_max_subcolumns_count" = "10")> NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant <properties("variant_max_subcolumns_count" = "10")> NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+
+    test {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
+            `id` bigint NULL,
+            `var1` variant <properties("variant_max_subcolumns_count" = "10")> NULL,
+            `var2` variant <properties("variant_max_subcolumns_count" = "0")> NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+        exception("The variant_max_subcolumns_count must either be 0 in all columns, or greater than 0 in all columns")
     }
 }

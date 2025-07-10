@@ -20,9 +20,7 @@ suite("regression_test_variant_desc", "p0"){
     //     return
     // }
     def count = "0"
-    if (new Random().nextInt(100) < 50) {
-        count = "1000"
-    }
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -57,11 +55,11 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_max_subcolumns_count" = "${count}")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
     }
 
@@ -70,7 +68,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_max_subcolumns_count" = "${count}")>
             )
             DUPLICATE KEY(`k`)
             PARTITION BY RANGE(k)
@@ -80,7 +78,7 @@ suite("regression_test_variant_desc", "p0"){
                 PARTITION p3 VALUES LESS THAN (100000)
             )
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
     }
 
@@ -163,13 +161,13 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v1 variant,
-                v2 variant,
-                v3 variant
+                v1 variant<properties("variant_max_subcolumns_count" = "${count}")>,
+                v2 variant<properties("variant_max_subcolumns_count" = "${count}")>,
+                v3 variant<properties("variant_max_subcolumns_count" = "${count}")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}', '{"a": 11245, "xxxx" : "kaana"}', '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
          sql "select * from ${table_name} limit 1"
@@ -182,11 +180,11 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_max_subcolumns_count" = "${count}")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
          sql "select * from ${table_name} limit 1"
@@ -225,11 +223,11 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_max_subcolumns_count" = "${count}")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
         sql """ insert into ${table_name} values (0, '{"名字" : "jack", "!@#^&*()": "11111", "金额" : 200, "画像" : {"地址" : "北京", "\\\u4E2C\\\u6587": "unicode"}}')"""
         sql """set describe_extend_variant_column = true"""
@@ -241,11 +239,11 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_max_subcolumns_count" = "${count}")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
         sql """ insert into ${table_name} values (0, '{}')"""
         sql """ insert into ${table_name} values (0, '100')"""

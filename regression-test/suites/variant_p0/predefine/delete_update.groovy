@@ -21,8 +21,8 @@ suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
     // MOR
     def table_name = "var_delete_update"
     sql "DROP TABLE IF EXISTS ${table_name}"
-    int max_subcolumns_count = Math.floor(Math.random() * 5) 
-    def var = "variant <'a' : largeint, 'b' : array<int>, 'c' : double, 'd' : text>"
+    int max_subcolumns_count = Math.floor(Math.random() * 5) + 1
+    def var = "variant <'a' : largeint, 'b' : array<int>, 'c' : double, 'd' : text, properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")>"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
@@ -30,7 +30,7 @@ suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3
-        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false", "variant_enable_flatten_nested" = "false", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false", "variant_enable_flatten_nested" = "false", "disable_auto_compaction" = "true");
     """
     // test mor table
 
@@ -57,7 +57,7 @@ suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "disable_auto_compaction" = "true");
     """
     sql "insert into var_delete_update_mow select k, cast(v as string), cast(v as string) from var_delete_update"
     sql "delete from ${table_name} where k = 1"

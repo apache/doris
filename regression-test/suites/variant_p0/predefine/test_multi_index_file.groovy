@@ -25,7 +25,7 @@ suite("test_variant_multi_index_file", "p0, nonConcurrent"){
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,
-        `var` variant NOT NULL,
+        `var` variant<properties("variant_enable_typed_paths_to_sparse" = "false")> NOT NULL,
         INDEX idx_a_d (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_a_d_2 (var) USING INVERTED
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""

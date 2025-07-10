@@ -69,7 +69,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -690,8 +689,9 @@ public class SchemaChangeHandler extends AlterHandler {
             if (modColumn.getChildren().size() > 0 || oriColumn.getChildren().size() > 0) {
                 throw new DdlException("Can not modify variant column with children");
             }
-            VariantType scType = (VariantType) type;
-            scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
+            if (modColumn.getVariantMaxSubcolumnsCount() != oriColumn.getVariantMaxSubcolumnsCount()) {
+                throw new DdlException("Can not modify variant column property variant max subcolumns count");
+            }
         }
 
         if (!modColumn.equals(oriColumn) && oriColumn.isAutoInc() != modColumn.isAutoInc()) {
@@ -1039,11 +1039,6 @@ public class SchemaChangeHandler extends AlterHandler {
             lightSchemaChange = false;
         }
 
-        Type type = newColumn.getType();
-        if (type.isVariantType()) {
-            VariantType scType = (VariantType) type;
-            scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
-        }
         // check if the new column already exist in base schema.
         // do not support adding new column which already exist in base schema.
         List<Column> baseSchema = olapTable.getBaseSchema(true);
@@ -1074,6 +1069,15 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (newColumn.getGeneratedColumnInfo() != null) {
             throw new DdlException("Not supporting alter table add generated columns.");
+        }
+
+        if (newColumn.getType().isVariantType() && olapTable.hasVariantColumns()) {
+            Pair<Integer, Integer> res = olapTable.getMinMaxVariantSubcolumnsCount();
+            int currentCount = newColumn.getVariantMaxSubcolumnsCount();
+            if ((currentCount == 0 && (res.key() != 0 || res.value() != 0))
+                                    || (currentCount > 0 && (res.key() == 0 && res.value() == 0))) {
+                throw new DdlException("Can not add variant column: variant max subcolumns count: " + currentCount);
+            }
         }
 
         /*

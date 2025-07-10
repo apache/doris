@@ -27,7 +27,7 @@ suite("variant_with_mow") {
         `INGESTIONTIMESTAMP` bigint NOT NULL,
         `PROCESSEDTIMESTAMP` bigint NOT NULL,
         `VERSION` bigint NULL DEFAULT "0",
-        `OVERFLOWPROPERTIES` variant NULL,
+        `OVERFLOWPROPERTIES` variant<properties("variant_max_subcolumns_count" = "100")> NULL,
         INDEX objects_properties_idx (`OVERFLOWPROPERTIES`) USING INVERTED COMMENT 'This is an inverted index on all properties of the object'
         ) ENGINE=OLAP
         UNIQUE KEY(`PORTALID`, `OBJECTTYPEID`, `OBJECTIDHASH`, `OBJECTID`)
@@ -36,7 +36,6 @@ suite("variant_with_mow") {
         "replication_allocation" = "tag.location.default: 1",
         "enable_unique_key_merge_on_write" = "true",
         "function_column.sequence_col" = "VERSION",
-        "variant_max_subcolumns_count" = "100",
         "disable_auto_compaction" = "true"
         );
     """

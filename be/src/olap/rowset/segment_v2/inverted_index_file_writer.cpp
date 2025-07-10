@@ -52,7 +52,8 @@ Status InvertedIndexFileWriter::_insert_directory_into_map(int64_t index_id,
             LOG(ERROR) << "Key: (" << entry.first.first << ", " << entry.first.second << ")";
         }
         return Status::InternalError(
-                "InvertedIndexFileWriter::open attempted to insert a duplicate dir");
+                "InvertedIndexFileWriter::open attempted to insert a duplicate dir, key: (" +
+                std::to_string(key.first) + ", " + key.second + ")");
     }
     return Status::OK();
 }

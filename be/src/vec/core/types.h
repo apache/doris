@@ -945,6 +945,125 @@ inline const char* getTypeName(TypeIndex idx) {
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
+
+template <typename T>
+struct StorageTypeId {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+};
+
+template <>
+struct StorageTypeId<UInt8> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_BOOL;
+};
+
+template <>
+struct StorageTypeId<Int8> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_TINYINT;
+};
+template <>
+struct StorageTypeId<Int16> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_SMALLINT;
+};
+template <>
+struct StorageTypeId<Int32> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_INT;
+};
+template <>
+struct StorageTypeId<Int64> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_BIGINT;
+};
+template <>
+struct StorageTypeId<Int128> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_LARGEINT;
+};
+template <>
+struct StorageTypeId<Float32> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_FLOAT;
+};
+template <>
+struct StorageTypeId<Float64> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_DOUBLE;
+};
+
+template <>
+struct StorageTypeId<Decimal32> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_DECIMAL32;
+};
+
+template <>
+struct StorageTypeId<Decimal64> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_DECIMAL64;
+};
+
+template <>
+struct StorageTypeId<Decimal128V3> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
+};
+
+template <>
+struct StorageTypeId<Decimal256> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_DECIMAL256;
+};
+
+template <>
+struct StorageTypeId<IPv4> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_IPV4;
+};
+
+template <>
+struct StorageTypeId<IPv6> {
+    static constexpr const doris::FieldType value = doris::FieldType::OLAP_FIELD_TYPE_IPV6;
+};
+
+constexpr TypeIndex fieldTypeToTypeIndex(doris::FieldType field_type) {
+    switch (field_type) {
+    case doris::FieldType::OLAP_FIELD_TYPE_IPV4:
+        return TypeIndex::IPv4;
+    case doris::FieldType::OLAP_FIELD_TYPE_IPV6:
+        return TypeIndex::IPv6;
+    case doris::FieldType::OLAP_FIELD_TYPE_DATEV2:
+        return TypeIndex::DateV2;
+    case doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+        return TypeIndex::DateTimeV2;
+    case doris::FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+        return TypeIndex::Decimal32;
+    case doris::FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+        return TypeIndex::Decimal64;
+    case doris::FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
+        return TypeIndex::Decimal128V3;
+    case doris::FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        return TypeIndex::Decimal256;
+    case doris::FieldType::OLAP_FIELD_TYPE_STRING:
+        return TypeIndex::String;
+    case doris::FieldType::OLAP_FIELD_TYPE_JSONB:
+        return TypeIndex::JSONB;
+    case doris::FieldType::OLAP_FIELD_TYPE_ARRAY:
+        return TypeIndex::Array;
+    case doris::FieldType::OLAP_FIELD_TYPE_TINYINT:
+        return TypeIndex::Int8;
+    case doris::FieldType::OLAP_FIELD_TYPE_SMALLINT:
+        return TypeIndex::Int16;
+    case doris::FieldType::OLAP_FIELD_TYPE_INT:
+        return TypeIndex::Int32;
+    case doris::FieldType::OLAP_FIELD_TYPE_BIGINT:
+        return TypeIndex::Int64;
+    case doris::FieldType::OLAP_FIELD_TYPE_FLOAT:
+        return TypeIndex::Float32;
+    case doris::FieldType::OLAP_FIELD_TYPE_DOUBLE:
+        return TypeIndex::Float64;
+    case doris::FieldType::OLAP_FIELD_TYPE_NONE:
+        return TypeIndex::Nothing;
+    case doris::FieldType::OLAP_FIELD_TYPE_BOOL:
+        return TypeIndex::UInt8;
+    case doris::FieldType::OLAP_FIELD_TYPE_LARGEINT:
+        return TypeIndex::Int128;
+    default:
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Unsupported field type: {}",
+                               field_type);
+    }
+    return TypeIndex::Nothing;
+}
+
 // NOLINTEND(readability-function-size)
 } // namespace vectorized
 } // namespace doris

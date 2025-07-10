@@ -16,12 +16,15 @@
 // under the License.
 
 suite("regression_test_variant_schema_change", "variant_type"){
+
+    int max_subcolumns_count = Math.floor(Math.random() * 50) + 1
+    boolean enable_typed_paths_to_sparse = new Random().nextBoolean()
     def table_name = "variant_schema_change"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant
+            v variant<properties("variant_max_subcolumns_count" = "${max_subcolumns_count}", "variant_enable_typed_paths_to_sparse" = "${enable_typed_paths_to_sparse}")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
@@ -48,7 +51,7 @@ suite("regression_test_variant_schema_change", "variant_type"){
     // sql "set experimental_enable_nereids_planner = true"
     // add, drop columns
     sql """INSERT INTO ${table_name} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "4096")"""
-    sql "alter table ${table_name} add column v2 variant default null"
+    sql "alter table ${table_name} add column v2 variant<properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\", \"variant_enable_typed_paths_to_sparse\" = \"${enable_typed_paths_to_sparse}\")> default null"
     sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
     sql "alter table ${table_name} drop column v2"
     sql """INSERT INTO ${table_name} SELECT k, v from ${table_name}"""

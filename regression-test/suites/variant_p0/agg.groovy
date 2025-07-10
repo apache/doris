@@ -18,10 +18,10 @@
 suite("regression_test_variant_agg"){
     sql """DROP TABLE IF EXISTS var_agg"""
 
-    int max_subcolumns_count = Math.floor(Math.random() * 10) 
-    def var = "variant replace"
+    int max_subcolumns_count = Math.floor(Math.random() * 10) + 1
+    def var = "variant<properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
     if (max_subcolumns_count % 2 == 0) {
-        var = "variant <'d' : int, 'b.f' : int, 'xxxx' : string, 'point' : bigint> replace"
+        var = "variant <'d' : int, 'b.f' : int, 'xxxx' : string, 'point' : bigint, properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
     }
     sql """
         CREATE TABLE IF NOT EXISTS var_agg (
@@ -31,7 +31,7 @@ suite("regression_test_variant_agg"){
             )
             AGGREGATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 4
-            properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
+            properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     sql """insert into var_agg values (1,  '[1]', 1),(1,  '{"a" : 1}', 1);"""
     sql """insert into var_agg values (2,  '[2]', 2),(1,  '{"a" : [[[1]]]}', 2);"""

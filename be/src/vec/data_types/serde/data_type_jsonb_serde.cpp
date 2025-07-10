@@ -288,7 +288,7 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
 void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
                                                   ColumnString::Chars& chars,
                                                   int64_t row_num) const {
-    const uint8_t type = static_cast<uint8_t>(TypeIndex::JSONB);
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_JSONB);
     const auto& col = assert_cast<const ColumnString&>(src_column);
     const auto& data_ref = col.get_data_at(row_num);
     size_t data_size = data_ref.size;

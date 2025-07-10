@@ -82,6 +82,9 @@ struct FieldInfo {
     // decimal info
     int scale = 0;
     int precision = 0;
+
+    // When deserializing a field from a sparse column, certain types (such as decimal, datetime, etc.) need to be wrapped in a VariantField.
+    bool need_wrapped = false;
 };
 
 #ifdef NDEBUG
@@ -588,6 +591,10 @@ public:
                                                                       size_t row);
 
     Status pick_subcolumns_to_sparse_column(
+            const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths,
+            bool variant_enable_typed_paths_to_sparse);
+
+    Status convert_typed_path_to_storage_type(
             const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths);
 
     void set_max_subcolumns_count(int32_t max_subcolumns_count) {

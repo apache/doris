@@ -19,6 +19,7 @@ suite("test_variant_predefine_base", "p0"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
     def count = new Random().nextInt(5) + 1
     def tableName = "base_match_name_variant_test"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -29,14 +30,15 @@ suite("test_variant_predefine_base", "p0"){
             MATCH_NAME '*cc' : string,
             MATCH_NAME 'b?b' : string,
             MATCH_NAME_GLOB 'bb*' : string,
-            MATCH_NAME_GLOB 'bx?' : string
+            MATCH_NAME_GLOB 'bx?' : string,
+            properties("variant_max_subcolumns_count" = "${count}")
         > NOT NULL,
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bb (var) USING INVERTED PROPERTIES("field_pattern"="*cc", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_b_b (var) USING INVERTED PROPERTIES("field_pattern"="b?b", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bb_glob (var) USING INVERTED PROPERTIES("field_pattern"="bb*", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bx_glob (var) USING INVERTED PROPERTIES("field_pattern"="bx?", "parser"="unicode", "support_phrase" = "true") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "${count}")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
     sql """insert into ${tableName} values(1, '{"ab" : 123, "*cc" : 123, "b?b" : 123, "bb3" : 123, "bxx" : 123}')"""
     sql """insert into ${tableName} values(2, '{"ab" : 456, "*cc" : 456, "b?b" : 456, "bb3" : 456, "bxx" : 456}')"""
@@ -72,14 +74,15 @@ suite("test_variant_predefine_base", "p0"){
             MATCH_NAME 'a.*' : string,
             MATCH_NAME_GLOB 'a.b[0-9]' : string,
             MATCH_NAME_GLOB 'a.b?c' : string,
-            MATCH_NAME_GLOB 'a.c*' : string
+            MATCH_NAME_GLOB 'a.c*' : string,
+            properties("variant_max_subcolumns_count" = "${count}")
         > NOT NULL,
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="a.b", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bb (var) USING INVERTED PROPERTIES("field_pattern"="a.*", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_b_b (var) USING INVERTED PROPERTIES("field_pattern"="a.b[0-9]", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bb_glob (var) USING INVERTED PROPERTIES("field_pattern"="a.b?c", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bx_glob (var) USING INVERTED PROPERTIES("field_pattern"="a.c*", "parser"="unicode", "support_phrase" = "true") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "${count}")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
     sql """insert into ${tableName} values(1, '{"a" : {"b" : 789, "*" : 789, "b1" : 789, "bxc" : 789, "c2323" : 789}}')"""
     sql """insert into ${tableName} values(2, '{"a" : {"b" : 111, "*" : 111, "b1" : 111, "bxc" : 111, "c2323" : 111}}')"""

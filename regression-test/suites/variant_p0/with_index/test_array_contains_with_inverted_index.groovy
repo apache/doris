@@ -36,7 +36,8 @@ suite("test_array_contains_with_inverted_index") {
       `apply_date` date NULL COMMENT '',
       `id` varchar(60) NOT NULL COMMENT '',
       `inventors` variant<
-        MATCH_NAME 'inventors' : array<text>
+        MATCH_NAME 'inventors' : array<text>,
+        properties("variant_max_subcolumns_count" = "10")
     > NULL COMMENT '',
       INDEX index_inverted_inventors(inventors) USING INVERTED PROPERTIES( "field_pattern" = "inventors", "support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
     ) ENGINE=OLAP
@@ -50,8 +51,7 @@ suite("test_array_contains_with_inverted_index") {
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
     "enable_single_replica_compaction" = "false",
-    "inverted_index_storage_format" = "$storageFormat",
-    "variant_max_subcolumns_count" = "10"
+    "inverted_index_storage_format" = "$storageFormat"
     );
     """
 

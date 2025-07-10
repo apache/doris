@@ -341,6 +341,31 @@ void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& c
     }
 }
 
+template <typename T>
+void DataTypeDecimalSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
+                                                       ColumnString::Chars& chars,
+                                                       int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(StorageTypeId<T>::value);
+    const auto& data_ref = assert_cast<const ColumnDecimal<T>&>(src_column).get_data_at(row_num);
+    const auto& prec = static_cast<uint8_t>(precision);
+    const auto& sc = static_cast<uint8_t>(scale);
+
+    const size_t old_size = chars.size();
+    // FieldType + precision + scale + value
+    const size_t new_size =
+            old_size + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    // FieldType + precision + scale + value
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&prec),
+           sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t),
+           reinterpret_cast<const char*>(&sc), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t),
+           data_ref.data, data_ref.size);
+}
+
 template class DataTypeDecimalSerDe<Decimal32>;
 template class DataTypeDecimalSerDe<Decimal64>;
 template class DataTypeDecimalSerDe<Decimal128V2>;

@@ -18,6 +18,7 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
 
      def load_json_data = {table_name, file_name ->
         // load the json data
@@ -66,7 +67,8 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
                 'ipv4_*':ipv4,
                 'ipv6_*':ipv6,
                 'largeint_*':largeint,
-                'char_*': text
+                'char_*': text,
+                properties("variant_max_subcolumns_count" = "2")
             > NOT NULL,
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="array_decimal_*") COMMENT '',
         INDEX idx_a_c (var) USING INVERTED PROPERTIES("field_pattern"="array_ipv6_*") COMMENT '',
@@ -81,7 +83,7 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
         INDEX idx_a_l (var) USING INVERTED PROPERTIES("field_pattern"="ipv6_*") COMMENT '',
         INDEX idx_a_m (var) USING INVERTED PROPERTIES("field_pattern"="largeint_*") COMMENT '',
         INDEX idx_a_n (var) USING INVERTED PROPERTIES("field_pattern"="char_*") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "2")
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")
 
     """
     sql """

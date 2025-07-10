@@ -55,11 +55,13 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     sql """
         CREATE TABLE IF NOT EXISTS ${index_table} (
             k bigint,
-            v variant
+            v variant<
+                properties("variant_max_subcolumns_count" = "9999")
+            >
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "9999");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
     """
     load_json_data.call(index_table, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(index_table, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")

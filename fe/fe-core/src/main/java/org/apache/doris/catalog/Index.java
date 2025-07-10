@@ -173,7 +173,14 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
     }
 
-    // Whether the index can be changed in light mode
+    public String getInvertedIndexFieldPattern() {
+        return InvertedIndexUtil.getInvertedIndexFieldPattern(properties);
+    }
+
+    public boolean getInvertedIndexSupportPhrase() {
+        return InvertedIndexUtil.getInvertedIndexSupportPhrase(properties);
+    }
+
     public boolean isLightIndexChangeSupported() {
         return indexType == IndexDef.IndexType.INVERTED;
     }
