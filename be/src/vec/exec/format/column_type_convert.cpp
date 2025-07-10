@@ -61,6 +61,13 @@ namespace doris::vectorized::converter {
     M(TYPE_DATETIMEV2)           \
     M(TYPE_DATEV2)
 
+#define FOR_LOGICAL_INTEGER_TYPES(M) \
+    M(TYPE_TINYINT)                  \
+    M(TYPE_SMALLINT)                 \
+    M(TYPE_INT)                      \
+    M(TYPE_BIGINT)                   \
+    M(TYPE_LARGEINT)
+
 static bool _is_numeric_type(PrimitiveType type) {
     switch (type) {
     case TYPE_BOOLEAN:
@@ -242,6 +249,23 @@ static std::unique_ptr<ColumnTypeConverter> _numeric_to_decimal_converter(
     }
 }
 
+static std::unique_ptr<ColumnTypeConverter> _datetime_to_numeric_converter(
+        const TypeDescriptor& src_type, const DataTypePtr& dst_type) {
+    PrimitiveType dst_primitive_type =
+            remove_nullable(dst_type)->get_type_as_type_descriptor().type;
+    switch (dst_primitive_type) {
+#define DISPATCH(DST_TYPE)                                               \
+    case DST_TYPE: {                                                     \
+        return std::make_unique<DateTimeToNumericConverter<DST_TYPE>>(); \
+    }
+        FOR_LOGICAL_INTEGER_TYPES(DISPATCH)
+#undef DISPATCH
+    default: {
+        return std::make_unique<UnsupportedConverter>(src_type, dst_type);
+    }
+    };
+}
+
 static std::unique_ptr<ColumnTypeConverter> _decimal_to_numeric_converter(
         const TypeDescriptor& src_type, const DataTypePtr& dst_type) {
     PrimitiveType src_primitive_type = src_type.type;
@@ -314,6 +338,11 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(
     }
     if (src_primitive_type == TYPE_DATETIMEV2 && dst_primitive_type == TYPE_DATEV2) {
         return std::make_unique<TimeV2Converter<TYPE_DATETIMEV2, TYPE_DATEV2>>();
+    }
+
+    // datetime to bigint (ms)
+    if (src_primitive_type == TYPE_DATETIMEV2 && _is_numeric_type(dst_primitive_type)) {
+        return _datetime_to_numeric_converter(src_type, dst_type);
     }
 
     // numeric to decimal
