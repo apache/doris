@@ -63,12 +63,12 @@ struct AggregateFunctionApproxCountDistinctData {
         std::string result;
         result.resize(hll_data.max_serialized_size());
         result.resize(hll_data.serialize((uint8_t*)result.data()));
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
         StringRef result;
-        read_binary(result, buf);
+        buf.read_binary(result);
         Slice data = Slice(result.data, result.size);
         hll_data.deserialize(data);
     }

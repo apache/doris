@@ -48,9 +48,9 @@ struct AggregateFunctionProductData {
         product *= other.product;
     }
 
-    void write(BufferWritable& buffer) const { write_binary(product, buffer); }
+    void write(BufferWritable& buffer) const { buffer.write_binary(product); }
 
-    void read(BufferReadable& buffer) { read_binary(product, buffer); }
+    void read(BufferReadable& buffer) { buffer.read_binary(product); }
 
     typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return product; }
 
@@ -77,9 +77,9 @@ struct AggregateFunctionProductData<TYPE_DECIMALV2> {
         memcpy(&product, &ret, sizeof(Decimal128V2));
     }
 
-    void write(BufferWritable& buffer) const { write_binary(product, buffer); }
+    void write(BufferWritable& buffer) const { buffer.write_binary(product); }
 
-    void read(BufferReadable& buffer) { read_binary(product, buffer); }
+    void read(BufferReadable& buffer) { buffer.read_binary(product); }
 
     Decimal128V2 get() const { return product; }
 
@@ -104,9 +104,9 @@ struct AggregateFunctionProductData<T> {
         product /= multiplier;
     }
 
-    void write(BufferWritable& buffer) const { write_binary(product, buffer); }
+    void write(BufferWritable& buffer) const { buffer.write_binary(product); }
 
-    void read(BufferReadable& buffer) { read_binary(product, buffer); }
+    void read(BufferReadable& buffer) { buffer.read_binary(product); }
 
     typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return product; }
 

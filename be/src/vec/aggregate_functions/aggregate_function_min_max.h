@@ -109,16 +109,16 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(has(), buf);
+        buf.write_binary(has());
         if (has()) {
-            write_binary(value, buf);
+            buf.write_binary(value);
         }
     }
 
     void read(BufferReadable& buf, Arena*) {
-        read_binary(has_value, buf);
+        buf.read_binary(has_value);
         if (has()) {
-            read_binary(value, buf);
+            buf.read_binary(value);
         }
     }
 
@@ -248,16 +248,16 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(has(), buf);
+        buf.write_binary(has());
         if (has()) {
-            write_binary(value, buf);
+            buf.write_binary(value);
         }
     }
 
     void read(BufferReadable& buf, Arena*) {
-        read_binary(has_value, buf);
+        buf.read_binary(has_value);
         if (has()) {
-            read_binary(value, buf);
+            buf.read_binary(value);
         }
     }
 
@@ -384,7 +384,7 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(size, buf);
+        buf.write_binary(size);
         if (has()) {
             buf.write(get_data(), size);
         }
@@ -392,7 +392,7 @@ public:
 
     void read(BufferReadable& buf, Arena*) {
         Int32 rhs_size;
-        read_binary(rhs_size, buf);
+        buf.read_binary(rhs_size);
 
         if (rhs_size >= 0) {
             if (rhs_size <= MAX_SMALL_STRING_SIZE) {
@@ -630,7 +630,7 @@ struct SingleValueDataComplexType {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(has(), buf);
+        buf.write_binary(has());
         if (!has()) {
             return;
         }
@@ -638,17 +638,17 @@ struct SingleValueDataComplexType {
                 column_type->get_uncompressed_serialized_bytes(*column_data, be_exec_version);
         std::string memory_buffer(size_bytes, '0');
         auto* p = column_type->serialize(*column_data, memory_buffer.data(), be_exec_version);
-        write_binary(memory_buffer, buf);
+        buf.write_binary(memory_buffer);
         DCHECK_EQ(p, memory_buffer.data() + size_bytes);
     }
 
     void read(BufferReadable& buf, Arena* arena) {
-        read_binary(has_value, buf);
+        buf.read_binary(has_value);
         if (!has()) {
             return;
         }
         std::string memory_buffer;
-        read_binary(memory_buffer, buf);
+        buf.read_binary(memory_buffer);
         const auto* p =
                 column_type->deserialize(memory_buffer.data(), &column_data, be_exec_version);
         DCHECK_EQ(p, memory_buffer.data() + memory_buffer.size());

@@ -170,7 +170,7 @@ public:
         int len = env->GetArrayLength(arr);
         serialize_data.resize(len);
         env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
-        write_binary(serialize_data, buf);
+        buf.write_binary(serialize_data);
         jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
         env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
         env->DeleteLocalRef(arr);
@@ -184,7 +184,7 @@ public:
         return JniUtil::GetJniExceptionMsg(env);
     }
 
-    void read(BufferReadable& buf) { read_binary(serialize_data, buf); }
+    void read(BufferReadable& buf) { buf.read_binary(serialize_data); }
 
     Status destroy() {
         JNIEnv* env = nullptr;

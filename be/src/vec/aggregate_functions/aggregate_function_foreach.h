@@ -180,7 +180,7 @@ public:
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         const AggregateFunctionForEachData& state = data(place);
-        write_binary(state.dynamic_array_size, buf);
+        buf.write_binary(state.dynamic_array_size);
         const char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = 0; i < state.dynamic_array_size; ++i) {
             nested_function->serialize(nested_state, buf);
@@ -193,7 +193,7 @@ public:
         AggregateFunctionForEachData& state = data(place);
 
         size_t new_size = 0;
-        read_binary(new_size, buf);
+        buf.read_binary(new_size);
 
         ensure_aggregate_data(place, new_size, *arena);
 

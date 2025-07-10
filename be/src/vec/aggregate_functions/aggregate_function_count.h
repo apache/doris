@@ -74,12 +74,12 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        write_var_uint(data(place).count, buf);
+        buf.write_var_uint(data(place).count);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        read_var_uint(data(place).count, buf);
+        buf.read_var_uint(data(place).count);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -221,12 +221,12 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        write_var_uint(data(place).count, buf);
+        buf.write_var_uint(data(place).count);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        read_var_uint(data(place).count, buf);
+        buf.read_var_uint(data(place).count);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
