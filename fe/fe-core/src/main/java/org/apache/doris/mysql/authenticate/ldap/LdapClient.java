@@ -112,7 +112,7 @@ public class LdapClient {
     private void init() {
         LdapInfo ldapInfo = Env.getCurrentEnv().getAuth().getLdapInfo();
         if (ldapInfo == null || !ldapInfo.isValid()) {
-            LOG.error("info is null, maybe no ldap admin password is set.");
+            LOG.error("LDAP info is null or invalid, LDAP admin password may not be set");
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
             throw new RuntimeException("ldapTemplate is not initialized");
         }
@@ -165,12 +165,12 @@ public class LdapClient {
             // Support Open Directory implementations
             String filter = LdapConfig.ldap_group_filter.replace("{login}", userName);
             LOG.debug("Using group filter: {} with base DN: {}", filter, LdapConfig.ldap_group_basedn);
-            
+
             LdapQuery query = org.springframework.ldap.query.LdapQueryBuilder.query()
-                .attributes("dn")
-                .base(LdapConfig.ldap_group_basedn)
-                .filter(filter);
-                
+                    .attributes("dn")
+                    .base(LdapConfig.ldap_group_basedn)
+                    .filter(filter);
+
             groupDns = getDn(query);
 
             if (groupDns == null || groupDns.isEmpty()) {
@@ -185,12 +185,11 @@ public class LdapClient {
                 return groups;
             }
             LOG.debug("Using standard LDAP member attribute with userDn: {}", userDn);
-            
+
             LdapQuery query = org.springframework.ldap.query.LdapQueryBuilder.query()
-                .attributes("dn")
-                .base(LdapConfig.ldap_group_basedn)
-                .where("member").is(userDn);
-                
+                    .base(LdapConfig.ldap_group_basedn)
+                    .where("member").is(userDn);
+
             groupDns = getDn(query);
         }
 
@@ -228,12 +227,12 @@ public class LdapClient {
     private List<String> getDn(LdapQuery query) {
         init();
         try {
-            return clientInfo.getLdapTemplatePool().search(query, 
-                new AbstractContextMapper<String>() {
-                    protected String doMapFromContext(DirContextOperations ctx) {
-                        return ctx.getNameInNamespace();
-                    }
-                });
+            return clientInfo.getLdapTemplatePool().search(query,
+                    new AbstractContextMapper<String>() {
+                        protected String doMapFromContext(DirContextOperations ctx) {
+                            return ctx.getNameInNamespace();
+                        }
+                    });
         } catch (Exception e) {
             LOG.error("Get user dn fail.", e);
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
@@ -244,5 +243,11 @@ public class LdapClient {
     private String getUserFilter(String userFilter, String userName) {
         return userFilter.replaceAll("\\{login}", userName);
     }
-
 }
+
+
+
+
+
+
+
