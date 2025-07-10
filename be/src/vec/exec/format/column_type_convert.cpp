@@ -280,8 +280,9 @@ static std::unique_ptr<ColumnTypeConverter> _numeric_to_decimal_converter(
 }
 
 static std::unique_ptr<ColumnTypeConverter> _datetime_to_numeric_converter(
-        const DataTypePtr& src_type, const DataTypePtr& dst_type) {
-    PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
+        const TypeDescriptor& src_type, const DataTypePtr& dst_type) {
+    PrimitiveType dst_primitive_type =
+            remove_nullable(dst_type)->get_type_as_type_descriptor().type;
 
     switch (dst_primitive_type) {
 #define DISPATCH(DST_TYPE)                                               \

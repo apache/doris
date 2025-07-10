@@ -1067,8 +1067,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
 
     // 1. DATETIMEV2 -> BIGINT
     {
-        auto src_type =
-                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false);
+        TypeDescriptor src_type(TYPE_DATETIMEV2);
         auto dst_type = std::make_shared<DataTypeInt64>();
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -1090,8 +1089,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
 
     // 2. DATETIMEV2 -> INT
     {
-        auto src_type =
-                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false);
+        TypeDescriptor src_type(TYPE_DATETIMEV2);
         auto dst_type = std::make_shared<DataTypeInt32>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -1121,8 +1119,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
 
     // 3. DATETIMEV2 -> INT, non-nullable
     {
-        auto src_type =
-                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false);
+        TypeDescriptor src_type(TYPE_DATETIMEV2);
         auto dst_type = std::make_shared<DataTypeInt32>();
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -1139,8 +1136,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
     }
 
     {
-        auto src_type =
-                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false);
+        TypeDescriptor src_type(TYPE_DATETIMEV2);
         auto dst_type = std::make_shared<DataTypeInt64>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
