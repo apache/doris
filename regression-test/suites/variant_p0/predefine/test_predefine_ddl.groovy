@@ -62,7 +62,7 @@ suite("test_predefine_ddl", "p0"){
     sql "DROP TABLE IF EXISTS test_ddl_table"
     sql """CREATE TABLE test_ddl_table (
         `id` bigint NULL,
-        `var` variant NULL
+        `var` variant<properties("variant_max_subcolumns_count" = "10")> NULL
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
@@ -71,7 +71,7 @@ suite("test_predefine_ddl", "p0"){
         exception("Can not create index with field pattern")
     }
     
-    sql """ alter table test_ddl_table add column var2 variant<'ab' : string> NULL """
+    sql """ alter table test_ddl_table add column var2 variant<'ab' : string, properties("variant_max_subcolumns_count" = "5")> NULL """
 
     test {
         sql """ alter table test_ddl_table modify column var variant<'ab' : string> NULL """

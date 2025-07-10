@@ -124,18 +124,17 @@ suite("test_all_prdefine_type_to_sparse", "p0"){
 
 
     def check_table = {
-        qt_sql_compaction_before """ desc ${tableName} """
         def before_result = sql """ select var from ${tableName} order by id """
         log.info("before_result: ${before_result}")
+        qt_sql_compaction_before """ desc ${tableName} """
 
         trigger_and_wait_compaction(tableName, "full")
 
-        qt_sql_compaction_after """ desc ${tableName} """
         def after_result = sql """ select var from ${tableName} order by id """
         log.info("after_result: ${after_result}")
-
         assertTrue(before_result.toString() == after_result.toString())
-
+        
+        qt_sql_compaction_after """ desc ${tableName} """
         qt_sql """ select var from ${tableName} order by id """
     }
 

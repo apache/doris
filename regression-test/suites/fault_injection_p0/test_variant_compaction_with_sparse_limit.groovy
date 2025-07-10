@@ -52,9 +52,9 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
         }
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
-            def var_def = "variant <properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")>"
+            def var_def = "variant <properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")>"
             if (key_type == "AGGREGATE") {
-                var_def = "variant <properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")> replace"
+                var_def = "variant <properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
             }
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (

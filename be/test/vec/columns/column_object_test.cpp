@@ -1376,6 +1376,91 @@ TEST(ColumnVariantTest, test_serialize_to_sparse_column_and_deserialize) {
     datetime_subcolumn.serialize_text_json(1, write_buffer8);
     write_buffer8.commit();
     EXPECT_EQ(tmp_col8->get_data_at(1), StringRef("\"2021-01-01 02:09:10\"", 21));
+
+    Field largeint_field = 1289;
+    Field true_field = 1;
+
+    vectorized::DataTypePtr data_type_int =
+            vectorized::DataTypeFactory::instance().create_data_type(vectorized::TypeIndex::Int32,
+                                                                     true, 0, 0);
+    vectorized::DataTypePtr data_type_bool =
+            vectorized::DataTypeFactory::instance().create_data_type(vectorized::TypeIndex::UInt8,
+                                                                     true, 0, 0);
+    vectorized::DataTypePtr data_type_largeint =
+            vectorized::DataTypeFactory::instance().create_data_type(vectorized::TypeIndex::Int128,
+                                                                     true, 0, 0);
+
+    ColumnPtr column_int_largeint = data_type_int->create_column();
+    ColumnPtr column_int_bool = data_type_int->create_column();
+
+    auto column_nullable_int_largeint =
+            assert_cast<ColumnNullable&>(*column_int_largeint->assume_mutable());
+    auto column_nullable_int_bool =
+            assert_cast<ColumnNullable&>(*column_int_bool->assume_mutable());
+
+    column_nullable_int_largeint.insert(largeint_field);
+    column_nullable_int_bool.insert(true_field);
+
+    vectorized::ColumnPtr expected_largeint;
+    status = schema_util::cast_column({column_int_largeint, data_type_int, ""}, data_type_largeint,
+                                      &expected_largeint);
+    EXPECT_TRUE(status.ok());
+
+    vectorized::ColumnPtr expected_bool;
+    status = schema_util::cast_column({column_int_bool, data_type_int, ""}, data_type_bool,
+                                      &expected_bool);
+    EXPECT_TRUE(status.ok());
+
+    ColumnObject::Subcolumn largeint_subcolumn(expected_largeint->assume_mutable(),
+                                               data_type_largeint, true, false);
+    ColumnObject::Subcolumn bool_subcolumn(expected_bool->assume_mutable(), data_type_bool, true,
+                                           false);
+
+    largeint_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "largeint",
+                                                  &sparse_column_values, 0);
+    bool_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "bool", &sparse_column_values,
+                                              0);
+
+    auto column_object3 = ColumnObject::create(0);
+    const auto& [field9, field_info9] =
+            column_object3->deserialize_from_sparse_column(&sparse_column_values, 8);
+    EXPECT_EQ(field_info9.scalar_type_id, TypeIndex::Int128);
+    EXPECT_EQ(field_info9.have_nulls, false);
+    EXPECT_EQ(field_info9.need_convert, false);
+    EXPECT_EQ(field_info9.num_dimensions, 0);
+
+    const auto& [field10, field_info10] =
+            column_object3->deserialize_from_sparse_column(&sparse_column_values, 9);
+    EXPECT_EQ(field_info10.scalar_type_id, TypeIndex::UInt8);
+    EXPECT_EQ(field_info10.have_nulls, false);
+    EXPECT_EQ(field_info10.need_convert, false);
+    EXPECT_EQ(field_info10.num_dimensions, 0);
+
+    largeint_subcolumn.insert(field9, field_info9);
+    largeint_subcolumn.finalize();
+    EXPECT_EQ(largeint_subcolumn.data.size(), 1);
+    EXPECT_EQ(largeint_subcolumn.data[0]->size(), 2);
+    auto tmp_col9 = ColumnString::create();
+    VectorBufferWriter write_buffer9(*tmp_col9.get());
+    largeint_subcolumn.serialize_text_json(0, write_buffer9);
+    write_buffer9.commit();
+    EXPECT_EQ(tmp_col9->get_data_at(0), StringRef("1289", 4));
+    largeint_subcolumn.serialize_text_json(1, write_buffer9);
+    write_buffer9.commit();
+    EXPECT_EQ(tmp_col9->get_data_at(1), StringRef("1289", 4));
+
+    bool_subcolumn.insert(field10, field_info10);
+    bool_subcolumn.finalize();
+    EXPECT_EQ(bool_subcolumn.data.size(), 1);
+    EXPECT_EQ(bool_subcolumn.data[0]->size(), 2);
+    auto tmp_col10 = ColumnString::create();
+    VectorBufferWriter write_buffer10(*tmp_col10.get());
+    bool_subcolumn.serialize_text_json(0, write_buffer10);
+    write_buffer10.commit();
+    EXPECT_EQ(tmp_col10->get_data_at(0), StringRef("1", 1));
+    bool_subcolumn.serialize_text_json(1, write_buffer10);
+    write_buffer10.commit();
+    EXPECT_EQ(tmp_col10->get_data_at(1), StringRef("1", 1));
 }
 
 } // namespace doris::vectorized
