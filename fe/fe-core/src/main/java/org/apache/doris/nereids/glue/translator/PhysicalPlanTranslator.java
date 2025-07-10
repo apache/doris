@@ -3032,6 +3032,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return false;
         }
 
+        if (sortNode.getSortInfo().getOrderingExprs().stream().anyMatch(e -> e.getType().isArrayType())) {
+            return false;
+        }
+
         // Ensure all isAscOrder is same, ande length != 0. Can't be z-order.
         if (sortNode.getSortInfo().getIsAscOrder().stream().distinct().count() != 1 || olapTable.isZOrderSort()) {
             return false;

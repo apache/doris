@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
@@ -108,16 +109,16 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(has(), buf);
+        buf.write_binary(has());
         if (has()) {
-            write_binary(value, buf);
+            buf.write_binary(value);
         }
     }
 
     void read(BufferReadable& buf, Arena*) {
-        read_binary(has_value, buf);
+        buf.read_binary(has_value);
         if (has()) {
-            read_binary(value, buf);
+            buf.read_binary(value);
         }
     }
 
@@ -163,6 +164,15 @@ public:
         } else {
             return false;
         }
+    }
+
+    bool check_if_equal(const IColumn& column, size_t row_num) const {
+        if (!has()) {
+            return false;
+        }
+        return assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                           TypeCheckOnRelease::DISABLE>(column)
+                       .get_data()[row_num] == value;
     }
 
     bool change_if_greater(const Self& to, Arena*) {
@@ -238,16 +248,16 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(has(), buf);
+        buf.write_binary(has());
         if (has()) {
-            write_binary(value, buf);
+            buf.write_binary(value);
         }
     }
 
     void read(BufferReadable& buf, Arena*) {
-        read_binary(has_value, buf);
+        buf.read_binary(has_value);
         if (has()) {
-            read_binary(value, buf);
+            buf.read_binary(value);
         }
     }
 
@@ -302,6 +312,15 @@ public:
         } else {
             return false;
         }
+    }
+
+    bool check_if_equal(const IColumn& column, size_t row_num) const {
+        if (!has()) {
+            return false;
+        }
+        return assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                           TypeCheckOnRelease::DISABLE>(column)
+                       .get_data()[row_num] == value;
     }
 
     void change_first_time(const IColumn& column, size_t row_num, Arena*) {
@@ -365,7 +384,7 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(size, buf);
+        buf.write_binary(size);
         if (has()) {
             buf.write(get_data(), size);
         }
@@ -373,7 +392,7 @@ public:
 
     void read(BufferReadable& buf, Arena*) {
         Int32 rhs_size;
-        read_binary(rhs_size, buf);
+        buf.read_binary(rhs_size);
 
         if (rhs_size >= 0) {
             if (rhs_size <= MAX_SMALL_STRING_SIZE) {
@@ -470,6 +489,14 @@ public:
         } else {
             return false;
         }
+    }
+
+    bool check_if_equal(const IColumn& column, size_t row_num) const {
+        if (!has()) {
+            return false;
+        }
+        return assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                       row_num) == get_string_ref();
     }
 
     void change_first_time(const IColumn& column, size_t row_num, Arena*) {
@@ -603,7 +630,7 @@ struct SingleValueDataComplexType {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(has(), buf);
+        buf.write_binary(has());
         if (!has()) {
             return;
         }
@@ -611,17 +638,17 @@ struct SingleValueDataComplexType {
                 column_type->get_uncompressed_serialized_bytes(*column_data, be_exec_version);
         std::string memory_buffer(size_bytes, '0');
         auto* p = column_type->serialize(*column_data, memory_buffer.data(), be_exec_version);
-        write_binary(memory_buffer, buf);
+        buf.write_binary(memory_buffer);
         DCHECK_EQ(p, memory_buffer.data() + size_bytes);
     }
 
     void read(BufferReadable& buf, Arena* arena) {
-        read_binary(has_value, buf);
+        buf.read_binary(has_value);
         if (!has()) {
             return;
         }
         std::string memory_buffer;
-        read_binary(memory_buffer, buf);
+        buf.read_binary(memory_buffer);
         const auto* p =
                 column_type->deserialize(memory_buffer.data(), &column_data, be_exec_version);
         DCHECK_EQ(p, memory_buffer.data() + memory_buffer.size());
@@ -632,6 +659,8 @@ struct SingleValueDataComplexType {
     }
 
     void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to, nullptr); }
+
+    bool check_if_equal(const IColumn& column, size_t row_num) const { return false; }
 
 private:
     bool has_value = false;
@@ -823,6 +852,75 @@ public:
             return std::make_shared<DataTypeFixedLengthObject>();
         } else {
             return std::make_shared<DataTypeString>();
+        }
+    }
+
+    bool supported_incremental_mode() const override { return !(Data::IS_ANY); }
+
+    void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
+                                           int64_t frame_start, int64_t frame_end,
+                                           AggregateDataPtr place, const IColumn** columns,
+                                           Arena* arena, bool previous_is_nul, bool end_is_nul,
+                                           bool has_null, UInt8* use_null_result,
+                                           UInt8* could_use_previous_result) const override {
+        int64_t current_frame_start = std::max<int64_t>(frame_start, partition_start);
+        int64_t current_frame_end = std::min<int64_t>(frame_end, partition_end);
+        if (current_frame_start >= current_frame_end) {
+            *use_null_result = true;
+            return;
+        }
+        if (*could_use_previous_result) {
+            auto outcoming_pos = frame_start - 1;
+            auto incoming_pos = frame_end - 1;
+            if (!previous_is_nul && outcoming_pos >= partition_start &&
+                outcoming_pos < partition_end) {
+                if (this->data(place).check_if_equal(*columns[0], outcoming_pos)) {
+                    this->data(place).reset();
+                    if (has_null) {
+                        const auto& null_map_data =
+                                assert_cast<const ColumnUInt8*>(columns[1])->get_data();
+                        for (size_t i = current_frame_start; i < current_frame_end; ++i) {
+                            if (null_map_data[i] == 0) {
+                                this->data(place).change_if_better(*columns[0], i, arena);
+                            }
+                        }
+                    } else {
+                        this->add_range_single_place(partition_start, partition_end,
+                                                     current_frame_start, current_frame_end, place,
+                                                     columns, arena, use_null_result,
+                                                     could_use_previous_result);
+                    }
+                    return;
+                }
+            }
+            if (!end_is_nul && incoming_pos >= partition_start && incoming_pos < partition_end) {
+                this->data(place).change_if_better(*columns[0], incoming_pos, arena);
+            }
+
+        } else {
+            this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
+                                         place, columns, arena, use_null_result,
+                                         could_use_previous_result);
+        }
+    }
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
+        auto current_frame_start = std::max<int64_t>(frame_start, partition_start);
+        auto current_frame_end = std::min<int64_t>(frame_end, partition_end);
+
+        if (current_frame_start >= current_frame_end) {
+            if (!*could_use_previous_result) {
+                *use_null_result = true;
+            }
+        } else {
+            for (size_t row_num = current_frame_start; row_num < current_frame_end; ++row_num) {
+                this->data(place).change_if_better(*columns[0], row_num, nullptr);
+            }
+            *use_null_result = false;
+            *could_use_previous_result = true;
         }
     }
 };

@@ -43,12 +43,14 @@ public:
 
     int32_t next_position() const { return term_poss_->nextPosition(); }
 
-    static TermPositionsIterPtr create(const io::IOContext* io_ctx, IndexReader* reader,
+    static TermPositionsIterPtr create(const io::IOContext* io_ctx,
+                                       lucene::index::IndexReader* reader,
                                        const std::wstring& field_name, const std::string& term) {
         return create(io_ctx, reader, field_name, StringUtil::string_to_wstring(term));
     }
 
-    static TermPositionsIterPtr create(const io::IOContext* io_ctx, IndexReader* reader,
+    static TermPositionsIterPtr create(const io::IOContext* io_ctx,
+                                       lucene::index::IndexReader* reader,
                                        const std::wstring& field_name,
                                        const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());

@@ -358,7 +358,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 // 1. external to external un-partitioned table
                 test {
                     sql """ DROP TABLE ${catalog_name}.test_no_err.hive_ctas1 """
-                    exception "errCode = 2, detailMessage = Unknown table 'hive_ctas1' in test_no_err"
+                    exception "Failed to get table: 'hive_ctas1'"
                 }
                 test {
                     sql """ CREATE TABLE ${catalog_name}.test_no_err.hive_ctas1 (col1) ENGINE=hive 
@@ -568,7 +568,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 test_ctas_exception(file_format, catalog_name)
                 test_ctas_all_types(file_format, catalog_name)
             }
-            sql """drop catalog if exists ${catalog_name}"""
+            // sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
     }

@@ -24,7 +24,6 @@
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/locale.hpp>
-#include <boost/multiprecision/cpp_dec_float.hpp>
 #include <climits>
 #include <cmath>
 #include <cstddef>
@@ -4328,29 +4327,33 @@ private:
             return;
         }
         const char* bytes = (const char*)(num);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-        int k = 3;
-        for (; k >= 0; --k) {
-            if (bytes[k]) {
-                break;
+        if constexpr (std::endian::native == std::endian::little) {
+            int k = 3;
+            for (; k >= 0; --k) {
+                if (bytes[k]) {
+                    break;
+                }
             }
-        }
-        offsets[line_num] = offsets[line_num - 1] + k + 1;
-        for (; k >= 0; --k) {
-            chars.push_back(bytes[k] ? bytes[k] : '\0');
-        }
-#else
-        int k = 0;
-        for (; k < 4; ++k) {
-            if (bytes[k]) {
-                break;
+            offsets[line_num] = offsets[line_num - 1] + k + 1;
+            for (; k >= 0; --k) {
+                chars.push_back(bytes[k] ? bytes[k] : '\0');
             }
+        } else if constexpr (std::endian::native == std::endian::big) {
+            int k = 0;
+            for (; k < 4; ++k) {
+                if (bytes[k]) {
+                    break;
+                }
+            }
+            offsets[line_num] = offsets[line_num - 1] + 4 - k;
+            for (; k < 4; ++k) {
+                chars.push_back(bytes[k] ? bytes[k] : '\0');
+            }
+        } else {
+            static_assert(std::endian::native == std::endian::big ||
+                                  std::endian::native == std::endian::little,
+                          "Unsupported endianness");
         }
-        offsets[line_num] = offsets[line_num - 1] + 4 - k;
-        for (; k < 4; ++k) {
-            chars.push_back(bytes[k] ? bytes[k] : '\0');
-        }
-#endif
     }
 };
 

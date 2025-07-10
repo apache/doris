@@ -69,6 +69,13 @@ namespace doris::cloud {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
+void* run_bthread_work(void* arg) {
+    auto* f = reinterpret_cast<std::function<void()>*>(arg);
+    (*f)();
+    delete f;
+    return nullptr;
+}
+
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
     if (tasks.empty()) {
         return Status::OK();
@@ -78,13 +85,6 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
     bthread::ConditionVariable cond;
     Status status; // Guard by lock
     int count = 0; // Guard by lock
-
-    auto* run_bthread_work = +[](void* arg) -> void* {
-        auto* f = reinterpret_cast<std::function<void()>*>(arg);
-        (*f)();
-        delete f;
-        return nullptr;
-    };
 
     for (const auto& task : tasks) {
         {
@@ -129,6 +129,24 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
     }
 
     return status;
+}
+
+Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency,
+                         std::future<Status>* fut) {
+    // std::function will cause `copy`, we need to use heap memory to avoid copy ctor called
+    auto prom = std::make_shared<std::promise<Status>>();
+    *fut = prom->get_future();
+    std::function<void()>* fn =
+            new std::function<void()>([&tasks, concurrency, p = std::move(prom)]() mutable {
+                p->set_value(bthread_fork_join(tasks, concurrency));
+            });
+
+    bthread_t bthread_id;
+    if (bthread_start_background(&bthread_id, nullptr, run_bthread_work, fn) != 0) {
+        delete fn;
+        return Status::InternalError<false>("failed to create bthread");
+    }
+    return Status::OK();
 }
 
 namespace {

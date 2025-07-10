@@ -73,12 +73,12 @@ public:
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).value.write(buf);
 
-        write_var_uint(_column_names.size(), buf);
+        buf.write_var_uint(_column_names.size());
         for (const auto& column_name : _column_names) {
-            write_string_binary(column_name, buf);
+            buf.write_binary(column_name);
         }
-        write_var_uint(_threshold, buf);
-        write_var_uint(_reserved, buf);
+        buf.write_var_uint(_threshold);
+        buf.write_var_uint(_reserved);
     }
 
     // Deserializes the aggregate function's state from a buffer (including the SpaceSaving structure and threshold).
@@ -86,7 +86,7 @@ public:
                      Arena* arena) const override {
         auto readStringBinaryInto = [](Arena& arena, BufferReadable& buf) {
             uint64_t size = 0;
-            read_var_uint(size, buf);
+            buf.read_var_uint(size);
 
             if (UNLIKELY(size > DEFAULT_MAX_STRING_SIZE)) {
                 throw Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
@@ -102,7 +102,7 @@ public:
         set.clear();
 
         uint64_t size = 0;
-        read_var_uint(size, buf);
+        buf.read_var_uint(size);
         if (UNLIKELY(size > TOP_K_MAX_SIZE)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Too large size ({}) for aggregate function '{}' state (maximum is {})",
@@ -114,8 +114,8 @@ public:
             auto ref = readStringBinaryInto(*arena, buf);
             uint64_t count = 0;
             uint64_t error = 0;
-            read_var_uint(count, buf);
-            read_var_uint(error, buf);
+            buf.read_var_uint(count);
+            buf.read_var_uint(error);
             set.insert(ref, count, error);
             arena->rollback(ref.size);
         }
@@ -123,15 +123,15 @@ public:
         set.read_alpha_map(buf);
 
         uint64_t column_size = 0;
-        read_var_uint(column_size, buf);
+        buf.read_var_uint(column_size);
         _column_names.clear();
         for (uint64_t i = 0; i < column_size; i++) {
             std::string column_name;
-            read_string_binary(column_name, buf);
+            buf.read_binary(column_name);
             _column_names.emplace_back(std::move(column_name));
         }
-        read_var_uint(_threshold, buf);
-        read_var_uint(_reserved, buf);
+        buf.read_var_uint(_threshold);
+        buf.read_var_uint(_reserved);
     }
 
     // Adds a new row of data to the aggregate function (inserts a new value into the SpaceSaving structure).

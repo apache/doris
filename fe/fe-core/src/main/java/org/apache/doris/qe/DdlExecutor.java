@@ -43,13 +43,9 @@ import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateIndexPolicyStmt;
 import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateRepositoryStmt;
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateStorageVaultStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
@@ -81,7 +77,6 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
@@ -131,8 +126,6 @@ public class DdlExecutor {
             EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             env.createTable((CreateTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateTableAsSelectStmt) {
-            env.createTableAsSelect((CreateTableAsSelectStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStmt) {
             env.dropTable((DropTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
@@ -205,14 +198,10 @@ public class DdlExecutor {
             env.backup((BackupStmt) ddlStmt);
         } else if (ddlStmt instanceof RestoreStmt) {
             env.restore((RestoreStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateRepositoryStmt) {
-            env.getBackupHandler().createRepository((CreateRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRepositoryStmt) {
             env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
-        } else if (ddlStmt instanceof TruncateTableStmt) {
-            env.truncateTable((TruncateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             env.setConfig((AdminSetConfigStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {
@@ -223,8 +212,6 @@ public class DdlExecutor {
             env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateResourceStmt) {
-            env.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
@@ -269,8 +256,6 @@ public class DdlExecutor {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
                     false);
-        } else if (ddlStmt instanceof CreateStorageVaultStmt) {
-            env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
         } else if (ddlStmt instanceof DropStageStmt) {
             ((CloudEnv) env).dropStage((DropStageStmt) ddlStmt);
         } else if (ddlStmt instanceof CopyStmt) {
@@ -383,7 +368,6 @@ public class DdlExecutor {
 
         if (ddlStmt instanceof BackupStmt
                 || ddlStmt instanceof RestoreStmt
-                || ddlStmt instanceof CreateRepositoryStmt
                 || ddlStmt instanceof DropRepositoryStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
             throw new DdlException("Unsupported operation");

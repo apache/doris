@@ -472,6 +472,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             if (!ctx.getStatementContext().isPartialLoadDictionary()) {
                 dictionary.increaseVersion();
                 Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
+            } else {
+                LOG.info("Dictionary {} is partial load, not increase version, keep {}", dictionary.getName(),
+                        dictionary.getVersion());
             }
         } finally {
             if (!unlocked) {
@@ -667,11 +670,13 @@ public class DictionaryManager extends MasterDaemon implements Writable {
      */
     public Map<Long, List<Long>> collectDictionaryStatus(List<Long> queryDicts) throws RuntimeException {
         Map<Long, List<Long>> unknownDictionaries = Maps.newHashMap();
-        // make the old stats of query dicts expired
+        // if dict is loading, may query dataDistribution. so we should do atomic replace at the end. otherwise may
+        // lead to wrong dataDistribution. when planning to load.
+        Map<Long, List<DictionaryDistribution>> newDataDistributions = Maps.newHashMap();
         if (queryDicts == null) {
             queryDicts = ImmutableList.of(); // query all dictionaries
             for (Dictionary dictionary : idToDictionary.values()) {
-                dictionary.resetDataDistributions();
+                newDataDistributions.put(dictionary.getId(), Lists.newArrayList());
             }
         } else {
             for (Long dictId : queryDicts) {
@@ -679,7 +684,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 if (dictionary == null) {
                     throw new RuntimeException("Dictionary " + dictId + " does not exist");
                 }
-                dictionary.resetDataDistributions();
+                newDataDistributions.put(dictionary.getId(), Lists.newArrayList());
             }
         }
 
@@ -730,7 +735,25 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                         status.getDictionaryMemorySize());
 
                 // add new distribution to list
-                dictionary.getDataDistributions().add(newDistribution);
+                if (newDataDistributions.containsKey(dictionaryId)) {
+                    newDataDistributions.get(dictionaryId).add(newDistribution);
+                } else {
+                    // maybe new dictionary added when collecting status. just skip them.
+                    LOG.warn("Dictionary {}-{} not found in FE when collecting status", dictionaryId,
+                            dictionary.getName());
+                }
+            }
+        }
+        // replace results
+        for (Map.Entry<Long, List<DictionaryDistribution>> entry : newDataDistributions.entrySet()) {
+            Long dictId = entry.getKey();
+            List<DictionaryDistribution> distributions = entry.getValue();
+            Dictionary dictionary = idToDictionary.get(dictId);
+            if (dictionary != null) {
+                // replace dataDistributions with new one
+                dictionary.setDataDistributions(distributions);
+            } else {
+                LOG.warn("Dictionary {} not found when collecting status", dictId);
             }
         }
         LOG.info("Collect all dictionaries status succeed");

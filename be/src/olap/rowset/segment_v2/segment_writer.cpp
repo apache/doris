@@ -42,7 +42,7 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -83,14 +83,14 @@ inline std::string segment_mem_tracker_name(uint32_t segment_id) {
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, const SegmentWriterOptions& opts,
-                             InvertedIndexFileWriter* inverted_file_writer)
+                             IndexFileWriter* index_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _inverted_index_file_writer(inverted_file_writer),
+          _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
@@ -225,8 +225,8 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
-        DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        DCHECK(_index_file_writer != nullptr);
+        opts.index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
     }
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \

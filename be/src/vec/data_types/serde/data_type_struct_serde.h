@@ -166,6 +166,9 @@ public:
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
 
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);
         for (auto& serde : elem_serdes_ptrs) {
@@ -173,11 +176,9 @@ public:
         }
     }
 
-    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return elem_serdes_ptrs; }
+    DataTypeSerDeSPtrs get_nested_serdes() const override { return elem_serdes_ptrs; }
 
 private:
-    std::optional<size_t> try_get_position_by_name(const String& name) const;
-
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
                                   std::vector<MysqlRowBuffer<is_binary_format>>& result,

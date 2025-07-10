@@ -95,6 +95,19 @@ public class S3PropertiesTest {
         origProps.put("s3.endpoint", "s3-fips.us-east-2.amazonaws.com");
         s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+
+        origProps.put("glue.endpoint", "glue.us-wast-2.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+        origProps.remove("s3.endpoint");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-wast-2", s3Properties.getRegion());
+        origProps.put("glue.endpoint", "glue-fips.us-west-2.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", s3Properties.getRegion());
+        origProps.put("glue.endpoint", "glue.us-gov-west-1.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-gov-west-1", s3Properties.getRegion());
     }
 
     @Test
@@ -172,7 +185,7 @@ public class S3PropertiesTest {
     @Test
     public void testGetRegionWithDefault() throws UserException {
         Map<String, String> origProps = new HashMap<>();
-        origProps.put("uri", "https://example-bucket.s3.us-west-2.amazonaws.com/path/to/file.txt\n");
+        origProps.put("uri", "https://example-bucket.s3.us-west-2.amazonaws.com/path/to/file.txt");
         origProps.put("s3.access_key", "myCOSAccessKey");
         origProps.put("s3.secret_key", "myCOSSecretKey");
         origProps.put("s3.region", "us-west-2");

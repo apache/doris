@@ -59,14 +59,14 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(has(), buf);
+        buf.write_binary(has());
         if (has()) {
             DataTypeBitMap::serialize_as_stream(value, buf);
         }
     }
 
     void read(BufferReadable& buf, Arena*) {
-        read_binary(has_value, buf);
+        buf.read_binary(has_value);
         if (has()) {
             DataTypeBitMap::deserialize_as_stream(value, buf);
         }
