@@ -457,50 +457,49 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
 
 Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
     if (config::is_cloud_mode() && !_sync_tablet) {
-        if (_scan_ranges.size() > 0) {
+        _pending_tablets_num = _scan_ranges.size();
+        if (_pending_tablets_num > 0) {
             _cloud_tablet_dependency = Dependency::create_shared(
                     _parent->operator_id(), _parent->node_id(), "CLOUD_TABLET_DEP");
-        }
-        _pending_tablets_num = cast_set<int>(_scan_ranges.size());
-
-        _tablets.resize(_scan_ranges.size());
-        _tasks.reserve(_scan_ranges.size());
-        _sync_statistics.resize(_scan_ranges.size());
-        SCOPED_RAW_TIMER(&_duration_ns);
-        DCHECK_GT(_pending_tablets_num, 0);
-        for (size_t i = 0; i < _scan_ranges.size(); i++) {
-            auto* sync_stats = &_sync_statistics[i];
-            int64_t version = 0;
-            std::from_chars(_scan_ranges[i]->version.data(),
-                            _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
-                            version);
-            auto task_ctx = state->get_task_execution_context();
-            _tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
-                auto task_lock = task_ctx.lock();
-                if (task_lock == nullptr) {
-                    return Status::OK();
-                }
-                Defer defer([&] {
-                    if (_pending_tablets_num.fetch_sub(1) == 1) {
-                        _cloud_tablet_dependency->set_ready();
+            _tablets.resize(_scan_ranges.size());
+            _tasks.reserve(_scan_ranges.size());
+            _sync_statistics.resize(_scan_ranges.size());
+            SCOPED_RAW_TIMER(&_duration_ns);
+            DCHECK_GT(_pending_tablets_num, 0);
+            for (size_t i = 0; i < _scan_ranges.size(); i++) {
+                auto* sync_stats = &_sync_statistics[i];
+                int64_t version = 0;
+                std::from_chars(_scan_ranges[i]->version.data(),
+                                _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
+                                version);
+                auto task_ctx = state->get_task_execution_context();
+                _tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
+                    auto task_lock = task_ctx.lock();
+                    if (task_lock == nullptr) {
+                        return Status::OK();
                     }
+                    Defer defer([&] {
+                        if (_pending_tablets_num.fetch_sub(1) == 1) {
+                            _cloud_tablet_dependency->set_ready();
+                        }
+                    });
+                    auto tablet =
+                            DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id, sync_stats));
+                    _tablets[i] = {std::move(tablet), version};
+                    SyncOptions options;
+                    options.query_version = version;
+                    options.merge_schema = true;
+                    RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablets[i].tablet)
+                                            ->sync_rowsets(options, sync_stats));
+                    // FIXME(plat1ko): Avoid pointer cast
+                    ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(
+                            *_tablets[i].tablet);
+                    return Status::OK();
                 });
-                auto tablet =
-                        DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id, sync_stats));
-                _tablets[i] = {std::move(tablet), version};
-                SyncOptions options;
-                options.query_version = version;
-                options.merge_schema = true;
-                RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablets[i].tablet)
-                                        ->sync_rowsets(options, sync_stats));
-                // FIXME(plat1ko): Avoid pointer cast
-                ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(
-                        *_tablets[i].tablet);
-                return Status::OK();
-            });
+            }
+            RETURN_IF_ERROR(cloud::bthread_fork_join(
+                    _tasks, config::init_scanner_sync_rowsets_parallelism, &_cloud_tablet_future));
         }
-        RETURN_IF_ERROR(cloud::bthread_fork_join(
-                _tasks, config::init_scanner_sync_rowsets_parallelism, &_cloud_tablet_future));
         _sync_tablet = true;
     }
     return Status::OK();

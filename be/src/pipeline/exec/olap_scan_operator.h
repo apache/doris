@@ -101,7 +101,7 @@ private:
     std::vector<std::function<Status()>> _tasks;
     int64_t _duration_ns = 0;
     std::shared_ptr<Dependency> _cloud_tablet_dependency;
-    std::atomic_int32_t _pending_tablets_num = 0;
+    std::atomic<size_t> _pending_tablets_num = 0;
     bool _prepared = false;
     std::future<Status> _cloud_tablet_future;
     std::atomic_bool _sync_tablet = false;
