@@ -836,6 +836,7 @@ endforeach()
 
 if (BUILD_BENCHMARK)
     add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
+    set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")
     install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)

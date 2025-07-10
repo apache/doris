@@ -88,9 +88,9 @@ struct AggregateFunctionDistinctSingleNumericData {
     void serialize(BufferWritable& buf) const {
         DCHECK(!stable);
         if constexpr (!stable) {
-            write_var_uint(data.size(), buf);
+            buf.write_var_uint(data.size());
             for (const auto& value : data) {
-                write_binary(value, buf);
+                buf.write_binary(value);
             }
         }
     }
@@ -99,10 +99,10 @@ struct AggregateFunctionDistinctSingleNumericData {
         DCHECK(!stable);
         if constexpr (!stable) {
             uint64_t new_size = 0;
-            read_var_uint(new_size, buf);
+            buf.read_var_uint(new_size);
             typename PrimitiveTypeTraits<T>::CppType x;
             for (size_t i = 0; i < new_size; ++i) {
-                read_binary(x, buf);
+                buf.read_binary(x);
                 data.insert(x);
             }
         }
@@ -153,9 +153,9 @@ struct AggregateFunctionDistinctGenericData {
     void serialize(BufferWritable& buf) const {
         DCHECK(!stable);
         if constexpr (!stable) {
-            write_var_uint(data.size(), buf);
+            buf.write_var_uint(data.size());
             for (const auto& elem : data) {
-                write_string_binary(elem, buf);
+                buf.write_binary(elem);
             }
         }
     }
@@ -164,11 +164,11 @@ struct AggregateFunctionDistinctGenericData {
         DCHECK(!stable);
         if constexpr (!stable) {
             UInt64 size;
-            read_var_uint(size, buf);
+            buf.read_var_uint(size);
 
             StringRef ref;
             for (size_t i = 0; i < size; ++i) {
-                read_string_binary(ref, buf);
+                buf.read_binary(ref);
                 data.insert(ref);
             }
         }

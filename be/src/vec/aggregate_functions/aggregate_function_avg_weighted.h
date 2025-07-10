@@ -60,13 +60,13 @@ struct AggregateFunctionAvgWeightedData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(data_sum, buf);
-        write_binary(weight_sum, buf);
+        buf.write_binary(data_sum);
+        buf.write_binary(weight_sum);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(data_sum, buf);
-        read_binary(weight_sum, buf);
+        buf.read_binary(data_sum);
+        buf.read_binary(weight_sum);
     }
 
     void merge(const AggregateFunctionAvgWeightedData& rhs) {

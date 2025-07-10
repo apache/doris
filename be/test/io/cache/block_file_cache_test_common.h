@@ -75,11 +75,11 @@ extern fs::path caches_dir;
 extern std::string cache_base_path;
 extern std::string tmp_file;
 
-constexpr unsigned long long operator"" _mb(unsigned long long m) {
+constexpr unsigned long long operator""_mb(unsigned long long m) {
     return m * 1024 * 1024;
 }
 
-constexpr unsigned long long operator"" _kb(unsigned long long m) {
+constexpr unsigned long long operator""_kb(unsigned long long m) {
     return m * 1024;
 }
 

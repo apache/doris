@@ -91,15 +91,15 @@ struct AggregateFunctionGroupConcatData {
     StringRef get() const { return StringRef {data.data(), data.size()}; }
 
     void write(BufferWritable& buf) const {
-        write_binary(StringRef {data.data(), data.size()}, buf);
-        write_binary(separator, buf);
-        write_binary(inited, buf);
+        buf.write_binary(data);
+        buf.write_binary(separator);
+        buf.write_binary(inited);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(data, buf);
-        read_binary(separator, buf);
-        read_binary(inited, buf);
+        buf.read_binary(data);
+        buf.read_binary(separator);
+        buf.read_binary(inited);
     }
 
     void reset() {

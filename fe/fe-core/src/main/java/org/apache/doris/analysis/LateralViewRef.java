@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.GlobalVariable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -63,25 +62,6 @@ public class LateralViewRef extends TableRef {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (isAnalyzed) {
-            return;
-        }
-        Preconditions.checkNotNull(relatedTableRef);
-        // analyze function and slot
-        if (!(expr instanceof FunctionCallExpr)) {
-            throw new AnalysisException("Only support function call expr in lateral view");
-        }
-
-        analyzeFunctionExpr(analyzer);
-
-        // analyze lateral view
-        desc = analyzer.registerTableRef(this);
-        explodeSlotRef = new SlotRef(new TableName(null, null, viewName), columnName);
-        explodeSlotRef.analyze(analyzer);
-        explodeSlotRef.getDesc().setIsNullable(
-                explodeSlotRef.getDesc().getIsNullable() || relatedTableRef.getDesc().getSlots()
-                        .stream().anyMatch(slotDescriptor -> slotDescriptor.getIsNullable()));
-        isAnalyzed = true;  // true now that we have assigned desc
     }
 
     @Override
@@ -89,15 +69,6 @@ public class LateralViewRef extends TableRef {
         return new LateralViewRef(this.expr.clone(), this.viewName, this.columnName);
     }
 
-    private void analyzeFunctionExpr(Analyzer analyzer) throws AnalysisException {
-        fnExpr = (FunctionCallExpr) expr;
-        fnExpr.setTableFnCall(true);
-        checkAndSupplyDefaultTableName(fnExpr);
-        fnExpr.analyze(analyzer);
-        for (Expr expr : fnExpr.getChildren()) {
-            checkScalarFunction(expr);
-        }
-    }
 
     @Override
     public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
@@ -164,24 +135,7 @@ public class LateralViewRef extends TableRef {
 
     // 1. it must be a scalar function
     private void checkScalarFunction(Expr child0) throws AnalysisException {
-        List<GroupingFunctionCallExpr> groupingFunctionCallExprList = Lists.newArrayList();
-        child0.collect(GroupingFunctionCallExpr.class, groupingFunctionCallExprList);
-        if (!groupingFunctionCallExprList.isEmpty()) {
-            throw new AnalysisException("Grouping function are not allowed in lateral view.");
-        }
-        if (child0.containsAggregate()) {
-            throw new AnalysisException("Agg function are not allowed in lateral view.");
-        }
-        List<AnalyticExpr> analyticExprList = Lists.newArrayList();
-        child0.collect(AnalyticExpr.class, analyticExprList);
-        if (!analyticExprList.isEmpty()) {
-            throw new AnalysisException("Analytic expr are not allowed in lateral view.");
-        }
-        List<Subquery> subqueryList = Lists.newArrayList();
-        child0.collect(Subquery.class, subqueryList);
-        if (!subqueryList.isEmpty()) {
-            throw new AnalysisException("Subquery is not allowed in lateral view");
-        }
+
     }
 
     @Override
