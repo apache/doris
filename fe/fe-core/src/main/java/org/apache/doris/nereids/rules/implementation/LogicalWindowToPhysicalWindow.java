@@ -100,6 +100,9 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                 OrderKeyGroup orderKeyGroup = partitionKeyGroup.groups.get(i);
                 // in OrderKeyGroup, create PhysicalWindow for each WindowFrameGroup;
                 // each PhysicalWindow contains the same windowExpressions as WindowFrameGroup.groups
+                // 0 == i && isSkew is because within a partitionKeyGroup, only the bottom-level PhysicalWindow(i=0)
+                // can use the window skew optimization (local sort + shuffle + merge sort). Others cannot because
+                // within the partitionKeyGroup, shuffle isn't needed as the group by keys are identical.
                 newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, 0 == i && isSkew);
             }
         }

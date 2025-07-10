@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.JoinSkewInfo;
 import org.apache.doris.nereids.pattern.MatchingContext;
@@ -34,6 +35,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**bind skew hint in DistributeHint*/
+@DependsRules({
+        LeadingJoin.class
+})
 public class BindSkewExpr extends BindExpression {
     @Override
     public List<Rule> buildRules() {

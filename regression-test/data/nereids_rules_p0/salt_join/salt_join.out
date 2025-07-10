@@ -410,11 +410,11 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = t3.c3)) otherCondition=()
---------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2) and (r1 = r2)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2) and (r1$c$1 = r2$c$2)) otherCondition=()
 ----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t4.c4)) otherCondition=()
 ------------PhysicalOlapScan[t2]
 ------------PhysicalOlapScan[t4]
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = alias1.c1)) otherCondition=()
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 = alias1.c1)) otherCondition=()
 ------------PhysicalGenerate
 --------------PhysicalUnion
 ------------PhysicalOlapScan[t1]
@@ -430,9 +430,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = t3.c3)) otherCondition=()
---------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2) and (r1 = r2)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2) and (r1$c$1 = r2$c$2)) otherCondition=()
 ----------PhysicalOlapScan[t1]
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = alias2.c2)) otherCondition=()
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 = alias2.c2)) otherCondition=()
 ------------PhysicalGenerate
 --------------PhysicalUnion
 ------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t4.c4)) otherCondition=()
@@ -740,7 +740,7 @@ SyntaxError:
 
 -- !equal_left_only_null_shape --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1 = r2) and (t1.b = t2.b)) otherCondition=()
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
 ----PhysicalOlapScan[test_null_safe4]
 
@@ -751,7 +751,7 @@ SyntaxError:
 
 -- !equal_right_only_null_shape --
 PhysicalResultSink
---hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2 = r1) and (t1.b = t2.b)) otherCondition=()
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2$c$1 = r1$c$2) and (t1.b = t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
 ----PhysicalOlapScan[test_null_safe4]
 
@@ -762,9 +762,9 @@ SyntaxError:
 
 -- !equal_inner_no_null_shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((r1 = r2) and (t1.b = t2.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -776,9 +776,9 @@ SyntaxError:
 
 -- !equal_left_no_null_shape --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1 = r2) and (t1.b = t2.b)) otherCondition=()
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -790,8 +790,8 @@ SyntaxError:
 
 -- !equal_right_no_null_shape --
 PhysicalResultSink
---hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2 = r1) and (t1.b = t2.b)) otherCondition=()
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t1.b)) otherCondition=()
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2$c$1 = r1$c$6) and (t1.b = t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$2 = t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe3]
@@ -804,9 +804,9 @@ SyntaxError:
 
 -- !equal_inner_other_and_null_shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((r1 = r2) and (t1.b = t2.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -818,9 +818,9 @@ SyntaxError:
 
 -- !equal_left_other_and_null_shape --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1 = r2) and (t1.b = t2.b)) otherCondition=()
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -832,8 +832,8 @@ SyntaxError:
 
 -- !equal_right_other_and_null_shape --
 PhysicalResultSink
---hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2 = r1) and (t1.b = t2.b)) otherCondition=()
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t1.b)) otherCondition=()
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2$c$1 = r1$c$6) and (t1.b = t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$2 = t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe3]
@@ -846,9 +846,9 @@ SyntaxError:
 
 -- !null_safe_equal_inner_only_null_shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((r1 = r2) and (t1.b <=> t2.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue <=> t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 <=> t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -860,9 +860,9 @@ SyntaxError:
 
 -- !null_safe_equal_left_only_null_shape --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1 = r2) and (t1.b <=> t2.b)) otherCondition=()
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue <=> t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 <=> t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -874,8 +874,8 @@ SyntaxError:
 
 -- !null_safe_equal_right_only_null_shape --
 PhysicalResultSink
---hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2 = r1) and (t1.b <=> t2.b)) otherCondition=()
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue <=> t1.b)) otherCondition=()
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2$c$1 = r1$c$5) and (t1.b <=> t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$2 <=> t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe3]
@@ -888,9 +888,9 @@ SyntaxError:
 
 -- !null_safe_equal_inner_no_null_shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((r1 = r2) and (t1.b <=> t2.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -902,9 +902,9 @@ SyntaxError:
 
 -- !null_safe_equal_left_no_null_shape --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1 = r2) and (t1.b <=> t2.b)) otherCondition=()
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -916,8 +916,8 @@ SyntaxError:
 
 -- !null_safe_equal_right_no_null_shape --
 PhysicalResultSink
---hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2 = r1) and (t1.b <=> t2.b)) otherCondition=()
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t1.b)) otherCondition=()
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2$c$1 = r1$c$6) and (t1.b <=> t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$2 = t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe3]
@@ -930,9 +930,9 @@ SyntaxError:
 
 -- !null_safe_equal_inner_other_and_null_shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((r1 = r2) and (t1.b <=> t2.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue <=> t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 <=> t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -944,9 +944,9 @@ SyntaxError:
 
 -- !null_safe_equal_left_other_and_null_shape --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1 = r2) and (t1.b <=> t2.b)) otherCondition=()
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue <=> t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 <=> t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe4]
@@ -958,8 +958,8 @@ SyntaxError:
 
 -- !null_safe_equal_right_other_and_null_shape --
 PhysicalResultSink
---hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2 = r1) and (t1.b <=> t2.b)) otherCondition=()
-----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue <=> t1.b)) otherCondition=()
+--hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2$c$1 = r1$c$7) and (t1.b <=> t2.b)) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$2 <=> t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
 ------PhysicalOlapScan[test_null_safe3]

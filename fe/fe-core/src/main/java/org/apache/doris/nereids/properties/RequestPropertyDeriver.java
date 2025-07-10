@@ -405,9 +405,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         } else if (windowFrameGroup.getPartitionKeys().isEmpty() && !windowFrameGroup.getOrderKeys().isEmpty()) {
             addRequestPropertyToChildren(PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
         } else if (!windowFrameGroup.getPartitionKeys().isEmpty()) {
-            addRequestPropertyToChildren(PhysicalProperties.createHash(
-                    windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE, isSkew)
-                    .withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
+            addRequestPropertyToChildren(
+                    PhysicalProperties.createHash(windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE)
+                    .withOrderSpec(isSkew ? new MustLocalSortOrderSpec(keysNeedToBeSorted)
+                            : new OrderSpec(keysNeedToBeSorted)));
         }
         return null;
     }

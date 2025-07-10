@@ -130,10 +130,10 @@ public class EnforceMissingPropertiesHelper {
 
     private PhysicalProperties enforceSortAndDistribution(PhysicalProperties outputProperty,
             PhysicalProperties requiredProperty) {
+        OrderSpec orderSpec = requiredProperty.getOrderSpec();
         PhysicalProperties enforcedProperty = outputProperty;
         if (requiredProperty.getDistributionSpec().equals(new DistributionSpecGather())
-                || requiredProperty.getDistributionSpec() instanceof DistributionSpecHash
-                && (((DistributionSpecHash) requiredProperty.getDistributionSpec()).isSkew())) {
+                || orderSpec instanceof MustLocalSortOrderSpec) {
             // NOTICE: if output is must shuffle, we must do distribution first. so add a random shuffle here.
             if (outputProperty.getDistributionSpec() instanceof DistributionSpecMustShuffle) {
                 enforcedProperty = enforceDistribution(enforcedProperty, PhysicalProperties.EXECUTION_ANY);

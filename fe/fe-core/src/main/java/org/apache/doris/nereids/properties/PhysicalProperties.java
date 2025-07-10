@@ -86,19 +86,12 @@ public class PhysicalProperties {
      */
     public static PhysicalProperties createHash(
             Collection<? extends Expression> orderedShuffledColumns, ShuffleType shuffleType) {
-        return createHash(orderedShuffledColumns, shuffleType, false);
-    }
-
-    /**createHash*/
-    public static PhysicalProperties createHash(
-            Collection<? extends Expression> orderedShuffledColumns, ShuffleType shuffleType, boolean isSkew) {
         List<ExprId> partitionedSlots = orderedShuffledColumns.stream()
                 .filter(SlotReference.class::isInstance)
                 .map(SlotReference.class::cast)
                 .map(SlotReference::getExprId)
                 .collect(Collectors.toList());
-        return partitionedSlots.isEmpty() ? PhysicalProperties.GATHER
-                : new PhysicalProperties(new DistributionSpecHash(partitionedSlots, shuffleType, isSkew));
+        return partitionedSlots.isEmpty() ? PhysicalProperties.GATHER : createHash(partitionedSlots, shuffleType);
     }
 
     public static PhysicalProperties createHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType) {
