@@ -853,7 +853,7 @@ nonterminal List<WorkloadConditionMeta> workload_policy_condition_list, conditio
 nonterminal List<WorkloadActionMeta> workload_policy_action_list, opt_actions, actions;
 
 nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_map_in_paren, opt_properties,
-            opt_ext_properties, opt_enable_feature_properties, properties;
+            opt_ext_properties, opt_enable_feature_properties, properties, type_opt_properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
@@ -3135,6 +3135,13 @@ key_value_map ::=
     :}
     ;
 
+type_opt_properties ::=
+      COMMA opt_properties:type_properties
+      {: RESULT = type_properties; :}
+    | /* empty */
+      {: RESULT = Maps.newHashMap(); :}
+    ;
+
 opt_properties ::=
     {:
     RESULT = Maps.newHashMap();
@@ -5273,8 +5280,10 @@ type ::=
   {: RESULT = new MapType(key_type,value_type); :}
   | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
   {: RESULT = new StructType(fields); :}
-  | KW_VARIANT LESSTHAN variant_field_list:fields GREATERTHAN
-  {: RESULT = new VariantType(fields); :}
+  | KW_VARIANT LESSTHAN variant_field_list:fields type_opt_properties:prop GREATERTHAN
+  {: RESULT = new VariantType(fields, prop); :}
+  | KW_VARIANT LESSTHAN properties:prop GREATERTHAN
+  {: RESULT = new VariantType(prop); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createCharType(len.intValue());
      RESULT = type;

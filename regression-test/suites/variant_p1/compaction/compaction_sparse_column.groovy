@@ -50,14 +50,13 @@ suite("test_compaction_sparse_column", "p1") {
         sql """
             CREATE TABLE ${tableName} (
                 k bigint,
-                v variant
+                v variant<properties("variant_max_subcolumns_count" = "3")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES (
                  "replication_num" = "1",
-                 "disable_auto_compaction" = "true",
-                 "variant_max_subcolumns_count" = "3"
+                 "disable_auto_compaction" = "true"
             );
         """
 

@@ -22,11 +22,11 @@ suite("regression_test_variant_column_name", "variant_type"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant
+            v variant<properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """ 
 
     sql """insert into ${table_name} values (1, '{"中文" : "中文", "\\\u4E2C\\\u6587": "unicode"}')"""

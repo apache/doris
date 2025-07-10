@@ -52,14 +52,9 @@ DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count)
         : _max_subcolumns_count(max_subcolumns_count) {
     name = fmt::format("Variant(max subcolumns count = {})", max_subcolumns_count);
 }
+
 bool DataTypeVariant::equals(const IDataType& rhs) const {
     auto rhs_type = typeid_cast<const DataTypeVariant*>(&rhs);
-    if (rhs_type && _max_subcolumns_count != rhs_type->variant_max_subcolumns_count()) {
-        VLOG_DEBUG << "_max_subcolumns_count is" << _max_subcolumns_count
-                   << "rhs_type->variant_max_subcolumns_count()"
-                   << rhs_type->variant_max_subcolumns_count();
-        return false;
-    }
     return rhs_type && _max_subcolumns_count == rhs_type->variant_max_subcolumns_count();
 }
 

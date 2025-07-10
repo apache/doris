@@ -77,7 +77,7 @@ suite("test_variant_arrayInvertedIdx_profile", "p0,nonConcurrent"){
 	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
       `apply_date` date NULL COMMENT '',
       `id` varchar(60) NOT NULL COMMENT '',
-      `inventors` variant<'inventors' : array<text>> NULL COMMENT '',
+      `inventors` variant<'inventors' : array<text>, properties("variant_max_subcolumns_count" = "10")> NULL COMMENT '',
       INDEX index_inverted_inventors(inventors) USING INVERTED PROPERTIES( "field_pattern" = "inventors") COMMENT ''
     ) ENGINE=OLAP
     DUPLICATE KEY(`apply_date`, `id`)
@@ -90,7 +90,6 @@ suite("test_variant_arrayInvertedIdx_profile", "p0,nonConcurrent"){
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
     "enable_single_replica_compaction" = "false",
-    "variant_max_subcolumns_count" = "10",
     "inverted_index_storage_format" = "$storageFormat"
     );
     """

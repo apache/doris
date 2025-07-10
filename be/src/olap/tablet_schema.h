@@ -166,6 +166,7 @@ public:
     static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
     static FieldType get_field_type_by_string(const std::string& str);
     static FieldType get_field_type_by_type(PrimitiveType type);
+    static PrimitiveType get_primitive_type_by_field_type(FieldType type);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
     bool is_row_store_column() const;
@@ -228,6 +229,14 @@ public:
     }
     int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
+    void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {
+        _variant_enable_typed_paths_to_sparse = variant_enable_typed_paths_to_sparse;
+    }
+
+    bool variant_enable_typed_paths_to_sparse() const {
+        return _variant_enable_typed_paths_to_sparse;
+    }
+
 private:
     int32_t _unique_id = -1;
     std::string _col_name;
@@ -279,6 +288,7 @@ private:
     size_t _num_sparse_columns = 0;
     int32_t _variant_max_subcolumns_count = 0;
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
+    bool _variant_enable_typed_paths_to_sparse = false;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);

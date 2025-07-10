@@ -449,7 +449,8 @@ public abstract class DataType {
                                 cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
                         .collect(ImmutableList.toImmutableList());
                 return new VariantType(variantFields,
-                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
+                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse());
             }
             return new VariantType(0);
         } else {
@@ -1061,7 +1062,7 @@ public abstract class DataType {
                     validateNestedType(scalarType, fieldType);
                     if (!fieldPatterns.add(field.getPattern())) {
                         throw new AnalysisException("Duplicate field name " + field.getPattern()
-                                + " in struct " + scalarType.toSql());
+                                + " in variant " + scalarType.toSql());
                     }
                 }
                 break;

@@ -19,7 +19,8 @@
 suite("variant_nested_type_conflict", "p0"){
 
     try {
-
+        sql """ set global_variant_max_subcolumns_count = 10"""
+        sql """ set global_variant_enable_typed_paths_to_sparse = false"""
         def table_name = "var_nested_type_conflict"
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """set describe_extend_variant_column = true"""

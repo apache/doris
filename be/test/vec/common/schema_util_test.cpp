@@ -20,15 +20,17 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
 #include "testutil/variant_util.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_object.h"
-#include "vec/common/schema_util.cpp"
+#include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/data_type_variant.h"
@@ -1789,5 +1791,101 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns) {
     EXPECT_EQ(output_schema->num_columns(), 2);
     for (const auto& column : output_schema->columns()) {
         EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
+    }
+}
+
+TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
+    TabletColumn variant;
+    variant.set_unique_id(30);
+    variant.set_variant_max_subcolumns_count(3);
+    variant.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+    variant.set_variant_enable_typed_paths_to_sparse(true);
+    TabletColumn subcolumn;
+    subcolumn.set_name("c");
+    subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_DATEV2);
+    variant.add_sub_column(subcolumn);
+    TabletColumn subcolumn2;
+    subcolumn2.set_name("d");
+    subcolumn2.set_type(FieldType::OLAP_FIELD_TYPE_DATEV2);
+    variant.add_sub_column(subcolumn2);
+
+    TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
+    schema->append_column(variant);
+
+    TabletColumnPtr parent_column = std::make_shared<TabletColumn>(variant);
+
+    TabletSchema::PathsSetInfo paths_set_info;
+    paths_set_info.sub_path_set.insert("a");
+    paths_set_info.sub_path_set.insert("b");
+    paths_set_info.sub_path_set.insert("c");
+    paths_set_info.sub_path_set.insert("d");
+    doris::vectorized::schema_util::PathToDataTypes path_to_data_types;
+    std::unordered_set<std::string> sparse_paths;
+    TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
+
+    schema_util::get_compaction_subcolumns(paths_set_info, parent_column, schema,
+                                           path_to_data_types, sparse_paths, output_schema);
+    EXPECT_EQ(output_schema->num_columns(), 4);
+    for (const auto& column : output_schema->columns()) {
+        if (column->name().ends_with("a") || column->name().ends_with("b")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
+        } else if (column->name().ends_with("c") || column->name().ends_with("d")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_DATEV2);
+        }
+    }
+
+    output_schema = std::make_shared<TabletSchema>();
+    path_to_data_types.clear();
+    path_to_data_types[vectorized::PathInData("a")] = {
+            std::make_shared<vectorized::DataTypeInt32>()};
+    path_to_data_types[vectorized::PathInData("b")] = {
+            std::make_shared<vectorized::DataTypeString>()};
+    schema_util::get_compaction_subcolumns(paths_set_info, parent_column, schema,
+                                           path_to_data_types, sparse_paths, output_schema);
+    EXPECT_EQ(output_schema->num_columns(), 4);
+    bool found_int = false, found_str = false;
+    for (const auto& column : output_schema->columns()) {
+        if (column->name().ends_with("a")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_INT);
+            found_int = true;
+        } else if (column->name().ends_with("b")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_STRING);
+            found_str = true;
+        } else if (column->name().ends_with("c") || column->name().ends_with("d")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_DATEV2);
+        }
+    }
+    EXPECT_TRUE(found_int && found_str);
+
+    output_schema = std::make_shared<TabletSchema>();
+    sparse_paths.insert("a");
+    schema_util::get_compaction_subcolumns(paths_set_info, parent_column, schema,
+                                           path_to_data_types, sparse_paths, output_schema);
+    EXPECT_EQ(output_schema->num_columns(), 4);
+    for (const auto& column : output_schema->columns()) {
+        if (column->name().ends_with("a")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
+        } else if (column->name().ends_with("b")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_STRING);
+        } else if (column->name().ends_with("c") || column->name().ends_with("d")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_DATEV2);
+        }
+    }
+
+    output_schema = std::make_shared<TabletSchema>();
+    sparse_paths.clear();
+
+    for (int i = 0; i < config::variant_max_sparse_column_statistics_size + 1; ++i) {
+        sparse_paths.insert("dummy" + std::to_string(i));
+    }
+    schema_util::get_compaction_subcolumns(paths_set_info, parent_column, schema,
+                                           path_to_data_types, sparse_paths, output_schema);
+    EXPECT_EQ(output_schema->num_columns(), 4);
+    for (const auto& column : output_schema->columns()) {
+        if (column->name().ends_with("a") || column->name().ends_with("b")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
+        } else if (column->name().ends_with("c") || column->name().ends_with("d")) {
+            EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_DATEV2);
+        }
     }
 }

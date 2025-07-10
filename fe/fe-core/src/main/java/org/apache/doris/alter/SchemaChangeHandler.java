@@ -66,7 +66,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -688,8 +687,9 @@ public class SchemaChangeHandler extends AlterHandler {
             if (modColumn.getChildren().size() > 0 || oriColumn.getChildren().size() > 0) {
                 throw new DdlException("Can not modify variant column with children");
             }
-            VariantType scType = (VariantType) type;
-            scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
+            if (modColumn.getVariantMaxSubcolumnsCount() != oriColumn.getVariantMaxSubcolumnsCount()) {
+                throw new DdlException("Can not modify variant column property variant max subcolumns count");
+            }
         }
 
         if (!modColumn.equals(oriColumn) && oriColumn.isAutoInc() != modColumn.isAutoInc()) {
@@ -1037,11 +1037,6 @@ public class SchemaChangeHandler extends AlterHandler {
             lightSchemaChange = false;
         }
 
-        Type type = newColumn.getType();
-        if (type.isVariantType()) {
-            VariantType scType = (VariantType) type;
-            scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
-        }
         // check if the new column already exist in base schema.
         // do not support adding new column which already exist in base schema.
         List<Column> baseSchema = olapTable.getBaseSchema(true);
@@ -1072,6 +1067,16 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (newColumn.getGeneratedColumnInfo() != null) {
             throw new DdlException("Not supporting alter table add generated columns.");
+        }
+
+        if (newColumn.getType().isVariantType() && olapTable.hasVariantColumns()) {
+            Pair<Integer, Integer> res = olapTable.getMinMaxVariantSubcolumnsCount();
+            int currentCount = newColumn.getVariantMaxSubcolumnsCount();
+            if ((currentCount == 0 && (res.key() != 0 || res.value() != 0))
+                                    || (currentCount > 0 && (res.key() == 0 && res.value() == 0))) {
+                throw new DdlException("The variant_max_subcolumns_count must either be 0 in all columns"
+                        + " or greater than 0 in all columns");
+            }
         }
 
         /*
@@ -2778,7 +2783,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             .compareTo(TInvertedIndexFileStorageFormat.V2) >= 0) {
                     String columnName = indexDef.getColumns().get(0);
                     Column column = olapTable.getColumn(columnName);
-                    if (column != null && column.getType().isStringType()) {
+                    if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
                         boolean isExistingIndexAnalyzer = index.isAnalyzedInvertedIndex();
                         boolean isNewIndexAnalyzer = indexDef.isAnalyzedInvertedIndex();
                         if (isExistingIndexAnalyzer == isNewIndexAnalyzer) {

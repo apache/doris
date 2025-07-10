@@ -772,9 +772,17 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         }
         return Status::OK();
     }
+    if (block->columns() < _column_writers.size()) {
+        return Status::InternalError(
+                "block->columns() < _column_writers.size(), block->columns()=" +
+                std::to_string(block->columns()) +
+                ", _column_writers.size()=" + std::to_string(_column_writers.size()) +
+                ", _tablet_schema->dump_structure()=" + _tablet_schema->dump_structure());
+    }
     CHECK(block->columns() >= _column_writers.size())
             << ", block->columns()=" << block->columns()
-            << ", _column_writers.size()=" << _column_writers.size();
+            << ", _column_writers.size()=" << _column_writers.size()
+            << ", _tablet_schema->dump_structure()=" << _tablet_schema->dump_structure();
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||

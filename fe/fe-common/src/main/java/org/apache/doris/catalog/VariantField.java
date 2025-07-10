@@ -67,15 +67,15 @@ public class VariantField {
     }
 
     public String toSql(int depth) {
-        String typeSql;
-        if (depth < Type.MAX_NESTING_DEPTH) {
-            typeSql = type.toSql(depth + 1);
-        } else {
-            typeSql = "...";
+        StringBuilder sb = new StringBuilder();
+        if (patternType == TPatternType.MATCH_NAME) {
+            sb.append(patternType.toString()).append(" ");
         }
-        StringBuilder sb = new StringBuilder(patternType.toString() + " '");
-        if (type != null) {
-            sb.append(pattern).append("':").append(typeSql);
+
+        sb.append("'").append(pattern).append("'");
+        sb.append(":").append(type.toSql(depth + 1));
+        if (!comment.isEmpty()) {
+            sb.append(" COMMENT '").append(comment).append("'");
         }
         return sb.toString();
     }

@@ -648,10 +648,17 @@ struct NearestFieldTypeImpl<PackedInt128> {
     using Type = Int128;
 };
 
+template <>
+struct NearestFieldTypeImpl<PackedUInt128> {
+    using Type = IPv6;
+};
+
 template <typename T>
 decltype(auto) cast_to_nearest_field_type(T&& x) {
     using U = NearestFieldType<std::decay_t<T>>;
     if constexpr (std::is_same_v<PackedInt128, std::decay_t<T>>) {
+        return U(x.value);
+    } else if constexpr (std::is_same_v<PackedUInt128, std::decay_t<T>>) {
         return U(x.value);
     } else if constexpr (std::is_same_v<std::decay_t<T>, U>) {
         return std::forward<T>(x);

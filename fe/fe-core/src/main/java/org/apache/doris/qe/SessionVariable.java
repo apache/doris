@@ -741,6 +741,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GLOBAL_VARIANT_SUBCOLUMNS_COUNT = "global_variant_max_subcolumns_count";
 
+    public static final String GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "global_variant_enable_typed_paths_to_sparse";
+
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
     public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
@@ -2698,6 +2701,21 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean skipCheckingAcidVersionFile = false;
 
+    @VariableMgr.VarAttr(
+            name = GLOBAL_VARIANT_SUBCOLUMNS_COUNT,
+            needForward = true,
+            checker = "checkGlobalVariantMaxSubcolumnsCount",
+            fuzzy = true
+    )
+    public int globalVariantMaxSubcolumnsCount = 2048;
+
+    @VariableMgr.VarAttr(
+            name = GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean globalEnableTypedPathsToSparse = false;
+
     @VariableMgr.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
             checker = "checkSqlConvertorFeatures",
             description = {
@@ -2750,14 +2768,6 @@ public class SessionVariable implements Serializable, Writable {
     }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
     public int skewRewriteJoinSaltExplodeFactor = 0;
 
-    @VariableMgr.VarAttr(
-            name = GLOBAL_VARIANT_SUBCOLUMNS_COUNT,
-            needForward = true,
-            checker = "checkGlobalVariantMaxSubcolumnsCount",
-            fuzzy = true
-    )
-    public int globalVariantMaxSubcolumnsCount = 2048;
-
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -2796,6 +2806,7 @@ public class SessionVariable implements Serializable, Writable {
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.globalVariantMaxSubcolumnsCount = random.nextInt(10);
+        this.globalEnableTypedPathsToSparse = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -5096,6 +5107,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableAddIndexForNewData(boolean enableAddIndexForNewData) {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
+    }
+
+    public boolean getGlobalEnableTypedPathsToSparse() {
+        return globalEnableTypedPathsToSparse;
     }
 
     public static boolean enableStrictCast() {

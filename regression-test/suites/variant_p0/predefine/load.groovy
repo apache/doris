@@ -17,10 +17,11 @@
 
 suite("regression_test_variant_predefine_schema", "p0"){
     sql """DROP TABLE IF EXISTS test_predefine"""
-    def count = "0"
+    def count = new Random().nextInt(10) + 1;
     if (new Random().nextInt(100) < 50) {
         count = "1000"
     }
+    sql """ set global_variant_max_subcolumns_count = ${count} """
     sql """
         CREATE TABLE `test_predefine` (
             `id` bigint NOT NULL,
@@ -28,7 +29,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
             `v1` variant<'a.b.c':int,'ss':string,'dcm':decimal(38, 9),'dt':datetime,'ip':ipv4,'a.b.d':double> NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 3
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "${count}");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
     """
 
     sql """insert into test_predefine values(1, '1', '{"a" : {"b" : {"c" : "123456", "d" : "11.111"}}, "ss" : 199991111, "dcm" : 123.456, "dt" : "2021-01-01 00:00:00", "ip" : "127.0.0.1"}')"""
@@ -44,8 +45,6 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """insert into test_predefine values(12, '3', '{"dcm" : 789.123, "dt" : "2025-01-01 11:11:11.1", "ip" : "127.0.0.1"}')"""
     sql """insert into test_predefine values(11, '4', '{"a" : {"b" : {"c" : "678910", "d" : "33.222"}}}')"""
     qt_sql """select * from test_predefine order by id"""
-    sql """set describe_extend_variant_column = true"""
-    qt_sql "desc test_predefine"
 
     qt_sql """select cast(v1['ip'] as ipv4) from test_predefine where cast(v1['ip'] as ipv4) = '127.0.0.1';"""
     qt_sql """select cast(v1['dcm'] as decimal) from test_predefine where cast(v1['dcm'] as decimal) = '123.456';"""
@@ -62,7 +61,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
             `v1` variant NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true", "variant_max_subcolumns_count" = "0");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");
     """ 
     sql """insert into test_predefine1 values(1, '{"predefine_col1" : 1024}')"""
     sql """insert into test_predefine1 values(2, '{"predefine_col2" : 1.11111}')"""
@@ -74,7 +73,6 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """insert into test_predefine1 values(7, '{"PREDEFINE_COL3" : "11111.00000"}')"""
     sql """insert into test_predefine1 values(8, '{"PREDEFINE_COL4" : "2020-01-01-01"}')"""
     sql """select * from test_predefine1 order by id limit 1"""
-    qt_sql """desc test_predefine1"""
     qt_sql """select * from test_predefine1 order by id"""
 
 
@@ -106,10 +104,11 @@ suite("regression_test_variant_predefine_schema", "p0"){
                 'ipv6_':ipv6,
                 'float_':decimalv3(26,9),
                 'boolean_':boolean,
-                'varchar_': text
+                'varchar_': text,
+                properties("variant_max_subcolumns_count" = "6", "variant_enable_typed_paths_to_sparse" = "false")
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "${count}");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
     """
     def json1 = """
         {
@@ -198,7 +197,6 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql "insert into test_predefine2 values(4, '${json4}')"
        
     qt_sql """select * from test_predefine2 order by id"""
-    qt_sql """ desc test_predefine2 """
 
     for (int i = 10; i < 100; i++) {
         sql "insert into test_predefine2 values(${i}, '${json4}')"
@@ -215,7 +213,6 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """insert into test_predefine1 values(103, '{"a" :1}', '{"dcm": 1111111}', '{"dt": "2021-01-01 11:11:11"}');"""
     qt_sql """select * from test_predefine1 where id >= 100 order by id"""
     // 3. drop column
-    qt_sql "desc test_predefine1"
     sql "alter table test_predefine1 drop column v3"
 
     sql "DROP TABLE IF EXISTS test_predefine3"
@@ -223,7 +220,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
             `id` bigint NOT NULL,
             `v` variant<'nested.a':string> NULL)
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true", "variant_max_subcolumns_count" = "0");"""
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "false", "disable_auto_compaction" = "true");"""
 
     // test alter nested no effect at present
     sql "truncate table test_predefine3"
@@ -249,7 +246,8 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """insert into test_predefine3 values (1, '{"auto_type" : 256}')"""
     sql """insert into test_predefine3 values (1, '{"auto_type" : 12345}')"""
     sql """insert into test_predefine3 values (1, '{"auto_type" : 1.0}')"""
-    qt_sql """desc test_predefine3"""
+    trigger_and_wait_compaction("test_predefine3", "full")
+    qt_sql """select variant_type(v) from test_predefine3"""
 
     // test array
     sql "DROP TABLE IF EXISTS region_insert"
@@ -274,8 +272,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     "disable_auto_compaction" = "false",
     "enable_single_replica_compaction" = "false",
     "group_commit_interval_ms" = "10000",
-    "group_commit_data_bytes" = "134217728",
-    "variant_max_subcolumns_count" = "${count}"
+    "group_commit_data_bytes" = "134217728"
     );
     """
     sql """
@@ -293,8 +290,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
     "min_load_replica_num" = "-1",
-    "bloom_filter_columns" = "var",
-    "variant_max_subcolumns_count" = "${count}"
+    "bloom_filter_columns" = "var"
     );
     """
 
@@ -311,8 +307,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     DISTRIBUTED BY HASH(`k`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
-    "min_load_replica_num" = "-1",
-    "variant_max_subcolumns_count" = "0"
+    "min_load_replica_num" = "-1"
     );
     """
     sql """insert into test_array_with_nulls values(3, '{"array_decimal" : [null, 2.2, 3.3, 4.4]}')"""
@@ -336,8 +331,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     DISTRIBUTED BY HASH(`k`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
-    "min_load_replica_num" = "-1",
-    "variant_max_subcolumns_count" = "0"
+    "min_load_replica_num" = "-1"
     );
     """
     sql """insert into test_variant_type values(1, '{"dcm" : 1.1, "db" : 2.2, "dt" : "2021-01-01 00:00:00", "a.b.c" : [1, 2, 3]}')"""
@@ -354,8 +348,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     DISTRIBUTED BY HASH(`k`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
-    "min_load_replica_num" = "-1",
-    "variant_max_subcolumns_count" = "0"
+    "min_load_replica_num" = "-1"
     );
     """
     sql """insert into test_variant_type_not_null values(1, '{"dcm" : 1.1, "db" : 2.2, "dt" : "2021-01-01 00:00:00", "a.b.c" : [1, 2, 3]}')"""

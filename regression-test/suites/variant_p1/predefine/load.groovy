@@ -18,7 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_predefine_type_multi_index", "p1"){
-   
+    
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -66,14 +68,15 @@ suite("test_predefine_type_multi_index", "p1"){
                 MATCH_NAME 'created_at' : datetime,
                 MATCH_NAME 'payload.issue.number' : int,
                 MATCH_NAME 'payload.comment.body' : string,
-                MATCH_NAME 'type.name' : string
+                MATCH_NAME 'type.name' : string,
+                properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")
             > NULL,
             INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true"),
             INDEX idx_var_2 (`v`) USING INVERTED
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true");
     """
 
     // 2015

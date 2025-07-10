@@ -19,7 +19,9 @@
 suite("test_variant_is_null_expr", "p0, nonConcurrent") {
     // define a sql table
     def testTable = "test_variant_is_null_expr"
-    int max_subcolumns_count = Math.floor(Math.random() * 5) + 1 
+
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+
     sql """ DROP TABLE IF EXISTS ${testTable} """ 
     sql """
         CREATE TABLE ${testTable} (
@@ -30,14 +32,13 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
           > NULL COMMENT "",
           INDEX idx_a (v) USING INVERTED PROPERTIES("field_pattern"= "string*", "parser"="unicode", "support_phrase" = "true") COMMENT '',
           INDEX idx_b (v) USING INVERTED PROPERTIES("field_pattern"= "string*"),
-          INDEX idx_c (v) USING INVERTED PROPERTIES("field_pattern"= "int*"),
+          INDEX idx_c (v) USING INVERTED PROPERTIES("field_pattern"= "int*")
           ) ENGINE=OLAP
           DUPLICATE KEY(`k`)
           COMMENT "OLAP"
           DISTRIBUTED BY HASH(`k`) BUCKETS 1
           PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1",
-          "variant_max_subcolumns_count" = "${max_subcolumns_count}"
+          "replication_allocation" = "tag.location.default: 1"
         );
       """
 

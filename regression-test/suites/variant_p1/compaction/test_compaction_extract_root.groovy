@@ -23,7 +23,7 @@ suite("test_compaction_extract_root", "p1") {
     sql """
         CREATE TABLE ${tableName} (
             k bigint,
-            v variant
+            v variant<properties("variant_max_subcolumns_count" = "2")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(`k`) BUCKETS 1
@@ -77,8 +77,5 @@ suite("test_compaction_extract_root", "p1") {
     // qt_select_b_5 """ select v['b'] from test_t where  cast(v['b'] as string) != '42005' and  cast(v['b'] as string) != '42004' and  cast(v['b'] as string) != '42003' order by cast(v['b'] as string); """
 
     qt_select_1 """select v['b'] from test_t where k = 0 and cast(v['a'] as int) = 11245;"""
-<<<<<<< HEAD
-=======
     
->>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
 }

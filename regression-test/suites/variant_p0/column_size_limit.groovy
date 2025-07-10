@@ -22,11 +22,11 @@ suite("regression_test_variant_column_limit"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant
+            v variant<properties("variant_max_subcolumns_count" = "0")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "0");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
     def jsonBuilder = new JsonBuilder()
     def root = jsonBuilder {

@@ -17,6 +17,9 @@
 
 suite("variant_sub_path_pruning", "variant_type"){
 
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    sql """ set global_variant_max_subcolumns_count = 0 """
+
     sql "DROP TABLE IF EXISTS pruning_test"
 
     sql """
@@ -26,7 +29,7 @@ suite("variant_sub_path_pruning", "variant_type"){
         ) 
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id)
-        PROPERTIES("replication_num"="1", "variant_max_subcolumns_count" = "0")
+        PROPERTIES("replication_num"="1")
     """
 
     sql """

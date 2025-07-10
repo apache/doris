@@ -70,6 +70,8 @@ public:
 
     bool exist_in_sparse_column(const vectorized::PathInData& path) const;
 
+    bool is_exceeded_sparse_column_limit() const;
+
     const SubcolumnColumnReaders* get_subcolumn_readers() const { return _subcolumn_readers.get(); }
 
     void get_subcolumns_types(
