@@ -140,23 +140,22 @@ struct AggregateFunctionMapAggData {
 
     void write(BufferWritable& buf) const {
         const size_t size = _key_column->size();
-        write_binary(size, buf);
+        buf.write_binary(size);
         for (size_t i = 0; i < size; i++) {
-            write_binary(assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
-                                 .get_data_at(i),
-                         buf);
+            buf.write_binary(assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
+                                     .get_data_at(i));
         }
         for (size_t i = 0; i < size; i++) {
-            write_binary(_value_column->get_data_at(i), buf);
+            buf.write_binary(_value_column->get_data_at(i));
         }
     }
 
     void read(BufferReadable& buf) {
         size_t size = 0;
-        read_binary(size, buf);
+        buf.read_binary(size);
         StringRef key;
         for (size_t i = 0; i < size; i++) {
-            read_binary(key, buf);
+            buf.read_binary(key);
             DCHECK(_map.find(key) == _map.cend());
             key.data = _arena.insert(key.data, key.size);
             assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
@@ -164,7 +163,7 @@ struct AggregateFunctionMapAggData {
         }
         StringRef val;
         for (size_t i = 0; i < size; i++) {
-            read_binary(val, buf);
+            buf.read_binary(val);
             _value_column->insert_data(val.data, val.size);
         }
     }

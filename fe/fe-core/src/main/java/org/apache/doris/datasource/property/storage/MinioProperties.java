@@ -72,7 +72,7 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
 
 
     @Override
-    protected Pattern endpointPattern() {
-        return Pattern.compile("^(?:https?://)?[a-zA-Z0-9.-]+(?::\\d+)?$");
+    protected Set<Pattern> endpointPatterns() {
+        return ImmutableSet.of(Pattern.compile("^(?:https?://)?[a-zA-Z0-9.-]+(?::\\d+)?$"));
     }
 }

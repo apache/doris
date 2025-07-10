@@ -122,13 +122,13 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         result = AggOrthBitmapBaseData<T>::bitmap.intersect();
         DataTypeBitMap::serialize_as_stream(result, buf);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
         DataTypeBitMap::deserialize_as_stream(result, buf);
     }
 
@@ -158,17 +158,17 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         std::string data;
         data.resize(AggOrthBitmapBaseData<T>::bitmap.size());
         AggOrthBitmapBaseData<T>::bitmap.serialize(data.data());
-        write_binary(data, buf);
+        buf.write_binary(data);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
         std::string data;
-        read_binary(data, buf);
+        buf.read_binary(data);
         AggOrthBitmapBaseData<T>::bitmap.deserialize(data.data());
     }
 
@@ -199,14 +199,14 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         result = AggOrthBitmapBaseData<T>::bitmap.intersect_count();
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapBaseData<T>::first_init, buf);
-        read_binary(result, buf);
+        buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
+        buf.read_binary(result);
     }
 
     void get(IColumn& to) const {
@@ -272,13 +272,13 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
         result = AggOrthBitmapExprCalBaseData<T>::bitmap_expr_cal.bitmap_calculate();
         DataTypeBitMap::serialize_as_stream(result, buf);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
+        buf.read_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
         DataTypeBitMap::deserialize_as_stream(result, buf);
     }
 
@@ -314,14 +314,14 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
         result = AggOrthBitmapExprCalBaseData<T>::bitmap_expr_cal.bitmap_calculate_count();
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
-        read_binary(result, buf);
+        buf.read_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
+        buf.read_binary(result);
     }
 
     void get(IColumn& to) const {
@@ -357,10 +357,10 @@ struct OrthBitmapUnionCountData {
 
     void write(BufferWritable& buf) {
         result = value.cardinality();
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
-    void read(BufferReadable& buf) { read_binary(result, buf); }
+    void read(BufferReadable& buf) { buf.read_binary(result); }
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnInt64&>(to);

@@ -558,6 +558,9 @@ struct ConvertImplNumberToJsonb {
                 writer.writeInt128(data[i]);
             } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
                 writer.writeDouble(data[i]);
+            } else if constexpr (std::is_same_v<ColumnDecimal128V3, ColumnType>) {
+                auto type = col_with_type_and_name.type;
+                writer.writeDecimal(data[i], type->get_precision(), type->get_scale());
             } else {
                 static_assert(std::is_same_v<ColumnType, ColumnUInt8> ||
                                       std::is_same_v<ColumnType, ColumnInt8> ||
@@ -1736,6 +1739,8 @@ private:
             return &ConvertImplNumberToJsonb<ColumnInt128>::execute;
         case PrimitiveType::TYPE_DOUBLE:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return &ConvertImplNumberToJsonb<ColumnDecimal128V3>::execute;
         case PrimitiveType::TYPE_STRING:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:
