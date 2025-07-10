@@ -389,8 +389,9 @@ Status Block::check_type_and_column() const {
         auto st = type->check_column(*column);
         if (!st.ok()) {
             return Status::InternalError(
-                    "Column {} in block is not compatible with its type {}, error: {}", elem.name,
-                    type->get_name(), st.msg());
+                    "Column {} in block is not compatible with its column type :{}, data type :{}, "
+                    "error: {}",
+                    elem.name, column->get_name(), type->get_name(), st.msg());
         }
     }
     return Status::OK();
