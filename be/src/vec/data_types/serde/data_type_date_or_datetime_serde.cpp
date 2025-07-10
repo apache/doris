@@ -452,10 +452,7 @@ Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
         return Status::OK();
     }
 
-    // skip the delimiter if meet.
-    if (*ptr == ' ' || *ptr == 'T') {
-        ++ptr;
-    }
+    RETURN_IF_ERROR(consume_one_delimiter(ptr, end));
 
     // time part
     uint32_t hour, minute, second;
