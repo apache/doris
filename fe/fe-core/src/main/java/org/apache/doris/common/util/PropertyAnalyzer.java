@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.DataProperty.AllocationPolicy;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -77,6 +78,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_MIN_LOAD_REPLICA_NUM = "min_load_replica_num";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
+    public static final String PROPERTIES_ALLOCATION_POLICY = "allocation_policy";
     public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
     // base time for the data in the partition
     public static final String PROPERTIES_DATA_BASE_TIME = "data_base_time_ms";
@@ -338,7 +340,7 @@ public class PropertyAnalyzer {
         // then we would just set the partition's storage policy the same as the table's
         String newStoragePolicy = oldStoragePolicy;
         boolean hasStoragePolicy = false;
-        boolean storageMediumSpecified = false;
+        AllocationPolicy allocationPolicy = AllocationPolicy.ADAPTIVE;
         boolean isBeingSynced = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -347,12 +349,16 @@ public class PropertyAnalyzer {
             if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
                 if (value.equalsIgnoreCase(TStorageMedium.SSD.name())) {
                     storageMedium = TStorageMedium.SSD;
-                    storageMediumSpecified = true;
                 } else if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
                     storageMedium = TStorageMedium.HDD;
-                    storageMediumSpecified = true;
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
+                }
+            } else if (key.equalsIgnoreCase(PROPERTIES_ALLOCATION_POLICY)) {
+                try {
+                    allocationPolicy = AllocationPolicy.fromString(value);
+                } catch (IllegalArgumentException e) {
+                    throw new AnalysisException(e.getMessage());
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
@@ -371,6 +377,7 @@ public class PropertyAnalyzer {
         } // end for properties
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
+        properties.remove(PROPERTIES_ALLOCATION_POLICY);
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
         properties.remove(PROPERTIES_STORAGE_POLICY);
         properties.remove(PROPERTIES_DATA_BASE_TIME);
@@ -449,11 +456,8 @@ public class PropertyAnalyzer {
         boolean mutable = PropertyAnalyzer.analyzeBooleanProp(properties, PROPERTIES_MUTABLE, true);
         properties.remove(PROPERTIES_MUTABLE);
 
-        DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
-        // check the state of data property
-        if (storageMediumSpecified) {
-            dataProperty.setStorageMediumSpecified(true);
-        }
+        DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable,
+                allocationPolicy);
         return dataProperty;
     }
 
@@ -1549,7 +1553,7 @@ public class PropertyAnalyzer {
                 try {
                     SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
                     systemInfoService.selectBackendIdsForReplicaCreation(
-                            replicaAlloc, nextIndexs, null, false, true);
+                            replicaAlloc, nextIndexs, null, AllocationPolicy.ADAPTIVE, true);
                 } catch (DdlException ddlException) {
                     throw new AnalysisException(ddlException.getMessage());
                 }

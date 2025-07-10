@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.DataProperty.AllocationPolicy;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -332,6 +333,57 @@ public class PropertyAnalyzerTest {
             Assertions.assertEquals(
                     "errCode = 2, detailMessage = unknown inverted index storage format: unknown_format",
                     e.getMessage());
+        }
+    }
+
+    @Test
+    public void testAnalyzeDataProperty() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        Assert.assertEquals(AllocationPolicy.ADAPTIVE, dataProperty.getAllocationPolicy());
+
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        Assert.assertEquals(AllocationPolicy.ADAPTIVE, dataProperty.getAllocationPolicy());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY, "strict");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        Assert.assertEquals(AllocationPolicy.STRICT, dataProperty.getAllocationPolicy());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY, "adaptive");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        Assert.assertEquals(AllocationPolicy.ADAPTIVE, dataProperty.getAllocationPolicy());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY, "strict");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        Assert.assertEquals(AllocationPolicy.STRICT, dataProperty.getAllocationPolicy());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY, "adaptive");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        Assert.assertEquals(AllocationPolicy.ADAPTIVE, dataProperty.getAllocationPolicy());
+    }
+
+    @Test
+    public void testAnalyzeDataPropertyWithInvalidAllocationPolicy() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY, "invalid");
+        try {
+            PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+            Assert.fail("Should throw AnalysisException for invalid allocation_policy value");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Invalid allocation_policy value"));
         }
     }
 }

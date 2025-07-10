@@ -66,6 +66,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
+    private DataProperty.AllocationPolicy allocationPolicy = null;
     private BinlogConfig binlogConfig;
 
     private TStorageMedium storageMedium = null;
@@ -154,6 +155,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildStorageMedium();
                 buildStoragePolicy();
                 buildIsBeingSynced();
+                buildAllocationPolicy();
                 buildCompactionPolicy();
                 buildTimeSeriesCompactionGoalSizeMbytes();
                 buildTimeSeriesCompactionFileCountThreshold();
@@ -472,6 +474,39 @@ public class TableProperty implements GsonPostProcessable {
         return isBeingSynced;
     }
 
+    public TableProperty buildAllocationPolicy() {
+        // Handle upgrade compatibility: if the property doesn't exist, set value for old tables
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY)) {
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY,
+                        DataProperty.AllocationPolicy.STRICT.getValue());
+            } else {
+                properties.put(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY,
+                        DataProperty.AllocationPolicy.ADAPTIVE.getValue());
+            }
+        }
+        String allocationPolicyValue = properties.get(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY);
+        try {
+            allocationPolicy = DataProperty.AllocationPolicy.fromString(allocationPolicyValue);
+        } catch (IllegalArgumentException e) {
+            // For upgrade compatibility, fallback to ADAPTIVE if invalid value
+            allocationPolicy = DataProperty.AllocationPolicy.ADAPTIVE;
+        }
+        return this;
+    }
+
+    public DataProperty.AllocationPolicy getAllocationPolicy() {
+        if (allocationPolicy == null) {
+            buildAllocationPolicy();
+        }
+        return allocationPolicy;
+    }
+
+    public void setAllocationPolicy(DataProperty.AllocationPolicy allocationPolicy) {
+        modifyTableProperties(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY, allocationPolicy.getValue());
+        this.allocationPolicy = allocationPolicy;
+    }
+
     public void removeInvalidProperties() {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
         storagePolicy = "";
@@ -731,6 +766,7 @@ public class TableProperty implements GsonPostProcessable {
         buildCompressionType();
         buildStoragePolicy();
         buildIsBeingSynced();
+        buildAllocationPolicy();
         buildBinlogConfig();
         buildEnableLightSchemaChange();
         buildStoreRowColumn();

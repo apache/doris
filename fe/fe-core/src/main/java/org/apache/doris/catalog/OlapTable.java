@@ -290,6 +290,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 String.valueOf(isBeingSynced));
     }
 
+    public void setAllocationPolicy(DataProperty.AllocationPolicy allocationPolicy) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ALLOCATION_POLICY,
+                allocationPolicy.getValue());
+        tableProperty.setAllocationPolicy(allocationPolicy);
+    }
+
     public String getStorageVaultName() {
         if (Strings.isNullOrEmpty(getStorageVaultId())) {
             return "";
@@ -310,6 +317,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean isBeingSynced() {
         return getOrCreatTableProperty().isBeingSynced();
+    }
+
+    public DataProperty.AllocationPolicy getAllocationPolicy() {
+        return getOrCreatTableProperty().getAllocationPolicy();
     }
 
     public boolean isTemporaryPartition(long partitionId) {
@@ -919,7 +930,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                             Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
                                     Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
                                             replicaAlloc, nextIndexes, null,
-                                            false, false);
+                                            DataProperty.AllocationPolicy.ADAPTIVE, false);
                             tag2beIds = tag2beIdsAndMedium.first;
                         }
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
