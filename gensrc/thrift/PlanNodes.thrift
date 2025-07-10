@@ -463,7 +463,9 @@ struct TFileScanRangeParams {
     // This is used to represent the latest id.
     25: optional i64 current_schema_id;
     // All schema information used in the current query process
-    26: optional list<ExternalTableSchema.TSchema> history_schema_info 
+    26: optional list<ExternalTableSchema.TSchema> history_schema_info
+    // partition values for data lake table format like iceberg/hudi/paimon/lakesoul
+    27: optional map<string, string> data_lake_partition_values;
 }
 
 struct TFileRangeDesc {
