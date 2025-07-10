@@ -22,6 +22,7 @@
 #include <memory>
 #include <random>
 
+#include "cloud/cloud_storage_engine.h"
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_writer.h"
@@ -112,16 +113,20 @@ Result<const StorageResource*> RowsetMeta::remote_storage_resource() {
     }
 
     if (!_storage_resource.fs) {
-        // not initialized yet
-        auto storage_resource = get_storage_resource(resource_id());
-        if (storage_resource) {
+        if (auto storage_resource = get_storage_resource(resource_id())) {
             _storage_resource = std::move(storage_resource->first);
         } else {
+            if (config::is_cloud_mode()) {
+                ExecEnv::GetInstance()->storage_engine().to_cloud().sync_storage_vault();
+                if (auto retry_resource = get_storage_resource(resource_id())) {
+                    _storage_resource = std::move(retry_resource->first);
+                    return &_storage_resource;
+                }
+            }
             return ResultError(Status::InternalError("cannot find storage resource. resource_id={}",
                                                      resource_id()));
         }
     }
-
     return &_storage_resource;
 }
 
