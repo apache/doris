@@ -110,8 +110,8 @@ private:
 // Get a range of versioned value from the transaction.
 //
 // This function performs a range query on versioned documents stored with key format
-// "key_prefix + versionstamp". It returns an iterator that can traverse through
-// all matching documents within the specified key range (in reverse order).
+// "key + versionstamp". It returns an iterator that can traverse through all matching
+// documents within the specified key range (in reverse order).
 //
 // It returns a iterator. The iterator returns documents in reverse order (latest first)
 // and automatically filters out documents newer than the snapshot_version.
@@ -119,36 +119,43 @@ std::unique_ptr<VersionedRangeGetIterator> versioned_get_range(
         Transaction* txn, std::string_view begin, std::string_view end,
         const VersionedRangeGetOptions& opts);
 
-// Remove a versioned document from the transaction by key prefix and versionstamp.
+// Remove a versioned document from the transaction by key and versionstamp.
 //
-// The key_prefix is the encode_xxx_keys function result, which is the prefix of the key
-// without the versionstamp. The versionstamp is the specific version of the document to remove.
-void versioned_remove(Transaction* txn, std::string_view key_prefix, Versionstamp v);
+// The key is the encode_xxx_keys function result. The versionstamp is the specific
+// version of the document to remove.
+void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v);
 
-// Remove a versioned document from the transaction by key.
-//
-// The key must be the full key including the versionstamp.
-void versioned_remove(Transaction* txn, std::string_view key);
+// Remove a versioned document from the transaction by key with versionstamp.
+void versioned_remove(Transaction* txn, std::string_view key_with_versionstamp);
 
 // Put a versioned value into the transaction with a specific versionstamp.
-bool versioned_put(Transaction* txn, std::string_view key_prefix, Versionstamp v,
-                   std::string_view value);
+bool versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value);
 
 // Put a versioned value, the versionstamp will be generated automatically.
-bool versioned_put(Transaction* txn, std::string_view key_prefix, std::string_view);
-
-// Get a versioned value from the transaction by key prefix and versionstamp.
 //
-// The versionstamp of the document will be returned in `v`.
-TxnErrorCode versioned_get(Transaction* txn, std::string_view key_prefix,
-                           Versionstamp snapshot_version, Versionstamp* v, std::string* value,
-                           bool snapshot = false);
+// The generated versionstamp will be the largest versionstamp in the underlying storage.
+bool versioned_put(Transaction* txn, std::string_view key, std::string_view value);
 
-// Get a versioned value from the transaction by key prefix and the latest versionstamp.
-static inline TxnErrorCode versioned_get(Transaction* txn, std::string_view key_prefix,
-                                         Versionstamp* v, std::string* value,
+// Get a versioned value from the transaction by key and versionstamp.
+//
+// Only the document values which versionstamp is less than the given `snapshot_version` will be
+// returned. If `snapshot_version` is Versionstamp::max(), it will return the latest version of
+// the document for the given key.
+//
+// The versionstamp of the document will be returned in `value_version`.
+TxnErrorCode versioned_get(Transaction* txn, std::string_view key, Versionstamp snapshot_version,
+                           Versionstamp* value_version, std::string* value, bool snapshot = false);
+
+// Get a versioned value from the transaction by key and the latest versionstamp.
+//
+// It returns the latest version of the document for the given key, which is equivalent to
+// calling `versioned_get` with `snapshot_version` set to Versionstamp::max().
+//
+// The versionstamp of the document will be returned in `value_version`.
+static inline TxnErrorCode versioned_get(Transaction* txn, std::string_view key,
+                                         Versionstamp* value_version, std::string* value,
                                          bool snapshot = false) {
-    return versioned_get(txn, key_prefix, Versionstamp::max(), v, value, snapshot);
+    return versioned_get(txn, key, Versionstamp::max(), value_version, value, snapshot);
 }
 
 } // namespace doris::cloud

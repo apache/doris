@@ -86,25 +86,23 @@ std::tuple<std::string_view, Versionstamp> VersionedRangeGetIterator::parse_key(
     return {key, version};
 }
 
-bool versioned_put(Transaction* txn, std::string_view key_prefix, std::string_view value) {
-    std::string key(key_prefix);
-    uint32_t offset = encode_versionstamp(Versionstamp::min(), &key);
-    txn->atomic_set_ver_key(key, offset, value);
+bool versioned_put(Transaction* txn, std::string_view key, std::string_view value) {
+    std::string key_with_versionstamp(key);
+    uint32_t offset = encode_versionstamp(Versionstamp::min(), &key_with_versionstamp);
+    txn->atomic_set_ver_key(key_with_versionstamp, offset, value);
     return true;
 }
 
-bool versioned_put(Transaction* txn, std::string_view key_prefix, Versionstamp v,
-                   std::string_view value) {
-    std::string key(key_prefix);
-    encode_versionstamp(v, &key);
-    txn->put(key, value);
+bool versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value) {
+    std::string key_with_versionstamp(key);
+    encode_versionstamp(v, &key_with_versionstamp);
+    txn->put(key_with_versionstamp, value);
     return true;
 }
 
-TxnErrorCode versioned_get(Transaction* txn, std::string_view key_prefix,
-                           Versionstamp snapshot_version, Versionstamp* v, std::string* value,
-                           bool snapshot) {
-    std::string end_key(key_prefix);
+TxnErrorCode versioned_get(Transaction* txn, std::string_view key, Versionstamp snapshot_version,
+                           Versionstamp* value_version, std::string* value, bool snapshot) {
+    std::string end_key(key);
     encode_versionstamp(snapshot_version, &end_key);
 
     // Range [0, v)
@@ -116,10 +114,10 @@ TxnErrorCode versioned_get(Transaction* txn, std::string_view key_prefix,
     options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
 
     std::unique_ptr<FullRangeGetIterator> iter =
-            txn->full_range_get(key_prefix, end_key, std::move(options));
+            txn->full_range_get(key, end_key, std::move(options));
     auto&& item = iter->next();
     if (!item.has_value() && !iter->is_valid()) {
-        LOG(ERROR) << "versioned document get failed, key prefix: " << hex(key_prefix)
+        LOG(ERROR) << "versioned document get failed, key: " << hex(key)
                    << ", version: " << snapshot_version.to_string()
                    << ", error code: " << iter->error_code();
         return iter->error_code();
@@ -137,8 +135,8 @@ TxnErrorCode versioned_get(Transaction* txn, std::string_view key_prefix,
     if (value) {
         *value = item->second;
     }
-    if (v) {
-        *v = key_version;
+    if (value_version) {
+        *value_version = key_version;
     }
     return TxnErrorCode::TXN_OK;
 }
@@ -176,15 +174,15 @@ std::unique_ptr<VersionedRangeGetIterator> versioned_get_range(
     return std::make_unique<VersionedRangeGetIterator>(std::move(iter), opts.snapshot_version);
 }
 
-void versioned_remove(Transaction* txn, std::string_view key) {
-    txn->remove(key);
+void versioned_remove(Transaction* txn, std::string_view key_with_versionstamp) {
+    txn->remove(key_with_versionstamp);
 }
 
-void versioned_remove(Transaction* txn, std::string_view key_prefix, Versionstamp v) {
+void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v) {
     // Remove the key with the given versionstamp
-    std::string key(key_prefix);
-    encode_versionstamp(v, &key);
-    txn->remove(key);
+    std::string key_with_versionstamp(key);
+    encode_versionstamp(v, &key_with_versionstamp);
+    txn->remove(key_with_versionstamp);
 }
 
 } // namespace doris::cloud
