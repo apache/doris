@@ -457,14 +457,17 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
 
 Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
     if (config::is_cloud_mode() && !_sync_tablet) {
-        _cloud_tablet_dependency = Dependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), "CLOUD_TABLET_DEP");
+        if (_scan_ranges.size() > 0) {
+            _cloud_tablet_dependency = Dependency::create_shared(
+                    _parent->operator_id(), _parent->node_id(), "CLOUD_TABLET_DEP");
+        }
         _pending_tablets_num = cast_set<int>(_scan_ranges.size());
 
         _tablets.resize(_scan_ranges.size());
         _tasks.reserve(_scan_ranges.size());
         _sync_statistics.resize(_scan_ranges.size());
         SCOPED_RAW_TIMER(&_duration_ns);
+        DCHECK_GT(_pending_tablets_num, 0);
         for (size_t i = 0; i < _scan_ranges.size(); i++) {
             auto* sync_stats = &_sync_statistics[i];
             int64_t version = 0;
