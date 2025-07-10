@@ -17,11 +17,11 @@
 
 import org.junit.Assert
 
-suite("test_p_seq_publish_read_from_old", "nonConcurrent") {
+suite("test_p_seq_publish_read_from_old") {
 
     GetDebugPoint().clearDebugPointsForAllFEs()
     GetDebugPoint().clearDebugPointsForAllBEs()
-
+    def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_p_seq_publish_read_from_old"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ CREATE TABLE ${tableName} (
@@ -51,73 +51,116 @@ suite("test_p_seq_publish_read_from_old", "nonConcurrent") {
         sql "sync"
     }
 
-    def enable_publish_spin_wait = {
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+    def do_streamload_2pc_commit = { txnId ->
+        def command = "curl -X PUT --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
+                " -H txn_id:${txnId}" +
+                " -H txn_operation:commit" +
+                " http://${context.config.feHttpAddress}/api/${dbName}/${tableName}/_stream_load_2pc"
+        log.info("http_stream execute 2pc: ${command}")
+
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.text
+        def json2pc = parseJson(out)
+        log.info("http_stream 2pc result: ${out}".toString())
+        assertEquals(code, 0)
+        assertEquals("success", json2pc.status.toLowerCase())
+    }
+
+    def wait_for_publish = {txnId, waitSecond ->
+        String st = "PREPARE"
+        while (!st.equalsIgnoreCase("VISIBLE") && !st.equalsIgnoreCase("ABORTED") && waitSecond > 0) {
+            Thread.sleep(1000)
+            waitSecond -= 1
+            def result = sql_return_maparray "show transaction from ${dbName} where id = ${txnId}"
+            assertNotNull(result)
+            st = result[0].TransactionStatus
+        }
+        log.info("Stream load with txn ${txnId} is ${st}")
+        assertEquals(st, "VISIBLE")
+    }
+    def txnId1, txnId2, txnId3
+
+    String load1 = """1,100,1
+2,200,1
+3,50,1
+"""
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'k,v1,__DORIS_DELETE_SIGN__'
+        set 'strict_mode', "false"
+        set 'two_phase_commit', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FIXED_COLUMNS'
+        inputStream new ByteArrayInputStream(load1.getBytes())
+        time 40000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+
+            def json = parseJson(result)
+            txnId1 = json.TxnId
+            assertEquals("success", json.Status.toLowerCase())
         }
     }
 
-    def disable_publish_spin_wait = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+    String load2 = """4,1"""
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'k,__DORIS_DELETE_SIGN__'
+        set 'two_phase_commit', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FIXED_COLUMNS'
+        inputStream new ByteArrayInputStream(load2.getBytes())
+        time 40000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+
+            def json = parseJson(result)
+            txnId2 = json.TxnId
+            assertEquals("success", json.Status.toLowerCase())
         }
     }
 
-    def enable_block_in_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+
+    String load3 = """1,987,77777
+2,987,77777
+3,987,77777
+4,987,77777
+"""
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'k,v2,v3'
+        set 'two_phase_commit', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FIXED_COLUMNS'
+        inputStream new ByteArrayInputStream(load3.getBytes())
+        time 40000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+
+            def json = parseJson(result)
+            txnId3 = json.TxnId
+            assertEquals("success", json.Status.toLowerCase())
         }
     }
 
-    def disable_block_in_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
-        }
-    }
+    do_streamload_2pc_commit(txnId1)
+    wait_for_publish(txnId1, 60)
+    do_streamload_2pc_commit(txnId2)
+    wait_for_publish(txnId2, 60)
+    do_streamload_2pc_commit(txnId3)
+    wait_for_publish(txnId2, 60)
 
-    try {
-        enable_publish_spin_wait()
-        enable_block_in_publish()
-
-        def t1 = Thread.start {
-            sql "set enable_unique_key_partial_update=true;"
-            sql "insert into ${tableName}(k,v1,__DORIS_DELETE_SIGN__) values(1,100,1),(2,200,1),(3,50,1);"
-        }
-
-        Thread.sleep(1000)
-        def t2 = Thread.start {
-            sql "set enable_unique_key_partial_update=true;"
-            sql "insert into ${tableName}(k,__DORIS_DELETE_SIGN__) values(4,1);" 
-        }
-
-        Thread.sleep(1000)
-        def t3 = Thread.start {
-            sql "set enable_unique_key_partial_update=true;"
-            sql "insert into ${tableName}(k,v2,v3) values(1,987,77777),(2,987,77777),(3,987,77777),(4,987,77777);" 
-        }
-
-        disable_block_in_publish()
-        t1.join()
-        t2.join()
-        t3.join()
-        Thread.sleep(1500)
-        sql "sync;"
-        qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
-        inspectRows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;"
-
-    } catch(Exception e) {
-        logger.info(e.getMessage())
-        throw e
-    } finally {
-        GetDebugPoint().clearDebugPointsForAllFEs()
-        GetDebugPoint().clearDebugPointsForAllBEs()
-    }
+    sql "sync;"
+    qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k;"
+    inspectRows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;"
 }
