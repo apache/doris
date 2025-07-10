@@ -19,6 +19,8 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -26,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -48,10 +51,20 @@ public class StructInfoNode extends AbstractNode {
     private final List<Set<Expression>> expressions;
     private final Set<CatalogRelation> relationSet;
 
+    /**
+     * The constructor of StructInfoNode.
+     */
     public StructInfoNode(int index, Plan plan, List<Edge> edges) {
         super(extractPlan(plan), index, edges);
         relationSet = plan.collect(CatalogRelation.class::isInstance);
-        expressions = collectExpressions(plan);
+        // check the node pattern is valid
+        PlanCheckContext checkContext = PlanCheckContext.of(ImmutableSet.of());
+        Boolean checkResult = plan.accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext);
+        if (checkResult && checkContext.getTopAggregateNum() <= 1 && checkContext.isGenerateNeighbourCatalog()) {
+            expressions = collectExpressions(plan);
+        } else {
+            expressions = null;
+        }
     }
 
     public StructInfoNode(int index, Plan plan) {
@@ -94,6 +107,13 @@ public class StructInfoNode extends AbstractNode {
             }
 
             @Override
+            public Void visitLogicalGenerate(LogicalGenerate<? extends Plan> generate,
+                    Pair<Boolean, Builder<Set<Expression>>> collector) {
+                collector.value().add(ImmutableSet.copyOf(generate.getGenerators()));
+                return super.visit(generate, collector);
+            }
+
+            @Override
             public Void visit(Plan plan, Pair<Boolean, ImmutableList.Builder<Set<Expression>>> context) {
                 if (!isValidNodePlan(plan)) {
                     context.first = false;
@@ -107,7 +127,8 @@ public class StructInfoNode extends AbstractNode {
 
     private boolean isValidNodePlan(Plan plan) {
         return plan instanceof LogicalProject || plan instanceof LogicalAggregate
-                || plan instanceof LogicalFilter || plan instanceof LogicalCatalogRelation;
+                || plan instanceof LogicalFilter || plan instanceof LogicalCatalogRelation
+                || plan instanceof LogicalGenerate;
     }
 
     /**
