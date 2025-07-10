@@ -107,7 +107,7 @@ suite("test_multi_stale_rowset") {
         }
     }
     def getCurCacheSize = {
-        backendIdToCacheSize = [:]
+        def backendIdToCacheSize = [:]
         for (int i = 0; i < ipList.size(); i++) {
             StringBuilder sb = new StringBuilder();
             sb.append("curl http://")
