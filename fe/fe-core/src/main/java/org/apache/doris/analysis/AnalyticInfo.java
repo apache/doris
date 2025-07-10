@@ -156,23 +156,6 @@ public final class AnalyticInfo extends AggregateInfoBase {
         return result;
     }
 
-    @Override
-    public void materializeRequiredSlots(Analyzer analyzer, ExprSubstitutionMap smap) {
-        materializedSlots.clear();
-        List<Expr> exprs = Lists.newArrayList();
-        for (int i = 0; i < analyticExprs.size(); ++i) {
-            SlotDescriptor outputSlotDesc = outputTupleDesc.getSlots().get(i);
-            if (!outputSlotDesc.isMaterialized()) {
-                continue;
-            }
-            intermediateTupleDesc.getSlots().get(i).setIsMaterialized(true);
-            exprs.add(analyticExprs.get(i));
-            materializedSlots.add(i);
-        }
-        List<Expr> resolvedExprs = Expr.substituteList(exprs, smap, analyzer, false);
-        analyzer.materializeSlots(resolvedExprs);
-    }
-
     /**
      * Validates internal state: Checks that the number of materialized slots of the
      * analytic tuple corresponds to the number of materialized analytic functions. Also
