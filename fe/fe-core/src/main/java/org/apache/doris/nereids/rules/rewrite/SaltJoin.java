@@ -264,13 +264,13 @@ public class SaltJoin extends OneRewriteRuleFactory {
 
     private static LogicalProject<Plan> expandSkewValueRows(Expression skewExpr, List<Expression> saltedSkewValues,
             Plan originPlan, int factor, DataType type, StatementContext ctx) {
-        String random_column_name = RANDOM_COLUMN_NAME_RIGHT + ctx.generateColumnName();
+        String randomColumnName = RANDOM_COLUMN_NAME_RIGHT + ctx.generateColumnName();
         if (saltedSkewValues.isEmpty()) {
             ImmutableList.Builder<NamedExpression> namedExpressionsBuilder = ImmutableList.builderWithExpectedSize(
                     originPlan.getOutput().size() + 1);
             namedExpressionsBuilder.addAll(originPlan.getOutput());
             namedExpressionsBuilder.add(new Alias(Literal.convertToTypedLiteral(DEFAULT_SALT_VALUE, type),
-                    random_column_name));
+                    randomColumnName));
             return new LogicalProject<>(namedExpressionsBuilder.build(), originPlan);
         }
         // construct LogicalUnion and LogicalGenerate
@@ -320,7 +320,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
         Slot castGeneratedSlot = projects.get(1).toSlot();
         If ifExpr = new If(new IsNull(castGeneratedSlot), Literal.convertToTypedLiteral(DEFAULT_SALT_VALUE, type),
                 castGeneratedSlot);
-        namedExpressionsBuilder.add(new Alias(ifExpr, random_column_name));
+        namedExpressionsBuilder.add(new Alias(ifExpr, randomColumnName));
         return new LogicalProject<>(namedExpressionsBuilder.build(), rightJoin);
     }
 
