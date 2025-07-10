@@ -328,7 +328,7 @@ public class StreamLoadPlanner {
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
                 taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), txnTimeout);
         olapTableSink.setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
-        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
             olapTableSink.setPartialUpdateNewRowPolicy(taskInfo.getPartialUpdateNewRowPolicy());
         }
         olapTableSink.complete(analyzer);
