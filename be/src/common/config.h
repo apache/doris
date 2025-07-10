@@ -1610,6 +1610,9 @@ DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
 
 DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 
+// p0, daily, rqg, external
+DECLARE_String(fuzzy_test_type);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
