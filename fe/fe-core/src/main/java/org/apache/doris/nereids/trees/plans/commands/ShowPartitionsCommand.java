@@ -93,7 +93,7 @@ public class ShowPartitionsCommand extends ShowCommand {
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
             .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
-            .add("RowCount")
+            .add("RowCount").add("MediumAllocationMode")
             .build();
     public static final String FILTER_PARTITION_NAME = "PartitionName";
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsCommand.class);

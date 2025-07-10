@@ -21,9 +21,11 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
@@ -333,5 +335,384 @@ public class PropertyAnalyzerTest {
                     "errCode = 2, detailMessage = unknown inverted index storage format: unknown_format",
                     e.getMessage());
         }
+    }
+
+    @Test
+    public void testAnalyzeDataProperty() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "strict");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        Assert.assertEquals(MediumAllocationMode.STRICT, dataProperty.getMediumAllocationMode());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "adaptive");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "strict");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        Assert.assertEquals(MediumAllocationMode.STRICT, dataProperty.getMediumAllocationMode());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "adaptive");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testAnalyzeDataPropertyWithInvalidMediumAllocationMode() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "invalid");
+        try {
+            PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+            Assert.fail("Should throw AnalysisException for invalid medium_allocation_mode value");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Invalid medium_allocation_mode value"));
+        }
+    }
+
+    @Test
+    public void testMediumAllocationModeFromStringValidInputs() throws AnalysisException {
+        // Test valid inputs: "strict", "adaptive", case variations
+        Assert.assertEquals(MediumAllocationMode.STRICT, MediumAllocationMode.fromString("strict"));
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, MediumAllocationMode.fromString("adaptive"));
+
+        // Test case insensitive
+        Assert.assertEquals(MediumAllocationMode.STRICT, MediumAllocationMode.fromString("STRICT"));
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, MediumAllocationMode.fromString("ADAPTIVE"));
+        Assert.assertEquals(MediumAllocationMode.STRICT, MediumAllocationMode.fromString("Strict"));
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, MediumAllocationMode.fromString("Adaptive"));
+
+        // Test with whitespace (should be trimmed)
+        Assert.assertEquals(MediumAllocationMode.STRICT, MediumAllocationMode.fromString(" strict "));
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, MediumAllocationMode.fromString(" adaptive "));
+        Assert.assertEquals(MediumAllocationMode.STRICT, MediumAllocationMode.fromString("\tstrict\n"));
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, MediumAllocationMode.fromString("\tadaptive\n"));
+    }
+
+    @Test
+    public void testMediumAllocationModeFromStringInvalidInputs() {
+        // Test null input
+        try {
+            MediumAllocationMode.fromString(null);
+            Assert.fail("Expected AnalysisException for null input");
+        } catch (AnalysisException e) {
+            Assert.assertEquals("errCode = 2, detailMessage = medium_allocation_mode cannot be null or empty", e.getMessage());
+        }
+
+        // Test empty string
+        try {
+            MediumAllocationMode.fromString("");
+            Assert.fail("Expected AnalysisException for empty string");
+        } catch (AnalysisException e) {
+            Assert.assertEquals("errCode = 2, detailMessage = medium_allocation_mode cannot be null or empty", e.getMessage());
+        }
+
+        // Test whitespace only
+        try {
+            MediumAllocationMode.fromString("   ");
+            Assert.fail("Expected AnalysisException for whitespace only");
+        } catch (AnalysisException e) {
+            Assert.assertEquals("errCode = 2, detailMessage = medium_allocation_mode cannot be null or empty", e.getMessage());
+        }
+
+        // Test invalid string
+        try {
+            MediumAllocationMode.fromString("invalid");
+            Assert.fail("Expected AnalysisException for invalid string");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Invalid medium_allocation_mode value: 'invalid'"));
+            Assert.assertTrue(e.getMessage().contains("Valid options are: 'strict', 'adaptive'"));
+        }
+
+        // Test another invalid string
+        try {
+            MediumAllocationMode.fromString("random");
+            Assert.fail("Expected AnalysisException for invalid string");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Invalid medium_allocation_mode value: 'random'"));
+            Assert.assertTrue(e.getMessage().contains("Valid options are: 'strict', 'adaptive'"));
+        }
+
+        // Test partial match (should not work)
+        try {
+            MediumAllocationMode.fromString("str");
+            Assert.fail("Expected AnalysisException for partial match");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Invalid medium_allocation_mode value: 'str'"));
+            Assert.assertTrue(e.getMessage().contains("Valid options are: 'strict', 'adaptive'"));
+        }
+    }
+
+    @Test
+    public void testMediumAllocationModeErrorMessageFormat() {
+        // Test that error messages are properly formatted and informative
+        try {
+            MediumAllocationMode.fromString("wrong_value");
+            Assert.fail("Expected AnalysisException");
+        } catch (AnalysisException e) {
+            String message = e.getMessage();
+            // Verify error message contains the invalid value
+            Assert.assertTrue("Error message should contain the invalid value",
+                            message.contains("'wrong_value'"));
+            // Verify error message lists valid options
+            Assert.assertTrue("Error message should list 'strict' as valid option",
+                            message.contains("'strict'"));
+            Assert.assertTrue("Error message should list 'adaptive' as valid option",
+                            message.contains("'adaptive'"));
+            // Verify error message format (considering the errCode prefix)
+            Assert.assertTrue("Error message should contain 'Invalid medium_allocation_mode value'",
+                            message.contains("Invalid medium_allocation_mode value"));
+            Assert.assertTrue("Error message should contain 'Valid options are'",
+                            message.contains("Valid options are"));
+        }
+    }
+
+    @Test
+    public void testMediumAllocationModeHelperMethods() {
+        // Test isStrict() method
+        Assert.assertTrue("STRICT policy should return true for isStrict()",
+                         MediumAllocationMode.STRICT.isStrict());
+        Assert.assertFalse("ADAPTIVE policy should return false for isStrict()",
+                          MediumAllocationMode.ADAPTIVE.isStrict());
+
+        // Test isAdaptive() method
+        Assert.assertFalse("STRICT policy should return false for isAdaptive()",
+                          MediumAllocationMode.STRICT.isAdaptive());
+        Assert.assertTrue("ADAPTIVE policy should return true for isAdaptive()",
+                         MediumAllocationMode.ADAPTIVE.isAdaptive());
+
+        // Test getValue() method
+        Assert.assertEquals("STRICT policy should return 'strict'",
+                           "strict", MediumAllocationMode.STRICT.getValue());
+        Assert.assertEquals("ADAPTIVE policy should return 'adaptive'",
+                           "adaptive", MediumAllocationMode.ADAPTIVE.getValue());
+    }
+
+    @Test
+    public void testValidateMediumAllocationModeSuccess() throws AnalysisException {
+        // Test STRICT + SSD storage medium → success
+        PropertyAnalyzer.validateMediumAllocationMode(MediumAllocationMode.STRICT, TStorageMedium.SSD);
+
+        // Test STRICT + HDD storage medium → success
+        PropertyAnalyzer.validateMediumAllocationMode(MediumAllocationMode.STRICT, TStorageMedium.HDD);
+
+        // Test ADAPTIVE + SSD storage medium → success
+        PropertyAnalyzer.validateMediumAllocationMode(MediumAllocationMode.ADAPTIVE, TStorageMedium.SSD);
+
+        // Test ADAPTIVE + HDD storage medium → success
+        PropertyAnalyzer.validateMediumAllocationMode(MediumAllocationMode.ADAPTIVE, TStorageMedium.HDD);
+
+        // Test ADAPTIVE + null storage medium → success (adaptive should work with any or no medium)
+        PropertyAnalyzer.validateMediumAllocationMode(MediumAllocationMode.ADAPTIVE, null);
+    }
+
+    @Test
+    public void testValidateMediumAllocationModeFailure() {
+        // Test STRICT + null storage medium → failure
+        try {
+            PropertyAnalyzer.validateMediumAllocationMode(MediumAllocationMode.STRICT, null);
+            Assert.fail("Expected AnalysisException for STRICT policy without storage_medium");
+        } catch (AnalysisException e) {
+            String message = e.getMessage();
+            Assert.assertTrue("Error message should contain 'medium_allocation_mode 'strict' requires storage_medium'",
+                            message.contains("medium_allocation_mode 'strict' requires storage_medium to be specified"));
+            Assert.assertTrue("Error message should suggest setting storage_medium to 'SSD' or 'HDD'",
+                            message.contains("Please set storage_medium to 'SSD' or 'HDD'"));
+            Assert.assertTrue("Error message should suggest using 'adaptive' policy",
+                            message.contains("or use medium_allocation_mode 'adaptive'"));
+        }
+    }
+
+    @Test
+    public void testValidateMediumAllocationModeErrorMessage() {
+        // Test that error message is properly formatted and helpful
+        try {
+            PropertyAnalyzer.validateMediumAllocationMode(MediumAllocationMode.STRICT, null);
+            Assert.fail("Expected AnalysisException");
+        } catch (AnalysisException e) {
+            String expectedMessage = "medium_allocation_mode 'strict' requires storage_medium to be specified. "
+                                   + "Please set storage_medium to 'SSD' or 'HDD', or use medium_allocation_mode 'adaptive'";
+            Assert.assertTrue("Error message should match expected format",
+                            e.getMessage().contains(expectedMessage));
+        }
+    }
+
+    @Test
+    public void testAnalyzeDataPropertyWithValidationIntegration() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+
+        // Test STRICT + SSD → success
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "strict");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(MediumAllocationMode.STRICT, dataProperty.getMediumAllocationMode());
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+
+        // Test STRICT + HDD → success
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "strict");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "HDD");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals(MediumAllocationMode.STRICT, dataProperty.getMediumAllocationMode());
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+
+        // Test ADAPTIVE + null storage medium → success
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "adaptive");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium()); // Should keep old value
+    }
+
+    @Test
+    public void testTablePropertyBuildMediumAllocationModeUpgradeScenarios() {
+        // Test upgrade scenario with storage_medium
+        Map<String, String> propertiesWithStorageMedium = Maps.newHashMap();
+        propertiesWithStorageMedium.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+
+        TableProperty tableProperty1 = new TableProperty(propertiesWithStorageMedium);
+        tableProperty1.buildStorageMedium(); // Build storage medium first
+        tableProperty1.buildMediumAllocationMode();
+
+        Assert.assertEquals("Should auto-assign STRICT for table with storage_medium",
+                           MediumAllocationMode.STRICT, tableProperty1.getMediumAllocationMode());
+
+        // Test upgrade scenario without storage_medium
+        Map<String, String> propertiesWithoutStorageMedium = Maps.newHashMap();
+
+        TableProperty tableProperty2 = new TableProperty(propertiesWithoutStorageMedium);
+        tableProperty2.buildStorageMedium(); // Build storage medium first (will be null)
+        tableProperty2.buildMediumAllocationMode();
+
+        Assert.assertEquals("Should auto-assign ADAPTIVE for table without storage_medium",
+                           MediumAllocationMode.ADAPTIVE, tableProperty2.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testTablePropertyBuildMediumAllocationModeWithExplicitValues() {
+        // Test with explicit medium_allocation_mode = strict and storage_medium = HDD
+        Map<String, String> properties1 = Maps.newHashMap();
+        properties1.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "strict");
+        properties1.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "HDD");
+
+        TableProperty tableProperty1 = new TableProperty(properties1);
+        tableProperty1.buildStorageMedium();
+        tableProperty1.buildMediumAllocationMode();
+
+        Assert.assertEquals("Should use explicit STRICT policy",
+                           MediumAllocationMode.STRICT, tableProperty1.getMediumAllocationMode());
+
+        // Test with explicit medium_allocation_mode = adaptive
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "adaptive");
+
+        TableProperty tableProperty2 = new TableProperty(properties2);
+        tableProperty2.buildStorageMedium();
+        tableProperty2.buildMediumAllocationMode();
+
+        Assert.assertEquals("Should use explicit ADAPTIVE policy",
+                           MediumAllocationMode.ADAPTIVE, tableProperty2.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testTablePropertyBuildMediumAllocationModeInvalidValues() {
+        // Test invalid medium_allocation_mode value
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "invalid_policy");
+
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.buildStorageMedium();
+
+        try {
+            tableProperty.buildMediumAllocationMode();
+            Assert.fail("Expected RuntimeException for invalid medium_allocation_mode value");
+        } catch (RuntimeException e) {
+            Assert.assertTrue("Error message should indicate invalid medium_allocation_mode configuration",
+                            e.getMessage().contains("Invalid medium_allocation_mode configuration"));
+            Assert.assertTrue("Cause should be AnalysisException",
+                            e.getCause() instanceof AnalysisException);
+            Assert.assertTrue("Cause message should contain invalid value",
+                            e.getCause().getMessage().contains("invalid_policy"));
+        }
+    }
+
+    @Test
+    public void testTablePropertyBuildMediumAllocationModeValidationFailure() {
+        // Test STRICT policy without storage_medium (should fail validation)
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "strict");
+        // Don't set storage_medium
+
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.buildStorageMedium(); // This will set storageMedium to null
+
+        try {
+            tableProperty.buildMediumAllocationMode();
+            Assert.fail("Expected RuntimeException for STRICT policy without storage_medium");
+        } catch (RuntimeException e) {
+            Assert.assertTrue("Error message should indicate invalid medium_allocation_mode configuration",
+                            e.getMessage().contains("Invalid medium_allocation_mode configuration"));
+            Assert.assertTrue("Cause should be AnalysisException",
+                            e.getCause() instanceof AnalysisException);
+            Assert.assertTrue("Cause message should indicate STRICT requires storage_medium",
+                            e.getCause().getMessage().contains("medium_allocation_mode 'strict' requires storage_medium"));
+        }
+    }
+
+    @Test
+    public void testTablePropertyBuildMediumAllocationModeConsistencyValidation() {
+        // Test that validation is properly integrated
+        Map<String, String> properties1 = Maps.newHashMap();
+        properties1.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "strict");
+        properties1.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+
+        TableProperty tableProperty1 = new TableProperty(properties1);
+        tableProperty1.buildStorageMedium();
+        tableProperty1.buildMediumAllocationMode(); // Should succeed
+
+        Assert.assertEquals(MediumAllocationMode.STRICT, tableProperty1.getMediumAllocationMode());
+        Assert.assertEquals(TStorageMedium.SSD, tableProperty1.getStorageMedium());
+
+        // Test ADAPTIVE with any storage medium should work
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "adaptive");
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "HDD");
+
+        TableProperty tableProperty2 = new TableProperty(properties2);
+        tableProperty2.buildStorageMedium();
+        tableProperty2.buildMediumAllocationMode(); // Should succeed
+
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, tableProperty2.getMediumAllocationMode());
+        Assert.assertEquals(TStorageMedium.HDD, tableProperty2.getStorageMedium());
+
+        // Test ADAPTIVE with null storage medium should work
+        Map<String, String> properties3 = Maps.newHashMap();
+        properties3.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "adaptive");
+
+        TableProperty tableProperty3 = new TableProperty(properties3);
+        tableProperty3.buildStorageMedium();
+        tableProperty3.buildMediumAllocationMode(); // Should succeed
+
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, tableProperty3.getMediumAllocationMode());
+        Assert.assertNull(tableProperty3.getStorageMedium());
     }
 }

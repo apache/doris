@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -48,6 +49,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
     private String storagePolicy;
 
     private boolean isBeingSynced = false;
+    private MediumAllocationMode mediumAllocationMode = MediumAllocationMode.ADAPTIVE;
 
     public ModifyTablePropertiesOp(Map<String, String> properties) {
         super(AlterOpType.MODIFY_TABLE_PROPERTY);
@@ -68,6 +70,14 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
 
     public boolean isBeingSynced() {
         return isBeingSynced;
+    }
+
+    public void setMediumAllocationMode(MediumAllocationMode mediumAllocationMode) {
+        this.mediumAllocationMode = mediumAllocationMode;
+    }
+
+    public MediumAllocationMode getMediumAllocationMode() {
+        return mediumAllocationMode;
     }
 
     @Override
@@ -152,6 +162,17 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             this.needTableStable = false;
             setIsBeingSynced(Boolean.parseBoolean(properties.getOrDefault(
                     PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false")));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE)) {
+            String mediumAllocationModeValue = properties.get(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE);
+            try {
+                MediumAllocationMode mediumAllocationMode = MediumAllocationMode.fromString(
+                        mediumAllocationModeValue);
+                this.needTableStable = false;
+                this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+                setMediumAllocationMode(mediumAllocationMode);
+            } catch (IllegalArgumentException e) {
+                throw new AnalysisException(e.getMessage());
+            }
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)

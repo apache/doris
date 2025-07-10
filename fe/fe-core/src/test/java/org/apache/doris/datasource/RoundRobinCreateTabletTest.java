@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -112,7 +113,7 @@ public class RoundRobinCreateTabletTest {
         try {
             Env.getCurrentEnv().getInternalCatalog().createTablets(index, ReplicaState.NORMAL,
                     distributionInfo, 0, replicaAlloc, tabletMeta,
-                    tabletIdSet, idGeneratorBuffer, false);
+                    tabletIdSet, idGeneratorBuffer, MediumAllocationMode.ADAPTIVE);
         } catch (Exception e) {
             System.out.println("failed to create tablets " + e.getMessage());
         }
