@@ -200,7 +200,6 @@ Status LikeSearchState::clone(LikeSearchState& cloned) {
         cloned.hs_database.reset();
         cloned.hs_scratch.reset();
 
-        std::unique_ptr<re2::RE2> re;
         std::string error_str;
         bool st = StringFunctions::compile_regex(StringRef(re_pattern), &error_str, StringRef(),
                                                  StringRef(), cloned.regex);
