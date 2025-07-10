@@ -20,13 +20,17 @@
 #include <butil/containers/linked_list.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
+#include <google/protobuf/service.h>
 
+#include <atomic>
+#include <cstdint>
 #include <string_view>
 #include <type_traits>
 
 namespace doris::cloud {
 
 bool init_glog(const char* basename);
+uint64_t get_log_id(google::protobuf::RpcController* controller);
 
 /// Wrap a glog stream and tag on the log. usage:
 ///   LOG_INFO("here is an info for a {} query", query_type).tag("query_id", queryId);

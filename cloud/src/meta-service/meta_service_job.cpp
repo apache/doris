@@ -417,6 +417,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
         msg = ss.str();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(start_tablet_job)
     if (!request->has_job() ||
         (request->job().compaction().empty() && !request->job().has_schema_change())) {
@@ -1476,9 +1477,10 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
         SS << "cannot find instance_id with cloud_unique_id="
            << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
         msg = ss.str();
-        LOG(INFO) << msg;
+        LOG_INFO("{}", msg);
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(finish_tablet_job)
     if (!request->has_job() ||
         (request->job().compaction().empty() && !request->job().has_schema_change())) {
@@ -1540,8 +1542,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
 
         std::string use_version =
                 delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
-        LOG(INFO) << "finish_tablet_job instance_id=" << instance_id
-                  << " use_version=" << use_version;
+        LOG_INFO("finish_tablet_job instance_id={} use_version={}", instance_id, use_version);
         if (!request->job().compaction().empty()) {
             // Process compaction commit
             process_compaction_job(code, msg, ss, txn, request, response, recorded_job, instance_id,

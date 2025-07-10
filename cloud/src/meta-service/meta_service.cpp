@@ -93,7 +93,7 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
-    { TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err); }
+    TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err);
     std::string instance_id;
     if (!err.empty()) {
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
@@ -244,6 +244,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(get_version)
     std::string ver_key;
     if (is_table_version) {
@@ -290,7 +291,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
-        { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
+        TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "not found";
@@ -337,6 +338,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         return;
     }
 
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     size_t num_acquired =
             is_table_version ? request->table_ids_size() : request->partition_ids_size();
     response->mutable_versions()->Reserve(num_acquired);
@@ -594,6 +596,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(create_tablets)
     for (; request->has_storage_vault_name();) {
         InstanceInfoPB instance;
@@ -744,6 +747,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(update_tablet)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -850,6 +854,7 @@ void MetaServiceImpl::update_tablet_schema(::google::protobuf::RpcController* co
         return;
     }
 
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(update_tablet_schema)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -921,6 +926,7 @@ void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(get_tablet)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -1141,9 +1147,10 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG_INFO("{}, cloud_unique_id={}", msg, request->cloud_unique_id());
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     doris::RowsetMetaCloudPB rowset_meta(request->rowset_meta());
     if (!rowset_meta.has_tablet_schema() && !rowset_meta.has_schema_version()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1289,6 +1296,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     doris::RowsetMetaCloudPB rowset_meta(request->rowset_meta());
     if (!rowset_meta.has_tablet_schema() && !rowset_meta.has_schema_version()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1449,6 +1457,7 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     doris::RowsetMetaCloudPB rowset_meta(request->rowset_meta());
     if (!rowset_meta.has_tablet_schema() && !rowset_meta.has_schema_version()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1700,6 +1709,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(get_rowset)
     int64_t tablet_id = request->idx().has_tablet_id() ? request->idx().tablet_id() : -1;
     if (tablet_id <= 0) {
@@ -1892,6 +1902,7 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(get_tablet_stats)
 
     for (auto& i : request->tablet_idx()) {
@@ -2198,6 +2209,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     if (request->without_lock() && request->has_pre_rowset_agg_end_version() &&
         request->pre_rowset_agg_end_version() > 0) {
         if (request->rowset_ids_size() != request->pre_rowset_versions_size()) {
@@ -2547,6 +2559,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(get_delete_bitmap)
 
     auto tablet_id = request->tablet_id();
@@ -3482,6 +3495,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         msg = "empty instance_id";
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
     std::string use_version =
             delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
@@ -3520,6 +3534,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         msg = "empty instance_id";
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(remove_delete_bitmap_update_lock)
     std::string use_version =
             delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
@@ -3553,6 +3568,7 @@ void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* cont
         LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     RPC_RATE_LIMIT(remove_delete_bitmap)
     auto tablet_id = request->tablet_id();
     auto& rowset_ids = request->rowset_ids();
@@ -3696,6 +3712,7 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
         LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    AnnotateTag tag_instance_id("instance_id", instance_id);
 
     if (!request->has_index_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
