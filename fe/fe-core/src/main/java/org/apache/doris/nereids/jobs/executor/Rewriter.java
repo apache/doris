@@ -507,7 +507,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // this rule is to collect filter on basic table for hbo usage
                     topDown(new CollectPredicateOnScan())
                 ),
-                topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topic("Push project and filter on cte consumer to cte producer",
                         topDown(
                                 new CollectFilterAboveConsumer(),
@@ -529,6 +528,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new MergeProjectable()
                 )),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
+                topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topic("topn optimize",
                         topDown(new DeferMaterializeTopNResult())
                 ),
