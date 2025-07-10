@@ -1342,6 +1342,11 @@ message RecycleInstanceRequest {
     repeated string instance_ids = 1;
 }
 
+message StatisticsRecycleRequest {
+    repeated string instance_ids = 1;
+    repeated string resource_type = 2;
+}
+
 message RecycleInstanceResponse {
     optional MetaServiceResponseStatus status = 1;
 }
