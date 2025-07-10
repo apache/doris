@@ -154,6 +154,9 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         SCOPED_TIMER(channel->get_handle_mem_limit_timer());
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
                 channel->workload_group(), [channel]() { return channel->is_cancelled(); });
+        if (channel->is_cancelled()) {
+            return Status::Cancelled("LoadChannel has been cancelled: {}.", load_id.to_string());
+        }
     }
 
     // 3. add batch to load channel
