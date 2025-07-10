@@ -392,7 +392,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             LOG.info("skip auto-triggered dataLoad of dictionary " + dictionary.getName());
             return;
         }
-        if (adaptiveLoad && dictionary.dataCompleted()) {
+        if (adaptiveLoad && dictionary.dataCompleted() && !dictionary.hasNewerSourceVersion()) {
             // if adaptive load, double check the data completancy.
             if (!dictionary.trySetStatusIf(DictionaryStatus.OUT_OF_DATE, DictionaryStatus.NORMAL)) {
                 throw new AnalysisException("Dictionary " + dictionary.getName() + "'s status changed to "
