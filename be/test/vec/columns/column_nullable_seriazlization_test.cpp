@@ -38,7 +38,6 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_vector) {
     ColumnNullable::Ptr column_nullable = create_column_nullable<TYPE_BIGINT>(input_rows_count);
     Arena arena(4096);
 
-    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
     auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
     std::vector<StringRef> data_strs(input_rows_count);
     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -64,7 +63,6 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_vector_all_null) {
             create_column_nullable<TYPE_BIGINT>(input_rows_count, true);
     Arena arena(4096);
 
-    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
     auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
     std::vector<StringRef> data_strs(input_rows_count);
     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -90,7 +88,6 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_vector_all_not_null
             create_column_nullable<TYPE_BIGINT>(input_rows_count, false, true);
     Arena arena(4096);
 
-    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
     auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
     std::vector<StringRef> data_strs(input_rows_count);
     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -115,7 +112,6 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_string) {
     ColumnNullable::Ptr column_nullable = create_column_nullable<TYPE_STRING>(input_rows_count);
     Arena arena(4096);
 
-    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
     auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
     std::vector<StringRef> data_strs(input_rows_count);
     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -141,7 +137,6 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_string_all_null) {
             create_column_nullable<TYPE_STRING>(input_rows_count, true);
     Arena arena(4096);
 
-    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
     auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
     std::vector<StringRef> data_strs(input_rows_count);
     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -167,7 +162,6 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_string_all_not_null
             create_column_nullable<TYPE_STRING>(input_rows_count, false, true);
     Arena arena(4096);
 
-    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
     auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
     std::vector<StringRef> data_strs(input_rows_count);
     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -192,7 +186,6 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_decimal) {
     ColumnNullable::Ptr column_nullable = create_column_nullable<TYPE_DECIMAL64>(input_rows_count);
     Arena arena(4096);
 
-    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
     auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
     std::vector<StringRef> data_strs(input_rows_count);
     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -218,7 +211,6 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_decimal_all_null) {
             create_column_nullable<TYPE_DECIMAL64>(input_rows_count, true);
     Arena arena(4096);
 
-    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
     auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
     std::vector<StringRef> data_strs(input_rows_count);
     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -244,7 +236,6 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_decimal_all_not_nul
             create_column_nullable<TYPE_DECIMAL64>(input_rows_count, false, true);
     Arena arena(4096);
 
-    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
     auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
     std::vector<StringRef> data_strs(input_rows_count);
     for (size_t i = 0; i < input_rows_count; ++i) {
