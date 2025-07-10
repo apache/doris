@@ -185,11 +185,12 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
             builder.add(markJoinSlotReference.get());
         }
         if (needAddSubOutputToProjects) {
-            if (isScalar()) {
-                builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(), correlationSlot));
-            } else {
-                builder.add(right().getOutput().get(0));
-            }
+            // if (isScalar()) {
+            //     builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(), correlationSlot));
+            // } else {
+            //     builder.add(right().getOutput().get(0));
+            // }
+            builder.add(right().getOutput().get(0).withNullable(true));
         }
         return builder.build();
     }
