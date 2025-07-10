@@ -26,20 +26,8 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
      * If the two SQL queries are executed across the hour mark, it will cause the test case to fail.
      * eg. routines_res_1 executed at 00:59:50, and routines_res_2 executed at 01:00:05, assert will fail.
      * The execution time of this test case is within 2 minutes, and the interval between the two queries is about 20 seconds. 
-     * Therefore, ​​if the test machine's time is at the 59th minute of any hour, we should sleep until the next hour begins before executing the queries.​​
      */
-    def sleepIfAt59thMinute = { ->
-        Calendar calendar = Calendar.getInstance()
-        int minute = calendar.get(Calendar.MINUTE)
-        int second = calendar.get(Calendar.SECOND)
-    
-        if (minute == 59) {
-            int sleepSeconds = 60 - second
-            logger.info("sleep till next hour")
-            Thread.sleep(sleepSeconds * 1000)
-        }
-    }
-    sleepIfAt59thMinute()
+    waitUntilSafeExecutionTime("NOT_CROSS_DAY_BONDARY", 45)
 
     def table_name = "test_information_schema_timezone"
     sql """ DROP TABLE IF EXISTS ${table_name} """

@@ -3142,4 +3142,52 @@ class Suite implements GroovyInterceptable {
         beHostToHashFile
     }
 
+    /**
+     * Wait until the specified time constraint is satisfied before executing the test.
+     * 
+     * This function solves the problem where tests cannot span hour or day boundaries.
+     * For example: Some tests may fail when crossing hour or day boundaries. Using this function
+     * ensures that tests are executed within a safe time window to avoid crossing specified time boundaries.
+     * 
+     * @param caseSpanConstraint:
+     *           - "NOT_CROSS_HOUR_BONDARY": Test cannot cross hour boundary
+     *           - "NOT_CROSS_DAY_BONDARY": Test cannot cross day boundary
+     * @param caseElapseSeconds Expected total execution time of the test in seconds
+     */
+    void waitUntilSafeExecutionTime(String caseSpanConstraint, int caseElapseSeconds) {
+        long sleepSeconds = 0
+        LocalTime now = LocalTime.now()
+
+        if (caseElapseSeconds <= 0) {
+            return
+        }
+        
+        switch (caseSpanConstraint) {
+            case "NOT_CROSS_HOUR_BONDARY":
+                LocalTime nextHour = now.withMinute(0).withSecond(0).withNano(0).plusHours(1)
+                long secondsToNextHour = ChronoUnit.SECONDS.between(now, nextHour)
+                
+                if (secondsToNextHour < caseElapseSeconds) {
+                    sleepSeconds = secondsToNextHour
+                }
+                break
+                
+            case "NOT_CROSS_DAY_BONDARY":
+                LocalDateTime nowDateTime = LocalDateTime.of(LocalDate.now(), now)
+                LocalDateTime startOfNextDay = nowDateTime.toLocalDate().plusDays(1).atStartOfDay()
+                long secondsToNextDay = ChronoUnit.SECONDS.between(nowDateTime, startOfNextDay)
+                
+                if (secondsToNextDay < caseElapseSeconds) {
+                    sleepSeconds = secondsToNextDay
+                }
+                break
+            default:
+                throw new IllegalArgumentException("invalid constaint")
+        }
+        
+        if (sleepSeconds > 0) {
+            logger.info("test sleeps ${sleepSeconds} to satisfy ${caseSpanConstraint}")
+            Thread.sleep(sleepSeconds * 1000)
+        }
+    }
 }
