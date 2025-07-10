@@ -3153,7 +3153,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return Lists.newArrayList();
     }
 
-    private void finalizeSetOperationNode(List<SlotDescriptor> constExprSlots, List<SlotDescriptor> resultExprSlots, SetOperationNode node) {
+    private void finalizeSetOperationNode(List<SlotDescriptor> constExprSlots, List<SlotDescriptor> resultExprSlots,
+            SetOperationNode node) {
         List<List<Expr>> materializedConstExprLists = node.getMaterializedConstExprLists();
         materializedConstExprLists.clear();
         for (List<Expr> exprList : node.getConstExprLists()) {
