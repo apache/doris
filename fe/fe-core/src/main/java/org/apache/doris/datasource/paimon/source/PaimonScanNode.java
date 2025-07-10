@@ -374,9 +374,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                                 .collect(Collectors.toList())
                                 .indexOf(slot.getColumn().getName()))
                 .toArray();
-        Table paimonTable = source.getPaimonTable();
-        Map<String, String> incrReadParams = getIncrReadParams();
-        paimonTable = paimonTable.copy(incrReadParams);
+
+        Table paimonTable = getProcessedTable();
+
         ReadBuilder readBuilder = paimonTable.newReadBuilder();
         return readBuilder.withFilter(predicates)
                 .withProjection(projected)
@@ -655,6 +655,38 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
 
         return paimonScanParams;
+    }
+
+    /**
+     * Processes and returns the appropriate Paimon table object based on scan parameters or table snapshot.
+     * <p>
+     * This method handles different scan modes including incremental reads and system tables,
+     * applying the necessary transformations to the base Paimon table.
+     *
+     * @return processed Paimon table object configured according to scan parameters
+     * @throws UserException when system table configuration is incorrect
+     */
+    private Table getProcessedTable() throws UserException {
+        Table baseTable = source.getPaimonTable();
+
+        if (scanParams != null) {
+            if (scanParams.incrementalRead()) {
+                return baseTable.copy(getIncrReadParams());
+            }
+
+            if (scanParams.isBranch()) {
+                return PaimonUtil.buildBranchTable(source, baseTable, PaimonUtil.extractBranchOrTagName(scanParams));
+            }
+            if (scanParams.isTag()) {
+                return PaimonUtil.buildTagTable(baseTable, PaimonUtil.extractBranchOrTagName(scanParams));
+            }
+        }
+
+        if (tableSnapshot != null) {
+            return PaimonUtil.buildSnapshotTable(baseTable, tableSnapshot);
+        }
+
+        return baseTable;
     }
 }
 
