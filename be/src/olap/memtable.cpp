@@ -177,8 +177,7 @@ MemTable::~MemTable() {
     }
     if (_is_flush_success) {
         // If the memtable is flush success, then its memtracker's consumption should be 0
-        if (_mem_tracker->consumption() != _arena.size() &&
-            config::crash_in_memory_tracker_inaccurate) {
+        if (_mem_tracker->consumption() != 0 && config::crash_in_memory_tracker_inaccurate) {
             LOG(FATAL) << "memtable flush success but cosumption is not 0, it is "
                        << _mem_tracker->consumption();
         }
