@@ -1082,4 +1082,23 @@ public class CreateTableTest extends TestWithFeService {
                         + "\"dynamic_partition.start\" = \"-3\"\n"
                         + ");", true));
     }
+
+    @Test
+    public void testCreateTableWithVariantProperty() throws Exception {
+        String sql = "create table test.tbl_variant_property\n"
+                + "(`uuid` varchar(255) NULL,\n"
+                + "`v` variant NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 4\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"disable_auto_compaction\" = \"false\",\n"
+                + "\"variant_enable_flatten_nested\" = \"true\"\n"
+                + ");\n";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "variant_enable_flatten_nested is not supported so far.",
+                () -> createTable(sql, true));
+    }
 }
