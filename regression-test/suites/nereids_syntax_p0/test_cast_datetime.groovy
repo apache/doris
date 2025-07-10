@@ -127,7 +127,7 @@ suite("test_cast_datetime") {
         "DATEV2('１２３.４５')",
         "DATEV2('2023-02-28 25:00')",
         "DATEV2('2023-02-29T00:00:00')",
-        "DATEV2('0000-00-00 00:00:00')",
+        // "DATEV2('0000-00-00 00:00:00')", depends on be conf.
         "DATEV2('January 32, 2023')",
         "DATEV2('February 29, 2023')",
         "DATEV2('April 31, 2023')",
