@@ -114,7 +114,7 @@ public class DataDescription {
     private final List<Expr> columnMappingList;
     private final Expr precedingFilterExpr;
     private final Expr whereExpr;
-    private String srcTableName;
+    private final String srcTableName;
     // this only used in multi load, all filePaths is file not dir
     private List<Long> fileSize;
     // column names of source files
@@ -134,7 +134,7 @@ public class DataDescription {
      * For hadoop load, this param is also used to persistence.
      * The function in this param is copied from 'parsedColumnExprList'
      */
-    private Map<String, Pair<String, List<String>>> columnToHadoopFunction
+    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction
             = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
@@ -231,7 +231,6 @@ public class DataDescription {
         this.columnMappingList = columnMappingList;
         this.precedingFilterExpr = fileFilterExpr;
         this.whereExpr = whereExpr;
-        this.srcTableName = null;
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
@@ -259,7 +258,7 @@ public class DataDescription {
         this.dbName = dbName;
         this.srcTableName = srcTableName;
         this.parsedColumnExprList = parsedColumnExprList;
-        this.columnToHadoopFunction = columnToHadoopFunction;
+        this.columnToHadoopFunction.putAll(columnToHadoopFunction);
         this.uniquekeyUpdateMode = uniquekeyUpdateMode;
         this.clientLocal = clientLocal;
         this.fileSize = fileSize;

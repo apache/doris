@@ -59,8 +59,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.io.File;
-import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -221,8 +219,6 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
     private final ResourceDesc resourceDesc;
     private final Map<String, String> properties;
     private String user;
-
-    private boolean isMysqlLoad = false;
 
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
@@ -394,15 +390,13 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (!isMysqlLoad) {
-            if (Strings.isNullOrEmpty(label.getDbName())) {
-                if (Strings.isNullOrEmpty(ctx.getDatabase())) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-                }
-                label.setDbName(ctx.getDatabase());
+        if (Strings.isNullOrEmpty(label.getDbName())) {
+            if (Strings.isNullOrEmpty(ctx.getDatabase())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            FeNameFormat.checkLabel(label.getLabelName());
+            label.setDbName(ctx.getDatabase());
         }
+        FeNameFormat.checkLabel(label.getLabelName());
 
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {
             throw new AnalysisException("No data file in load statement.");
@@ -412,7 +406,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         // case 2: one hive table, one data description
         boolean isLoadFromTable = false;
         for (NereidsDataDescription dataDescription : dataDescriptions) {
-            if (brokerDesc == null && resourceDesc == null && !isMysqlLoad) {
+            if (brokerDesc == null && resourceDesc == null) {
                 dataDescription.setIsHadoopLoad(true);
             }
             String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), ctx);
@@ -447,28 +441,6 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             }
         }
 
-        // mysql load only have one data desc.
-        if (isMysqlLoad && !dataDescriptions.get(0).isClientLocal()) {
-            for (String path : dataDescriptions.get(0).getFilePaths()) {
-                if (Config.mysql_load_server_secure_path.isEmpty()) {
-                    throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
-                        + " plz set the `mysql_load_server_secure_path` for FE to be a right path.");
-                } else {
-                    File file = new File(path);
-                    try {
-                        if (!(file.getCanonicalPath().startsWith(Config.mysql_load_server_secure_path))) {
-                            throw new AnalysisException("Local file should be under the secure path of FE.");
-                        }
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                    if (!file.exists()) {
-                        throw new AnalysisException("File: " + path + " is not exists.");
-                    }
-                }
-            }
-        }
-
         if (resourceDesc != null) {
             resourceDesc.analyze();
             etlJobType = resourceDesc.getEtlJobType();
@@ -482,8 +454,6 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
             checkS3Param();
-        } else if (isMysqlLoad) {
-            etlJobType = EtlJobType.LOCAL_FILE;
         } else {
             etlJobType = EtlJobType.UNKNOWN;
         }
