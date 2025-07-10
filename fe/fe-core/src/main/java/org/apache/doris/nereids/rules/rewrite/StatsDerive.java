@@ -21,6 +21,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
@@ -86,6 +87,7 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
         for (int i = plan.children().size() - 1; i >= 0; i--) {
             result = plan.children().get(i).accept(this, context);
         }
+        ((AbstractPlan) plan).setStatistics(result);
         return result;
     }
 
