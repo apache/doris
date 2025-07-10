@@ -324,23 +324,47 @@ Status DataTypeDate64SerDe::write_column_to_orc(const std::string& timezone, con
     auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-    INIT_MEMORY_FOR_ORC_WRITER()
-
+    // First pass: calculate total memory needed and collect serialized values
+    std::vector<std::string> serialized_values;
+    std::vector<size_t> valid_row_indices;
+    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
-        if (cur_batch->notNull[row_id] == 0) {
-            continue;
+        if (cur_batch->notNull[row_id] == 1) {
+            char buf[64];
+            size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id]).to_buffer(buf);
+            total_size += len;
+            // avoid copy
+            serialized_values.emplace_back(buf, len);
+            valid_row_indices.push_back(row_id);
         }
-
-        int len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id])
-                          .to_buffer(const_cast<char*>(bufferRef.data) + offset);
-
-        REALLOC_MEMORY_FOR_ORC_WRITER()
-
+    }
+    // Allocate continues memory based on calculated size
+    char* ptr = (char*)malloc(total_size);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory {} error when write variant column data to orc file.", total_size);
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = total_size;
+    buffer_list.emplace_back(bufferRef);
+    // Second pass: copy data to allocated memory
+    size_t offset = 0;
+    for (size_t i = 0; i < serialized_values.size(); i++) {
+        const auto& serialized_value = serialized_values[i];
+        size_t row_id = valid_row_indices[i];
+        size_t len = serialized_value.length();
+        if (offset + len > total_size) {
+            return Status::InternalError(
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
+                    offset, len, total_size);
+        }
+        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
         cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }
-
     cur_batch->numElements = end - start;
     return Status::OK();
 }

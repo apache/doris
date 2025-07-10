@@ -1456,7 +1456,8 @@ rowConstructorItem
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
-    | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
+    | NOT? kind=(REGEXP | RLIKE) pattern=valueExpression
+    | NOT? kind=LIKE pattern=valueExpression (ESCAPE escape=valueExpression)?
     | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP | MATCH_PHRASE_EDGE) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
@@ -1894,6 +1895,7 @@ nonReserved
     | ENGINE
     | ENGINES
     | ERRORS
+    | ESCAPE
     | EVENTS
     | EVERY
     | EXCLUDE

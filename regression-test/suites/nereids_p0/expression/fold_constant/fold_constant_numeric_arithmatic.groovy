@@ -470,6 +470,9 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT TANH(0) AS tanh_case_1") //tanh(0) = 0
     testFoldConst("SELECT TANH(1) AS tanh_case_2") //tanh(1)
     testFoldConst("SELECT TANH(-1) AS tanh_case_3") //tanh(-1)
+    testFoldConst("SELECT TANH(NULL)")
+    testFoldConst("SELECT TANH(-0.5), TANH(0.5), TANH(10), TANH(-10)")
+    testFoldConst("SELECT TANH(-20), TANH(20), TANH(1E-7), TANH(-1E-7)")
 
 //Truncate function cases
     testFoldConst("SELECT TRUNCATE(123.456, 2) AS truncate_case_1") //truncate(123.456, 2) = 123.45

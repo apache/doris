@@ -28,9 +28,10 @@
 #include <type_traits>
 
 #include "common/config.h"
+#include "common/stats.h"
 #include "cpp/sync_point.h"
-#include "meta-service/txn_kv.h"
 #include "meta-service/txn_lazy_committer.h"
+#include "meta-store/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
@@ -332,7 +333,8 @@ private:
     bool get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
                                        const GetDeleteBitmapUpdateLockRequest* request,
                                        GetDeleteBitmapUpdateLockResponse* response,
-                                       std::string& instance_id, std::string& lock_key);
+                                       std::string& instance_id, std::string& lock_key,
+                                       KVStats& stats);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;

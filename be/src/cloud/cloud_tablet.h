@@ -55,9 +55,6 @@ public:
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
 
-    Status capture_consistent_rowsets_unlocked(
-            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
-
     size_t tablet_footprint() override {
         return _approximate_data_size.load(std::memory_order_relaxed);
     }

@@ -2776,7 +2776,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     continue;
                 }
                 Backend backend;
-                if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
+                if (Config.isCloudMode()) {
                     CloudReplica cloudReplica = (CloudReplica) replica;
                     backend = cloudReplica.getPrimaryBackend(clusterId);
                 } else {

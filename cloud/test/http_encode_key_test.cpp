@@ -22,9 +22,9 @@
 #include "common/defer.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service_http.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
 
 using namespace doris::cloud;
 

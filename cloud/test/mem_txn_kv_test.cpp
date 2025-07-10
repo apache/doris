@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "meta-service/mem_txn_kv.h"
+#include "meta-store/mem_txn_kv.h"
 
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
@@ -25,8 +25,8 @@
 #include "common/config.h"
 #include "common/util.h"
 #include "meta-service/doris_txn.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 using namespace doris;
 

@@ -1069,7 +1069,7 @@ Status CompactionMixin::modify_rowsets() {
         std::size_t missed_rows_size = 0;
         tablet()->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, *_rowid_conversion, 0, version.second + 1, missed_rows.get(),
-                location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
+                location_map.get(), *_tablet->tablet_meta()->delete_bitmap(),
                 &output_rowset_delete_bitmap);
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
@@ -1112,7 +1112,7 @@ Status CompactionMixin::modify_rowsets() {
                     ss << ", debug info: ";
                     DeleteBitmap subset_map(_tablet->tablet_id());
                     for (auto rs : _input_rowsets) {
-                        _tablet->tablet_meta()->delete_bitmap().subset(
+                        _tablet->tablet_meta()->delete_bitmap()->subset(
                                 {rs->rowset_id(), 0, 0},
                                 {rs->rowset_id(), rs->num_segments(), version.second + 1},
                                 &subset_map);
@@ -1187,7 +1187,7 @@ Status CompactionMixin::modify_rowsets() {
             // incremental data.
             tablet()->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, *_rowid_conversion, version.second, UINT64_MAX,
-                    missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
+                    missed_rows.get(), location_map.get(), *_tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 
             if (missed_rows) {

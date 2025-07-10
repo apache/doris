@@ -100,16 +100,6 @@ std::string TabletReader::KeysParam::to_string() const {
     return ss.str();
 }
 
-void TabletReader::ReadSource::fill_delete_predicates() {
-    DCHECK_EQ(delete_predicates.size(), 0);
-    for (auto&& split : rs_splits) {
-        auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
-        if (rs_meta->has_delete_predicate()) {
-            delete_predicates.push_back(rs_meta);
-        }
-    }
-}
-
 TabletReader::~TabletReader() {
     for (auto* pred : _col_predicates) {
         delete pred;
@@ -658,7 +648,7 @@ Status TabletReader::init_reader_params_and_create_block(
     reader_params->version =
             Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
 
-    ReadSource read_source;
+    TabletReadSource read_source;
     for (const auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
@@ -680,9 +670,6 @@ Status TabletReader::init_reader_params_and_create_block(
         merge_tablet_schema->merge_dropped_columns(*del_pred->tablet_schema());
     }
     reader_params->tablet_schema = merge_tablet_schema;
-    if (tablet->enable_unique_key_merge_on_write()) {
-        reader_params->delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
-    }
 
     reader_params->return_columns.resize(read_tablet_schema->num_columns());
     std::iota(reader_params->return_columns.begin(), reader_params->return_columns.end(), 0);

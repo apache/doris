@@ -68,7 +68,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
 
-    TabletReader::ReadSource read_source;
+    TabletReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
         read_source.rs_splits.emplace_back(rs_reader);
@@ -87,7 +87,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     }
     reader_params.tablet_schema = merge_tablet_schema;
     if (!tablet->tablet_schema()->cluster_key_idxes().empty()) {
-        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap();
     }
 
     if (stats_output && stats_output->rowid_conversion) {
@@ -249,7 +249,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
 
-    TabletReader::ReadSource read_source;
+    TabletReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
         read_source.rs_splits.emplace_back(rs_reader);
@@ -268,7 +268,7 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.tablet_schema = merge_tablet_schema;
     if (!tablet->tablet_schema()->cluster_key_idxes().empty()) {
-        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap();
     }
 
     if (is_key && stats_output && stats_output->rowid_conversion) {

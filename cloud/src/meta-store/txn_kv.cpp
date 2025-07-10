@@ -39,7 +39,7 @@
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/txn_kv_error.h"
 
 // =============================================================================
 //  FoundationDB implementation of TxnKv
@@ -399,6 +399,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     const uint8_t* ret;
     int len;
     err = fdb_future_get_value(fut, &found, &ret, &len);
+    num_get_keys_++;
 
     if (err) {
         LOG(WARNING) << __PRETTY_FUNCTION__
@@ -438,6 +439,7 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
 
     std::unique_ptr<RangeGetIterator> ret(new RangeGetIterator(fut));
     RETURN_IF_ERROR(ret->init());
+    num_get_keys_ += ret->size();
     g_bvar_txn_kv_get_count_normalized << ret->size();
 
     *(iter) = std::move(ret);
@@ -668,6 +670,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         futures.clear();
     }
     DCHECK_EQ(res->size(), num_keys);
+    num_get_keys_ += num_keys;
     return TxnErrorCode::TXN_OK;
 }
 
