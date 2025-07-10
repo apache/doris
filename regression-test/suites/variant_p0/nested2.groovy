@@ -31,7 +31,7 @@ suite("variant_nested_type_conflict", "p0"){
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-                properties("replication_num" = "1", "disable_auto_compaction" = "false");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
             """
         def sql_select_batch = {
             qt_sql_0 """select * from ${table_name} order by k"""
@@ -72,6 +72,11 @@ suite("variant_nested_type_conflict", "p0"){
         sql """
             insert into ${table_name} values (1, '{"nested": [{"a": 1, "c": 1.1}, {"b": "1"}]}'); 
             """
+
+        // for cloud we should select first and then desc for syncing rowset to get latest schema
+        sql """
+            select * from ${table_name} order by k limit 1;
+            """
         qt_sql_desc_1 """
             desc ${table_name};
             """
@@ -81,6 +86,10 @@ suite("variant_nested_type_conflict", "p0"){
         /// insert a, b type changed to double 
         sql """
             insert into ${table_name} values (2, '{"nested": [{"a": 2.5, "b": 123.1}]}');
+            """
+        // for cloud we should select first and then desc for syncing rowset to get latest schema
+        sql """
+            select * from ${table_name} order by k limit 1;
             """
         qt_sql_desc_2 """
             desc ${table_name};
@@ -103,6 +112,10 @@ suite("variant_nested_type_conflict", "p0"){
         sql """
             insert into ${table_name} values (1, '{"nested": [{"a": 1, "b": 1.1}, {"a": "1", "b": "1", "c": "1"}]}');
             """
+        // for cloud we should select first and then desc for syncing rowset to get latest schema
+        sql """
+            select * from ${table_name} order by k limit 1;
+            “”“
         qt_sql_desc_4 """
             desc ${table_name};
             """
@@ -113,6 +126,10 @@ suite("variant_nested_type_conflict", "p0"){
         // insert c type changed to double
         sql """
             insert into ${table_name} values (2, '{"nested": [{"a": 1, "c": 1.1}]}');
+            """
+        // for cloud we should select first and then desc for syncing rowset to get latest schema
+        sql """
+            select * from ${table_name} order by k limit 1;
             """
         qt_sql_desc_5 """
             desc ${table_name};
