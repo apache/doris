@@ -541,8 +541,7 @@ public class FunctionCallExpr extends Expr {
         }
         // used by nereids END
 
-        if (fnName.getFunction().equalsIgnoreCase("json_object")
-                || fnName.getFunction().equalsIgnoreCase("json_insert")
+        if (fnName.getFunction().equalsIgnoreCase("json_insert")
                 || fnName.getFunction().equalsIgnoreCase("json_replace")
                 || fnName.getFunction().equalsIgnoreCase("json_set")) {
             len = len - 1;
@@ -626,9 +625,7 @@ public class FunctionCallExpr extends Expr {
         }
         // used by nereids END
 
-        if (fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")
-                || fnName.getFunction().equalsIgnoreCase("json_insert")
+        if (fnName.getFunction().equalsIgnoreCase("json_insert")
                 || fnName.getFunction().equalsIgnoreCase("json_replace")
                 || fnName.getFunction().equalsIgnoreCase("json_set")) {
             len = len - 1;
@@ -769,9 +766,7 @@ public class FunctionCallExpr extends Expr {
         }
         int len = children.size();
         List<String> result = Lists.newArrayList();
-        if (fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")
-                || fnName.getFunction().equalsIgnoreCase("json_insert")
+        if (fnName.getFunction().equalsIgnoreCase("json_insert")
                 || fnName.getFunction().equalsIgnoreCase("json_replace")
                 || fnName.getFunction().equalsIgnoreCase("json_set")) {
             len = len - 1;
