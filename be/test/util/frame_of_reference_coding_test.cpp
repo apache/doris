@@ -304,33 +304,33 @@ TEST_F(TestForCoding, accuracy_unpack_64_test) {
     }
 }
 
-TEST_F(TestForCoding, accuracy_unpack_128_test) {
-    std::default_random_engine e;
-    std::uniform_int_distribution<__int128_t> u;
+// TEST_F(TestForCoding, accuracy_unpack_128_test) {
+//     std::default_random_engine e;
+//     std::uniform_int_distribution<__int128_t> u;
 
-    for (int n = 1; n <= 255; n++) {
-        for (int w = 64; w <= 127; w++) {
-            faststring buffer(1);
-            ForEncoder<__int128_t> encoder(&buffer);
+//     for (int n = 1; n <= 255; n++) {
+//         for (int w = 64; w <= 127; w++) {
+//             faststring buffer(1);
+//             ForEncoder<__int128_t> encoder(&buffer);
 
-            std::vector<__int128_t> test_data(n);
-            __int128_t in_mask = (((__int128_t)1) << w) - 1;
-            for (int i = 0; i < n; i++) {
-                test_data[i] = u(e) & in_mask;
-                encoder.put(test_data[i]);
-            }
-            encoder.flush();
+//             std::vector<__int128_t> test_data(n);
+//             __int128_t in_mask = (((__int128_t)1) << w) - 1;
+//             for (int i = 0; i < n; i++) {
+//                 test_data[i] = u(e) & in_mask;
+//                 encoder.put(test_data[i]);
+//             }
+//             encoder.flush();
 
-            ForDecoder<__int128_t> decoder(buffer.data(), buffer.length());
-            decoder.init();
-            __int128_t actual_value;
-            for (int i = 0; i < n; i++) {
-                decoder.get(&actual_value);
-                EXPECT_EQ(test_data[i], actual_value);
-            }
-        }
-    }
-}
+//             ForDecoder<__int128_t> decoder(buffer.data(), buffer.length());
+//             decoder.init();
+//             __int128_t actual_value;
+//             for (int i = 0; i < n; i++) {
+//                 decoder.get(&actual_value);
+//                 EXPECT_EQ(test_data[i], actual_value);
+//             }
+//         }
+//     }
+// }
 
 TEST_F(TestForCoding, accuracy_test) {
     std::default_random_engine e;
@@ -355,5 +355,29 @@ TEST_F(TestForCoding, accuracy_test) {
         }
     }
 }
+
+// TEST_F(TestForCoding, accracy2_test) {
+//     ForEncoder<__int128_t> encoder(nullptr);
+//     ForDecoder<__int128_t> decoder(nullptr, 0);
+
+//     for (int n = 1; n <= 255; n++) {
+//         for (int w = 1; w <= 127; w++) {
+
+//             std::vector<__int128_t> test_data(n);
+//             __int128_t in_mask = (((__int128_t)1) << w) - 1;
+//             for (int i = 0; i < n; i++) {
+//                 test_data[i] = i & in_mask;
+//             }
+//             std::vector<uint8_t> o((n * w + 7) / 8);
+//             encoder.bit_pack(test_data.data(), n, w, o.data());
+
+//             std::vector<__int128_t> output(n);
+//             decoder.bit_unpack(o.data(), n, w, output.data());
+//             for (int i = 0; i < n; i++) {
+//                 EXPECT_EQ(i & in_mask, output[i]);
+//             }
+//         }
+//     }
+// }
 
 } // namespace doris

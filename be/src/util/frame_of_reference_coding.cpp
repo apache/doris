@@ -28,6 +28,7 @@
 
 #include "util/bit_util.h"
 #include "util/coding.h"
+#include "gutil/endian.h"
 
 namespace doris {
 
@@ -428,7 +429,7 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
                                         T* output) {
     static_assert(std::is_same<U, int64_t>::value || std::is_same<U, __int128_t>::value,
                   "bit_unpack_optimize only supports U = int64_t or __int128_t");
-    constexpr int shift_size = sizeof(int64_t);         // For moving s
+    // constexpr int shift_size = sizeof(int64_t);         // For moving s
     constexpr int u_size = sizeof(U);                   // Size of U
     constexpr int u_size_shift = (u_size == 8) ? 3 : 4; // log2(u_size)
     int valid_bit = 0;                                  // How many valid bits
@@ -443,14 +444,45 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
     U s = 0; // Temporary buffer for bitstream: aggregates input bytes into a large integer for unpacking
 
     for (int i = 0; i < full_batch_size; i += u_size) {
-        s = 0;
-
-        s |= *((int64_t*)(intput + i));
-        s <<= shift_size * 8;
-
+        // s |= static_cast<U>(input[i]);
+        // s <<= 8;
+        // s |= static_cast<U>(input[i + 1]);
+        // s <<= 8;
+        // s |= static_cast<U>(input[i + 2]);
+        // s <<= 8;
+        // s |= static_cast<U>(input[i + 3]);
+        // s <<= 8;
+        // s |= static_cast<U>(input[i + 4]);
+        // s <<= 8;
+        // s |= static_cast<U>(input[i + 5]);
+        // s <<= 8;
+        // s |= static_cast<U>(input[i + 6]);
+        // s <<= 8;
+        // s |= static_cast<U>(input[i + 7]);
+        if constexpr (std::endian::native == std::endian::little) {
+            s |= *((int64_t*)(input + i));
+            
+        } else if constexpr (std::endian::native == std::endian::big) {
+            s |= *((int64_t*)(input + i));
+        }
+        
         if constexpr (u_size == 16) {
-            s |= *((int64_t*)(intput + i + 8));
-            s <<= shift_size * 8;
+            s <<= 64;
+            s |= static_cast<U>(input[i + 8]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 9]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 10]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 11]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 12]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 13]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 14]);
+            s <<= 8;
+            s |= static_cast<U>(input[i + 15]);
         }
 
         // Determine what the valid bits are based on u_size
@@ -496,6 +528,8 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
         } else {
             need_bit = 0;
         }
+
+        s = 0;
     }
 
     // remainder
