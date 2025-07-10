@@ -1976,7 +1976,7 @@ public:
     //  serialize_vec, deserialize_vec (called by MethodSerialized.init_serialized_keys), here are some scenarios:
     //    1/ AggState: groupby key column which be serialized to hash-table key, eg.AggLocalState::_emplace_into_hash_table
     //    2/ JoinState: hash join key column which be serialized to hash-table key, or probe column which be serialized to hash-table key, eg.ProcessHashTableBuild, ProcessHashTableProbe<JoinOpType>::probe_side_output_column
-    //  serialize_vec_with_null_map, deserialize_vec_with_null_map which only called by ColumnNullable serialize_vec and deserialize_vec, and derived by other columns
+    //  serialize_vec, deserialize_vec which only called by ColumnNullable serialize_vec and deserialize_vec, and derived by other columns
     //  get_max_row_byte_size used in MethodSerialized which calculating the memory size for vectorized serialization of aggregation keys.
     void ser_deser_vec(MutableColumns& columns, DataTypes dataTypes) {
         // step1. make input_keys with given rows for a block
@@ -2018,7 +2018,7 @@ public:
             for (const auto& column : columns) {
                 LOG(INFO) << "now serialize_vec for column:" << column->get_name()
                           << " with column size: " << column->size();
-                column->serialize_vec(input_keys.data(), rows, max_one_row_byte_size);
+                column->serialize_vec(input_keys.data(), rows);
             }
         }
         // deserialize the keys from arena into columns
@@ -3236,7 +3236,8 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
     size_t rows = source_column->size();
     {
         // test with null map, but no null values
-        NullMap null_map_no_nulls(rows, 0);
+        auto null_col = ColumnUInt8::create(rows, 0);
+        auto null_map_no_nulls = null_col->get_data();
         auto target_column = source_column->clone();
         size_t max_one_row_byte_size =
                 target_column->get_max_row_byte_size() + sizeof(NullMap::value_type);
@@ -3251,19 +3252,21 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
                     reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
             input_keys[i].size = 0;
         }
-        target_column->serialize_vec_with_null_map(input_keys.data(), rows,
-                                                   null_map_no_nulls.data());
+        auto wrapper = ColumnNullable::create(target_column, null_map_no_nulls);
+        wrapper->serialize_vec(input_keys.data(), rows);
         for (size_t i = 0; i != rows; ++i) {
             UInt8 val = *reinterpret_cast<const UInt8*>(input_keys[i].data);
             EXPECT_EQ(val, 0);
             input_keys[i].data += sizeof(val);
             input_keys[i].size -= sizeof(val);
         }
-        auto deser_column = source_column->clone_empty();
-        deser_column->deserialize_vec_with_null_map(input_keys.data(), rows,
-                                                    null_map_no_nulls.data());
-        EXPECT_EQ(deser_column->size(), rows);
-        auto* col_vec_deser = assert_cast<ColumnVecType*>(deser_column.get());
+        auto deser_column_wrapper = wrapper->clone_empty();
+        deser_column_wrapper->deserialize_vec(input_keys.data(), rows);
+        EXPECT_EQ(deser_column_wrapper->size(), rows);
+        auto* col_vec_deser =
+                assert_cast<ColumnVecType*>(assert_cast<ColumnNullable*>(deser_column_wrapper.get())
+                                                    ->get_nested_column_ptr()
+                                                    .get());
         auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
         for (size_t i = 0; i < rows; ++i) {
             if constexpr (std::is_same_v<T, ColumnString> || std::is_same_v<T, ColumnString64>) {
@@ -3325,7 +3328,7 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
             input_keys[i].size = 0;
         }
         if (test_null_map) {
-            target_column->serialize_vec_with_null_map(input_keys.data(), rows, null_map.data());
+            target_column->serialize_vec(input_keys.data(), rows, null_map.data());
         } else {
             target_column->serialize_vec(input_keys.data(), rows, max_one_row_byte_size);
         }
@@ -3337,7 +3340,7 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
                 input_keys[i].data += sizeof(val);
                 input_keys[i].size -= sizeof(val);
             }
-            deser_column->deserialize_vec_with_null_map(input_keys.data(), rows, null_map.data());
+            deser_column->deserialize_vec(input_keys.data(), rows, null_map.data());
         } else {
             deser_column->deserialize_vec(input_keys.data(), rows);
         }

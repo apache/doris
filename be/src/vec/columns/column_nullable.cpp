@@ -227,7 +227,7 @@ size_t ColumnNullable::deserialize_impl(const char* pos) {
     get_null_map_data().push_back(val);
 
     if (val == 0) {
-        sz += get_nested_column().deserialize_impl(pos);
+        sz += get_nested_column().deserialize_impl(pos + sz);
     } else {
         get_nested_column().insert_default();
         _has_null = true;
