@@ -59,7 +59,6 @@ protected:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
 
 private:
     execute_call_back callback_function;
