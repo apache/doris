@@ -154,7 +154,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
     }
 
     private Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> getCachedPartitionColumnStats(
-            Set<String> columnNames, List<String> partitionNames, TableIf tableIf) {
+            Set<String> columnNames, List<String> partitionNames, TableIf tableIf, ConnectContext ctx) {
         Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> ret = new HashMap<>();
         long catalogId = tableIf.getDatabase().getCatalog().getId();
         long dbId = tableIf.getDatabase().getId();
@@ -178,7 +178,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
                 }
                 for (String partName : partitionNames) {
                     PartitionColumnStatistic partitionStatistics = Env.getCurrentEnv().getStatisticsCache()
-                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName);
+                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName, ctx);
                     ret.put(new PartitionColumnStatisticCacheKey(catalogId, dbId, tableId, indexId, partName, colName),
                             partitionStatistics);
                 }
@@ -214,7 +214,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
     }
 
     private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            Set<String> columnNames, TableIf tableIf, boolean showCache)
+            Set<String> columnNames, TableIf tableIf, boolean showCache, ConnectContext ctx)
             throws AnalysisException {
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
@@ -238,7 +238,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
                 if (showCache) {
                     columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                         tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
+                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName, ctx);
                 } else {
                     columnStatistic = StatisticsRepository.queryColumnStatisticsByName(
                         tableIf.getDatabase().getCatalog().getId(),
@@ -391,7 +391,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
                     : partitionNames.getPartitionNames();
             if (showCache) {
                 resultSet = this.constructPartitionCachedColumnStats(
-                    getCachedPartitionColumnStats(columnNames, partNames, tableIf), tableIf);
+                    getCachedPartitionColumnStats(columnNames, partNames, tableIf, ctx), tableIf);
             } else {
                 List<ResultRow> partitionColumnStats =
                         StatisticsRepository.queryColumnStatisticsByPartitions(tableIf, columnNames, partNames);
@@ -401,7 +401,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
             if (isAllColumns && !showCache) {
                 getStatsForAllColumns(columnStatistics, tableIf);
             } else {
-                getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache);
+                getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache, ctx);
             }
             resultSet = constructResultSet(columnStatistics);
         }
