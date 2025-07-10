@@ -304,9 +304,8 @@ struct BitmapFromBase64 {
             } else {
                 BitmapValue bitmap_val;
                 if (!bitmap_val.deserialize(decode_buff.data())) {
-                    return Status::RuntimeError(
-                            fmt::format("bitmap_from_base64 decode failed: base64: {}",
-                                        std::string(src_str, src_size)));
+                    return Status::RuntimeError("bitmap_from_base64 decode failed: base64: {}",
+                                                std::string(src_str, src_size));
                 }
                 res.emplace_back(std::move(bitmap_val));
             }
@@ -374,7 +373,7 @@ public:
 
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
         if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeString>) {
-            const auto& str_column = assert_cast<const ColumnString&>(*argument_column);
+            const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
             const ColumnString::Offsets& offsets = str_column.get_offsets();
             RETURN_IF_ERROR(Impl::vector(data, offsets, res, null_map, input_rows_count));
