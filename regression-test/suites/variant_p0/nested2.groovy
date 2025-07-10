@@ -115,7 +115,7 @@ suite("variant_nested_type_conflict", "p0"){
         // for cloud we should select first and then desc for syncing rowset to get latest schema
         sql """
             select * from ${table_name} order by k limit 1;
-            “”“
+            """
         qt_sql_desc_4 """
             desc ${table_name};
             """
