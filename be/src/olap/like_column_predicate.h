@@ -150,7 +150,7 @@ private:
         std::vector<bool>* res = nullptr;
         if (_segment_id_to_cached_res_flags.if_contains(
                     column.get_rowset_segment_id(),
-                    [&res](const auto& pair) { res = &pair.second; })) {
+                    [&res](auto& pair) { res = &pair.second; })) {
             return res;
         }
 
@@ -176,7 +176,7 @@ private:
         }
 
         _segment_id_to_cached_res_flags.if_contains(
-                column.get_rowset_segment_id(), [&res](const auto& pair) { res = &pair.second; });
+                column.get_rowset_segment_id(), [&res](auto& pair) { res = &pair.second; });
         return res;
     }
 
@@ -184,7 +184,7 @@ private:
             std::pair<RowsetId, uint32_t>, std::vector<bool>,
             phmap::priv::hash_default_hash<std::pair<RowsetId, uint32_t>>,
             phmap::priv::hash_default_eq<std::pair<RowsetId, uint32_t>>,
-            std::allocator<std::pair<const std::pair<RowsetId, uint32_t>, int32_t>>, 4,
+            std::allocator<std::pair<const std::pair<RowsetId, uint32_t>, std::vector<bool>>>, 4,
             std::shared_mutex>
             _segment_id_to_cached_res_flags;
 
