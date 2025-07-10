@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAdder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -489,7 +490,8 @@ public class StructInfo {
                     && !(plan instanceof LogicalAggregate)
                     && !(plan instanceof LogicalWindow)
                     && !(plan instanceof LogicalSort)
-                    && !(plan instanceof LogicalRepeat)) {
+                    && !(plan instanceof LogicalRepeat)
+                    && !(plan instanceof LogicalGenerate)) {
                 return null;
             }
             return super.visit(plan, collectorContext);
@@ -638,6 +640,9 @@ public class StructInfo {
         // aggregate is not supported now.
         private boolean windowUnderAggregate = false;
         private final Set<JoinType> supportJoinTypes;
+        private boolean containsTopGenerate = false;
+        private int topGenerateNum = 0;
+        private boolean isGenerateNeighbourCatalog = true;
 
         public PlanCheckContext(Set<JoinType> supportJoinTypes) {
             this.supportJoinTypes = supportJoinTypes;
@@ -703,6 +708,30 @@ public class StructInfo {
             this.windowUnderAggregate = windowUnderAggregate;
         }
 
+        public void setContainsTopGenerate(boolean containsTopGenerate) {
+            this.containsTopGenerate = containsTopGenerate;
+        }
+
+        public boolean isContainsTopGenerate() {
+            return containsTopGenerate;
+        }
+
+        public void plusTopGenerateNum() {
+            this.topGenerateNum += 1;
+        }
+
+        public int getTopGenerateNum() {
+            return topGenerateNum;
+        }
+
+        public boolean isGenerateNeighbourCatalog() {
+            return isGenerateNeighbourCatalog;
+        }
+
+        public void setGenerateNeighbourCatalog(boolean generateNeighbourCatalog) {
+            isGenerateNeighbourCatalog = generateNeighbourCatalog;
+        }
+
         public static PlanCheckContext of(Set<JoinType> supportJoinTypes) {
             return new PlanCheckContext(supportJoinTypes);
         }
@@ -730,7 +759,20 @@ public class StructInfo {
                 checkContext.setAlreadyMeetAggregate(true);
                 checkContext.plusTopAggregateNum();
             }
+            if (checkContext.getTopGenerateNum() > 0) {
+                // Aggregate under generate is not supported now
+                checkContext.setGenerateNeighbourCatalog(false);
+            }
             return visit(aggregate, checkContext);
+        }
+
+        @Override
+        public Boolean visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, PlanCheckContext checkContext) {
+            if (!checkContext.isAlreadyMeetJoin()) {
+                checkContext.setContainsTopGenerate(true);
+                checkContext.plusTopGenerateNum();
+            }
+            return visit(generate, checkContext);
         }
 
         @Override
@@ -762,7 +804,8 @@ public class StructInfo {
                     || plan instanceof LogicalAggregate
                     || plan instanceof GroupPlan
                     || plan instanceof LogicalRepeat
-                    || plan instanceof LogicalWindow) {
+                    || plan instanceof LogicalWindow
+                    || plan instanceof LogicalGenerate) {
                 return doVisit(plan, checkContext);
             }
             return false;
@@ -804,7 +847,8 @@ public class StructInfo {
                     || plan instanceof CatalogRelation
                     || plan instanceof GroupPlan
                     || plan instanceof LogicalRepeat
-                    || plan instanceof LogicalWindow) {
+                    || plan instanceof LogicalWindow
+                    || plan instanceof LogicalGenerate) {
                 return doVisit(plan, checkContext);
             }
             return false;
