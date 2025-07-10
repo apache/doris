@@ -84,6 +84,9 @@ import java.sql.PreparedStatement
 import java.sql.ResultSetMetaData
 import org.junit.Assert
 
+import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
+
 @Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
@@ -3150,21 +3153,21 @@ class Suite implements GroovyInterceptable {
      * ensures that tests are executed within a safe time window to avoid crossing specified time boundaries.
      * 
      * @param caseSpanConstraint:
-     *           - "NOT_CROSS_HOUR_BONDARY": Test cannot cross hour boundary
-     *           - "NOT_CROSS_DAY_BONDARY": Test cannot cross day boundary
+     *           - "NOT_CROSS_HOUR_BOUNDARY": Test cannot cross hour boundary
+     *           - "NOT_CROSS_DAY_BOUNDARY": Test cannot cross day boundary
      * @param caseElapseSeconds Expected total execution time of the test in seconds
      */
     void waitUntilSafeExecutionTime(String caseSpanConstraint, int caseElapseSeconds) {
-        long sleepSeconds = 0
-        LocalTime now = LocalTime.now()
-
         if (caseElapseSeconds <= 0) {
-            return
+            throw new IllegalArgumentException("invalid caseElapseSeconds, ${caseElapseSeconds}")
         }
+
+        long sleepSeconds = 0
+        LocalDateTime now = LocalDateTime.now();
         
         switch (caseSpanConstraint) {
-            case "NOT_CROSS_HOUR_BONDARY":
-                LocalTime nextHour = now.withMinute(0).withSecond(0).withNano(0).plusHours(1)
+            case "NOT_CROSS_HOUR_BOUNDARY":
+                LocalDateTime nextHour = now.withMinute(0).withSecond(0).withNano(0).plusHours(1);
                 long secondsToNextHour = ChronoUnit.SECONDS.between(now, nextHour)
                 
                 if (secondsToNextHour < caseElapseSeconds) {
@@ -3172,17 +3175,16 @@ class Suite implements GroovyInterceptable {
                 }
                 break
                 
-            case "NOT_CROSS_DAY_BONDARY":
-                LocalDateTime nowDateTime = LocalDateTime.of(LocalDate.now(), now)
-                LocalDateTime startOfNextDay = nowDateTime.toLocalDate().plusDays(1).atStartOfDay()
-                long secondsToNextDay = ChronoUnit.SECONDS.between(nowDateTime, startOfNextDay)
+            case "NOT_CROSS_DAY_BOUNDARY":
+                LocalDateTime startOfNextDay = now.toLocalDate().plusDays(1).atStartOfDay();
+                long secondsToNextDay = ChronoUnit.SECONDS.between(now, startOfNextDay)
                 
                 if (secondsToNextDay < caseElapseSeconds) {
                     sleepSeconds = secondsToNextDay
                 }
                 break
             default:
-                throw new IllegalArgumentException("invalid constaint")
+                throw new IllegalArgumentException("invalid caseElapseSeconds:${caseSpanConstraint}")
         }
         
         if (sleepSeconds > 0) {
