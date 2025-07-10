@@ -1046,6 +1046,13 @@ public class Alter {
             Map<String, String> modifiedProperties = Maps.newHashMap();
             modifiedProperties.putAll(properties);
 
+            // 4.2 handle storage_medium_specified property
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED)) {
+                String storageMediumSpecifiedValue = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED);
+                boolean isStorageMediumSpecified = Boolean.parseBoolean(storageMediumSpecifiedValue);
+                dataProperty.setStorageMediumSpecified(isStorageMediumSpecified);
+            }
+
             // 4.3 modify partition storage policy
             // can set multi times storage policy
             String currentStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
