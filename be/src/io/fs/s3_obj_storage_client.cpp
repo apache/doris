@@ -152,7 +152,22 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
     request.SetContentType("application/octet-stream");
     SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
     auto response = SYNC_POINT_HOOK_RETURN_VALUE(
-            s3_put_rate_limit([&]() { return _client->PutObject(request); }),
+            s3_put_rate_limit([&]() {
+                MonotonicStopWatch watch;
+                watch.start();
+                auto outcome = _client->PutObject(request);
+                watch.stop();
+                auto request_id = outcome.IsSuccess() ? outcome.GetResult().GetRequestId()
+                                                      : outcome.GetError().GetRequestId();
+
+                if (watch.elapsed_time_milliseconds() > 2000) {
+                    LOG(WARNING) << "S3 put object took too long: "
+                                 << watch.elapsed_time_milliseconds() << " ms, "
+                                 << "request_id: " << request_id << ", bucket: " << opts.bucket
+                                 << ", key: " << opts.key;
+                }
+                return outcome;
+            }),
             "s3_file_writer::put_object", std::cref(request).get(), &stream);
     if (!response.IsSuccess()) {
         auto st = s3fs_error(response.GetError(),
