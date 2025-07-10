@@ -150,12 +150,11 @@ public class HiveScanNode extends FileQueryScanNode {
                 partitionValuesList.add(
                         ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
             }
-            resPartitions = cache.getAllPartitionsWithCache(hmsTable.getDbName(), hmsTable.getName(),
-                    partitionValuesList);
+            resPartitions = cache.getAllPartitionsWithCache(hmsTable, partitionValuesList);
         } else {
             // non partitioned table, create a dummy partition to save location and inputformat,
             // so that we can unify the interface.
-            HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
+            HivePartition dummyPartition = new HivePartition(hmsTable.getOrBuildNameMapping(), true,
                     hmsTable.getRemoteTable().getSd().getInputFormat(),
                     hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
             this.totalPartitionNum = 1;

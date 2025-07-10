@@ -20,12 +20,14 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -109,23 +111,20 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
         hadoopProps = externalCatalog.getCatalogProperty().getHadoopProperties();
         preExecutionAuthenticator = externalCatalog.getPreExecutionAuthenticator();
-        Table table;
-        try {
-            table = preExecutionAuthenticator.execute(() -> {
-                return IcebergUtils.getIcebergTable(externalCatalog, icebergTableName.getDb(),
-                        icebergTableName.getTbl());
-            });
-        } catch (Exception e) {
-            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));
+        TableIf dorisTable = externalCatalog.getDbOrAnalysisException(icebergTableName.getDb())
+                .getTableOrAnalysisException(icebergTableName.getTbl());
+        if (!(dorisTable instanceof ExternalTable)) {
+            throw new AnalysisException("Table " + icebergTableName + " is not an iceberg table");
         }
-        if (table == null) {
+        Table icebergTable = IcebergUtils.getIcebergTable((ExternalTable) dorisTable);
+        if (icebergTable == null) {
             throw new AnalysisException("Iceberg table " + icebergTableName + " does not exist");
         }
         MetadataTableType tableType = MetadataTableType.from(queryType);
         if (tableType == null) {
             throw new AnalysisException("Unrecognized queryType for iceberg metadata: " + queryType);
         }
-        this.sysTable = MetadataTableUtils.createMetadataTableInstance(table, tableType);
+        this.sysTable = MetadataTableUtils.createMetadataTableInstance(icebergTable, tableType);
         this.schema = IcebergUtils.parseSchema(sysTable.schema());
     }
 
