@@ -33,16 +33,6 @@ namespace vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 
-std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String& name) const {
-    size_t size = elem_serdes_ptrs.size();
-    for (size_t i = 0; i < size; ++i) {
-        if (elem_names[i] == name) {
-            return {i};
-        }
-    }
-    return std::nullopt;
-}
-
 std::string DataTypeStructSerDe::get_name() const {
     size_t size = elem_names.size();
     std::stringstream s;
