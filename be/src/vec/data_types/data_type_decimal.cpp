@@ -340,6 +340,11 @@ MutableColumnPtr DataTypeDecimal<T>::create_column() const {
 }
 
 template <PrimitiveType T>
+Status DataTypeDecimal<T>::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnType>(column);
+}
+
+template <PrimitiveType T>
 bool DataTypeDecimal<T>::parse_from_string(const std::string& str, FieldType* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
     res->value = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(

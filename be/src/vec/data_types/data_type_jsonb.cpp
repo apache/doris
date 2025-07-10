@@ -95,6 +95,10 @@ MutableColumnPtr DataTypeJsonb::create_column() const {
     return ColumnString::create();
 }
 
+Status DataTypeJsonb::check_column(const IColumn& column) const {
+    return data_type_string.check_column(column);
+}
+
 bool DataTypeJsonb::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
