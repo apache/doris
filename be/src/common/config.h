@@ -1603,6 +1603,9 @@ DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
 
+// p0, daily, rqg, external
+DECLARE_String(fuzzy_test_type);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
