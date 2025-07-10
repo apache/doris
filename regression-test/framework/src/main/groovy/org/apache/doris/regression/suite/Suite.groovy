@@ -3184,7 +3184,7 @@ class Suite implements GroovyInterceptable {
                 }
                 break
             default:
-                throw new IllegalArgumentException("invalid caseElapseSeconds:${caseSpanConstraint}")
+                throw new IllegalArgumentException("invalid caseSpanConstraint:${caseSpanConstraint}")
         }
         
         if (sleepSeconds > 0) {
