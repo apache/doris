@@ -153,7 +153,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         // because this may block for a while, which may lead to rpc timeout.
         SCOPED_TIMER(channel->get_handle_mem_limit_timer());
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
-                channel->workload_group());
+                channel->workload_group(), [channel]() { return channel->is_cancelled(); });
     }
 
     // 3. add batch to load channel

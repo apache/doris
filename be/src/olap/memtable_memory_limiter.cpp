@@ -117,7 +117,8 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     return need_flush - _queue_mem_usage;
 }
 
-void MemTableMemoryLimiter::handle_workload_group_memtable_flush(WorkloadGroupPtr wg) {
+void MemTableMemoryLimiter::handle_workload_group_memtable_flush(
+        WorkloadGroupPtr wg, std::function<bool()> cancel_check) {
     // It means some query is pending on here to flush memtable and to continue running.
     // So that should wait here.
     // Wait at most 3s, because this code is not aware cancel flag. If the load task is cancelled
@@ -129,6 +130,11 @@ void MemTableMemoryLimiter::handle_workload_group_memtable_flush(WorkloadGroupPt
     timer.start();
     while (wg != nullptr && wg->enable_write_buffer_limit() && wg->exceed_write_buffer_limit() &&
            sleep_times > 0) {
+        if (cancel_check && cancel_check()) {
+            LOG(INFO) << "cancelled when waiting for memtable flush, wg: "
+                      << (wg == nullptr ? "null" : wg->debug_string());
+            return;
+        }
         std::this_thread::sleep_for(100ms);
         --sleep_times;
     }
@@ -139,10 +145,11 @@ void MemTableMemoryLimiter::handle_workload_group_memtable_flush(WorkloadGroupPt
                    << ", wg: " << wg->debug_string();
     }
     // Check process memory again.
-    _handle_memtable_flush(wg);
+    _handle_memtable_flush(wg, cancel_check);
 }
 
-void MemTableMemoryLimiter::_handle_memtable_flush(WorkloadGroupPtr wg) {
+void MemTableMemoryLimiter::_handle_memtable_flush(WorkloadGroupPtr wg,
+                                                   std::function<bool()> cancel_check) {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     do {
@@ -165,6 +172,11 @@ void MemTableMemoryLimiter::_handle_memtable_flush(WorkloadGroupPtr wg) {
             if (st == std::cv_status::timeout) {
                 LOG(INFO) << "timeout when waiting for memory hard limit end, try again";
             }
+        }
+        if (cancel_check && cancel_check()) {
+            LOG(INFO) << "cancelled when waiting for memtable flush, wg: "
+                      << (wg == nullptr ? "null" : wg->debug_string());
+            return;
         }
         first = false;
         int64_t need_flush = _need_flush();
