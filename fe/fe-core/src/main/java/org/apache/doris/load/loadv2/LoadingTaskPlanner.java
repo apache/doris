@@ -223,7 +223,9 @@ public class LoadingTaskPlanner {
         olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, singleTabletLoadPerSink, strictMode,
                 txnTimeout);
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
-
+        if (isPartialUpdate) {
+            olapTableSink.setPartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
+        }
         olapTableSink.complete(analyzer);
 
         // 3. Plan fragment
