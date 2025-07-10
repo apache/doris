@@ -84,9 +84,11 @@ public class ListPartitionPrunerV2Test {
             @Mock
             public List<String> listPartitionNames(String dbName, String tblName) {
                 // Mock is used here to represent the existence of a partition in the original table
-                return new ArrayList<String>() {{
-                    add("c1=1.234000");
-                }};
+                return new ArrayList<String>() {
+                    {
+                        add("c1=1.234000");
+                    }
+                };
             }
         };
 
