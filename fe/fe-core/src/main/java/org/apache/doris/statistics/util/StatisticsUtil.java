@@ -252,13 +252,6 @@ public class StatisticsUtil {
         }
     }
 
-    public static void analyze(StatementBase statementBase) throws UserException {
-        try (AutoCloseConnectContext r = buildConnectContext(false)) {
-            Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), r.connectContext);
-            statementBase.analyze(analyzer);
-        }
-    }
-
     public static LiteralExpr readableValue(Type type, String columnValue) throws AnalysisException {
         Preconditions.checkArgument(type.isScalarType());
         ScalarType scalarType = (ScalarType) type;

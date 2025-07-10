@@ -326,7 +326,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         initColumnNameMap();
     }
 
-    public void parseStmt(Analyzer analyzer) throws IOException {
+    public void parseStmt() throws IOException {
         // analyze define stmt
         if (defineStmt == null) {
             return;

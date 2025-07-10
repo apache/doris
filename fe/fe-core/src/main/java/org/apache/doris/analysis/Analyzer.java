@@ -208,29 +208,6 @@ public class Analyzer {
         inferPredicateState = new InferPredicateState();
     }
 
-    /**
-     * Analyzer constructor for nested select block. Catalog and DescriptorTable
-     * is inherited from the parentAnalyzer.
-     *
-     * @param parentAnalyzer the analyzer of the enclosing select block
-     */
-    public Analyzer(Analyzer parentAnalyzer) {
-        this(parentAnalyzer, parentAnalyzer.globalState, parentAnalyzer.inferPredicateState);
-        if (parentAnalyzer.isSubquery) {
-            this.isSubquery = true;
-        }
-    }
-
-    /**
-     * Analyzer constructor for nested select block with the specified global state.
-     */
-    private Analyzer(Analyzer parentAnalyzer, GlobalState globalState, InferPredicateState inferPredicateState) {
-        ancestors =  Lists.newArrayList(parentAnalyzer);
-        ancestors.addAll(parentAnalyzer.ancestors);
-        this.globalState = globalState;
-        this.inferPredicateState = new InferPredicateState(inferPredicateState);
-    }
-
     public void setRootStatementClazz(Class<? extends StatementBase> statementClazz) {
         globalState.rootStatementClazz = statementClazz;
     }
