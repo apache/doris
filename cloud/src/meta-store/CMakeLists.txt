@@ -11,4 +11,5 @@ add_library(MetaStore STATIC
     keys.cpp
     mem_txn_kv.cpp
     txn_kv.cpp
+    versioned_value.cpp
 )

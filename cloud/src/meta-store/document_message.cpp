@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string_view>
 
 #include "common/config.h"
 #include "common/util.h"

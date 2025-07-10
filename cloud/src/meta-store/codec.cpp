@@ -148,4 +148,13 @@ int decode_versionstamp(std::string_view* in, Versionstamp* vs) {
     return 0;
 }
 
+int decode_tailing_versionstamp(std::string_view* in, Versionstamp* vs) {
+    if (in->size() < 11) return -1; // Insufficient length to decode versionstamp
+    size_t pos = in->size() - 11;
+    if (in->at(pos) != EncodingTag::VERSIONSTAMP_TAG) return -2; // Invalid tag
+    *vs = reinterpret_cast<const uint8_t*>(in->data() + pos + 1);
+    in->remove_suffix(11);
+    return 0;
+}
+
 } // namespace doris::cloud
