@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.types.JsonType;
@@ -45,7 +46,9 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
                 matchesType(JsonArray.class).then(JsonFunctionRewrite::rewriteJsonArrayArguments)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_ARRAY),
                 matchesType(JsonArrayIgnoreNull.class).then(JsonFunctionRewrite::rewriteJsonArrayArguments)
-                        .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_ARRAY_IGNORE_NULL)
+                        .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_ARRAY_IGNORE_NULL),
+                matchesType(JsonObject.class).then(JsonFunctionRewrite::rewriteJsonObjectArguments)
+                        .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_OBJECT)
         );
     }
 
@@ -58,6 +61,22 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
                 convectedChildren.add(new ToJson(child));
             }
         });
+        return function.withChildren(convectedChildren);
+    }
+
+    private static Expression rewriteJsonObjectArguments(JsonObject function) {
+        List<Expression> convectedChildren = new ArrayList<Expression>();
+        List<Expression> children = function.children();
+        for (int i = 0; i < children.size(); i++) {
+            Expression child = children.get(i);
+            if (i % 2 == 0) {
+                convectedChildren.add(child);
+            } else if (child.getDataType() instanceof JsonType) {
+                convectedChildren.add(child);
+            } else {
+                convectedChildren.add(new ToJson(child));
+            }
+        }
         return function.withChildren(convectedChildren);
     }
 

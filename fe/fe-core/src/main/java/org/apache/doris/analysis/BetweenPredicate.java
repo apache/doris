@@ -22,7 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.gson.annotations.SerializedName;
@@ -64,23 +63,6 @@ public class BetweenPredicate extends Predicate {
 
     public boolean isNotBetween() {
         return isNotBetween;
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        if (children.get(0) instanceof Subquery
-                && (children.get(1) instanceof Subquery || children.get(2) instanceof Subquery)) {
-            throw new AnalysisException("Comparison between subqueries is not "
-                    + "supported in a BETWEEN predicate: " + toSql());
-        }
-        // if children has subquery, it will be written and reanalyzed in the future.
-        if (children.get(0) instanceof Subquery
-                || children.get(1) instanceof Subquery
-                || children.get(2) instanceof Subquery) {
-            return;
-        }
-        analyzer.castAllToCompatibleType(children);
     }
 
     @Override

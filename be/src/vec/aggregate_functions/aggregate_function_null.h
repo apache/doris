@@ -204,7 +204,9 @@ public:
              Arena* arena) const override {
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
-        if (!column->is_null_at(row_num)) {
+        if (column->is_null_at(row_num)) {
+            this->null_count++;
+        } else {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add(this->nested_place(place), &nested_column, row_num, arena);

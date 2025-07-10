@@ -49,7 +49,6 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -683,12 +682,6 @@ public class TypeCoercionUtils {
         // check
         boundFunction.checkLegalityBeforeTypeCoercion();
 
-        // TODO: if we have other functions need to add argument after bind and before coercion,
-        //  we need to use a new framework to do this.
-        // this moved from translate phase to here, because we need to add the type info before cast all args to string
-        if (boundFunction instanceof JsonObject) {
-            boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction);
-        }
         if (boundFunction instanceof JsonInsert
                 || boundFunction instanceof JsonReplace
                 || boundFunction instanceof JsonSet) {
@@ -1715,45 +1708,6 @@ public class TypeCoercionUtils {
         }
 
         return Optional.empty();
-    }
-
-    /**
-     * add json type info as the last argument of the function.
-     *
-     * @param function function need to add json type info
-     * @return function already processed
-     */
-    public static BoundFunction fillJsonTypeArgument(BoundFunction function) {
-        List<Expression> arguments = function.getArguments();
-        try {
-            List<Expression> newArguments = Lists.newArrayList();
-            StringBuilder jsonTypeStr = new StringBuilder();
-            for (int i = 0; i < arguments.size(); i++) {
-                Expression argument = arguments.get(i);
-                Type type = argument.getDataType().toCatalogDataType();
-                int jsonType = FunctionCallExpr.computeJsonDataType(type);
-                jsonTypeStr.append(jsonType);
-
-                if (type.isNull()) {
-                    if ((i & 1) == 0) {
-                        throw new AnalysisException(function.getName() + " key can't be NULL: " + function.toSql());
-                    }
-                    // Not to return NULL directly, so save string, but flag is '0'
-                    newArguments.add(new StringLiteral("NULL"));
-                } else {
-                    newArguments.add(argument);
-                }
-            }
-            if (arguments.isEmpty()) {
-                newArguments.add(new StringLiteral(""));
-            } else {
-                // add json type string to the last
-                newArguments.add(new StringLiteral(jsonTypeStr.toString()));
-            }
-            return (BoundFunction) function.withChildren(newArguments);
-        } catch (Throwable t) {
-            throw new AnalysisException(t.getMessage());
-        }
     }
 
     /**
