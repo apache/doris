@@ -145,7 +145,7 @@ public class TrinoConnectorCache {
             LOG.warn("failed to create trino connector", e);
             throw new RuntimeException(e);
         } finally {
-            // 确保线程池关闭
+            // Ensure thread pool shutdown
             if (!executorService.isShutdown()) {
                 executorService.shutdownNow();
             }
