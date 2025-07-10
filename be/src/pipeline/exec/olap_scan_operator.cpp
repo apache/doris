@@ -514,7 +514,8 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
     _read_sources.resize(_scan_ranges.size());
 
     if (config::is_cloud_mode()) {
-        if (_cloud_tablet_dependency->is_blocked_by(nullptr) != nullptr) {
+        if (!_cloud_tablet_dependency &&
+            _cloud_tablet_dependency->is_blocked_by(nullptr) != nullptr) {
             // Remote tablet still in-flight.
             return Status::OK();
         }
