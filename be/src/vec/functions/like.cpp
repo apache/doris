@@ -905,14 +905,12 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
             state->search_state.hs_database.reset();
             state->search_state.hs_scratch.reset();
 
-            std::unique_ptr<re2::RE2> re;
             std::string error_str;
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
-                                                     re);
+                                                     state->search_state.regex);
             if (!st) {
                 return Status::InternalError(error_str);
             }
-            state->search_state.regex = std::move(re);
         }
 
         state->function = constant_regex_fn;
@@ -997,14 +995,12 @@ Status FunctionRegexpLike::open(FunctionContext* context,
                 // reset hs_database to nullptr to indicate not use hyperscan
                 state->search_state.hs_database.reset();
                 state->search_state.hs_scratch.reset();
-                std::unique_ptr<re2::RE2> re;
                 std::string error_str;
                 bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(),
-                                                         StringRef(), re);
+                                                         StringRef(), state->search_state.regex);
                 if (!st) {
                     return Status::InternalError(error_str);
                 }
-                state->search_state.regex = std::move(re);
             }
             state->function = constant_regex_fn;
             state->scalar_function = constant_regex_fn_scalar;
