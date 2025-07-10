@@ -33,6 +33,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
@@ -85,6 +86,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
     private TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     private int skipLines = 0;
     private boolean enableProfile = false;
@@ -313,6 +315,11 @@ public class StreamLoadTask implements LoadTaskInfo {
     }
 
     @Override
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return partialUpdateNewKeyPolicy;
+    }
+
+    @Override
     public boolean isMemtableOnSinkNode() {
         return memtableOnSinkNode;
     }
@@ -475,6 +482,9 @@ public class StreamLoadTask implements LoadTaskInfo {
             } else {
                 uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
             }
+        }
+        if (request.isSetPartialUpdateNewKeyPolicy()) {
+            partialUpdateNewKeyPolicy = request.getPartialUpdateNewKeyPolicy();
         }
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();

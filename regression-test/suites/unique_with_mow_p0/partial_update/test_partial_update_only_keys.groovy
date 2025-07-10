@@ -42,19 +42,18 @@ suite("test_partial_update_only_keys", "p0") {
             qt_sql """select * from ${tableName} order by k;"""
             // new rows will be appended
             sql "set enable_unique_key_partial_update=true;"
-            sql "set enable_insert_strict=false;"
             sql "sync"
             sql "insert into ${tableName}(k) values(0),(1),(4),(5),(6);"
             qt_sql """select * from ${tableName} order by k;"""
 
-            // fail if has new rows
-            sql "set enable_insert_strict=true;"
+            // fail if has new rows when partial_update_new_key_behavior=ERROR
+            sql """set partial_update_new_key_behavior="ERROR";"""
             sql "sync"
             sql "insert into ${tableName}(k) values(0),(1),(4),(5),(6);"
             qt_sql """select * from ${tableName} order by k;"""
             test {
                 sql "insert into ${tableName}(k) values(0),(1),(10),(11);"
-                exception "Insert has filtered data in strict mode"
+                exception "[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR"
             }
             qt_sql """select * from ${tableName} order by k;"""
         }
