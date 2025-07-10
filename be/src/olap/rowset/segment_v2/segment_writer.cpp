@@ -50,6 +50,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant_stats_calculator.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/storage_engine.h"
@@ -318,6 +319,10 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     }
 
     RETURN_IF_ERROR(_create_writers(_tablet_schema, col_ids));
+
+    // Initialize variant statistics calculator
+    _variant_stats_calculator =
+            std::make_unique<VariantStatsCaculator>(&_footer, _tablet_schema, col_ids);
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
@@ -818,10 +823,10 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         }
         RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
                                                     converted_result.second->get_data(), num_rows));
-
-        // caculate stats for variant type
-        // TODO it's tricky here, maybe come up with a better idea
-        _maybe_calculate_variant_stats(block, id, cid, row_pos, num_rows);
+    }
+    if (_opts.write_type == DataWriteType::TYPE_COMPACTION) {
+        RETURN_IF_ERROR(
+                _variant_stats_calculator->calculate_variant_stats(block, row_pos, num_rows));
     }
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
@@ -1335,57 +1340,6 @@ inline bool SegmentWriter::_is_mow() {
 
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_idxes().empty();
-}
-
-// Compaction will extend sparse column and is visible during read and write, in order to
-// persit variant stats info, we should do extra caculation during flushing segment, otherwise
-// the info is lost
-void SegmentWriter::_maybe_calculate_variant_stats(
-        const vectorized::Block* block,
-        size_t id,  // id is the offset of the column in the block
-        size_t cid, // cid is the column id in TabletSchema
-        size_t row_pos, size_t num_rows) {
-    const auto& tablet_column = _tablet_schema->columns()[cid];
-    // Only process sub columns and sparse columns during compaction
-    if (_tablet_schema->need_record_variant_extended_schema() || !tablet_column->has_path_info() ||
-        !tablet_column->path_info_ptr()->need_record_stats() ||
-        _opts.write_type != DataWriteType::TYPE_COMPACTION) {
-        return;
-    }
-
-    // Get parent column's unique ID for matching
-    int64_t parent_unique_id = tablet_column->parent_unique_id();
-
-    // Find matching column in footer
-    for (auto& column : *_footer.mutable_columns()) {
-        // Check if this is the target sparse column
-        if (!column.has_column_path_info() ||
-            column.column_path_info().parrent_column_unique_id() != parent_unique_id) {
-            continue;
-        }
-
-        // sprse column from variant column
-        if (column.column_path_info().path().ends_with(SPARSE_COLUMN_PATH)) {
-            // Found matching column, calculate statistics
-            auto* stats = column.mutable_variant_statistics();
-            vectorized::schema_util::calculate_variant_stats(*block->get_by_position(id).column,
-                                                             stats, row_pos, num_rows);
-            VLOG_DEBUG << "sparse stats columns " << stats->sparse_column_non_null_size_size();
-            break;
-        }
-        // sub column from variant column
-        else if (column.column_path_info().path() == tablet_column->path_info_ptr()->get_path()) {
-            const auto& null_data = assert_cast<const vectorized::ColumnNullable&>(
-                                            *block->get_by_position(id).column)
-                                            .get_null_map_data();
-            const int8_t* start = (int8_t*)null_data.data() + row_pos;
-            // none null size in block + current none null size
-            size_t res = simd::count_zero_num(start, num_rows) + column.none_null_size();
-            column.set_none_null_size(res);
-            VLOG_DEBUG << "none null size " << res << " path: " << column.column_path_info().path();
-            break;
-        }
-    }
 }
 
 } // namespace segment_v2
