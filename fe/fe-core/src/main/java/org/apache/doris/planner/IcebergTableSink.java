@@ -21,7 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -146,7 +146,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         }
 
         if (insertCtx.isPresent()) {
-            BaseExternalTableInsertCommandContext context = (BaseExternalTableInsertCommandContext) insertCtx.get();
+            IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
             tSink.setOverwrite(context.isOverwrite());
         }
         tDataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);

@@ -137,7 +137,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
-                    Optional.of(labelName), Optional.empty(), Optional.empty()));
+                    Optional.of(labelName), Optional.empty(), Optional.empty(), Optional.empty()));
         } else {
             throw new AnalysisException("Multi insert into statements are unsupported.");
         }
