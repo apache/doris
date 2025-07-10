@@ -46,7 +46,7 @@ public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
     }
 
     public void setInlineViewDef(String querySql) {

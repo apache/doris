@@ -46,7 +46,7 @@ public class PartitionRenameClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(partitionName)) {
             throw new AnalysisException("Partition name is not set");
         }

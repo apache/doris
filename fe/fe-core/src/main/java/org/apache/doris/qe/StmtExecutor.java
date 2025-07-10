@@ -20,7 +20,6 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.AnalyzeDBStmt;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.ExportStmt;
@@ -214,7 +213,6 @@ public class StmtExecutor {
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
-    private Analyzer analyzer;
     private ProfileType profileType = ProfileType.QUERY;
 
     @Setter
@@ -1000,8 +998,7 @@ public class StmtExecutor {
                 //     in plan phase.
                 // t3: observer fe receive editlog creating the table from the master fe
                 syncJournalIfNeeded();
-                analyzer = new Analyzer(context.getEnv(), context);
-                parsedStmt.analyze(analyzer);
+                parsedStmt.analyze();
             }
             parsedStmt.checkPriv();
             // sql/sqlHash block
@@ -1206,8 +1203,6 @@ public class StmtExecutor {
             return;
         }
 
-        analyzer = new Analyzer(context.getEnv(), context);
-
         // convert unified load stmt here
         if (parsedStmt instanceof UnifiedLoadStmt) {
             // glue code for unified load
@@ -1223,7 +1218,7 @@ public class StmtExecutor {
         }
 
         try {
-            parsedStmt.analyze(analyzer);
+            parsedStmt.analyze();
         } catch (UserException e) {
             throw e;
         } catch (Exception e) {

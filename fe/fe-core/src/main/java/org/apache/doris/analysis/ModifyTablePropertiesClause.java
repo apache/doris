@@ -78,7 +78,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }

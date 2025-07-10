@@ -81,7 +81,7 @@ public class AddColumnClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, DdlException {
+    public void analyze() throws AnalysisException, DdlException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }

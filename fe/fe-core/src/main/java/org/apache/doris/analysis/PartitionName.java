@@ -55,7 +55,7 @@ public class PartitionName {
      * 2. t1.p1 AS t1
      * 3. t1.p1 AS t1.p2
      */
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name is null");
         }

@@ -998,7 +998,7 @@ public class NereidsDataDescription {
         analyzeFilePaths();
 
         if (partitionNames != null) {
-            partitionNames.analyze(null);
+            partitionNames.analyze();
         }
 
         analyzeColumns();

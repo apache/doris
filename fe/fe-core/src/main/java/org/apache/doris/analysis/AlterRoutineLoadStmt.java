@@ -119,10 +119,10 @@ public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser
     public AbstractDataSourceProperties dataSourceProperties;
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
 
-        labelName.analyze(analyzer);
+        labelName.analyze();
         FeNameFormat.checkCommonName(NAME_TYPE, labelName.getLabelName());
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();

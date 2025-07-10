@@ -37,8 +37,8 @@ public class DropStageStmt extends DdlStmt implements NotFallbackInParser {
     private final String stageName;
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         // todo(copy into): check drop stage permission
         // if (!Env.getCurrentEnv().getAuth()
         //         .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), stageName, PrivPredicate.ADMIN,

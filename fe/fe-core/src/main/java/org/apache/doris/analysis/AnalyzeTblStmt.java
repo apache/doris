@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -119,21 +118,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt implements NotFallbackInParser {
 
     @Override
     @SuppressWarnings({"rawtypes"})
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        tableName.analyze(analyzer);
-
-        String catalogName = tableName.getCtl();
-        String dbName = tableName.getDb();
-        String tblName = tableName.getTbl();
-        CatalogIf catalog = analyzer.getEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(catalogName);
-        this.catalogId = catalog.getId();
-        DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
-        dbId = db.getId();
-        table = db.getTableOrAnalysisException(tblName);
-        isAllColumns = columnNames == null;
-        check();
+    public void analyze() throws UserException {
+        super.analyze();
+        tableName.analyze();
     }
 
     public void check() throws AnalysisException {
@@ -324,7 +311,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt implements NotFallbackInParser {
     }
 
     public Database getDb() throws AnalysisException {
-        return analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbId);
+        return null;
     }
 
     public boolean isAllColumns() {
