@@ -120,9 +120,14 @@ std::unique_ptr<VersionedRangeGetIterator> versioned_get_range(
         const VersionedRangeGetOptions& opts);
 
 // Remove a versioned document from the transaction by key prefix and versionstamp.
+//
+// The key_prefix is the encode_xxx_keys function result, which is the prefix of the key
+// without the versionstamp. The versionstamp is the specific version of the document to remove.
 void versioned_remove(Transaction* txn, std::string_view key_prefix, Versionstamp v);
 
 // Remove a versioned document from the transaction by key.
+//
+// The key must be the full key including the versionstamp.
 void versioned_remove(Transaction* txn, std::string_view key);
 
 // Put a versioned value into the transaction with a specific versionstamp.
@@ -137,12 +142,12 @@ bool versioned_put(Transaction* txn, std::string_view key_prefix, std::string_vi
 // The versionstamp of the document will be returned in `v`.
 TxnErrorCode versioned_get(Transaction* txn, std::string_view key_prefix,
                            Versionstamp snapshot_version, Versionstamp* v, std::string* value,
-                           bool snapshot = true);
+                           bool snapshot = false);
 
 // Get a versioned value from the transaction by key prefix and the latest versionstamp.
 static inline TxnErrorCode versioned_get(Transaction* txn, std::string_view key_prefix,
                                          Versionstamp* v, std::string* value,
-                                         bool snapshot = true) {
+                                         bool snapshot = false) {
     return versioned_get(txn, key_prefix, Versionstamp::max(), v, value, snapshot);
 }
 
