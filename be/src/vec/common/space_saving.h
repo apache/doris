@@ -88,15 +88,15 @@ public:
                 : key(k), hash(h), count(c), error(e) {}
 
         void write(BufferWritable& wb) const {
-            write_binary(key, wb);
-            write_var_uint(count, wb);
-            write_var_uint(error, wb);
+            wb.write_binary(key);
+            wb.write_var_uint(count);
+            wb.write_var_uint(error);
         }
 
         void read(BufferReadable& rb) {
-            read_binary(key, rb);
-            read_var_uint(count, rb);
-            read_var_uint(error, rb);
+            rb.read_binary(key);
+            rb.read_var_uint(count);
+            rb.read_var_uint(error);
         }
 
         bool operator>(const Counter& b) const {
@@ -231,21 +231,21 @@ public:
     }
 
     void write(BufferWritable& wb) const {
-        write_var_uint(size(), wb);
+        wb.write_var_uint(size());
         for (auto& counter : counter_list) {
             counter->write(wb);
         }
 
-        write_var_uint(alpha_map.size(), wb);
+        wb.write_var_uint(alpha_map.size());
         for (auto alpha : alpha_map) {
-            write_var_uint(alpha, wb);
+            wb.write_var_uint(alpha);
         }
     }
 
     void read(BufferReadable& rb) {
         destroy_elements();
         uint64_t count = 0;
-        read_var_uint(count, rb);
+        rb.read_var_uint(count);
 
         for (UInt64 i = 0; i < count; ++i) {
             std::unique_ptr counter = std::make_unique<Counter>();
@@ -260,10 +260,10 @@ public:
     // Reads the alpha map data from the provided readable buffer.
     void read_alpha_map(BufferReadable& rb) {
         uint64_t alpha_size = 0;
-        read_var_uint(alpha_size, rb);
+        rb.read_var_uint(alpha_size);
         for (size_t i = 0; i < alpha_size; ++i) {
             uint64_t alpha = 0;
-            read_var_uint(alpha, rb);
+            rb.read_var_uint(alpha);
             alpha_map.push_back(alpha);
         }
     }

@@ -137,33 +137,33 @@ struct AggregateFunctionTopNData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(top_num, buf);
-        write_binary(capacity, buf);
+        buf.write_binary(top_num);
+        buf.write_binary(capacity);
 
         uint64_t element_number = std::min(capacity, (uint64_t)counter_map.size());
-        write_binary(element_number, buf);
+        buf.write_binary(element_number);
 
         auto counter_vector = get_remain_vector();
 
         for (auto i = 0; i < element_number; i++) {
             auto element = counter_vector[i];
-            write_binary(element.second, buf);
-            write_binary(element.first, buf);
+            buf.write_binary(element.second);
+            buf.write_binary(element.first);
         }
     }
 
     void read(BufferReadable& buf) {
-        read_binary(top_num, buf);
-        read_binary(capacity, buf);
+        buf.read_binary(top_num);
+        buf.read_binary(capacity);
 
         uint64_t element_number = 0;
-        read_binary(element_number, buf);
+        buf.read_binary(element_number);
 
         counter_map.clear();
         std::pair<DataType, uint64_t> element;
         for (auto i = 0; i < element_number; i++) {
-            read_binary(element.first, buf);
-            read_binary(element.second, buf);
+            buf.read_binary(element.first);
+            buf.read_binary(element.second);
             counter_map.insert(element);
         }
     }

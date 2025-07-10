@@ -82,31 +82,31 @@ struct PercentileApproxState {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(init_flag, buf);
+        buf.write_binary(init_flag);
         if (!init_flag) {
             return;
         }
 
-        write_binary(target_quantile, buf);
-        write_binary(compressions, buf);
+        buf.write_binary(target_quantile);
+        buf.write_binary(compressions);
         uint32_t serialize_size = digest->serialized_size();
         std::string result(serialize_size, '0');
         DCHECK(digest.get() != nullptr);
         digest->serialize((uint8_t*)result.c_str());
 
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(init_flag, buf);
+        buf.read_binary(init_flag);
         if (!init_flag) {
             return;
         }
 
-        read_binary(target_quantile, buf);
-        read_binary(compressions, buf);
+        buf.read_binary(target_quantile);
+        buf.read_binary(compressions);
         std::string str;
-        read_binary(str, buf);
+        buf.read_binary(str);
         digest = TDigest::create_unique(compressions);
         digest->unserialize((uint8_t*)str.c_str());
     }
@@ -323,14 +323,14 @@ struct PercentileState {
     bool inited_flag = false;
 
     void write(BufferWritable& buf) const {
-        write_binary(inited_flag, buf);
+        buf.write_binary(inited_flag);
         if (!inited_flag) {
             return;
         }
         int size_num = vec_quantile.size();
-        write_binary(size_num, buf);
+        buf.write_binary(size_num);
         for (const auto& quantile : vec_quantile) {
-            write_binary(quantile, buf);
+            buf.write_binary(quantile);
         }
         for (auto& counts : vec_counts) {
             counts.serialize(buf);
@@ -338,16 +338,16 @@ struct PercentileState {
     }
 
     void read(BufferReadable& buf) {
-        read_binary(inited_flag, buf);
+        buf.read_binary(inited_flag);
         if (!inited_flag) {
             return;
         }
         int size_num = 0;
-        read_binary(size_num, buf);
+        buf.read_binary(size_num);
         double data = 0.0;
         vec_quantile.clear();
         for (int i = 0; i < size_num; ++i) {
-            read_binary(data, buf);
+            buf.read_binary(data);
             vec_quantile.emplace_back(data);
         }
         vec_counts.clear();

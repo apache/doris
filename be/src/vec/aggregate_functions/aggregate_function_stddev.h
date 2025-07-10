@@ -49,15 +49,15 @@ struct BaseData {
     virtual ~BaseData() = default;
 
     void write(BufferWritable& buf) const {
-        write_binary(mean, buf);
-        write_binary(m2, buf);
-        write_binary(count, buf);
+        buf.write_binary(mean);
+        buf.write_binary(m2);
+        buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(mean, buf);
-        read_binary(m2, buf);
-        read_binary(count, buf);
+        buf.read_binary(mean);
+        buf.read_binary(m2);
+        buf.read_binary(count);
     }
 
     void reset() {
