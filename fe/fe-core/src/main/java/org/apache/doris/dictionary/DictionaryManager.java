@@ -184,10 +184,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             // 3. Log the creation operation
             Env.getCurrentEnv().getEditLog().logCreateDictionary(dictionary);
 
-            if (!dictionary.hasNewerSourceVersion()) {
-                // shouldn't be. the data version in dictionary should be zero now.
-                LOG.warn("Dictionary {} is too new when creating", dictionary.getName());
-            }
             submitDataLoad(dictionary, false);
             return dictionary;
         } finally {
@@ -507,7 +503,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
 
         // commit succeed. update metadata.
-        dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL);
+        if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL)) {
+            LOG.warn("Dictionary {} status changed to {} after commit", dictionary.getName(),
+                    dictionary.getStatus().name());
+            return;
+        }
         dictionary.updateLastUpdateTime();
         dictionary.updateSrcVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
         if (ctx.getStatementContext().isPartialLoadDictionary()) {
