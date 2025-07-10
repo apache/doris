@@ -66,6 +66,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
+    private DataProperty.MediumAllocationPolicy mediumAllocationPolicy = null;
     private BinlogConfig binlogConfig;
 
     private TStorageMedium storageMedium = null;
@@ -154,6 +155,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildStorageMedium();
                 buildStoragePolicy();
                 buildIsBeingSynced();
+                buildMediumAllocationPolicy();
                 buildCompactionPolicy();
                 buildTimeSeriesCompactionGoalSizeMbytes();
                 buildTimeSeriesCompactionFileCountThreshold();
@@ -472,6 +474,50 @@ public class TableProperty implements GsonPostProcessable {
         return isBeingSynced;
     }
 
+    public TableProperty buildMediumAllocationPolicy() {
+        // Handle upgrade compatibility: if the property doesn't exist, set value for old tables
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_POLICY)) {
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_POLICY,
+                        DataProperty.MediumAllocationPolicy.STRICT.getValue());
+                LOG.warn("Auto-assigned medium_allocation_policy 'strict' for table with storage_medium");
+            } else {
+                properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_POLICY,
+                        DataProperty.MediumAllocationPolicy.ADAPTIVE.getValue());
+                LOG.warn("Auto-assigned medium_allocation_policy 'adaptive' for table without storage_medium");
+            }
+        }
+
+        String mediumAllocationPolicyValue = properties.get(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_POLICY);
+        try {
+            mediumAllocationPolicy = DataProperty.MediumAllocationPolicy.fromString(mediumAllocationPolicyValue);
+
+            // Validate consistency with storage medium
+            TStorageMedium storageMedium = getStorageMedium();
+            PropertyAnalyzer.validateMediumAllocationPolicy(mediumAllocationPolicy, storageMedium);
+
+            LOG.info("Successfully built medium allocation policy: '{}' for table", mediumAllocationPolicyValue);
+
+        } catch (AnalysisException e) {
+            LOG.error("Failed to build medium allocation policy from value: '{}'. Error: {}",
+                    mediumAllocationPolicyValue, e.getMessage());
+            throw new RuntimeException("Invalid medium_allocation_policy configuration", e);
+        }
+        return this;
+    }
+
+    public DataProperty.MediumAllocationPolicy getMediumAllocationPolicy() {
+        if (mediumAllocationPolicy == null) {
+            buildMediumAllocationPolicy();
+        }
+        return mediumAllocationPolicy;
+    }
+
+    public void setMediumAllocationPolicy(DataProperty.MediumAllocationPolicy mediumAllocationPolicy) {
+        modifyTableProperties(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_POLICY, mediumAllocationPolicy.getValue());
+        this.mediumAllocationPolicy = mediumAllocationPolicy;
+    }
+
     public void removeInvalidProperties() {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
         storagePolicy = "";
@@ -731,6 +777,7 @@ public class TableProperty implements GsonPostProcessable {
         buildCompressionType();
         buildStoragePolicy();
         buildIsBeingSynced();
+        buildMediumAllocationPolicy();
         buildBinlogConfig();
         buildEnableLightSchemaChange();
         buildStoreRowColumn();
