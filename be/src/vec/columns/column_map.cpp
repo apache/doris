@@ -246,7 +246,7 @@ size_t ColumnMap::deserialize_impl(const char* pos) {
     }
 
     for (size_t i = 0; i < array_size; ++i) {
-        sz += get_keys().deserialize_impl(pos + sz);
+        sz += get_values().deserialize_impl(pos + sz);
     }
 
     get_offsets().push_back(get_offsets().back() + array_size);
