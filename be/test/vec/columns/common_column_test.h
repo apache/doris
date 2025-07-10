@@ -3254,12 +3254,6 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
         auto wrapper = ColumnNullable::create(std::move(cloned_target_column), std::move(null_col));
         auto target_column = wrapper->get_nested_column_ptr();
         wrapper->serialize_vec(input_keys.data(), rows);
-        for (size_t i = 0; i != rows; ++i) {
-            UInt8 val = *reinterpret_cast<const UInt8*>(input_keys[i].data);
-            EXPECT_EQ(val, 0);
-            input_keys[i].data += sizeof(val);
-            input_keys[i].size -= sizeof(val);
-        }
         auto deser_column_wrapper = wrapper->clone_empty();
         deser_column_wrapper->deserialize_vec(input_keys.data(), rows);
         EXPECT_EQ(deser_column_wrapper->size(), rows);
@@ -3309,12 +3303,21 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
                 cloned_target_column = source_column->clone();
                 cloned_target_column->replace_column_null_data(null_map.data());
             }
+            cloned_target_column =
+                    ColumnNullable::create(std::move(cloned_target_column), std::move(null_col));
+            target_column = ((ColumnNullable*)cloned_target_column.get())->get_nested_column_ptr();
         } else {
             cloned_target_column = source_column->clone();
+            if (cloned_target_column->is_nullable()) {
+                target_column =
+                        ((ColumnNullable*)cloned_target_column.get())->get_nested_column_ptr();
+            } else {
+                target_column = std::move(cloned_target_column);
+            }
         }
-        col_vec_target = assert_cast<ColumnVecType*>(cloned_target_column.get());
+        col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
 
-        size_t max_one_row_byte_size = cloned_target_column->get_max_row_byte_size();
+        size_t max_one_row_byte_size = target_column->get_max_row_byte_size();
         if (test_null_map) {
             max_one_row_byte_size += sizeof(NullMap::value_type);
         }
@@ -3332,23 +3335,14 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
         MutableColumnPtr deser_column;
         MutableColumnPtr deser_column_wrapper;
         if (test_null_map) {
-            auto wrapper =
-                    ColumnNullable::create(std::move(cloned_target_column), std::move(null_col));
-            wrapper->serialize_vec(input_keys.data(), rows);
-            target_column = wrapper->get_nested_column_ptr();
-            deser_column_wrapper = wrapper->clone_empty();
-            deser_column = wrapper->get_nested_column_ptr();
+            cloned_target_column->serialize_vec(input_keys.data(), rows);
+            deser_column_wrapper = cloned_target_column->clone_empty();
+            deser_column = ((ColumnNullable*)deser_column_wrapper.get())->get_nested_column_ptr();
         } else {
             target_column->serialize_vec(input_keys.data(), rows);
             deser_column = source_column->clone_empty();
         }
         if (test_null_map) {
-            for (size_t i = 0; i != rows; ++i) {
-                UInt8 val = *reinterpret_cast<const UInt8*>(input_keys[i].data);
-                EXPECT_EQ(null_map[i], val);
-                input_keys[i].data += sizeof(val);
-                input_keys[i].size -= sizeof(val);
-            }
             deser_column_wrapper->deserialize_vec(input_keys.data(), rows);
         } else {
             deser_column->deserialize_vec(input_keys.data(), rows);
