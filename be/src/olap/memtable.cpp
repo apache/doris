@@ -168,7 +168,7 @@ MemTable::~MemTable() {
             }
         }
 
-        _arena.clear();
+        _arena.clear(true);
         _vec_row_comparator.reset();
         _row_in_blocks.reset();
         _agg_functions.clear();
