@@ -93,7 +93,9 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
-    { TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err); }
+    {
+        TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err);
+    }
     std::string instance_id;
     if (!err.empty()) {
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
@@ -290,7 +292,9 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
-        { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
+        {
+            TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
+        }
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "not found";
@@ -2964,6 +2968,45 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
     return true;
 }
 
+static bool clear_all_mow_tablet_job_keys(MetaServiceCode& code, std::string& msg,
+                                          std::stringstream& ss, std::unique_ptr<Transaction>& txn,
+                                          std::string& instance_id, int64_t table_id,
+                                          int64_t lock_id) {
+    std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
+    std::string key1 = mow_tablet_job_key({instance_id, table_id + 1, 0});
+    MowTabletJobPB mow_tablet_job;
+    std::unique_ptr<RangeGetIterator> it;
+    int64_t job_key_num = 0;
+    do {
+        TxnErrorCode err = txn->get(key0, key1, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "internal error, failed to get mow tablet job, err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return false;
+        }
+
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            if (!mow_tablet_job.ParseFromArray(v.data(), v.size())) [[unlikely]] {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse MowTabletJobPB";
+                return false;
+            }
+            LOG(INFO) << "remove mow tablet job lock. table_id=" << table_id
+                      << " lock_id=" << lock_id << " expiration=" << mow_tablet_job.expiration()
+                      << " key=" << hex(k);
+            txn->remove(k);
+            job_key_num++;
+        }
+        key0 = it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more());
+    LOG_INFO("clear {} mow tablet job keys, instance_id={}, table_id={}", job_key_num, instance_id,
+             table_id);
+    return true;
+}
+
 void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         google::protobuf::RpcController* controller,
         const GetDeleteBitmapUpdateLockRequest* request,
@@ -2973,6 +3016,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
     VLOG_DEBUG << "get delete bitmap update lock in v2 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     auto table_id = request->table_id();
+    bool urgent = request->has_urgent() && request->urgent();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     bool first_retry = true;
     int64_t retry = 0;
@@ -3040,7 +3084,25 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 msg = "failed to parse DeleteBitmapUpdateLockPB";
                 return;
             }
-            if (!is_job_delete_bitmap_lock_id(lock_info.lock_id())) {
+            if (urgent) {
+                DCHECK(request->lock_id() > 0);
+                lock_info.clear_initiators();
+                if (!clear_all_mow_tablet_job_keys(code, msg, ss, txn, instance_id, table_id,
+                                                   lock_info.lock_id())) {
+                    return;
+                }
+                std::string current_lock_msg =
+                        "original lock_id=" + std::to_string(lock_info.lock_id());
+                lock_info.set_lock_id(request->lock_id());
+                lock_info.set_expiration(expiration);
+                if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id, request->lock_id(),
+                                                       request->initiator(), lock_key, lock_info,
+                                                       current_lock_msg)) {
+                    return;
+                }
+                LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
+                          << " lock_id=" << request->lock_id();
+            } else if (!is_job_delete_bitmap_lock_id(lock_info.lock_id())) {
                 if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
                     LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
                               << lock_info.lock_id() << " table_id=" << table_id
@@ -3236,6 +3298,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         stats.del_counter += txn->num_del_keys();
     };
     auto table_id = request->table_id();
+    bool urgent = request->has_urgent() && request->urgent();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     DeleteBitmapUpdateLockPB lock_info;
@@ -3255,7 +3318,13 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
             msg = "failed to parse DeleteBitmapUpdateLockPB";
             return;
         }
-        if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
+        if (urgent) {
+            DCHECK(request->lock_id() > 0);
+            LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
+                      << " lock_id=" << request->lock_id()
+                      << "prev_lock_id=" << lock_info.lock_id();
+            lock_info.clear_initiators();
+        } else if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
             LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
                       << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
             lock_info.clear_initiators();
@@ -3480,6 +3549,11 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
+        return;
+    }
+    if (request->has_urgent() && request->urgent() && request->lock_id() < 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "only load can set urgent flag currently";
         return;
     }
     RPC_RATE_LIMIT(get_delete_bitmap_update_lock)

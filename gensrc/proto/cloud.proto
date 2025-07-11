@@ -1667,6 +1667,7 @@ message GetDeleteBitmapUpdateLockRequest {
     optional int64 expiration = 6;
     optional bool require_compaction_stats = 7 [default = false];
     repeated TabletIndexPB tablet_indexes = 8;
+    optional bool urgent = 9;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
