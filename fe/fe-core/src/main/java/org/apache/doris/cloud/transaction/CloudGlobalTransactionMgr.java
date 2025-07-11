@@ -950,6 +950,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int totalRetryTime = 0;
         String retryMsg = "";
         boolean res = false;
+        long startTime = System.currentTimeMillis();
         try {
             getPartitionInfo(mowTableList, tabletCommitInfos, lockContext);
             for (Map.Entry<Long, Set<Long>> entry : lockContext.getTableToPartitions().entrySet()) {
@@ -967,12 +968,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     tabletIndexBuilder.setTabletId(tabletId);
                     builder.addTabletIndexes(tabletIndexBuilder);
                 }
-                final GetDeleteBitmapUpdateLockRequest request = builder.build();
                 GetDeleteBitmapUpdateLockResponse response = null;
 
                 int retryTime = 0;
                 while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
                     try {
+                        long waitTime = System.currentTimeMillis() - startTime;
+                        boolean urgent = Config.enable_mow_load_force_take_ms_lock
+                                && waitTime > Config.mow_load_force_take_ms_lock_threshold_ms;
+                        builder.setUrgent(urgent);
+                        GetDeleteBitmapUpdateLockRequest request = builder.build();
                         response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("get delete bitmap lock, transactionId={}, Request: {}, Response: {}",
