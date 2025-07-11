@@ -1024,8 +1024,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
                     // don't sleep if it's urgent
                     if (!urgent) {
-                        // sleep random millis [20, 300] ms, avoid txn conflict
-                        int randomMillis = 20 + (int) (Math.random() * (300 - 20));
+                        long start = Config.mow_get_ms_lock_retry_backoff_start_ms;
+                        long end = Config.mow_get_ms_lock_retry_backoff_end_ms;
+                        long randomMillis = start + (long) (Math.random() * (end - start));
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("randomMillis:{}", randomMillis);
                         }
