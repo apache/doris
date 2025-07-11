@@ -3762,6 +3762,12 @@ public class Env {
             sb.append(olapTable.storagePageSize()).append("\"");
         }
 
+        // storage dict page size
+        if (olapTable.storageDictPageSize() != PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.storageDictPageSize()).append("\"");
+        }
+
         // skip inverted index on load
         if (olapTable.skipWriteIndexOnLoad()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");

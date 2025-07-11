@@ -55,8 +55,10 @@ Status BinaryDictPageBuilder::init() {
             &data_page_builder_ptr, _options));
     _data_page_builder.reset(data_page_builder_ptr);
     PageBuilderOptions dict_builder_options;
-    dict_builder_options.data_page_size =
-            std::min(_options.data_page_size, _options.dict_page_size);
+    // here the binary plain page is used to store the dictionary items so
+    // the data page size is set to the same as the dict page size
+    dict_builder_options.data_page_size = _options.dict_page_size;
+    dict_builder_options.dict_page_size = _options.dict_page_size;
     dict_builder_options.is_dict_page = true;
 
     PageBuilder* dict_builder_ptr = nullptr;
