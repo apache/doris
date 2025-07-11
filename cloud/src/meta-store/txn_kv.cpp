@@ -876,9 +876,16 @@ void FullRangeGetIterator::async_inner_get(std::string_view begin, std::string_v
 
 void FullRangeGetIterator::async_get_next_batch() {
     if (opts_.reverse) {
-        async_inner_get(begin_, inner_iter_->prev_end_key());
+        // Change the end key to the previous last key. The key selector will be
+        // FIRST_GREATER_OR_EQUAL, so we need to use the last key of the inner iterator as the
+        // end key, since the end key is exclusive.
+        opts_.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+        std::string_view end_key = inner_iter_->last_key();
+        async_inner_get(begin_, end_key);
     } else {
-        async_inner_get(inner_iter_->next_begin_key(), end_);
+        opts_.begin_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+        std::string begin_key = inner_iter_->next_begin_key();
+        async_inner_get(begin_key, end_);
     }
 }
 

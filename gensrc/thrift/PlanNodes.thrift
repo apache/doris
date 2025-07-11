@@ -540,6 +540,19 @@ struct TIcebergMetadataParams {
   2: optional map<string, string> hadoop_props
 }
 
+
+struct TPaimonMetadataParams {
+  1: optional string db_name
+  2: optional string tbl_name
+  3: optional string query_type
+  4: optional i64 ctl_id
+  5: optional i64 db_id
+  6: optional i64 tbl_id
+  7: optional string serialized_split
+  8: optional map<string, string> hadoop_props
+  9: optional map<string, string> paimon_props
+}
+
 struct THudiMetadataParams {
   1: optional Types.THudiQueryType hudi_query_type
   2: optional string catalog
@@ -608,6 +621,7 @@ struct TMetaScanRange {
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
   12: optional THudiMetadataParams hudi_params
+  13: optional TPaimonMetadataParams paimon_params
 }
 
 // Specification of an individual data range which is held in its entirety

@@ -20,12 +20,14 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -62,8 +64,8 @@ public class COSProperties extends AbstractS3CompatibleProperties {
      * - cos.ap-guangzhou.myqcloud.com               => region = ap-guangzhou* <p>
      * Group(1) captures the region name.
      */
-    private static final Pattern ENDPOINT_PATTERN =
-            Pattern.compile("^(?:https?://)?cos\\.([a-z0-9-]+)\\.myqcloud\\.com$");
+    private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(
+            Pattern.compile("^(?:https?://)?cos\\.([a-z0-9-]+)\\.myqcloud\\.com$"));
 
     protected COSProperties(Map<String, String> origProps) {
         super(Type.COS, origProps);
@@ -86,7 +88,7 @@ public class COSProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
-    protected Pattern endpointPattern() {
+    protected Set<Pattern> endpointPatterns() {
         return ENDPOINT_PATTERN;
     }
 

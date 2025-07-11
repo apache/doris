@@ -25,6 +25,7 @@
 #include "common/config.h"
 #include "common/util.h"
 #include "meta-service/doris_txn.h"
+#include "meta-store/codec.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 
@@ -978,5 +979,362 @@ TEST(TxnMemKvTest, MaybeUnusedFunctionTest) {
             std::cout << "version: " << ver << std::endl;
             ASSERT_EQ(ver, 1);
         }
+    }
+}
+
+TEST(TxnMemKvTest, RangeGetKeySelector) {
+    using namespace doris::cloud;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view prefix = "range_get_key_selector_";
+
+    {
+        // Remove the existing keys and insert some new keys.
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::string last_key = fmt::format("{}{}", prefix, 9);
+        encode_int64(INT64_MAX, &last_key);
+        txn->remove(prefix, last_key);
+        for (int i = 0; i < 5; ++i) {
+            std::string key = fmt::format("{}{}", prefix, i);
+            txn->put(key, std::to_string(i));
+        }
+        err = txn->commit();
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    struct TestCase {
+        RangeKeySelector begin_key_selector, end_key_selector;
+        std::vector<std::string> expected_keys;
+    };
+
+    std::string range_begin = fmt::format("{}{}", prefix, 1);
+    std::string range_end = fmt::format("{}{}", prefix, 3);
+    std::vector<TestCase> test_case {
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 1), fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                            fmt::format("{}{}", prefix, 3),
+                    },
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 1), fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::LAST_LESS_THAN,
+                    {fmt::format("{}{}", prefix, 1)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {fmt::format("{}{}", prefix, 2), fmt::format("{}{}", prefix, 3)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::LAST_LESS_THAN,
+                    {},
+            },
+            {
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 1), fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                            fmt::format("{}{}", prefix, 3),
+                    },
+            },
+            {
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 1), fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    RangeKeySelector::LAST_LESS_THAN,
+                    {fmt::format("{}{}", prefix, 1)},
+            },
+            {
+                    RangeKeySelector::LAST_LESS_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {
+                            fmt::format("{}{}", prefix, 0),
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                    },
+            },
+            {
+                    RangeKeySelector::LAST_LESS_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {
+                            fmt::format("{}{}", prefix, 0),
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                            fmt::format("{}{}", prefix, 3),
+                    },
+            },
+            {
+                    RangeKeySelector::LAST_LESS_THAN,
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    {
+                            fmt::format("{}{}", prefix, 0),
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                    },
+            },
+            {
+                    RangeKeySelector::LAST_LESS_THAN,
+                    RangeKeySelector::LAST_LESS_THAN,
+                    {fmt::format("{}{}", prefix, 0), fmt::format("{}{}", prefix, 1)},
+            },
+    };
+
+    // Scan range with different key selectors
+    for (const auto& tc : test_case) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RangeGetOptions options;
+        options.batch_limit = 1000;
+        options.begin_key_selector = tc.begin_key_selector;
+        options.end_key_selector = tc.end_key_selector;
+        std::unique_ptr<RangeGetIterator> it;
+        err = txn->get(range_begin, range_end, &it, options);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::vector<std::string> actual_keys;
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            actual_keys.emplace_back(k);
+        }
+        EXPECT_EQ(actual_keys, tc.expected_keys)
+                << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
+                << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
+    }
+}
+
+TEST(TxnMemKvTest, ReverseRangeGet) {
+    using namespace doris::cloud;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view prefix = "reverse_range_get_";
+
+    {
+        // Remove the existing keys and insert some new keys.
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::string last_key = fmt::format("{}{}", prefix, 9);
+        encode_int64(INT64_MAX, &last_key);
+        txn->remove(prefix, last_key);
+        for (int i = 0; i < 5; ++i) {
+            std::string key = fmt::format("{}{}", prefix, i);
+            txn->put(key, std::to_string(i));
+        }
+        err = txn->commit();
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    std::string range_begin = fmt::format("{}{}", prefix, 1);
+    std::string range_end = fmt::format("{}{}", prefix, 3);
+
+    struct TestCase {
+        RangeKeySelector begin_key_selector, end_key_selector;
+        std::vector<std::string> expected_keys;
+    };
+
+    std::vector<TestCase> test_case {
+            // 1. [begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 2), fmt::format("{}{}", prefix, 1)},
+            },
+            // 2. [begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {
+                            fmt::format("{}{}", prefix, 3),
+                            fmt::format("{}{}", prefix, 2),
+                            fmt::format("{}{}", prefix, 1),
+                    },
+            },
+            // 3. (begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 2)},
+            },
+            // 4. (begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {fmt::format("{}{}", prefix, 3), fmt::format("{}{}", prefix, 2)},
+            },
+    };
+    for (const auto& tc : test_case) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RangeGetOptions options;
+        options.batch_limit = 1000;
+        options.begin_key_selector = tc.begin_key_selector;
+        options.end_key_selector = tc.end_key_selector;
+        options.reverse = true; // Reserve range get
+        std::unique_ptr<RangeGetIterator> it;
+        err = txn->get(range_begin, range_end, &it, options);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::vector<std::string> actual_keys;
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            actual_keys.emplace_back(k);
+        }
+        EXPECT_EQ(actual_keys, tc.expected_keys)
+                << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
+                << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
+    }
+}
+
+TEST(TxnMemKvTest, ReverseFullRangeGet) {
+    using namespace doris::cloud;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view prefix = "reverse_full_range_get_";
+
+    {
+        // Remove the existing keys and insert some new keys.
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::string last_key = fmt::format("{}{:03}", prefix, 99);
+        encode_int64(INT64_MAX, &last_key);
+        txn->remove(prefix, last_key);
+        for (int i = 0; i < 100; ++i) {
+            std::string key = fmt::format("{}{:03}", prefix, i);
+            txn->put(key, std::to_string(i));
+        }
+        err = txn->commit();
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    std::string range_begin = fmt::format("{}{:03}", prefix, 1);
+    std::string range_end = fmt::format("{}{:03}", prefix, 98);
+
+    struct TestCase {
+        RangeKeySelector begin_key_selector, end_key_selector;
+    };
+
+    std::vector<TestCase> test_case {
+            // 1. [begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+            },
+            // 2. [begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+            },
+            // 3. (begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+            },
+            // 4. (begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+            },
+    };
+
+    for (const auto& tc : test_case) {
+        std::vector<std::string> expected_keys;
+        {
+            // Read the expected keys via range_get
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv->create_txn(&txn);
+            ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+            RangeGetOptions options;
+            options.batch_limit = 11;
+            options.begin_key_selector = tc.begin_key_selector;
+            options.end_key_selector = tc.end_key_selector;
+            options.reverse = true; // Reserve range get
+            std::string begin = range_begin, end = range_end;
+
+            std::unique_ptr<RangeGetIterator> it;
+            do {
+                err = txn->get(begin, end, &it, options);
+                ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+                while (it->has_next()) {
+                    auto [k, v] = it->next();
+                    expected_keys.emplace_back(k);
+                }
+                // Get next begin key for reverse range get
+                end = it->last_key();
+                options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+            } while (it->more());
+        }
+
+        std::vector<std::string> actual_keys;
+        {
+            // Read the actual keys via full_range_get
+            FullRangeGetOptions opts(txn_kv);
+            opts.batch_limit = 11;
+            opts.begin_key_selector = tc.begin_key_selector;
+            opts.end_key_selector = tc.end_key_selector;
+            opts.reverse = true; // Reserve full range get
+
+            auto it = txn_kv->full_range_get(range_begin, range_end, opts);
+            ASSERT_TRUE(it->is_valid());
+
+            while (it->has_next()) {
+                auto kvp = it->next();
+                ASSERT_TRUE(kvp.has_value());
+                auto [k, v] = *kvp;
+                actual_keys.emplace_back(k);
+            }
+        }
+
+        EXPECT_EQ(actual_keys, expected_keys)
+                << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
+                << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
     }
 }

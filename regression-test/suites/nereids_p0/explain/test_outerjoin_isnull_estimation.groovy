@@ -37,18 +37,58 @@ suite("test_outerjoin_isnull_estimation") {
         "replication_allocation" = "tag.location.default: 1"
     );"""
 
-    sql "insert into test_outerjoin_isnull_estimation1 values (1,1,1);"
-    sql "insert into test_outerjoin_isnull_estimation1 values (2,2,2);"
-    sql "insert into test_outerjoin_isnull_estimation2 values (3,3,3);"
-    sql "insert into test_outerjoin_isnull_estimation2 values (4,4,4);"
+    sql """
+        insert into test_outerjoin_isnull_estimation1 values (1,1,1);
+        insert into test_outerjoin_isnull_estimation1 values (2,2,2);
+        insert into test_outerjoin_isnull_estimation2 values (3,3,3);
+        insert into test_outerjoin_isnull_estimation2 values (4,4,4);
+    """
+
+
 
     sql "analyze table test_outerjoin_isnull_estimation1 with full with sync;"
     sql "analyze table test_outerjoin_isnull_estimation2 with full with sync;"
 
     explain {
-        sql("physical plan select t1.c1, t1.c2 from test_outerjoin_isnull_estimation1 t1" +
-                " left join test_outerjoin_isnull_estimation1 t2 on t1.c1 = t2.c1 where t2.c2 is null;");
+        sql """
+           physical plan 
+           select t1.c1, t1.c2 
+           from test_outerjoin_isnull_estimation1 t1
+                left join test_outerjoin_isnull_estimation1 t2 on t1.c1 = t2.c1 where t2.c2 is null;""";
         contains"stats=1, predicates=c2#4 IS NULL"
         notContains"stats=0"
+    }
+//     +-------------------------------------------------------------------------------------------------------------------------------------------+
+// | Explain String(Nereids Planner)                                                                                                           |
+// +-------------------------------------------------------------------------------------------------------------------------------------------+
+// | cost = 15.200109999999999                                                                                                                 |
+// | PhysicalResultSink[304] ( outputExprs=[c1#0, c2#1] )                                                                                      |
+// | +--PhysicalDistribute[300]@7 ( stats=1, distributionSpec=DistributionSpecGather )                                                         |
+// |    +--PhysicalProject[296]@7 ( stats=1, projects=[c1#0, c2#1] )                                                                           |
+// |       +--PhysicalFilter[292]@5 ( stats=1, predicates=c2#4 IS NULL )                                                                       |
+// |          +--PhysicalHashJoin[288]@4 ( stats=2, type=LEFT_OUTER_JOIN, hashCondition=[(c1#0 = c1#3)], otherCondition=[], markCondition=[] ) |
+// |             |--PhysicalProject[279]@1 ( stats=2, projects=[c1#0, c2#1] )                                                                  |
+// |             |  +--PhysicalOlapScan[test_outerjoin_isnull_estimation1 operativeSlots([c1#0])]@0 ( stats=2 )                                |
+// |             +--PhysicalProject[284]@3 ( stats=2, projects=[c1#3, c2#4] )                                                                  |
+// |                +--PhysicalOlapScan[test_outerjoin_isnull_estimation1 operativeSlots([c1#3, c2#4])]@2 ( stats=2 )                          |
+// +-------------------------------------------------------------------------------------------------------------------------------------------+
+
+    explain {
+        sql """ physical plan
+            select t1.c1, t1.c2 
+                from test_outerjoin_isnull_estimation1 t1
+                     right join test_outerjoin_isnull_estimation1 t2 on t1.c1 = t2.c1 where t1.c2 is null;
+            """
+        contains "stats=1, predicates=c2#1 IS NULL"
+    }
+
+    explain {
+        sql """
+        physical plan
+        select t1.c1, t1.c2 
+           from test_outerjoin_isnull_estimation1 t1
+                full outer join test_outerjoin_isnull_estimation1 t2 on t1.c1 = t2.c1 where t1.c2 is null;
+        """
+        contains "stats=1, predicates=c2#1 IS NULL"
     }
 }

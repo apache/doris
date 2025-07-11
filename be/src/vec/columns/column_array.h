@@ -244,40 +244,6 @@ private:
     // [[2,1,5],[9,1]]\n[[1,2]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
-
-    /// Multiply values if the nested column is ColumnVector<T>.
-    template <PrimitiveType T>
-    ColumnPtr replicate_number(const IColumn::Offsets& replicate_offsets) const;
-
-    /// Multiply the values if the nested column is ColumnString. The code is too complicated.
-    ColumnPtr replicate_string(const IColumn::Offsets& replicate_offsets) const;
-
-    /** Non-constant arrays of constant values are quite rare.
-      * Most functions can not work with them, and does not create such columns as a result.
-      * An exception is the function `replicate` (see FunctionsMiscellaneous.h), which has service meaning for the implementation of lambda functions.
-      * Only for its sake is the implementation of the `replicate` method for ColumnArray(ColumnConst).
-      */
-    ColumnPtr replicate_const(const IColumn::Offsets& replicate_offsets) const;
-
-    /** The following is done by simply replicating of nested columns.
-      */
-    ColumnPtr replicate_nullable(const IColumn::Offsets& replicate_offsets) const;
-    ColumnPtr replicate_generic(const IColumn::Offsets& replicate_offsets) const;
-
-    /// Specializations for the filter function.
-    template <PrimitiveType T>
-    ColumnPtr filter_number(const Filter& filt, ssize_t result_size_hint) const;
-
-    template <PrimitiveType T>
-    size_t filter_number(const Filter& filter);
-
-    ColumnPtr filter_string(const Filter& filt, ssize_t result_size_hint) const;
-    ColumnPtr filter_nullable(const Filter& filt, ssize_t result_size_hint) const;
-    ColumnPtr filter_generic(const Filter& filt, ssize_t result_size_hint) const;
-
-    size_t filter_string(const Filter& filter);
-    size_t filter_nullable(const Filter& filter);
-    size_t filter_generic(const Filter& filter);
 };
 
 } // namespace doris::vectorized

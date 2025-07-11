@@ -64,7 +64,7 @@ TEST(HLLSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, &pool, 0, 0);
+    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();

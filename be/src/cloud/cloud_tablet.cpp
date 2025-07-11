@@ -78,8 +78,8 @@ bool CloudTablet::exceed_version_limit(int32_t limit) {
     return _approximate_num_rowsets.load(std::memory_order_relaxed) > limit;
 }
 
-const std::string& CloudTablet::tablet_path() const {
-    return get_rowset_with_max_version()->tablet_path();
+std::string CloudTablet::tablet_path() const {
+    return "";
 }
 
 Status CloudTablet::capture_consistent_rowsets_unlocked(

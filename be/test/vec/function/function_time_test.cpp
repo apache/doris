@@ -366,8 +366,8 @@ TEST(VTimestampFunctionsTest, years_add_test) {
     {
         DataSet data_set = {{{std::string("2020-05-23 00:00:00"), 8000}, Null()}};
 
-        EXPECT_ANY_THROW(static_cast<void>(
-                check_function<DataTypeDateTime, true>(func_name, input_types, data_set)));
+        static_cast<void>(
+                check_function<DataTypeDateTime, true>(func_name, input_types, data_set, true));
     }
 }
 
@@ -389,8 +389,8 @@ TEST(VTimestampFunctionsTest, years_sub_test) {
     {
         DataSet data_set = {{{std::string("2020-05-23 00:00:00"), 3000}, Null()}};
 
-        EXPECT_ANY_THROW(static_cast<void>(
-                check_function<DataTypeDateTime, true>(func_name, input_types, data_set)));
+        static_cast<void>(
+                check_function<DataTypeDateTime, true>(func_name, input_types, data_set, true));
     }
 }
 
@@ -1088,8 +1088,8 @@ TEST(VTimestampFunctionsTest, years_add_v2_test) {
 
         DataSet data_set = {{{std::string("2020-05-23"), 8000}, Null()}};
 
-        EXPECT_ANY_THROW(static_cast<void>(
-                check_function<DataTypeDateV2, true>(func_name, input_types, data_set)));
+        static_cast<void>(
+                check_function<DataTypeDateV2, true>(func_name, input_types, data_set, true));
     }
 
     {
@@ -1110,8 +1110,8 @@ TEST(VTimestampFunctionsTest, years_add_v2_test) {
 
         DataSet data_set = {{{std::string("2020-05-23 00:00:11.123"), 8000}, Null()}};
 
-        EXPECT_ANY_THROW(static_cast<void>(
-                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set)));
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, true));
     }
 }
 
@@ -1133,8 +1133,8 @@ TEST(VTimestampFunctionsTest, years_sub_v2_test) {
 
         DataSet data_set = {{{std::string("2020-05-23"), 3000}, Null()}};
 
-        EXPECT_ANY_THROW(static_cast<void>(
-                check_function<DataTypeDateV2, true>(func_name, input_types, data_set)));
+        static_cast<void>(
+                check_function<DataTypeDateV2, true>(func_name, input_types, data_set, true));
     }
 
     {
@@ -1155,8 +1155,8 @@ TEST(VTimestampFunctionsTest, years_sub_v2_test) {
 
         DataSet data_set = {{{std::string("2020-05-23 00:00:11.123"), 3000}, Null()}};
 
-        EXPECT_ANY_THROW(static_cast<void>(
-                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set)));
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, true));
     }
 }
 

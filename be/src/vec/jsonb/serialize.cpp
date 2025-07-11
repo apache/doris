@@ -49,7 +49,7 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
                                         const DataTypeSerDeSPtrs& serdes,
                                         const std::unordered_set<int32_t>& row_store_cids) {
     auto num_rows = block.rows();
-    Arena pool;
+    Arena arena;
     assert(num_cols <= block.columns());
     for (int i = 0; i < num_rows; ++i) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
@@ -63,7 +63,7 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
             }
             // TODO improve performance for checking column in group
             if (row_store_cids.empty() || row_store_cids.contains(tablet_column.unique_id())) {
-                serdes[j]->write_one_cell_to_jsonb(*column, jsonb_writer, &pool,
+                serdes[j]->write_one_cell_to_jsonb(*column, jsonb_writer, arena,
                                                    tablet_column.unique_id(), i);
             }
         }
