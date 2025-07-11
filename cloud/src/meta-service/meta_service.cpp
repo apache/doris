@@ -3246,6 +3246,16 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                                  request, &err);
         if (err == TxnErrorCode::TXN_OK) {
             break;
+        } else if (err == TxnErrorCode::TXN_CONFLICT && urgent && request->lock_id() > 0 &&
+                   first_retry) {
+            g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+            // fast retry for urgent request when TXN_CONFLICT
+            LOG(INFO) << "fast retry to get_delete_bitmap_update_lock, tablet_id="
+                      << request->table_id() << " lock_id=" << request->lock_id()
+                      << ", initiator=" << request->initiator() << "urgent=" << urgent
+                      << ", err=" << err;
+            first_retry = false;
+            continue;
         } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
                    is_job_delete_bitmap_lock_id(request->lock_id()) &&
                    config::delete_bitmap_enable_retry_txn_conflict && first_retry) {
