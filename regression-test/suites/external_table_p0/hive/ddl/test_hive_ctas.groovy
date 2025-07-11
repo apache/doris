@@ -169,7 +169,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 sql """ INSERT OVERWRITE TABLE hive_ctas3 SELECT col1,pt1,pt2 FROM part_ctas_src WHERE col1>=22;
                 """
                 order_qt_ctas_03 """ SELECT * FROM hive_ctas3  """
-                // order_qt_hive_docker_ctas_03 """ SELECT * FROM ${db}.hive_ctas3 """
+                order_qt_hive_docker_ctas_03 """ SELECT * FROM ${db}.hive_ctas3 """
                 sql """ DROP TABLE hive_ctas3 """
 
                 sql """ DROP TABLE IF EXISTS hive_ctas4 """
