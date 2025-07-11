@@ -90,5 +90,21 @@ suite("group_concat") {
              LEFT OUTER JOIN test_group_concat_distinct_tbl3 tbl3 ON tbl3.tbl3_id2 = tbl2.tbl2_id2
              GROUP BY tbl1.tbl1_id1
            """
+
+        sql "set use_one_phase_agg_for_group_concat_with_order=true"
+
+        explain {
+            sql "select group_concat(tbl3_name, ',' order by tbl3_id2) FROM test_group_concat_distinct_tbl3"
+            check { explainStr ->
+                assertFalse(explainStr.contains("partial_group_concat"))
+            }
+        }
+
+        explain {
+            sql "select group_concat(tbl3_name, ',' order by tbl3_id2) FROM test_group_concat_distinct_tbl3 group by tbl3_name"
+            check { explainStr ->
+                assertFalse(explainStr.contains("partial_group_concat"))
+            }
+        }
     }()
 }
