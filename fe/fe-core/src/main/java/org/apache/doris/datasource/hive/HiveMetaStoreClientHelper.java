@@ -98,6 +98,7 @@ public class HiveMetaStoreClientHelper {
     public static final String OPENX_JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe";
     public static final String HIVE_TEXT_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
     public static final String HIVE_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
+    public static final String HIVE_MULTI_DELIMIT_SERDE = "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),

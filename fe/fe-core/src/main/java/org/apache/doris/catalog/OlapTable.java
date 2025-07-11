@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.backup.Status;
@@ -74,6 +75,7 @@ import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TOlapTable;
+import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -354,6 +356,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return Lists.newArrayList();
         }
         return indexes.getIndexIds();
+    }
+
+    /**
+     * Checks if the table contains at least one index of the specified type.
+     * @param indexType The index type to check for
+     * @return true if the table has at least one index of the specified type, false otherwise
+     */
+    public boolean hasIndexOfType(IndexDef.IndexType indexType) {
+        if (indexes == null) {
+            return false;
+        }
+        return indexes.getIndexes().stream()
+                .anyMatch(index -> index.getIndexType() == indexType);
     }
 
     @Override
@@ -1452,6 +1467,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
+    public Column getSkipBitmapColumn() {
+        for (Column column : getBaseSchema(true)) {
+            if (column.isSkipBitmapColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    public boolean hasSkipBitmapColumn() {
+        return getSkipBitmapColumn() != null;
+    }
+
     public void setIndexes(List<Index> indexes) {
         if (this.indexes == null) {
             this.indexes = new TableIndexes(null);
@@ -2415,26 +2443,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
-    public void setVariantMaxSubcolumnsCount(int maxSubcoumnsCount) {
-        List<Column> columns = getBaseSchema(true);
-        boolean hasVariantType = false;
-        for (Column column : columns) {
-            Type type = column.getType();
-            if (type.isVariantType()) {
-                hasVariantType = true;
-                VariantType scType = (VariantType) type;
-                scType.setVariantMaxSubcolumnsCount(maxSubcoumnsCount);
-            }
-        }
-        if (hasVariantType) {
-            getOrCreatTableProperty().setVariantMaxSubcolumnsCount(maxSubcoumnsCount);
-        }
-    }
-
-    public int getVariantMaxSubcolumnsCount() {
-        return getOrCreatTableProperty().getVariantMaxSubcolumnsCount();
-    }
-
     public int getBaseSchemaVersion() {
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();
@@ -2786,6 +2794,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {
         getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(speedup);
+    }
+
+    public void setEnableUniqueKeySkipBitmap(boolean enable) {
+        getOrCreatTableProperty().setEnableUniqueKeySkipBitmap(enable);
+    }
+
+    public boolean getEnableUniqueKeySkipBitmap() {
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getEnableUniqueKeySkipBitmap();
     }
 
     public boolean getEnableUniqueKeyMergeOnWrite() {
@@ -3427,5 +3446,77 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @VisibleForTesting
     protected void addIndexNameToIdForUnitTest(String name, long id) {
         indexNameToId.put(name, id);
+    }
+
+    public Pair<Integer, Integer> getMinMaxVariantSubcolumnsCount() {
+        int minVariantSubcolumnsCount = Integer.MAX_VALUE;
+        int maxVariantSubcolumnsCount = -1;
+        for (Column column : getBaseSchema()) {
+            if (column.getType().isVariantType()) {
+                minVariantSubcolumnsCount =
+                                    Math.min(minVariantSubcolumnsCount, column.getVariantMaxSubcolumnsCount());
+                maxVariantSubcolumnsCount =
+                                    Math.max(maxVariantSubcolumnsCount, column.getVariantMaxSubcolumnsCount());
+            }
+        }
+        return Pair.of(minVariantSubcolumnsCount, maxVariantSubcolumnsCount);
+    }
+
+    public Index getInvertedIndex(Column column, List<String> subPath) {
+        List<Index> invertedIndexes = new ArrayList<>();
+        for (Index index : indexes.getIndexes()) {
+            if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                List<String> columns = index.getColumns();
+                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
+                    invertedIndexes.add(index);
+                }
+            }
+        }
+
+        if (subPath == null || subPath.isEmpty()) {
+            return invertedIndexes.size() == 1 ? invertedIndexes.get(0)
+                : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+        }
+
+        // subPath is not empty, means it is a variant column, find the field pattern from children
+        String subPathString = String.join(".", subPath);
+        String fieldPattern = "";
+        for (Column child : column.getChildren()) {
+            String childName = child.getName();
+            if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
+                try {
+                    java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
+                            .getPathMatcher("glob:" + childName);
+                    if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+                        fieldPattern = childName;
+                    }
+                } catch (Exception e) {
+                    continue;
+                }
+            } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
+                if (childName.equals(subPathString)) {
+                    fieldPattern = childName;
+                }
+            }
+        }
+
+        List<Index> invertedIndexesWithFieldPattern = new ArrayList<>();
+        for (Index index : indexes.getIndexes()) {
+            if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                List<String> columns = index.getColumns();
+                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))
+                                        && fieldPattern.equals(index.getInvertedIndexFieldPattern())) {
+                    invertedIndexesWithFieldPattern.add(index);
+                }
+            }
+        }
+        if (invertedIndexesWithFieldPattern.isEmpty()) {
+            return invertedIndexes.size() == 1 ? invertedIndexes.get(0)
+                : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+        } else {
+            return invertedIndexesWithFieldPattern.size() == 1 ? invertedIndexesWithFieldPattern.get(0)
+                                        : invertedIndexesWithFieldPattern.stream()
+                                        .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+        }
     }
 }

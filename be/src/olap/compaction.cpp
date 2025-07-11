@@ -1061,6 +1061,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    ctx.compaction_type = compaction_type();
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -1095,7 +1096,7 @@ Status CompactionMixin::modify_rowsets() {
         std::size_t missed_rows_size = 0;
         tablet()->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, *_rowid_conversion, 0, version.second + 1, missed_rows.get(),
-                location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
+                location_map.get(), *_tablet->tablet_meta()->delete_bitmap(),
                 &output_rowset_delete_bitmap);
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
@@ -1138,7 +1139,7 @@ Status CompactionMixin::modify_rowsets() {
                     ss << ", debug info: ";
                     DeleteBitmap subset_map(_tablet->tablet_id());
                     for (auto rs : _input_rowsets) {
-                        _tablet->tablet_meta()->delete_bitmap().subset(
+                        _tablet->tablet_meta()->delete_bitmap()->subset(
                                 {rs->rowset_id(), 0, 0},
                                 {rs->rowset_id(), rs->num_segments(), version.second + 1},
                                 &subset_map);
@@ -1213,7 +1214,7 @@ Status CompactionMixin::modify_rowsets() {
             // incremental data.
             tablet()->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, *_rowid_conversion, version.second, UINT64_MAX,
-                    missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
+                    missed_rows.get(), location_map.get(), *_tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 
             if (missed_rows) {
@@ -1460,6 +1461,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    ctx.compaction_type = compaction_type();
 
     auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
     if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {

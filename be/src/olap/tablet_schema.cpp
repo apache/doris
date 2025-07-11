@@ -612,6 +612,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
+    if (column.has_variant_enable_typed_paths_to_sparse()) {
+        _variant_enable_typed_paths_to_sparse = column.variant_enable_typed_paths_to_sparse();
+    }
 }
 
 TabletColumn TabletColumn::create_materialized_variant_column(
@@ -694,6 +697,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
     column->set_variant_max_subcolumns_count(_variant_max_subcolumns_count);
     column->set_pattern_type(_pattern_type);
+    column->set_variant_enable_typed_paths_to_sparse(_variant_enable_typed_paths_to_sparse);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
@@ -917,6 +921,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _sequence_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == VERSION_COL)) {
         _version_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == SKIP_BITMAP_COL)) {
+        _skip_bitmap_col_idx = _num_columns;
     }
     _field_id_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
@@ -1112,6 +1118,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _version_col_idx = schema.version_col_idx();
+    _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -1217,6 +1224,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _delete_sign_idx = -1;
     _sequence_col_idx = -1;
     _version_col_idx = -1;
+    _skip_bitmap_col_idx = -1;
     _cluster_key_idxes.clear();
     for (const auto& i : ori_tablet_schema._cluster_key_idxes) {
         _cluster_key_idxes.push_back(i);
@@ -1240,6 +1248,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _sequence_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == VERSION_COL)) {
             _version_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == SKIP_BITMAP_COL)) {
+            _skip_bitmap_col_idx = _num_columns;
         }
         _cols.emplace_back(std::make_shared<TabletColumn>(*column));
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
@@ -1374,6 +1384,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_row_store_page_size(_row_store_page_size);
     tablet_schema_pb->set_storage_page_size(_storage_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
+    tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());

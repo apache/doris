@@ -70,6 +70,7 @@ public class Column implements GsonPostProcessable {
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
+    public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     private static final String COLUMN_ARRAY_CHILDREN = "item";
@@ -470,6 +471,12 @@ public class Column implements GsonPostProcessable {
                 || aggregationType == AggregateType.NONE) && nameEquals(VERSION_COL, true);
     }
 
+    public boolean isSkipBitmapColumn() {
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE || aggregationType == null)
+                && nameEquals(SKIP_BITMAP_COL, true);
+    }
+
     // now we only support BloomFilter on (same behavior with BE):
     // smallint/int/bigint/largeint
     // string/varchar/char/variant
@@ -512,6 +519,14 @@ public class Column implements GsonPostProcessable {
         return type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : -1;
     }
 
+    public int getVariantMaxSubcolumnsCount() {
+        return type.isVariantType() ? ((VariantType) type).getVariantMaxSubcolumnsCount() : -1;
+    }
+
+    public boolean getVariantEnableTypedPathsToSparse() {
+        return type.isVariantType() ? ((VariantType) type).getEnableTypedPathsToSparse() : false;
+    }
+
     public AggregateType getAggregationType() {
         return this.aggregationType;
     }
@@ -545,12 +560,20 @@ public class Column implements GsonPostProcessable {
         return isAutoInc;
     }
 
+    public void setIsAutoInc(boolean isAutoinc) {
+        this.isAutoInc = isAutoInc;
+    }
+
     public void setIsAllowNull(boolean isAllowNull) {
         this.isAllowNull = isAllowNull;
     }
 
     public void setFieldPatternType(TPatternType type) {
         fieldPatternType = type;
+    }
+
+    public TPatternType getFieldPatternType() {
+        return fieldPatternType;
     }
 
     public String getDefaultValue() {
@@ -623,12 +646,9 @@ public class Column implements GsonPostProcessable {
         tColumnType.setLen(this.getStrLen());
         tColumnType.setPrecision(this.getPrecision());
         tColumnType.setScale(this.getScale());
+        tColumnType.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
 
         tColumnType.setIndexLen(this.getOlapColumnIndexSize());
-        if (this.getType().isVariantType()) {
-            VariantType variantType = (VariantType) this.getType();
-            tColumnType.setVariantMaxSubcolumnsCount(variantType.getVariantMaxSubcolumnsCount());
-        }
 
         tColumn.setColumnType(tColumnType);
         if (null != this.aggregationType) {
@@ -655,6 +675,7 @@ public class Column implements GsonPostProcessable {
             tColumn.setBeExecVersion(Config.be_exec_version);
         }
         tColumn.setClusterKeyId(this.clusterKeyId);
+        tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -871,6 +892,7 @@ public class Column implements GsonPostProcessable {
         } else if (this.type.isVariantType()) {
             VariantType variantType = (VariantType) this.getType();
             builder.setVariantMaxSubcolumnsCount(variantType.getVariantMaxSubcolumnsCount());
+            builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
             // variant may contain predefined structured fields
             addChildren(builder);
         }

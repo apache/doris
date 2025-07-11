@@ -53,9 +53,9 @@ suite("load_p2", "variant_type,p2"){
             CREATE TABLE IF NOT EXISTS ${table_name} (
             id BIGINT NOT NULL,
             type VARCHAR(30) NULL,
-            actor VARIANT NULL,
-            repo VARIANT NULL,
-            payload VARIANT NULL,
+            actor VARIANT<properties("variant_max_subcolumns_count" = "9")> NULL,
+            repo VARIANT<properties("variant_max_subcolumns_count" = "9")> NULL,
+            payload VARIANT<properties("variant_max_subcolumns_count" = "9")> NULL,
             public BOOLEAN NULL,
             created_at DATETIME NULL,
             org JSON NULL
@@ -65,7 +65,7 @@ suite("load_p2", "variant_type,p2"){
         )
         DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(id) BUCKETS ${buckets}
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "9");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
     }
 

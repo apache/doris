@@ -19,6 +19,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
 
     def queryAndCheck = { String sqlQuery, int expectedFilteredRows = -1, boolean checkFilterUsed = true ->
       def checkpoints_name = "segment_iterator.inverted_index.filtered_rows"
@@ -42,10 +43,10 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,
-        `var` variant NOT NULL,
+        `var` variant<properties ("variant_max_subcolumns_count" = "10")> NOT NULL,
         INDEX idx_a_d (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_a_d_2 (var) USING INVERTED
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "10")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
     sql """insert into ${tableName} values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}') """
     // insert into test_variant_multi_index_nonCurrent  values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}')
@@ -82,11 +83,11 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     queryAndCheck("select count() from ${tableName} where var['string'] = 'hello' or var['string'] match_phrase 'world'", 0)
     queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')", 22)
 
-    sql """ alter table ${tableName} modify column var variant NULL """
+    sql """ alter table ${tableName} modify column var variant<properties ("variant_max_subcolumns_count" = "10")> NULL """
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        time 600
+        time 6000
     }
 
     queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'", 22)
@@ -109,7 +110,8 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         `var` variant<
              MATCH_NAME 'string1' : string,
              MATCH_NAME 'string2' : string,
-             MATCH_NAME 'array_string' : array<string>
+             MATCH_NAME 'array_string' : array<string>,
+             properties("variant_max_subcolumns_count" = "10")
         > NOT NULL,
         INDEX idx_a_d_2 (var) USING INVERTED,
         INDEX idx_a_d_3 (var) USING INVERTED PROPERTIES("field_pattern" = "string1","parser"="unicode", "support_phrase" = "true") COMMENT '',
@@ -117,7 +119,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         INDEX idx_a_d_5 (var) USING INVERTED PROPERTIES("field_pattern" = "string2","parser"="unicode", "support_phrase" = "false") COMMENT '',
         INDEX idx_a_d_6 (var) USING INVERTED PROPERTIES("field_pattern" = "string2") COMMENT '',
         INDEX idx_a_d_7 (var) USING INVERTED PROPERTIES("field_pattern" = "array_string") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "10")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
     sql """insert into ${tableName} values(1, '{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}'),
                                 (2, '{"string1" : "world", "array_string" : ["world"], "string2" : "world"}'),

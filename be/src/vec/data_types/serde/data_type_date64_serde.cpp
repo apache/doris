@@ -19,8 +19,6 @@
 
 #include <arrow/builder.h>
 
-#include <type_traits>
-
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
@@ -67,7 +65,7 @@ Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, in
 }
 
 Status DataTypeDate64SerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -142,7 +140,7 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
 }
 
 Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
@@ -176,19 +174,19 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
 }
 
 void DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                   int start, int end,
+                                                   int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
     _read_column_from_arrow<false>(column, arrow_array, start, end, ctz);
 }
 
 void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int start,
-                                                int end, const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
+    const auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
+        const auto* time_val = (const VecDateTimeValue*)(&col_data[i]);
         size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
@@ -222,38 +220,38 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 
 template <bool is_date>
 void DataTypeDate64SerDe::_read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                  int start, int end,
+                                                  int64_t start, int64_t end,
                                                   const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
     if (arrow_array->type()->id() == arrow::Type::DATE64) {
-        auto concrete_array = dynamic_cast<const arrow::Date64Array*>(arrow_array);
+        const auto* concrete_array = dynamic_cast<const arrow::Date64Array*>(arrow_array);
         divisor = 1000; //ms => secs
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        for (auto value_i = start; value_i < end; ++value_i) {
             VecDateTimeValue v;
             v.from_unixtime(
                     static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
             col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
         }
     } else if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
-        auto concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
+        const auto* concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
         const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
         divisor = time_unit_divisor(type->unit());
         if (divisor == 0L) {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid Time Type: " + type->name());
         }
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        for (auto value_i = start; value_i < end; ++value_i) {
             VecDateTimeValue v;
             v.from_unixtime(
                     static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
             col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
         }
     } else if (arrow_array->type()->id() == arrow::Type::DATE32) {
-        auto concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
+        const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
         multiplier = 24 * 60 * 60; // day => secs
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        for (auto value_i = start; value_i < end; ++value_i) {
             VecDateTimeValue v;
             v.from_unixtime(
                     static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
@@ -279,7 +277,7 @@ void DataTypeDate64SerDe::_read_column_from_arrow(IColumn& column, const arrow::
 }
 
 void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int start, int end,
+                                                 int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
     _read_column_from_arrow<true>(column, arrow_array, start, end, ctz);
 }
@@ -289,7 +287,7 @@ Status DataTypeDate64SerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int row_idx, bool col_const,
                                                    const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnVector<Int64>&>(column).get_data();
+    const auto& data = assert_cast<const ColumnVector<Int64>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     auto time_num = data[col_index];
     VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);
@@ -330,26 +328,50 @@ Status DataTypeDate64SerDe::write_column_to_orc(const std::string& timezone, con
                                                 orc::ColumnVectorBatch* orc_col_batch, int start,
                                                 int end,
                                                 std::vector<StringRef>& buffer_list) const {
-    auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
-    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+    const auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
+    auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-    INIT_MEMORY_FOR_ORC_WRITER()
-
+    // First pass: calculate total memory needed and collect serialized values
+    std::vector<std::string> serialized_values;
+    std::vector<size_t> valid_row_indices;
+    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
-        if (cur_batch->notNull[row_id] == 0) {
-            continue;
+        if (cur_batch->notNull[row_id] == 1) {
+            char buf[64];
+            size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id]).to_buffer(buf);
+            total_size += len;
+            // avoid copy
+            serialized_values.emplace_back(buf, len);
+            valid_row_indices.push_back(row_id);
         }
-
-        int len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id])
-                          .to_buffer(const_cast<char*>(bufferRef.data) + offset);
-
-        REALLOC_MEMORY_FOR_ORC_WRITER()
-
+    }
+    // Allocate continues memory based on calculated size
+    char* ptr = (char*)malloc(total_size);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory {} error when write variant column data to orc file.", total_size);
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = total_size;
+    buffer_list.emplace_back(bufferRef);
+    // Second pass: copy data to allocated memory
+    size_t offset = 0;
+    for (size_t i = 0; i < serialized_values.size(); i++) {
+        const auto& serialized_value = serialized_values[i];
+        size_t row_id = valid_row_indices[i];
+        size_t len = serialized_value.length();
+        if (offset + len > total_size) {
+            return Status::InternalError(
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
+                    offset, len, total_size);
+        }
+        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
         cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }
-
     cur_batch->numElements = end - start;
     return Status::OK();
 }

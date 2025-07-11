@@ -74,12 +74,12 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant
+            v variant<properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")>
             -- INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true", "inverted_index_storage_format"= "v2", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true", "inverted_index_storage_format"= "v2");
     """
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
@@ -130,11 +130,11 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     sql """
      CREATE TABLE IF NOT EXISTS github_events2 (
             k bigint,
-            v variant not null
+            v variant<properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")> not null
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v");
         """
     sql """insert into github_events2 select * from github_events order by k"""
     sql """select v['payload']['commits'] from github_events order by k ;"""

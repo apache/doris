@@ -132,6 +132,7 @@ public class CreateTableInfo {
     private Map<String, String> properties;
     private Map<String, String> extProperties;
     private boolean isEnableMergeOnWrite = false;
+    private boolean isEnableSkipBitmapColumn = false;
 
     private boolean isExternal = false;
     private boolean isTemp = false;
@@ -326,17 +327,35 @@ public class CreateTableInfo {
         Preconditions.checkState(!Strings.isNullOrEmpty(ctlName), "catalog name is null or empty");
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName), "database name is null or empty");
 
-        //check datev1 and decimalv2
+        //check datatype: datev1, decimalv2, variant
+        boolean allZero = false;
+        boolean allPositive = false;
         for (ColumnDefinition columnDef : columns) {
             String columnNameUpperCase = columnDef.getName().toUpperCase();
             if (columnNameUpperCase.startsWith("__DORIS_")) {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
             }
-            if (columnDef.getType().isVariantType() && columnNameUpperCase.indexOf('.') != -1) {
-                throw new AnalysisException(
+            if (columnDef.getType().isVariantType()) {
+                if (columnNameUpperCase.indexOf('.') != -1) {
+                    throw new AnalysisException(
                         "Disable to create table of `VARIANT` type column named with a `.` character: "
                                 + columnNameUpperCase);
+                }
+                VariantType variantType = (VariantType) columnDef.getType();
+                if (variantType.getVariantMaxSubcolumnsCount() == 0) {
+                    allZero = true;
+                    if (allPositive) {
+                        throw new AnalysisException("The variant_max_subcolumns_count must either be 0"
+                            + " in all columns, or greater than 0 in all columns");
+                    }
+                } else {
+                    allPositive = true;
+                    if (allZero) {
+                        throw new AnalysisException("The variant_max_subcolumns_count must either be 0"
+                            + " in all columns, or greater than 0 in all columns");
+                    }
+                }
             }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
@@ -525,6 +544,35 @@ public class CreateTableInfo {
                 } else {
                     columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
                 }
+            }
+
+            if (properties != null) {
+                if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
+                        && !(keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
+                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                            + "only be set in merge-on-write unique table.");
+                }
+                // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
+                // and its value should be consistent with whether the table's full schema contains
+                // the skip bitmap hidden column
+                if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+                    properties = PropertyAnalyzer.addEnableUniqueKeySkipBitmapPropertyIfNotExists(properties);
+                    // `analyzeXXX` would modify `properties`, which will be used later,
+                    // so we just clone a properties map here.
+                    try {
+                        isEnableSkipBitmapColumn = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(
+                                new HashMap<>(properties));
+                    } catch (Exception e) {
+                        throw new AnalysisException(e.getMessage(), e.getCause());
+                    }
+                }
+            }
+
+            if (isEnableSkipBitmapColumn && keysType.equals(KeysType.UNIQUE_KEYS)) {
+                if (isEnableMergeOnWrite) {
+                    columns.add(ColumnDefinition.newSkipBitmapColumnDef(AggregateType.NONE));
+                }
+                // TODO(bobhan1): add support for mor table
             }
 
             // validate partition

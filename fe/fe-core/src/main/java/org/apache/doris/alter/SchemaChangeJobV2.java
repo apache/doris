@@ -145,8 +145,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "hasRowStoreChange")
     protected boolean hasRowStoreChange = false;
 
+    @SerializedName(value = "enableUniqueKeySkipBitmap")
+    private boolean enableUniqueKeySkipBitmap = false;
+    @SerializedName(value = "hasEnableUniqueKeySkipBitmapChanged")
+    private boolean hasEnableUniqueKeySkipBitmapChanged = false;
+
     // save all schema change tasks
-    private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
+    AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
     protected SchemaChangeJobV2() {
         super(JobType.SCHEMA_CHANGE);
@@ -196,6 +201,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.hasRowStoreChange = hasRowStoreChange;
         this.storeRowColumn = storeRowColumn;
         this.rowStoreColumns = rowStoreColumns;
+    }
+
+    public void setEnableUniqueKeySkipBitmapInfo(boolean enableUniqueKeySkipBitmap,
+            boolean hasEnableUniqueKeySkipBitmapChanged) {
+        this.enableUniqueKeySkipBitmap = enableUniqueKeySkipBitmap;
+        this.hasEnableUniqueKeySkipBitmapChanged = hasEnableUniqueKeySkipBitmapChanged;
     }
 
     public void setAlterIndexInfo(boolean indexChange, List<Index> indexes) {
@@ -667,14 +678,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                 healthyReplicaNum++;
                             }
                         }
-                        if (!FeConstants.runningUnitTest) {
-                            if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
-                                LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
-                                        + " healthyReplicaNum {} expectReplicationNum {}",
-                                        shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
-                                throw new AlterCancelException(
+
+                        if ((healthyReplicaNum < expectReplicationNum / 2 + 1) && !FeConstants.runningUnitTest) {
+                            LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
+                                    + " healthyReplicaNum {} expectReplicationNum {}",
+                                    shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
+                            throw new AlterCancelException(
                                     "shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
-                            }
                         }
                     } // end for tablets
                 }
@@ -788,6 +798,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (hasRowStoreChange) {
             tbl.setStoreRowColumn(storeRowColumn);
             tbl.setRowStoreColumns(rowStoreColumns);
+        }
+        if (hasEnableUniqueKeySkipBitmapChanged) {
+            tbl.setEnableUniqueKeySkipBitmap(enableUniqueKeySkipBitmap);
         }
 
         // set storage format of table, only set if format is v2

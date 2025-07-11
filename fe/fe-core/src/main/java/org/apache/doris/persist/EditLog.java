@@ -50,6 +50,7 @@ import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
@@ -1272,6 +1273,14 @@ public class EditLog {
                     env.getIndexPolicyMgr().replayDropIndexPolicy(log);
                     break;
                 }
+                case OperationType.OP_BRANCH_OR_TAG: {
+                    TableBranchOrTagInfo info = (TableBranchOrTagInfo) journal.getData();
+                    CatalogIf ctl = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.getCtlName());
+                    if (ctl != null) {
+                        ctl.replayOperateOnBranchOrTag(info.getDbName(), info.getTblName());
+                    }
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2245,5 +2254,9 @@ public class EditLog {
 
     private boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
         return journal.exceedMaxJournalSize(op, writable);
+    }
+
+    public void logBranchOrTag(TableBranchOrTagInfo info) {
+        logEdit(OperationType.OP_BRANCH_OR_TAG, info);
     }
 }

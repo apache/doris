@@ -48,6 +48,10 @@ bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_index_size(
         "file_cache_event_driven_warm_up_requested_index_size");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_index_num(
         "file_cache_event_driven_warm_up_requested_index_num");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_submitted_tablet_num(
+        "file_cache_once_or_periodic_warm_up_submitted_tablet_num");
+bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_finished_tablet_num(
+        "file_cache_once_or_periodic_warm_up_finished_tablet_num");
 bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_submitted_segment_size(
         "file_cache_once_or_periodic_warm_up_submitted_segment_size");
 bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_submitted_segment_num(
@@ -100,7 +104,8 @@ std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTable
 void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                io::FileSystemSPtr file_system,
                                                int64_t expiration_time,
-                                               std::shared_ptr<bthread::CountdownEvent> wait) {
+                                               std::shared_ptr<bthread::CountdownEvent> wait,
+                                               bool is_index) {
     if (file_size < 0) {
         auto st = file_system->file_size(path, &file_size);
         if (!st.ok()) [[unlikely]] {
@@ -108,6 +113,13 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
             file_cache_warm_up_failed_task_num << 1;
             return;
         }
+    }
+    if (is_index) {
+        g_file_cache_once_or_periodic_warm_up_submitted_index_num << 1;
+        g_file_cache_once_or_periodic_warm_up_submitted_index_size << file_size;
+    } else {
+        g_file_cache_once_or_periodic_warm_up_submitted_segment_num << 1;
+        g_file_cache_once_or_periodic_warm_up_submitted_segment_size << file_size;
     }
 
     const int64_t chunk_size = 10 * 1024 * 1024; // 10MB
@@ -130,9 +142,19 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                         },
                 .download_done =
-                        [wait](Status st) {
+                        [=](Status st) {
                             if (!st) {
                                 LOG_WARNING("Warm up error ").error(st);
+                            } else if (is_index) {
+                                g_file_cache_once_or_periodic_warm_up_finished_index_num
+                                        << (offset == 0 ? 1 : 0);
+                                g_file_cache_once_or_periodic_warm_up_finished_index_size
+                                        << current_chunk_size;
+                            } else {
+                                g_file_cache_once_or_periodic_warm_up_finished_segment_num
+                                        << (offset == 0 ? 1 : 0);
+                                g_file_cache_once_or_periodic_warm_up_finished_segment_size
+                                        << current_chunk_size;
                             }
                             wait->signal();
                         },
@@ -202,11 +224,6 @@ void CloudWarmUpManager::handle_jobs() {
                         expiration_time = 0;
                     }
 
-                    g_file_cache_once_or_periodic_warm_up_submitted_segment_num << 1;
-                    if (rs->segment_file_size(seg_id) > 0) {
-                        g_file_cache_once_or_periodic_warm_up_submitted_segment_size
-                                << rs->segment_file_size(seg_id);
-                    }
                     // 1st. download segment files
                     submit_download_tasks(
                             storage_resource.value()->remote_segment_path(*rs, seg_id),
@@ -234,9 +251,7 @@ void CloudWarmUpManager::handle_jobs() {
                                 }
                             }
                             submit_download_tasks(idx_path, file_size, storage_resource.value()->fs,
-                                                  expiration_time, wait);
-                            g_file_cache_once_or_periodic_warm_up_submitted_index_num << 1;
-                            g_file_cache_once_or_periodic_warm_up_submitted_index_size << file_size;
+                                                  expiration_time, wait, true);
                         }
                     } else {
                         if (schema_ptr->has_inverted_index()) {
@@ -245,13 +260,12 @@ void CloudWarmUpManager::handle_jobs() {
                             file_size = idx_file_info.has_index_size() ? idx_file_info.index_size()
                                                                        : -1;
                             submit_download_tasks(idx_path, file_size, storage_resource.value()->fs,
-                                                  expiration_time, wait);
-                            g_file_cache_once_or_periodic_warm_up_submitted_index_num << 1;
-                            g_file_cache_once_or_periodic_warm_up_submitted_index_size << file_size;
+                                                  expiration_time, wait, true);
                         }
                     }
                 }
             }
+            g_file_cache_once_or_periodic_warm_up_finished_tablet_num << 1;
         }
 
         timespec time;
@@ -319,6 +333,7 @@ void CloudWarmUpManager::add_job(const std::vector<TJobMeta>& job_metas) {
         std::lock_guard lock(_mtx);
         std::for_each(job_metas.begin(), job_metas.end(), [this](const TJobMeta& meta) {
             _pending_job_metas.emplace_back(std::make_shared<JobMeta>(meta));
+            g_file_cache_once_or_periodic_warm_up_submitted_tablet_num << meta.tablet_ids.size();
         });
     }
     _cond.notify_all();

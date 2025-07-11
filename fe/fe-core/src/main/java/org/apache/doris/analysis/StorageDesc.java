@@ -17,7 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
 
 import java.util.Map;
 
@@ -32,8 +36,13 @@ import java.util.Map;
  *  The broker's StorageBackend.StorageType desc
  */
 public class StorageDesc extends ResourceDesc {
+
+    @Deprecated
     @SerializedName("st")
     protected StorageBackend.StorageType storageType;
+
+    @Getter
+    protected StorageProperties storageProperties;
 
     public StorageDesc() {
     }
@@ -41,7 +50,17 @@ public class StorageDesc extends ResourceDesc {
     public StorageDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
         this.name = name;
         this.storageType = storageType;
+        if (!storageType.equals(StorageBackend.StorageType.BROKER)) {
+            this.storageProperties = StorageProperties.createPrimary(properties);
+        }
         this.properties = properties;
+    }
+
+    public StorageDesc(String name, Map<String, String> properties) throws UserException {
+        this.name = name;
+        this.properties = properties;
+        this.storageProperties = StorageProperties.createPrimary(properties);
+        this.storageType = StorageBackend.StorageType.convertToStorageType(storageProperties.getStorageName());
     }
 
     public void setName(String name) {
@@ -66,5 +85,12 @@ public class StorageDesc extends ResourceDesc {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public Map<String, String> getBackendConfigProperties() {
+        if (null == storageProperties) {
+            return properties;
+        }
+        return storageProperties.getBackendConfigProperties();
     }
 }

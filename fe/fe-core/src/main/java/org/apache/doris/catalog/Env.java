@@ -3692,6 +3692,13 @@ public class Env {
             sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
         }
 
+        // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
+                && olapTable.getEnableUniqueKeySkipBitmap()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN).append("\" = \"");
+            sb.append(olapTable.getEnableUniqueKeySkipBitmap()).append("\"");
+        }
+
         // show lightSchemaChange only when it is set true
         if (olapTable.getEnableLightSchemaChange()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
@@ -3811,12 +3818,6 @@ public class Env {
             // enable flatten nested type in variant
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED).append("\" = \"");
             sb.append(olapTable.variantEnableFlattenNested()).append("\"");
-        }
-
-        // variant max subcolumns count
-        if (olapTable.getVariantMaxSubcolumnsCount() != 0) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT).append("\" = \"");
-            sb.append(olapTable.getVariantMaxSubcolumnsCount()).append("\"");
         }
 
         // binlog
@@ -4190,10 +4191,10 @@ public class Env {
             sb.append("\n)");
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            org.apache.iceberg.Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
-            sb.append("\nLOCATION '").append(icebergTable.location()).append("'");
+            IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = icebergTable.properties().entrySet().iterator();
+            Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
             while (iterator.hasNext()) {
                 Entry<String, String> prop = iterator.next();
                 sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");

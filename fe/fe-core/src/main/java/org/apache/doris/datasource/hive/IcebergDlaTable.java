@@ -54,7 +54,7 @@ public class IcebergDlaTable extends HMSDlaTable {
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
         return Maps.newHashMap(
             IcebergUtils.getOrFetchSnapshotCacheValue(
-                    snapshot, hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName())
+                    snapshot, hmsTable.getCatalog(), hmsTable.getRemoteDbName(), hmsTable.getRemoteName())
                 .getPartitionInfo().getNameToPartitionItem());
     }
 
@@ -72,9 +72,9 @@ public class IcebergDlaTable extends HMSDlaTable {
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         IcebergSnapshotCacheValue snapshotValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(
-                    snapshot, hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName());
+                    snapshot, hmsTable.getCatalog(), hmsTable.getRemoteDbName(), hmsTable.getRemoteName());
         IcebergSchemaCacheValue schemaValue = IcebergUtils.getSchemaCacheValue(
-                hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName(),
+                hmsTable.getCatalog(), hmsTable.getRemoteDbName(), hmsTable.getRemoteName(),
                 snapshotValue.getSnapshot().getSchemaId());
         return schemaValue.getPartitionColumns();
     }
@@ -84,7 +84,7 @@ public class IcebergDlaTable extends HMSDlaTable {
                                                Optional<MvccSnapshot> snapshot) throws AnalysisException {
         IcebergSnapshotCacheValue snapshotValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(
-                        snapshot, hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName());
+                        snapshot, hmsTable.getCatalog(), hmsTable.getRemoteDbName(), hmsTable.getRemoteName());
         long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
         if (latestSnapshotId <= 0) {
             throw new AnalysisException("can not find partition: " + partitionName);
@@ -98,7 +98,7 @@ public class IcebergDlaTable extends HMSDlaTable {
         hmsTable.makeSureInitialized();
         IcebergSnapshotCacheValue snapshotValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(
-                        snapshot, hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName());
+                        snapshot, hmsTable.getCatalog(), hmsTable.getRemoteDbName(), hmsTable.getRemoteName());
         return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
@@ -116,8 +116,8 @@ public class IcebergDlaTable extends HMSDlaTable {
         Set<String> allFields = Sets.newHashSet();
         Table table = IcebergUtils.getIcebergTable(
                 hmsTable.getCatalog(),
-                hmsTable.getDbName(),
-                hmsTable.getName()
+                hmsTable.getRemoteDbName(),
+                hmsTable.getRemoteName()
         );
         for (PartitionSpec spec : table.specs().values()) {
             if (spec == null) {

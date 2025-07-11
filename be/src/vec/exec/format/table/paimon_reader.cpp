@@ -24,6 +24,7 @@
 #include "util/deletion_vector.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                            RuntimeProfile* profile, RuntimeState* state,
                            const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -127,4 +128,5 @@ Status PaimonReader::get_next_block_inner(Block* block, size_t* read_rows, bool*
     RETURN_IF_ERROR(TableSchemaChangeHelper::get_next_block_after(block));
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

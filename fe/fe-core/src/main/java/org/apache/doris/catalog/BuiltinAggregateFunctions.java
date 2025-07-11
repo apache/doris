@@ -150,7 +150,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
             agg(Skew.class, "skew", "skew_pop", "skewness"),
-            agg(Stddev.class, "stddev_pop", "stddev"),
+            agg(Stddev.class, "stddev_pop", "stddev", "std"),
             agg(StddevSamp.class, "stddev_samp"),
             agg(Sum.class, "sum"),
             agg(Sum0.class, "sum0"),

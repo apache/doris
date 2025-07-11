@@ -241,7 +241,7 @@ public:
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
 
-    DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
+    std::shared_ptr<DeleteBitmap> delete_bitmap() { return _delete_bitmap; }
     void remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version);
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
@@ -427,8 +427,12 @@ public:
     /**
      * Move c-tor for making delete bitmap snapshot on read path
      */
-    DeleteBitmap(DeleteBitmap&& r);
-    DeleteBitmap& operator=(DeleteBitmap&& r);
+    DeleteBitmap(DeleteBitmap&& r) noexcept;
+    DeleteBitmap& operator=(DeleteBitmap&& r) noexcept;
+
+    static DeleteBitmap from_pb(const DeleteBitmapPB& pb, int64_t tablet_id);
+
+    DeleteBitmapPB to_pb();
 
     /**
      * Makes a snapshot of delete bitmap, read lock will be acquired in this
@@ -579,6 +583,14 @@ public:
 
     std::set<RowsetId> get_rowset_cache_version();
 
+    /**
+     * Calculate diffset with given `key_set`. All entries with keys contained in this delete bitmap but not
+     * in given key_set will be added to the output delete bitmap.
+     *
+     * @return Deletebitmap containning all entries in diffset
+    */
+    DeleteBitmap diffset(const std::set<BitmapKey>& key_set) const;
+
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
 
@@ -586,8 +598,6 @@ private:
     mutable std::shared_mutex _rowset_cache_version_lock;
     mutable std::map<RowsetId, std::map<SegmentId, Version>> _rowset_cache_version;
 };
-
-static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 
 inline TabletUid TabletMeta::tablet_uid() const {
     return _tablet_uid;

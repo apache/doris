@@ -135,7 +135,7 @@ install(FILES
     ${BASE_DIR}/script/run_all_tests.sh
     ${BASE_DIR}/conf/fdb.cluster
     ${BASE_DIR}/conf/doris_cloud.conf
-    ${BASE_DIR}/conf/lsan_suppression.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
     ${BASE_DIR}/test/fdb_metric_example.json
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE

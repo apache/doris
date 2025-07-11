@@ -149,7 +149,17 @@ private:
 
     void _calc_tablets_to_commit();
 
-    Status _close_wait(bool incremental);
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> _incremental_streams();
+
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> _non_incremental_streams();
+
+    Status _close_wait(std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams);
+
+    Status _check_timeout();
+
+    Status _check_streams_finish(
+            std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams, Status& status,
+            const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node);
 
     void _cancel(Status status);
 

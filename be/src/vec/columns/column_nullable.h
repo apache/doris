@@ -271,7 +271,7 @@ public:
         _push_false_to_nullmap(num);
     }
 
-    void insert_null_elements(int num) {
+    void insert_null_elements(size_t num) {
         get_nested_column().insert_many_defaults(num);
         get_null_map_column().insert_many_vals(1, num);
         _has_null = true;

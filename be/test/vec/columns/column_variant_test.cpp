@@ -2177,7 +2177,8 @@ TEST_F(ColumnObjectTest, subcolumn_operations_coverage) {
             memcpy(binary_data.data(), &str_size, sizeof(size_t));
             memcpy(binary_data.data() + sizeof(size_t), test_str.data(), test_str.size());
             const char* data = binary_data.data();
-            parse_binary_from_sparse_column(TypeIndex::String, data, res, field_info);
+            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_STRING, data, res,
+                                            field_info);
             EXPECT_EQ(res.get<String>(), "test_data");
         }
 
@@ -2185,28 +2186,31 @@ TEST_F(ColumnObjectTest, subcolumn_operations_coverage) {
         {
             Int8 int8_val = 42;
             const char* data = reinterpret_cast<const char*>(&int8_val);
-            parse_binary_from_sparse_column(TypeIndex::Int8, data, res, field_info);
+            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_TINYINT, data, res,
+                                            field_info);
             EXPECT_EQ(res.get<Int8>(), 42);
         }
 
         {
             Int16 int16_val = 12345;
             const char* data = reinterpret_cast<const char*>(&int16_val);
-            parse_binary_from_sparse_column(TypeIndex::Int16, data, res, field_info);
+            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_SMALLINT, data, res,
+                                            field_info);
             EXPECT_EQ(res.get<Int16>(), 12345);
         }
 
         {
             Int32 int32_val = 123456789;
             const char* data = reinterpret_cast<const char*>(&int32_val);
-            parse_binary_from_sparse_column(TypeIndex::Int32, data, res, field_info);
+            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_INT, data, res, field_info);
             EXPECT_EQ(res.get<Int32>(), 123456789);
         }
 
         {
             Int64 int64_val = 1234567890123456789LL;
             const char* data = reinterpret_cast<const char*>(&int64_val);
-            parse_binary_from_sparse_column(TypeIndex::Int64, data, res, field_info);
+            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_BIGINT, data, res,
+                                            field_info);
             EXPECT_EQ(res.get<Int64>(), 1234567890123456789LL);
         }
 
@@ -2214,14 +2218,16 @@ TEST_F(ColumnObjectTest, subcolumn_operations_coverage) {
         {
             Float32 float32_val = 3.1415901f;
             const char* data = reinterpret_cast<const char*>(&float32_val);
-            parse_binary_from_sparse_column(TypeIndex::Float32, data, res, field_info);
+            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_FLOAT, data, res,
+                                            field_info);
             EXPECT_FLOAT_EQ(res.get<Float32>(), 0);
         }
 
         {
             Float64 float64_val = 3.141592653589793;
             const char* data = reinterpret_cast<const char*>(&float64_val);
-            parse_binary_from_sparse_column(TypeIndex::Float64, data, res, field_info);
+            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_DOUBLE, data, res,
+                                            field_info);
             EXPECT_DOUBLE_EQ(res.get<Float64>(), 3.141592653589793);
         }
 
@@ -2234,14 +2240,8 @@ TEST_F(ColumnObjectTest, subcolumn_operations_coverage) {
             memcpy(binary_data.data(), &json_size, sizeof(size_t));
             memcpy(binary_data.data() + sizeof(size_t), json_str.data(), json_str.size());
             const char* data = binary_data.data();
-            parse_binary_from_sparse_column(TypeIndex::JSONB, data, res, field_info);
-        }
-
-        // Test Nothing type
-        {
-            const char* data = nullptr;
-            parse_binary_from_sparse_column(TypeIndex::Nothing, data, res, field_info);
-            EXPECT_TRUE(res.is_null());
+            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_JSONB, data, res,
+                                            field_info);
         }
 
         // Test Array type
@@ -2256,48 +2256,24 @@ TEST_F(ColumnObjectTest, subcolumn_operations_coverage) {
             data_ptr += sizeof(size_t);
 
             // Write first element (Int32)
-            *data_ptr++ = static_cast<uint8_t>(TypeIndex::Int32);
+            *data_ptr++ = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_INT);
             Int32 val1 = 42;
             memcpy(data_ptr, &val1, sizeof(Int32));
             data_ptr += sizeof(Int32);
 
             // Write second element (Int32)
-            *data_ptr++ = static_cast<uint8_t>(TypeIndex::Int32);
+            *data_ptr++ = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_INT);
             Int32 val2 = 43;
             memcpy(data_ptr, &val2, sizeof(Int32));
 
             const char* data = binary_data.data();
-            parse_binary_from_sparse_column(TypeIndex::Array, data, res, field_info);
+            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_ARRAY, data, res,
+                                            field_info);
             const Array& array = res.get<Array>();
             EXPECT_EQ(array.size(), 2);
             EXPECT_EQ(array[0].get<Int32>(), 42);
             EXPECT_EQ(array[1].get<Int32>(), 43);
         }
-
-        // Test unsupported types - these should throw exceptions
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::UInt8, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::UInt16, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::UInt32, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::UInt64, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::Date, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::DateTime, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::Decimal32, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::Decimal64, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::Decimal128V2, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::Tuple, nullptr, res, field_info));
-        EXPECT_ANY_THROW(parse_binary_from_sparse_column(TypeIndex::Map, nullptr, res, field_info));
-        EXPECT_ANY_THROW(
-                parse_binary_from_sparse_column(TypeIndex::VARIANT, nullptr, res, field_info));
     }
 
     // Test add_sub_column

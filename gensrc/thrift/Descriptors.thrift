@@ -49,6 +49,7 @@ struct TColumn {
     19: optional i32 cluster_key_id = -1
     20: optional i32 be_exec_version = -1
     21: optional TPatternType pattern_type
+    22: optional bool variant_enable_typed_paths_to_sparse = false;
 }
 
 struct TSlotDescriptor {
@@ -168,6 +169,11 @@ enum TIndexType {
   NGRAM_BF = 3
 }
 
+enum TPartialUpdateNewRowPolicy {
+    APPEND = 0,
+    ERROR = 1
+}
+
 // Mapping from names defined by Avro to the enum.
 // We permit gzip and bzip2 in addition.
 const map<string, THdfsCompression> COMPRESSION_MAP = {
@@ -262,12 +268,15 @@ struct TOlapTableSchemaParam {
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
     7: optional bool is_dynamic_schema // deprecated
-    8: optional bool is_partial_update
+    8: optional bool is_partial_update // deprecated, use unique_key_update_mode
     9: optional list<string> partial_update_input_columns
     10: optional bool is_strict_mode = false
     11: optional string auto_increment_column
     12: optional i32 auto_increment_column_unique_id = -1
     13: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V1
+    14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode = Types.TUniqueKeyUpdateMode.UPSERT
+    15: optional i32 sequence_map_col_unique_id = -1
+    16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
 }
 
 struct TTabletLocation {

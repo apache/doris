@@ -46,10 +46,6 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
         }
 
         set_be_config("variant_max_sparse_column_statistics_size", "2")
-        int max_subcolumns_count = Math.floor(Math.random() * 5) 
-        if (max_subcolumns_count == 1) {
-            max_subcolumns_count = 0
-        }
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
             def var_def = "variant <'sala' : int, 'ddd' : double, 'z' : double>"
@@ -63,7 +59,7 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
                 )
                 ${key_type} KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-                properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
+                properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
         }
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]

@@ -151,7 +151,8 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
         LoadLoadingTask task = new CloudLoadLoadingTask(db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
+                isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
+                transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                 useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
