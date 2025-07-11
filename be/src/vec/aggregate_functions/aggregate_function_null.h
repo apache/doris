@@ -244,13 +244,11 @@ public:
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         if (column->is_null_at(row_num)) {
-            this->null_count++;
+            this->update_null_count(place + this->prefix_size, true);
         } else {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add(this->nested_place(place), &nested_column, row_num, arena);
-        } else {
-            this->update_null_count(place + this->prefix_size, true);
         }
     }
 
