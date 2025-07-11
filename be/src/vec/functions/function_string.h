@@ -45,7 +45,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_search.hpp"
 #include "util/sha.h"
@@ -95,7 +94,6 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pinyin.h"
 #include "vec/common/string_ref.h"
@@ -1174,19 +1172,25 @@ public:
         std::vector<std::string_view> views;
 
         if (is_column<ColumnArray>(argument_columns[1].get())) {
-            // Determine if the nested type of the array is String
-            const auto& array_column = reinterpret_cast<const ColumnArray&>(*argument_columns[1]);
-            if (!array_column.get_data().is_column_string()) {
-                return Status::NotSupported(
-                        fmt::format("unsupported nested array of type {} for function {}",
-                                    is_column_nullable(array_column.get_data())
-                                            ? array_column.get_data().get_name()
-                                            : array_column.get_data().get_name(),
-                                    get_name()));
+            if (argument_size > 2) {
+                _execute_multi_array(input_rows_count, argument_columns, buffer, views,
+                                     offsets_list, chars_list, null_list, res_data, res_offset);
+            } else {
+                // Determine if the nested type of the array is String
+                const auto& array_column =
+                        reinterpret_cast<const ColumnArray&>(*argument_columns[1]);
+                if (!array_column.get_data().is_column_string()) {
+                    return Status::NotSupported(
+                            fmt::format("unsupported nested array of type {} for function {}",
+                                        is_column_nullable(array_column.get_data())
+                                                ? array_column.get_data().get_name()
+                                                : array_column.get_data().get_name(),
+                                        get_name()));
+                }
+                // Concat string in array
+                _execute_array(input_rows_count, array_column, buffer, views, offsets_list,
+                               chars_list, null_list, res_data, res_offset);
             }
-            // Concat string in array
-            _execute_array(input_rows_count, array_column, buffer, views, offsets_list, chars_list,
-                           null_list, res_data, res_offset);
 
         } else {
             // Concat string
@@ -1272,13 +1276,168 @@ private:
         }
     }
 
+    void _execute_multi_array(const size_t& input_rows_count,
+                              const std::vector<ColumnPtr>& argument_columns,
+                              fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
+                              const std::vector<const Offsets*>& offsets_list,
+                              const std::vector<const Chars*>& chars_list,
+                              const std::vector<const ColumnUInt8::Container*>& null_list,
+                              Chars& res_data, Offsets& res_offset) const {
+        std::vector<std::vector<bool>> is_null(input_rows_count,
+                                               std::vector<bool>(argument_columns.size(), true));
+        std::vector<size_t> null_counts(input_rows_count, 0);
+        std::vector<Chars> temp_res_data(input_rows_count);
+        std::vector<Offsets> temp_res_offsets(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            temp_res_offsets[i].resize(argument_columns.size());
+        }
+        for (size_t i = 1; i < argument_columns.size(); ++i) {
+            const auto& array_column = assert_cast<const ColumnArray&>(*argument_columns[i]);
+            if (!array_column.get_data().is_column_string()) {
+                return;
+            }
+            const UInt8* array_nested_null_map = nullptr;
+            ColumnPtr array_nested_column = nullptr;
+
+            if (is_column_nullable(array_column.get_data())) {
+                const auto& array_nested_null_column =
+                        reinterpret_cast<const ColumnNullable&>(array_column.get_data());
+                // String's null map in array
+                array_nested_null_map =
+                        array_nested_null_column.get_null_map_column().get_data().data();
+                array_nested_column = array_nested_null_column.get_nested_column_ptr();
+            } else {
+                array_nested_column = array_column.get_data_ptr();
+            }
+            const auto& src_array_offsets = array_column.get_offsets();
+            size_t current_src_array_offset = 0;
+
+            for (size_t j = 0; j < input_rows_count; ++j) {
+                for (auto next_src_array_offset = src_array_offsets[j];
+                     current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
+                    if (array_nested_null_map != nullptr &&
+                        array_nested_null_map[current_src_array_offset]) {
+                        continue;
+                    }
+                    is_null[j][i] = false;
+                    LOG(INFO) << "is_null[" << j << "][" << i
+                              << "] = false, current_src_array_offset: " << current_src_array_offset
+                              << "\n";
+                    break;
+                }
+                if (is_null[j][i]) {
+                    null_counts[j]++;
+                }
+            }
+        }
+
+        LOG(INFO) << "null_counts: " << null_counts[0] << "\n";
+
+        for (size_t i = 1; i < argument_columns.size(); ++i) {
+            // auto& current_null_map = *null_list[i];
+            const auto& array_column = assert_cast<const ColumnArray&>(*argument_columns[i]);
+            if (!array_column.get_data().is_column_string()) {
+                return;
+            }
+            const UInt8* array_nested_null_map = nullptr;
+            ColumnPtr array_nested_column = nullptr;
+
+            if (is_column_nullable(array_column.get_data())) {
+                const auto& array_nested_null_column =
+                        reinterpret_cast<const ColumnNullable&>(array_column.get_data());
+                // String's null map in array
+                array_nested_null_map =
+                        array_nested_null_column.get_null_map_column().get_data().data();
+                array_nested_column = array_nested_null_column.get_nested_column_ptr();
+            } else {
+                array_nested_column = array_column.get_data_ptr();
+            }
+
+            const auto& string_column = reinterpret_cast<const ColumnString&>(*array_nested_column);
+            const Chars& string_src_chars = string_column.get_chars();
+            const auto& src_string_offsets = string_column.get_offsets();
+            const auto& src_array_offsets = array_column.get_offsets();
+            size_t current_src_array_offset = 0;
+
+            // Concat string in array
+            for (size_t j = 0; j < input_rows_count; ++j) {
+                auto& sep_offsets = *offsets_list[0];
+                auto& sep_chars = *chars_list[0];
+                auto& sep_nullmap = *null_list[0];
+
+                if (sep_nullmap[j]) {
+                    res_offset[j] = res_data.size();
+                    current_src_array_offset += src_array_offsets[j] - src_array_offsets[j - 1];
+                    continue;
+                }
+
+                int sep_size = sep_offsets[j] - sep_offsets[j - 1];
+                const char* sep_data =
+                        reinterpret_cast<const char*>(&sep_chars[sep_offsets[j - 1]]);
+
+                std::string_view sep(sep_data, sep_size);
+                buffer.clear();
+                views.clear();
+                for (auto next_src_array_offset = src_array_offsets[j];
+                     current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
+                    const auto current_src_string_offset =
+                            current_src_array_offset
+                                    ? src_string_offsets[current_src_array_offset - 1]
+                                    : 0;
+                    size_t bytes_to_copy = src_string_offsets[current_src_array_offset] -
+                                           current_src_string_offset;
+                    const char* ptr = reinterpret_cast<const char*>(
+                            &string_src_chars[current_src_string_offset]);
+
+                    if (array_nested_null_map == nullptr ||
+                        !array_nested_null_map[current_src_array_offset]) {
+                        views.emplace_back(ptr, bytes_to_copy);
+                    }
+                }
+
+                fmt::format_to(buffer, "{}", fmt::join(views, sep));
+
+                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
+                                            temp_res_data[j], temp_res_offsets[j]);
+                if (null_counts[j] >= argument_columns.size() - i - 1 || is_null[j][i] ||
+                    i == argument_columns.size() - 1) {
+                    if (is_null[j][i]) {
+                        null_counts[j]--;
+                    }
+                } else {
+                    StringOP::push_value_string(std::string_view(sep.data(), sep.size()), i,
+                                                temp_res_data[j], temp_res_offsets[j]);
+                }
+            }
+        }
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_counts[i] >= argument_columns.size() - 1) {
+                res_offset[i] = res_data.size();
+                continue;
+            }
+            for (size_t j = 1; j < argument_columns.size(); ++j) {
+                if (is_null[i][j]) {
+                    continue;
+                }
+                const char* temp_data = reinterpret_cast<const char*>(
+                        &(temp_res_data[i])[temp_res_offsets[i][j - 1]]);
+                if (temp_data == nullptr) {
+                    LOG(WARNING) << "temp_data is nullptr, i: " << i << ", j: " << j
+                                 << ", temp_res_offsets[i][j - 1]: " << temp_res_offsets[i][j - 1];
+                }
+                std::string_view temp(temp_data,
+                                      temp_res_offsets[i][j] - temp_res_offsets[i][j - 1]);
+                StringOP::push_value_string(temp, i, res_data, res_offset);
+            }
+        }
+    }
+
     void _execute_string(const size_t& input_rows_count, const size_t& argument_size,
                          fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
                          const std::vector<const Offsets*>& offsets_list,
                          const std::vector<const Chars*>& chars_list,
                          const std::vector<const ColumnUInt8::Container*>& null_list,
-                         Chars& res_data, Offsets& res_offset) const {
-        // Concat string
+                         Chars& res_data, Offsets& res_offset) const { // Concat string
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto& sep_offsets = *offsets_list[0];
             auto& sep_chars = *chars_list[0];
@@ -1287,7 +1446,6 @@ private:
                 res_offset[i] = res_data.size();
                 continue;
             }
-
             int sep_size = sep_offsets[i] - sep_offsets[i - 1];
             const char* sep_data = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
 
@@ -2852,6 +3010,48 @@ public:
     }
 };
 
+// ----------------------------------------------------------------------
+// SimpleItoaWithCommas()
+//    Description: converts an integer to a string.
+//    Puts commas every 3 spaces.
+//    Faster than printf("%d")?
+//
+//    Return value: string
+// ----------------------------------------------------------------------
+template <typename T>
+char* SimpleItoaWithCommas(T i, char* buffer, int32_t buffer_size) {
+    char* p = buffer + buffer_size;
+    // Need to use unsigned T instead of T to correctly handle
+    std::make_unsigned_t<T> n = i;
+    if (i < 0) {
+        n = 0 - n;
+    }
+    *--p = '0' + n % 10; // this case deals with the number "0"
+    n /= 10;
+    while (n) {
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) {
+            break;
+        }
+
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) {
+            break;
+        }
+
+        *--p = ',';
+        *--p = '0' + n % 10;
+        n /= 10;
+        // For this unrolling, we check if n == 0 in the main while loop
+    }
+    if (i < 0) {
+        *--p = '-';
+    }
+    return p;
+}
+
 namespace MoneyFormat {
 
 constexpr size_t MAX_FORMAT_LEN_DEC32() {
@@ -2928,7 +3128,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
     }
 
     char local[N];
-    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    char* p = SimpleItoaWithCommas<T>(int_value, local, sizeof(local));
     const Int32 integer_str_len = N - (p - local);
     const Int32 frac_str_len = 2;
     const Int32 whole_decimal_str_len =
@@ -2949,7 +3149,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
 };
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringRef do_money_format(FunctionContext* context, const string& value) {
+static StringRef do_money_format(FunctionContext* context, const std::string& value) {
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
     StringRef result = context->create_temp_string_val(result_len);
@@ -3055,7 +3255,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
     }
 
     char local[N];
-    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    char* p = SimpleItoaWithCommas<T>(int_value, local, sizeof(local));
     const Int32 integer_str_len = N - (p - local);
     const Int32 frac_str_len = decimal_places;
     const Int32 whole_decimal_str_len = (append_sign_manually ? 1 : 0) + integer_str_len +
@@ -3083,7 +3283,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
 }
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringRef do_format_round(FunctionContext* context, const string& value,
+static StringRef do_format_round(FunctionContext* context, const std::string& value,
                                  Int32 decimal_places) {
     bool is_positive = (value[0] != '-');
     int32_t result_len =
@@ -3178,7 +3378,7 @@ struct MoneyFormatDecimalImpl {
 
     static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
                         size_t input_rows_count) {
-        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal128V2& dec128 = decimalv2_column->get_element(i);
                 DecimalV2Value value = DecimalV2Value(dec128.value);
@@ -3191,8 +3391,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal32_column =
-                           check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
+        } else if (auto* decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal32& frac_part = decimal32_column->get_fractional_part(i);
@@ -3204,8 +3403,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal64_column =
-                           check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
+        } else if (auto* decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal64& frac_part = decimal64_column->get_fractional_part(i);
@@ -3217,8 +3415,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal128_column =
-                           check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
+        } else if (auto* decimal128_column = check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal128V3& frac_part = decimal128_column->get_fractional_part(i);
@@ -3355,7 +3552,7 @@ struct FormatRoundDecimalImpl {
                           ColumnPtr decimal_places_col_ptr, size_t input_rows_count) {
         const auto& arg_column_data_2 =
                 assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
-        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
                 if (decimal_places < 0) {
@@ -3374,8 +3571,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal32_column =
-                           check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
+        } else if (auto* decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
@@ -3393,8 +3589,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal64_column =
-                           check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
+        } else if (auto* decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
@@ -3412,8 +3607,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal128_column =
-                           check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
+        } else if (auto* decimal128_column = check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
@@ -3708,7 +3902,7 @@ struct ReverseImpl {
         for (ssize_t i = 0; i < rows_count; ++i) {
             auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_len = offsets[i] - offsets[i - 1];
-            string dst;
+            std::string dst;
             dst.resize(src_len);
             simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
                                             StringRef((uint8_t*)dst.data(), src_len));
@@ -4294,29 +4488,33 @@ private:
             return;
         }
         const char* bytes = (const char*)(num);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-        int k = 3;
-        for (; k >= 0; --k) {
-            if (bytes[k]) {
-                break;
+        if constexpr (std::endian::native == std::endian::little) {
+            int k = 3;
+            for (; k >= 0; --k) {
+                if (bytes[k]) {
+                    break;
+                }
             }
-        }
-        offsets[line_num] = offsets[line_num - 1] + k + 1;
-        for (; k >= 0; --k) {
-            chars.push_back(bytes[k] ? bytes[k] : '\0');
-        }
-#else
-        int k = 0;
-        for (; k < 4; ++k) {
-            if (bytes[k]) {
-                break;
+            offsets[line_num] = offsets[line_num - 1] + k + 1;
+            for (; k >= 0; --k) {
+                chars.push_back(bytes[k] ? bytes[k] : '\0');
             }
+        } else if constexpr (std::endian::native == std::endian::big) {
+            int k = 0;
+            for (; k < 4; ++k) {
+                if (bytes[k]) {
+                    break;
+                }
+            }
+            offsets[line_num] = offsets[line_num - 1] + 4 - k;
+            for (; k < 4; ++k) {
+                chars.push_back(bytes[k] ? bytes[k] : '\0');
+            }
+        } else {
+            static_assert(std::endian::native == std::endian::big ||
+                                  std::endian::native == std::endian::little,
+                          "Unsupported endianness");
         }
-        offsets[line_num] = offsets[line_num - 1] + 4 - k;
-        for (; k < 4; ++k) {
-            chars.push_back(bytes[k] ? bytes[k] : '\0');
-        }
-#endif
     }
 };
 

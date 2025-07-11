@@ -42,7 +42,10 @@ public class ConcatWs extends ScalarFunction
                     .args(VarcharType.SYSTEM_DEFAULT, ArrayType.of(VarcharType.SYSTEM_DEFAULT)),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, StringType.INSTANCE)
+            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, StringType.INSTANCE),
+            // 新增签名：第一个参数为字符串，后续为一个或多个字符串数组
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .varArgs(VarcharType.SYSTEM_DEFAULT, ArrayType.of(VarcharType.SYSTEM_DEFAULT))
     );
 
     /**
@@ -50,6 +53,13 @@ public class ConcatWs extends ScalarFunction
      */
     public ConcatWs(Expression arg0, Expression arg1, Expression... varArgs) {
         super("concat_ws", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
+    }
+
+    /**
+     * 支持第一个参数为字符串，后续为一个或多个字符串数组的构造方法。
+     */
+    public ConcatWs(Expression arg0, List<Expression> arrayArgs) {
+        super("concat_ws", ExpressionUtils.mergeArguments(arg0, arrayArgs.toArray(new Expression[0])));
     }
 
     /**
@@ -66,6 +76,18 @@ public class ConcatWs extends ScalarFunction
     @Override
     public ConcatWs withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
+        // 如果第二个及后续参数全是数组类型，则走新签名
+        boolean allArrays = true;
+        for (int i = 1; i < children.size(); ++i) {
+            if (!(children.get(i).getDataType() instanceof ArrayType)) {
+                allArrays = false;
+                break;
+            }
+        }
+        if (allArrays) {
+            return new ConcatWs(children.get(0), children.subList(1, children.size()));
+        }
+        // 默认行为
         return new ConcatWs(children.get(0), children.get(1),
                 children.subList(2, children.size()).toArray(new Expression[0]));
     }
