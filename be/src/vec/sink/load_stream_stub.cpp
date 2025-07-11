@@ -229,6 +229,7 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
     header.set_offset(offset);
     header.set_opcode(doris::PStreamHeader::APPEND_DATA);
     header.set_file_type(file_type);
+    write_tablets(tablet_id);
     return _encode_and_send(header, data);
 }
 
@@ -253,6 +254,7 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
     if (flush_schema != nullptr) {
         flush_schema->to_schema_pb(header.mutable_flush_schema());
     }
+    write_tablets(tablet_id);
     return _encode_and_send(header);
 }
 
@@ -332,16 +334,15 @@ Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) 
     DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
     DBUG_EXECUTE_IF("LoadStreamStub::close_finish_check.close_failed",
                     { return Status::InternalError("close failed"); });
-    *is_closed = true;
     if (!_is_open.load()) {
         // we don't need to close wait on non-open streams
+        *is_closed = true;
         return Status::OK();
     }
     if (state->get_query_ctx()->is_cancelled()) {
         return state->get_query_ctx()->exec_status();
     }
     if (!_is_closing.load()) {
-        *is_closed = false;
         return _status;
     }
     if (_is_closed.load()) {
@@ -349,9 +350,9 @@ Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) 
         if (!_is_eos.load()) {
             return Status::InternalError("Stream closed without EOS, {}", to_string());
         }
+        *is_closed = true;
         return Status::OK();
     }
-    *is_closed = false;
     return Status::OK();
 }
 
@@ -381,6 +382,7 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
     }
     bool eos = header.opcode() == doris::PStreamHeader::CLOSE_LOAD;
     bool get_schema = header.opcode() == doris::PStreamHeader::GET_SCHEMA;
+    update_bytes_written(buf.size());
     return _send_with_buffer(buf, eos || get_schema);
 }
 
