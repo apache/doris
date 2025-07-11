@@ -613,9 +613,7 @@ struct UnixTimeStampDateImpl {
 
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
-            using ColumnType = std::conditional_t<std::is_same_v<DateType, DataTypeDate>,
-                                                  ColumnDate, ColumnDateTime>;
-            const auto* col_source = assert_cast<const ColumnType*>(col.get());
+            const auto* col_source = assert_cast<const typename DateType::ColumnType*>(col.get());
             auto col_result = ColumnInt32::create();
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
