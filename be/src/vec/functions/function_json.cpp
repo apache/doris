@@ -1440,19 +1440,17 @@ public:
                         objects[row].GetAllocator());
             }
 
-            switch (Kind::modify_type) {
-            case JsonModifyType::JSON_INSERT:
+            if constexpr (Kind::modify_type == JsonModifyType::JSON_INSERT) {
                 modify_value(*parsed_paths, &objects[row], objects[row].GetAllocator(), true, false,
                              &value);
-                break;
-            case JsonModifyType::JSON_REPLACE:
+            }
+            if constexpr (Kind::modify_type == JsonModifyType::JSON_REPLACE) {
                 modify_value(*parsed_paths, &objects[row], objects[row].GetAllocator(), false, true,
                              &value);
-                break;
-            case JsonModifyType::JSON_SET:
+            }
+            if constexpr (Kind::modify_type == JsonModifyType::JSON_SET) {
                 modify_value(*parsed_paths, &objects[row], objects[row].GetAllocator(), true, true,
                              &value);
-                break;
             }
         }
     }
