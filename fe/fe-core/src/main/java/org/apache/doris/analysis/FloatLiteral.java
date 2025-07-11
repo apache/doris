@@ -270,15 +270,4 @@ public class FloatLiteral extends NumericLiteralExpr {
         return "'" + timeStr + String.format("%02d:%02d:%02d", hour, minute, second) + "'";
     }
 
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        if (type.getPrimitiveType() == PrimitiveType.FLOAT) {
-            value = data.getFloat();
-            return;
-        }
-        if (type.getPrimitiveType() == PrimitiveType.DOUBLE) {
-            value = data.getDouble();
-            return;
-        }
-    }
 }

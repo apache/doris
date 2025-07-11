@@ -137,12 +137,6 @@ protected:
 
     virtual bool skip_return_type_check() const { return false; }
 
-    /** If function arguments has single low cardinality column and all other arguments are constants, call function on nested column.
-      * Otherwise, convert all low cardinality columns to ordinary columns.
-      * Returns ColumnLowCardinality if at least one argument is ColumnLowCardinality.
-      */
-    virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
-
     /** Some arguments could remain constant during this implementation.
       * Every argument required const must write here and no checks elsewhere.
       */
@@ -192,8 +186,13 @@ public:
         try {
             return prepare(context, block, arguments, result)
                     ->execute(context, block, arguments, result, input_rows_count, dry_run);
-        } catch (const Exception& e) {
-            return e.to_status();
+        } catch (const std::exception& e) {
+            if (const auto* doris_e = dynamic_cast<const doris::Exception*>(&e)) {
+                return doris_e->to_status();
+            } else {
+                return Status::InternalError("Function {} execute failed: {}", get_name(),
+                                             e.what());
+            }
         }
     }
 
@@ -348,12 +347,6 @@ protected:
 
     virtual bool need_replace_null_data_to_default() const { return false; }
 
-    /** If use_default_implementation_for_nulls() is true, than change arguments for get_return_type() and build_impl().
-      * If function arguments has low cardinality types, convert them to ordinary types.
-      * get_return_type returns ColumnLowCardinality if at least one argument type is ColumnLowCardinality.
-      */
-    virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
-
     /// return a real function object to execute. called in build(...).
     virtual FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                        const DataTypePtr& return_type) const = 0;
@@ -361,9 +354,6 @@ protected:
     virtual DataTypes get_variadic_argument_types_impl() const { return {}; }
 
 private:
-    DataTypePtr get_return_type_without_low_cardinality(
-            const ColumnsWithTypeAndName& arguments) const;
-
     bool is_date_or_datetime_or_decimal(const DataTypePtr& return_type,
                                         const DataTypePtr& func_return_type) const;
     bool is_array_nested_type_date_or_datetime_or_decimal(
@@ -388,8 +378,6 @@ public:
     bool skip_return_type_check() const override { return false; }
 
     bool need_replace_null_data_to_default() const override { return false; }
-
-    bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
 
     /// all constancy check should use this function to do automatically
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
@@ -479,9 +467,6 @@ protected:
     }
     bool use_default_implementation_for_constants() const final {
         return function->use_default_implementation_for_constants();
-    }
-    bool use_default_implementation_for_low_cardinality_columns() const final {
-        return function->use_default_implementation_for_low_cardinality_columns();
     }
     ColumnNumbers get_arguments_that_are_always_constant() const final {
         return function->get_arguments_that_are_always_constant();
@@ -577,9 +562,6 @@ protected:
 
     bool need_replace_null_data_to_default() const override {
         return function->need_replace_null_data_to_default();
-    }
-    bool use_default_implementation_for_low_cardinality_columns() const override {
-        return function->use_default_implementation_for_low_cardinality_columns();
     }
 
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,

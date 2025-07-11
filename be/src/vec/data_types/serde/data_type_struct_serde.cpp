@@ -33,16 +33,6 @@ namespace vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 
-std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String& name) const {
-    size_t size = elem_serdes_ptrs.size();
-    for (size_t i = 0; i < size; ++i) {
-        if (elem_names[i] == name) {
-            return {i};
-        }
-    }
-    return std::nullopt;
-}
-
 std::string DataTypeStructSerDe::get_name() const {
     size_t size = elem_names.size();
     std::stringstream s;
@@ -257,12 +247,12 @@ Status DataTypeStructSerDe::deserialize_column_from_json_vector(
 }
 
 void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena* mem_pool, int32_t col_id,
+                                                  Arena& arena, int32_t col_id,
                                                   int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
-    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    StringRef value = column.serialize_value_into_arena(row_num, arena, begin);
     result.writeStartBinary();
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();

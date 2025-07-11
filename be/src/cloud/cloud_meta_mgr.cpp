@@ -394,7 +394,7 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
         std::shared_ptr<MetaService_Stub> stub;
         RETURN_IF_ERROR(proxy->get(&stub));
         brpc::Controller cntl;
-        if (op_name == "get delete bitmap") {
+        if (op_name == "get delete bitmap" || op_name == "update delete bitmap") {
             cntl.set_timeout_ms(3 * config::meta_service_brpc_timeout_ms);
         } else {
             cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);

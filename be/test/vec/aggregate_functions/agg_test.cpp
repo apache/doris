@@ -42,6 +42,7 @@ void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 
 TEST(AggTest, basic_test) {
+    Arena arena;
     auto column_vector_int32 = ColumnInt32::create();
     for (int i = 0; i < agg_test_batch_size; i++) {
         column_vector_int32->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
@@ -57,7 +58,7 @@ TEST(AggTest, basic_test) {
     agg_function->create(place);
     const IColumn* column[1] = {column_vector_int32.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
     int ans = 0;
     for (int i = 0; i < agg_test_batch_size; i++) {
@@ -68,6 +69,7 @@ TEST(AggTest, basic_test) {
 }
 
 TEST(AggTest, topn_test) {
+    Arena arena;
     MutableColumns datas(2);
     datas[0] = ColumnString::create();
     datas[1] = ColumnInt32::create();
@@ -91,7 +93,7 @@ TEST(AggTest, topn_test) {
     IColumn* columns[2] = {datas[0].get(), datas[1].get()};
 
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, const_cast<const IColumn**>(columns), i, nullptr);
+        agg_function->add(place, const_cast<const IColumn**>(columns), i, arena);
     }
 
     std::string result = reinterpret_cast<AggregateFunctionTopNData<TYPE_STRING>*>(place)->get();

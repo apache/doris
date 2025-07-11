@@ -20,7 +20,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
@@ -91,7 +90,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     // Use this if partition_prune_algorithm_version is 2.
     protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
     protected String sortColumn = null;
-    protected Analyzer analyzer;
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
     protected List<SplitSource> splitSources = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;

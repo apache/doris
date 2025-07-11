@@ -42,6 +42,6 @@ suite("test_query_json_object", "query") {
     sql "insert into ${tableName} values(3,null,true,null,null);"
     sql "insert into ${tableName} values(4,null,null,'test','2022-01-01 11:11:11');"
     sql "insert into ${tableName} values(5,1,true,'test','2022-01-01 11:11:11');"
-    order_qt_sql "select json_object('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',k4,'k5', null,'k6','k6') from ${tableName};"
+    order_qt_sql "select json_object('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',cast(k4 as string),'k5', null,'k6','k6') from ${tableName};"
     sql "DROP TABLE ${tableName};"
 }

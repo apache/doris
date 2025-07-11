@@ -60,11 +60,4 @@ public class SetVarTest {
         var.analyze(analyzer);
         Assert.assertEquals("DEFAULT times = 100", var.toString());
     }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoVariable() throws UserException, AnalysisException {
-        SetVar var = new SetVar(SetType.DEFAULT, "", new StringLiteral("utf-8"));
-        var.analyze(analyzer);
-        Assert.fail("No exception throws.");
-    }
 }

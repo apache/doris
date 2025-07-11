@@ -262,8 +262,7 @@ void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) 
             get_name(), number_of_arguments, expected_number_of_arguments);
 }
 
-DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
-        const ColumnsWithTypeAndName& arguments) const {
+DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& arguments) const {
     check_number_of_arguments(arguments.size());
 
     if (!arguments.empty() && use_default_implementation_for_nulls()) {
@@ -279,18 +278,6 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
     }
 
     return get_return_type_impl(arguments);
-}
-
-DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& arguments) const {
-    if (use_default_implementation_for_low_cardinality_columns()) {
-        ColumnsWithTypeAndName args_without_low_cardinality(arguments);
-        auto type_without_low_cardinality =
-                get_return_type_without_low_cardinality(args_without_low_cardinality);
-
-        return type_without_low_cardinality;
-    }
-
-    return get_return_type_without_low_cardinality(arguments);
 }
 
 bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(

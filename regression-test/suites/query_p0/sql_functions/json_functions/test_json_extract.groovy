@@ -98,4 +98,58 @@ suite("test_json_extract") {
         """
         exception "Invalid Json Path for value: \$[last abc-1]"
     }
+
+    sql """
+        drop table if exists json_extract_test;
+    """
+
+    sql """
+        create table json_extract_test (
+            id int,
+            json_col json,
+            json_path string
+        ) distributed by hash(id) buckets 1 properties("replication_num" = "1");
+    """
+
+    sql """
+
+        insert into json_extract_test values
+        (1, '{"k1":"v31","k2":300}', '\$.k1'),
+        (2, '{"k1":"v31","k2":{"sub_key": 1234.56}}', '\$.k2.sub_key'),
+        (3, '{"k1":"v31","k2": null}', '\$.k2'),
+        (4, '{"k1":"v31","k2":300}', '\$.k3'),
+        (5, '{"id": 123, "name": "doris"}', '\$.'),
+        (6, '{"k1":"v31","k2":300}', null),
+        (7, '{"k1":"v31","k2":{"sub_key": 1234.56}}', null),
+        (8, '{"k1":"v31","k2": null}', null),
+        (9, '{"k1":"v31","k2":300}', null),
+        (10, null, '\$.k1'),
+        (11, null, '\$.k2.sub_key'),
+        (12, null, '\$.k2'),
+        (13, null, '\$.k3');
+    """
+
+    test {
+        sql """
+            select jsonb_extract(json_col, json_path) from json_extract_test;
+        """
+        exception "Invalid Json Path for value: \$."
+    }
+
+    qt_test_col_vector_vector """
+        select jsonb_extract(json_col, json_path) from json_extract_test where id != 5 order by id;
+    """
+
+    qt_test_col_scalar_vector """
+        select jsonb_extract('{"k1": "v1", "k2": 2, "k3": 333}', json_path) from json_extract_test where id != 5 order by id;
+    """
+
+    qt_test_col_vector_scalar """
+        select jsonb_extract(json_col, '\$.k1') from json_extract_test where id != 5 order by id;
+    """
+
+    qt_test_col_vector_scalar_2 """
+        select json_col, jsonb_extract(json_col, '\$.k1', '\$.k2', '\$.k3') from json_extract_test where id != 5 order by id;
+    """
 }
+

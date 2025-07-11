@@ -67,6 +67,8 @@ add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
 
 add_executable(versionstamp_test versionstamp_test.cpp)
 
+add_executable(versioned_value_test versioned_value_test.cpp)
+
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
 
@@ -139,6 +141,10 @@ target_link_libraries(recycler_test
 )
 
 target_link_libraries(fdb_injection_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS})
+
+target_link_libraries(versioned_value_test
     ${FDB_LINKER_FLAGS}
     ${TEST_LINK_LIBS})
 

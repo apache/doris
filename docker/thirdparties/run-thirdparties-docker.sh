@@ -460,11 +460,11 @@ start_iceberg() {
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
             cd "${ICEBERG_DIR}" \
-            && rm -f iceberg_data.zip \
-            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip \
-            && sudo unzip iceberg_data.zip \
+            && rm -f iceberg_data*.zip \
+            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data_paimon_101.zip \
+            && sudo unzip iceberg_data_paimon_101.zip \
             && sudo mv iceberg_data data \
-            && sudo rm -rf iceberg_data.zip
+            && sudo rm -rf iceberg_data_paimon_101.zip
             cd -
         else
             echo "${ICEBERG_DIR}/data exist, continue !"

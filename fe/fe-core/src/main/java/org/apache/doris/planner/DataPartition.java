@@ -20,10 +20,7 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
@@ -71,15 +68,6 @@ public class DataPartition {
                 || type == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
-    }
-
-    public static DataPartition hashPartitioned(List<Expr> exprs) {
-        return new DataPartition(TPartitionType.HASH_PARTITIONED, exprs);
-    }
-
-    public void substitute(ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
-        List<Expr> list = Expr.trySubstituteList(partitionExprs, smap, analyzer, false);
-        partitionExprs = ImmutableList.copyOf(list);
     }
 
     public boolean isPartitioned() {
