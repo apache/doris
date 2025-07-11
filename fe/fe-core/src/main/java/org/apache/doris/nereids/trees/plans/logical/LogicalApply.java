@@ -184,12 +184,18 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
             builder.add(markJoinSlotReference.get());
         }
         if (needAddSubOutputToProjects) {
-            // if (isScalar()) {
-            //     builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(), correlationSlot));
-            // } else {
-            //     builder.add(right().getOutput().get(0));
-            // }
-            builder.add(right().getOutput().get(0).withNullable(true));
+            // for sql:
+            // `select t1.a, (select if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k from t2 where t1.a = t2.a + 100)
+            // from t1`,
+            // apply right child agg will output  sum(t2.a), count(t2.b), max(t2.c)
+            // the project which above apply contains an expression `if(sum(t2.a) > 10, count(t2.b), max(t2.c))`
+            // this project need all the agg's output slots.
+            for (Slot slot : right().getOutput()) {
+                // in fact some slots may non-nullable, like count.
+                // but after convert apply to left outer join, all the join right child's slots will become nullable,
+                // so we let all slots be nullable, then they wouldn't change nullable even after convert to join.
+                builder.add(slot.toSlot().withNullable(true));
+            }
         }
         return builder.build();
     }
