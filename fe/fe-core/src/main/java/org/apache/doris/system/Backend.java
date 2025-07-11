@@ -1029,6 +1029,9 @@ public class Backend implements Writable {
         Map<String, String> displayTagMap = Maps.newHashMap();
         displayTagMap.putAll(tagMap);
 
+        // Migrate old cloud endpoint tags to new endpoint tags for backward compatibility
+        migrateEndpointTag(displayTagMap, "cloud_cluster_public_endpoint", "public_endpoint");
+        migrateEndpointTag(displayTagMap, "cloud_cluster_private_endpoint", "private_endpoint");
         if (displayTagMap.containsKey("cloud_cluster_status")) {
             displayTagMap.put("compute_group_status", displayTagMap.remove("cloud_cluster_status"));
         }
@@ -1055,6 +1058,23 @@ public class Backend implements Writable {
             return getCloudClusterId();
         } else {
             return getLocationTag().value;
+        }
+    }
+
+    /**
+     * Migrate endpoint tag from old name to new name for backward compatibility.
+     * If new tag already exists, just remove the old tag.
+     * If new tag doesn't exist, rename old tag to new tag.
+     */
+    private void migrateEndpointTag(Map<String, String> tagMap, String oldTagName, String newTagName) {
+        if (tagMap.containsKey(oldTagName)) {
+            if (tagMap.containsKey(newTagName)) {
+                // New tag exists, just remove the old one
+                tagMap.remove(oldTagName);
+            } else {
+                // New tag doesn't exist, migrate old tag to new tag
+                tagMap.put(newTagName, tagMap.remove(oldTagName));
+            }
         }
     }
 
