@@ -1546,7 +1546,11 @@ bool LRUQueue::contains(const UInt128Wrapper& hash, size_t offset,
 
 LRUQueue::Iterator LRUQueue::get(const UInt128Wrapper& hash, size_t offset,
                                  std::lock_guard<std::mutex>& /* cache_lock */) const {
-    return map.find(std::make_pair(hash, offset))->second;
+    auto itr = map.find(std::make_pair(hash, offset));
+    if (itr != map.end()) {
+        return itr->second;
+    }
+    return std::list<FileKeyAndOffset>::iterator();
 }
 
 std::string LRUQueue::to_string(std::lock_guard<std::mutex>& /* cache_lock */) const {
