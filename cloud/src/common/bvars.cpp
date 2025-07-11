@@ -199,6 +199,8 @@ bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz("fdb_workload_
 bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz("fdb_workload_transactions_committed_hz", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz("fdb_workload_transactions_rejected_hz", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent("fdb_client_thread_busyness_percent", BVAR_FDB_INVALID_VALUE);
+mBvarStatus<int64_t> g_bvar_fdb_process_status_int("fdb_process_status_int", {"process_id", "component", "metric"});
+mBvarStatus<double> g_bvar_fdb_process_status_float("fdb_process_status_float", {"process_id", "component", "metric"});
 
 // checker's bvars
 BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned("checker", "num_scanned");
