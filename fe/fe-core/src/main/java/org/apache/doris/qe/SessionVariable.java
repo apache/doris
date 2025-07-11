@@ -2014,7 +2014,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = CHECK_ORC_INIT_SARGS_SUCCESS,
-            fuzzy = true,
             description = {"是否检查orc init sargs是否成功。默认为 false。",
                     "Whether to check whether orc init sargs is successful. "
                             + "The default value is false."},
@@ -2882,7 +2881,6 @@ public class SessionVariable implements Serializable, Writable {
         this.orcTinyStripeThresholdBytes = Util.getRandomLong(0, 8L * 1024L * 1024L);
         this.orcOnceMaxReadBytes = Util.getRandomLong(0, 8L * 1024L * 1024L, 16L * 1024L * 1024L);
         this.orcMaxMergeDistanceBytes = Util.getRandomLong(0, 1L * 1024L * 1024L, 10L * 1024L * 1024L);
-        this.checkOrcInitSargsSuccess = random.nextBoolean();
 
         // jni
         this.forceJniScanner = random.nextBoolean();
