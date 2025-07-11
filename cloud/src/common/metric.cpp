@@ -25,16 +25,20 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "common/bvars.h"
 #include "common/logging.h"
+#include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
+extern std::set<std::string> get_key_prefix_contants();
 
 // The format of the output is shown in "test/fdb_metric_example.json"
 static const std::string FDB_STATUS_KEY = "\xff\xff/status/json";
@@ -298,10 +302,95 @@ static void export_fdb_status_details(const std::string& status_str) {
     get_process_metric("memory");
 }
 
+// boundaries include the key category{meta, txn, recycle...}, instance_id and sub_category{rowset, txn_label...}
+// encode look like
+// 0x01 "txn" ${instance_id} "txn_label" ${db_id} ${label}
+// 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version}
+// the func count same key to hashmap kv_range_count
+// exmaple:
+// kv_range_boundaries: meta|instance1|rowset|..., meta|instance1|rowset|..., meta|instance2|rowset|..., txn|instance1|txn_label|...
+// kv_range_count output: <meta|instance1|rowset, 2>, <meta|instance2|rowset, 1>, <txn|instance1|txn_label, 1>
+void get_kv_range_boundaries_count(std::vector<std::string>& kv_range_boundaries,
+                                   std::unordered_map<std::string, size_t>& kv_range_count) {
+    size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
+    for (auto&& boundary : kv_range_boundaries) {
+        if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
+            continue;
+        }
+
+        std::string_view user_key(boundary);
+        user_key.remove_prefix(prefix_size + 1); // Skip the KEY_SPACE prefix.
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        decode_key(&user_key, &out); // ignore any error, since the boundary key might be truncated.
+
+        auto visitor = [](auto&& arg) -> std::string {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, std::string>) {
+                return arg;
+            } else {
+                return std::to_string(arg);
+            }
+        };
+
+        if (!out.empty()) {
+            std::string key;
+            // whatever the boundary's category have similar encode part:
+            // category, instance_id, sub_category
+            // we can distinguish boundary using the three parts
+            // some boundaries do not contain all three parts, so restrictions based on size are also necessary
+            for (size_t i = 0; i < 3 && i < out.size(); ++i) {
+                key += std::visit(visitor, std::get<0>(out[i])) + '|';
+            }
+            key.pop_back();
+            kv_range_count[key]++;
+        }
+    }
+}
+
+static void export_fdb_kv_ranges_details(TxnKv* kv) {
+    auto* txn_kv = dynamic_cast<FdbTxnKv*>(kv);
+    if (!txn_kv) {
+        LOG(WARNING) << "this method only support fdb txn kv";
+        return;
+    }
+
+    std::vector<std::string> partition_boundaries;
+    TxnErrorCode code = txn_kv->get_partition_boundaries(&partition_boundaries);
+    if (code != TxnErrorCode::TXN_OK) {
+        auto msg = fmt::format("failed to get boundaries, code={}", code);
+        return;
+    }
+
+    std::unordered_map<std::string, size_t> partition_count;
+    get_kv_range_boundaries_count(partition_boundaries, partition_count);
+
+    auto key_prefix_set = get_key_prefix_contants();
+    std::unordered_map<std::string, int64_t> category_count;
+    for (auto&& [key, count] : partition_count) {
+        std::vector<std::string> keys;
+        size_t pos {};
+        // split key with '|'
+        do {
+            size_t p = std::min(key.size(), key.find('|', pos));
+            keys.emplace_back(key.substr(pos, p - pos));
+            pos = p + 1;
+        } while (pos < key.size());
+        keys.resize(3);
+        if (key_prefix_set.contains(keys[0])) {
+            category_count[keys[0]] += count;
+            g_bvar_fdb_kv_ranges_count.put({keys[0], keys[1], keys[2]}, count);
+        } else {
+            LOG(WARNING) << fmt::format("Unknow meta range type: {}", keys[0]);
+            continue;
+        }
+    }
+}
+
 void FdbMetricExporter::export_fdb_metrics(TxnKv* txn_kv) {
     int64_t busyness = 0;
     std::string fdb_status = get_fdb_status(txn_kv);
     export_fdb_status_details(fdb_status);
+    export_fdb_kv_ranges_details(txn_kv);
     if (auto* kv = dynamic_cast<FdbTxnKv*>(txn_kv); kv != nullptr) {
         busyness = static_cast<int64_t>(kv->get_client_thread_busyness() * 100);
         g_bvar_fdb_client_thread_busyness_percent.set_value(busyness);
