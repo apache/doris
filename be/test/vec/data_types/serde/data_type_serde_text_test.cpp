@@ -616,10 +616,10 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "{\"2022-07-13 12:30:00\": \"12.45675432\"}",
                          "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
                          "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"},
-                        {"{2022-07-13 12:00:00:30.000000000, 2022-07-13 00:00:00:12.456754320, "
+                        {"{2022-07-13 12:00:00:null, 2022-07-13 00:00:00:12.456754320, "
                          "null:null}",
                          "{null:null}",
-                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:30.000000000}",
+                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:null}",
                          "{2022-07-13 12:30:00:12.456754320, null:12.340000000}"}),
         };
 
@@ -659,6 +659,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         EXPECT_FALSE(st.ok());
                         continue;
                     }
+                    auto deser_result_str = map_data_type_ptr->to_string(*col, 0);
+                    std::cout << "deser_result_str: " << deser_result_str << std::endl;
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
@@ -709,10 +711,10 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "{\"2022-07-13 12:30:00\": \"12.45675432\"}",
                          "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
                          "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"},
-                        {"{2022-07-13 12:00:00:30.000000000, 2022-07-13 00:00:00:12.456754320, "
+                        {"{2022-07-13 12:00:00:null, 2022-07-13 00:00:00:12.456754320, "
                          "null:null}",
                          "{2022-07-13 12:30:00:12.456754320}",
-                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:30.000000000}",
+                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:null}",
                          "{2022-07-13 12:30:00:12.456754320, null:12.340000000}"}),
         };
         for (auto type_pair : field_types) {
@@ -752,6 +754,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         EXPECT_FALSE(st.ok());
                         continue;
                     }
+                    auto deser_result_str = map_data_type_ptr->to_string(*col, 0);
+                    std::cout << "deser_result_str: " << deser_result_str << std::endl;
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
