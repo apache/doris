@@ -189,17 +189,19 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
             // correlated apply right child may contain multiple output slots
             // in rule ScalarApplyToJoin, only '(isCorrelated() && correlationFilter.isPresent())'
             // can convert to a left outer join, the right child output will be nullable
-            // but at first, the correlationFilter is empty, rule UnCorrelatedApplyAggregateFilter
-            // will set correlationFilter, so we don't check whether correlationFilter here.
+            // but at analyzed phase, the correlationFilter is empty, only after rule UnCorrelatedApplyAggregateFilter
+            // correlationFilter will be checked, so we skip check correlationFilter here.
             if (isCorrelated()) {
                 // for sql:
                 // `select t1.a,
                 //         (select if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k from t2 where t1.a = t2.a)
                 // from t1`,
+                // its plan is:
                 // LogicalProject(t1.a, if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k)
-                //   |-- LogicalApply(correlationSlot = [t1.a])
-                //           |-- LogicalOlapScan(t1)
-                //           |-- LogicalAggregate(output = [sum(t2.a), count(t2.b), max(t2.c)])
+                //     |-- LogicalProject(..., if(sum(t2.a > 10), ifnull(count(t2.b), 0), max(t2.c)) as k)
+                //           |-- LogicalApply(correlationSlot = [t1.a])
+                //                  |-- LogicalOlapScan(t1)
+                //                  |-- LogicalAggregate(output = [sum(t2.a), count(t2.b), max(t2.c)])
                 for (Slot slot : right().getOutput()) {
                     // in fact some slots may non-nullable, like count.
                     // but after convert correlated apply to left outer join, all the join right child's slots
@@ -213,9 +215,8 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 // `select t1.a,
                 //         (select if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k from t2)
                 // from t1`,
-                // its plan:
+                // its plan is:
                 // LogicalProject(t1.a, k)
-                //    LogicalProject(..., if(sum(t2.a > 10), ifnull(count(t2.b), 0), max(t2.c)) as k)
                 //        |--LogicalApply(correlationSlot = [])
                 //            |- LogicalOlapScan(t1)
                 //            |- LogicalProject(if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k)

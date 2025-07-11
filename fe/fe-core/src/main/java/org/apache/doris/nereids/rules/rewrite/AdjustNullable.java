@@ -440,11 +440,12 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                         newSlotReference = slotReference.withNullable(replacedSlot.nullable());
                     }
                 }
-                // for join other conditions, debugCheck = false, because join other condition use join output's
-                // nullable attribute.
-                // at analyzed phased, the slot reference nullable may change, for example, NormalRepeat may adjust some
+                // for join other conditions, debugCheck = false, for other case, debugCheck is always true.
+                // Because join other condition use join output's nullable attribute, outer join may check fail.
+                // At analyzed phase, the slot reference nullable may change, for example, NormalRepeat may adjust some
                 // slot reference to nullable, after this rule, node above repeat need adjust.
-                // so analyzed phase don't assert not-nullable -> nullable.
+                // so analyzed phase don't assert not-nullable -> nullable, otherwise adjust plan above
+                // repeat may check fail.
                 if (!slotReference.nullable() && newSlotReference.nullable()
                         && !isAnalyzedPhase && debugCheck
                         && ConnectContext.get() != null
