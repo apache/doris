@@ -72,7 +72,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
      */
     public static class DeriveContext {
         StatsCalculator calculator = new StatsCalculator(null);
-        public Map<CTEId, Statistics> cteIdToStats = new HashMap<>();
     }
 
     @Override
