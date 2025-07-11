@@ -1281,8 +1281,9 @@ public class SessionVariable implements Serializable, Writable {
             "Force the sort algorithm of SortNode to be specified" })
     public String forceSortAlgorithm = "";
 
-    @VariableMgr.VarAttr(name = FULL_SORT_MAX_BUFFERED_BYTES, needForward = true)
-    public long fullSortMaxBufferedBytes = -1;
+    @VariableMgr.VarAttr(name = FULL_SORT_MAX_BUFFERED_BYTES, needForward = true,
+            setter = "setFullSortMaxBufferedBytes")
+    public long fullSortMaxBufferedBytes = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = "ignore_runtime_filter_error", needForward = true, description = { "在rf遇到错误的时候忽略该rf",
             "Ignore the rf when it encounters an error" })
@@ -3180,6 +3181,15 @@ public class SessionVariable implements Serializable, Writable {
     public void setOrcMaxMergeDistanceBytes(String value)  throws Exception {
         long val = checkFieldLongValue(ORC_MAX_MERGE_DISTANCE_BYTES, 0, value);
         this.orcMaxMergeDistanceBytes = val;
+    }
+
+    public void setFullSortMaxBufferedBytes(String value) throws Exception {
+        long val = Long.parseLong(value);
+        if (val < 16L * 1024L * 1024L || val > 1024L * 1024L * 1024L) {
+            throw new Exception(
+                    FULL_SORT_MAX_BUFFERED_BYTES + " value should between 16MB and 1GB , you set value is: " + value);
+        }
+        this.fullSortMaxBufferedBytes = val;
     }
 
     private long checkFieldLongValue(String variableName, long minValue, String value) throws Exception {
