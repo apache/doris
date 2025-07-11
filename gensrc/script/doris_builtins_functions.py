@@ -51,7 +51,7 @@ visible_functions = {
         [['bitand'], 'INT', ['INT', 'INT'], ''],
         [['bitand'], 'BIGINT', ['BIGINT', 'BIGINT'], ''],
         [['bitand'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], ''],
-        
+
         [['bit_count'], 'TINYINT',   ['TINYINT'],     ''],
         [['bit_count'], 'TINYINT',   ['SMALLINT'],    ''],
         [['bit_count'], 'TINYINT',   ['INT'],         ''],
@@ -75,7 +75,7 @@ visible_functions = {
         [['bitnot'], 'INT', ['INT'], ''],
         [['bitnot'], 'BIGINT', ['BIGINT'], ''],
         [['bitnot'], 'LARGEINT', ['LARGEINT'], ''],
-        
+
         [['bit_shift_left'],    'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
         [['bit_shift_right'],   'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
         [['bit_test','bit_test_all'], 'TINYINT', ['TINYINT','TINYINT','...'], ''],
@@ -1315,7 +1315,7 @@ visible_functions = {
         [['asin'], 'DOUBLE', ['DOUBLE'], ''],
 
         [['bin'], 'VARCHAR', ['BIGINT'], ''],
-              
+
         [['cbrt'], 'DOUBLE', ['DOUBLE'], ''],
         [['ceil', 'ceiling', 'dceil'], 'DOUBLE', ['DOUBLE'], ''],
         [['ceil', 'ceiling', 'dceil'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
@@ -1442,9 +1442,9 @@ visible_functions = {
         [['round_bankers', 'round_bankers'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
 
         [['sign'], 'TINYINT', ['DOUBLE'], ''],
-        [['sin'], 'DOUBLE', ['DOUBLE'], ''],  
+        [['sin'], 'DOUBLE', ['DOUBLE'], ''],
         [['sqrt', 'dsqrt'], 'DOUBLE', ['DOUBLE'], ''],
-        
+
         [['tan'], 'DOUBLE', ['DOUBLE'], ''],
         [['tanh'], 'DOUBLE', ['DOUBLE'], ''],
         [['truncate'], 'DOUBLE', ['DOUBLE'], ''],
@@ -1452,7 +1452,7 @@ visible_functions = {
         [['truncate'], 'DECIMAL32', ['DECIMAL32', 'INT'], ''],
         [['truncate'], 'DECIMAL64', ['DECIMAL64', 'INT'], ''],
         [['truncate'], 'DECIMAL128', ['DECIMAL128', 'INT'], ''],
-        
+
         [['unhex'], 'VARCHAR', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
         [['unhex'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT']
     ],
@@ -2121,8 +2121,8 @@ visible_functions = {
         [['ipv4_string_to_num_or_default'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['ipv4_string_to_num_or_default'], 'BIGINT', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['ipv4_string_to_num_or_null','inet_aton'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ipv4_string_to_num_or_null','inet_aton'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],  
-        [['ipv6_num_to_string','inet6_ntoa'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],     
+        [['ipv4_string_to_num_or_null','inet_aton'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ipv6_num_to_string','inet6_ntoa'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['ipv6_num_to_string','inet6_ntoa'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
         [['ipv6_num_to_string','inet6_ntoa'], 'VARCHAR', ['IPV6'], 'ALWAYS_NULLABLE'],
         [['ipv6_string_to_num'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
@@ -2130,7 +2130,7 @@ visible_functions = {
         [['ipv6_string_to_num_or_default'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['ipv6_string_to_num_or_default'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['ipv6_string_to_num_or_null','inet6_aton'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ipv6_string_to_num_or_null','inet6_aton'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],  
+        [['ipv6_string_to_num_or_null','inet6_aton'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
         [['is_ipv4_compat'], 'BOOLEAN', ['VARCHAR'], ''],
         [['is_ipv4_compat'], 'BOOLEAN', ['STRING'], ''],
         [['is_ipv4_mapped'], 'BOOLEAN', ['VARCHAR'], ''],
