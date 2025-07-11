@@ -20,9 +20,11 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -181,15 +183,38 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
                 });
 
         // Logging for debugging
-        logger.debug("Extracted virtual columns: {}", virtualColumnsBuilder.build());
+        if (LOG.isDebugEnabled()) {
+            logger.debug("Extracted virtual columns: {}", virtualColumnsBuilder.build());
+        }
     }
 
     /**
      * Recursively collect all sub-expressions and count their occurrences
      */
     private void collectSubExpressions(Expression expr, Map<Expression, Integer> expressionCounts) {
-        // Skip simple slots and literals as they don't benefit from being pushed down
-        if (expr instanceof Slot || expr.isConstant()) {
+        collectSubExpressions(expr, expressionCounts, false);
+    }
+
+    /**
+     * Recursively collect all sub-expressions and count their occurrences
+     * @param expr the expression to analyze
+     * @param expressionCounts map to store expression occurrence counts
+     * @param insideLambda whether we are currently inside a lambda function
+     */
+    private void collectSubExpressions(Expression expr, Map<Expression, Integer> expressionCounts,
+                                    boolean insideLambda) {
+        // Check if we should skip this expression and how to handle it
+        SkipResult skipResult = shouldSkipExpression(expr, insideLambda);
+
+        if (skipResult.shouldTerminate()) {
+            return;
+        }
+
+        if (skipResult.shouldSkipCounting()) {
+            // Process children without counting current expression
+            for (Expression child : expr.children()) {
+                collectSubExpressions(child, expressionCounts, insideLambda);
+            }
             return;
         }
 
@@ -200,7 +225,53 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
         // Recursively process children
         for (Expression child : expr.children()) {
-            collectSubExpressions(child, expressionCounts);
+            // Check if we're entering a lambda function
+            boolean enteringLambda = insideLambda || (expr instanceof Lambda);
+            collectSubExpressions(child, expressionCounts, enteringLambda);
+        }
+    }
+
+    /**
+     * Determine how to handle an expression during sub-expression collection
+     * @param expr the expression to check
+     * @param insideLambda whether we are currently inside a lambda function
+     * @return SkipResult indicating how to handle this expression
+     */
+    private SkipResult shouldSkipExpression(Expression expr, boolean insideLambda) {
+        // Skip simple slots and literals as they don't benefit from being pushed down
+        if (expr instanceof Slot || expr.isConstant()) {
+            return SkipResult.TERMINATE;
+        }
+
+        // Skip expressions inside lambda functions - they shouldn't be optimized
+        if (insideLambda) {
+            return SkipResult.TERMINATE;
+        }
+
+        // Skip CAST expressions - they shouldn't be optimized as common sub-expressions
+        // but we still need to process their children
+        if (expr instanceof Cast) {
+            return SkipResult.SKIP_COUNTING;
+        }
+
+        // Continue normal processing
+        return SkipResult.CONTINUE;
+    }
+
+    /**
+     * Result type for expression skip decisions
+     */
+    private enum SkipResult {
+        CONTINUE,        // Process normally (count and recurse)
+        SKIP_COUNTING,   // Skip counting but continue processing children
+        TERMINATE;       // Stop processing entirely (don't count, don't recurse)
+
+        public boolean shouldTerminate() {
+            return this == TERMINATE;
+        }
+
+        public boolean shouldSkipCounting() {
+            return this == SKIP_COUNTING;
         }
     }
 
@@ -213,13 +284,35 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             return false;
         }
 
-        // Skip expressions that are simple (not beneficial for push-down)
-        if (expr instanceof Slot || expr.isConstant()) {
+        // Skip CAST expressions - they are not beneficial for optimization
+        if (expr instanceof Cast) {
+            return false;
+        }
+
+        // Skip expressions that contain lambda functions
+        if (containsLambdaFunction(expr)) {
             return false;
         }
 
         // Consider expressions with sufficient depth beneficial
         return expr.getDepth() >= MIN_EXPRESSION_DEPTH && expr.children().size() > 0;
+    }
+
+    /**
+     * Check if an expression contains lambda functions
+     */
+    private boolean containsLambdaFunction(Expression expr) {
+        if (expr instanceof Lambda) {
+            return true;
+        }
+
+        for (Expression child : expr.children()) {
+            if (containsLambdaFunction(child)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
