@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -183,18 +184,38 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         if (markJoinSlotReference.isPresent()) {
             builder.add(markJoinSlotReference.get());
         }
+        // only scalar apply will needAddSubOutputToProjects = true
         if (needAddSubOutputToProjects) {
-            // for sql:
-            // `select t1.a, (select if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k from t2 where t1.a = t2.a + 100)
-            // from t1`,
-            // apply right child agg will output  sum(t2.a), count(t2.b), max(t2.c)
-            // the project which above apply contains an expression `if(sum(t2.a) > 10, count(t2.b), max(t2.c))`
-            // this project need all the agg's output slots.
-            for (Slot slot : right().getOutput()) {
-                // in fact some slots may non-nullable, like count.
-                // but after convert apply to left outer join, all the join right child's slots will become nullable,
-                // so we let all slots be nullable, then they wouldn't change nullable even after convert to join.
-                builder.add(slot.toSlot().withNullable(true));
+            // correlated apply right child may contain multiple output slots
+            if (isCorrelated() && correlationFilter.isPresent()) {
+                // for sql:
+                // `select t1.a,
+                //         (select if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k from t2 where t1.a = t2.a)
+                // from t1`,
+                // LogicalProject(t1.a, if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k)
+                //   |-- LogicalApply(correlationSlot = [t1.a])
+                //           |-- LogicalOlapScan(t1)
+                //           |-- LogicalAggregate(output = [sum(t2.a), count(t2.b), max(t2.c)])
+                for (Slot slot : right().getOutput()) {
+                    // in fact some slots may non-nullable, like count.
+                    // but after convert correlated apply to left outer join, all the join right child's slots
+                    // will become nullable, so we let all slots be nullable, then they wouldn't change nullable
+                    // even after convert to join.
+                    builder.add(slot.toSlot().withNullable(true));
+                }
+            } else {
+                // uncorrelated apply right child always contains one output slot.
+                // for sql:
+                // `select t1.a,
+                //         (select if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k from t2)
+                // from t1`,
+                // its plan:
+                // LogicalProject(t1.a, k)
+                //     |--LogicalApply(correlationSlot = [])
+                //            |- LogicalOlapScan(t1)
+                //            |- LogicalProject(if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k)
+                //                    |-- LogicalAggregate(output = [sum(t2.a), count(t2.b), max(t2.c)])
+                builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(), correlationSlot));
             }
         }
         return builder.build();
