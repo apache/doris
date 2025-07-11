@@ -15,39 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;
-import mockit.Injectable;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-public class DropMaterializedViewStmtTest {
+public class DropMaterializedViewCommandTest {
 
-    @Mocked
-    Analyzer analyzer;
     @Mocked
     AccessControllerManager accessManager;
 
     @Test
-    public void testEmptyMVName(@Injectable TableName tableName) {
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "", tableName);
+    public void testEmptyMVName() {
         try {
-            stmt.analyze(analyzer);
-            Assert.fail();
-        } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("could not be empty"));
+            new DropMaterializedViewCommand(new TableNameInfo(), false, "");
+            Assertions.fail();
+        } catch (Exception e) {
+            Assertions.assertTrue(e.getMessage().contains("mvName"));
         }
     }
 
     @Test
-    public void testNoPermission(@Injectable TableName tableName) {
+    public void testNoPermission() {
+        TableNameInfo tableName = new TableNameInfo("ctl1", "db1", "t1");
         new Expectations() {
             {
                 accessManager.checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
@@ -55,12 +53,12 @@ public class DropMaterializedViewStmtTest {
                 result = false;
             }
         };
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", tableName);
+        DropMaterializedViewCommand command = new DropMaterializedViewCommand(new TableNameInfo(), false, "test");
         try {
-            stmt.analyze(analyzer);
-            Assert.fail();
+            command.validate(ConnectContext.get());
+            Assertions.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Access denied;"));
+            Assertions.assertTrue(e.getMessage().contains("Access denied;"));
         }
 
     }
