@@ -53,7 +53,7 @@ protected:
     io::FileSystemSPtr _fs;
     std::string directory;
 
-    void priv_getFN(char* buffer, size_t size, const char* name) const;
+    std::string priv_getFN(const std::string& name) const;
     /// Removes an existing file in the directory.
     bool doDeleteFile(const char* name) override;
 
