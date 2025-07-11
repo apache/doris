@@ -717,8 +717,6 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                                                     _mow_context->rowset_ids);
     }
 
-    VLOG_DEBUG << fmt::format("before fill_non_primary_key_columns: block:\n{}",
-                              data.block->dump_data());
     // 6. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,

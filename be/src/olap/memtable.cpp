@@ -521,7 +521,6 @@ void MemTable::_aggregate() {
             _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), block_data, row_pos);
         }
     } else {
-        VLOG_DEBUG << fmt::format("MemTable::_aggregate: in_block:\n{}", in_block.dump_data());
         DCHECK(_delete_sign_col_idx != -1);
         if (_seq_col_idx_in_block == -1) {
             _aggregate_for_flexible_partial_update_without_seq_col<is_final>(
@@ -571,7 +570,7 @@ void MemTable::_aggregate_for_flexible_partial_update_without_seq_col(
             _finalize_one_row<is_final>(row_without_delete_sign.get(), block_data, ++row_pos);
             row_without_delete_sign = nullptr;
         }
-        _arena->clear();
+        // _arena.clear();
     };
 
     auto add_row = [&](std::shared_ptr<RowInBlock> row, bool with_delete_sign) {
