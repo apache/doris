@@ -36,7 +36,7 @@ public class DropMaterializedViewCommandTest {
     @Test
     public void testEmptyMVName() {
         try {
-            new DropMaterializedViewCommand(new TableNameInfo(), false, "");
+            new DropMaterializedViewCommand(new TableNameInfo(), false, null);
             Assertions.fail();
         } catch (Exception e) {
             Assertions.assertTrue(e.getMessage().contains("mvName"));
@@ -45,17 +45,18 @@ public class DropMaterializedViewCommandTest {
 
     @Test
     public void testNoPermission() {
-        TableNameInfo tableName = new TableNameInfo("ctl1", "db1", "t1");
+        ConnectContext ctx = new ConnectContext();
+        TableNameInfo tableName = new TableNameInfo("internal", "db1", "t1");
         new Expectations() {
             {
-                accessManager.checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                accessManager.checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(),
                         tableName.getTbl(), PrivPredicate.ALTER);
                 result = false;
             }
         };
-        DropMaterializedViewCommand command = new DropMaterializedViewCommand(new TableNameInfo(), false, "test");
+        DropMaterializedViewCommand command = new DropMaterializedViewCommand(tableName, false, "test");
         try {
-            command.validate(ConnectContext.get());
+            command.validate(ctx);
             Assertions.fail();
         } catch (UserException e) {
             Assertions.assertTrue(e.getMessage().contains("Access denied;"));
