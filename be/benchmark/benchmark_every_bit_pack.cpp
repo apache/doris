@@ -16,7 +16,6 @@
 // under the License.
 
 #include "vec/core/wide_integer.h"
-#include <random>
 #include <vector>
 
 namespace doris {
@@ -264,18 +263,47 @@ inline void bit_pack_2(const T* input, uint8_t in_num, int bit_width, uint8_t* o
     }
 }
 
+template <typename T>
+void bit_pack_1(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
+    int output_mask = 255;
+    int need_bit = 0; // still need
+
+    for (int i = 0; i < in_num; i++) {
+        T x = input[i];
+        int width = bit_width;
+        if (need_bit) {
+            *output |= x >> (width - need_bit);
+            output++;
+            width -= need_bit;
+        }
+        int num = width >> 3;      // How many outputs can be processed at a time
+        int remainder = width & 7; // How many bits are left to store
+
+        for (int j = 0; j < num; j++) {
+            *output = (x >> (((num - j - 1) << 3) + remainder)) & output_mask;
+            output++;
+        }
+        if (remainder) {
+            *output = (x & ((1 << remainder) - 1)) << (8 - remainder);
+            need_bit = 8 - remainder;
+        } else {
+            need_bit = 0;
+        }
+    }
+}
+
+void get_testdata(__int128_t *test_data, int n, int w) {
+    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
+    for (int i = 0; i < n; i++) {
+        test_data[i] = (i & in_mask);
+    }
+}
+
 static void BM_BitPack_w8_8_int64(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -293,15 +321,8 @@ BENCHMARK(BM_BitPack_w8_8_int64)->DenseRange(1, 8)->Unit(benchmark::kNanosecond)
 static void BM_BitPack_w8_16_int128(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -319,15 +340,8 @@ BENCHMARK(BM_BitPack_w8_16_int128)->DenseRange(1, 8)->Unit(benchmark::kNanosecon
 static void BM_BitPack_w8_32_int256(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -345,15 +359,8 @@ BENCHMARK(BM_BitPack_w8_32_int256)->DenseRange(1, 8)->Unit(benchmark::kNanosecon
 static void BM_BitPack_w16_4_int64(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -371,15 +378,8 @@ BENCHMARK(BM_BitPack_w16_4_int64)->DenseRange(9, 16)->Unit(benchmark::kNanosecon
 static void BM_BitPack_w16_8_int128(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -397,15 +397,8 @@ BENCHMARK(BM_BitPack_w16_8_int128)->DenseRange(9, 16)->Unit(benchmark::kNanoseco
 static void BM_BitPack_w16_16_int256(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -423,15 +416,8 @@ BENCHMARK(BM_BitPack_w16_16_int256)->DenseRange(9, 16)->Unit(benchmark::kNanosec
 static void BM_BitPack_w32_2_int128(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -449,15 +435,8 @@ BENCHMARK(BM_BitPack_w32_2_int128)->DenseRange(17, 32)->Unit(benchmark::kNanosec
 static void BM_BitPack_w32_4_int128(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -475,15 +454,8 @@ BENCHMARK(BM_BitPack_w32_4_int128)->DenseRange(17, 32)->Unit(benchmark::kNanosec
 static void BM_BitPack_w32_8_int256(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -501,15 +473,8 @@ BENCHMARK(BM_BitPack_w32_8_int256)->DenseRange(17, 32)->Unit(benchmark::kNanosec
 static void BM_BitPack_w64_4_int256(benchmark::State& state) {
     int w = state.range(0);
     int n = 255;
-
-    std::default_random_engine e;
-    std::uniform_int_distribution<int64_t> u;
     std::vector<__int128_t> test_data(n);
-    __int128_t in_mask = ((__int128_t(1)) << w) - 1;
-    for (int i = 0; i < n; i++) {
-        test_data[i] = u(e) & in_mask;
-    }
-
+    get_testdata(test_data.data(), n, w);
     int size = (n * w + 7) / 8;
     std::vector<uint8_t> output(size);
 
@@ -524,4 +489,22 @@ static void BM_BitPack_w64_4_int256(benchmark::State& state) {
 }
 BENCHMARK(BM_BitPack_w64_4_int256)->DenseRange(33, 64)->Unit(benchmark::kNanosecond);
 
+static void BM_BitPack_1(benchmark::State& state) {
+    int w = state.range(0);
+    int n = 255;
+    std::vector<__int128_t> test_data(n);
+    get_testdata(test_data.data(), n, w);
+    int size = (n * w + 7) / 8;
+    std::vector<uint8_t> output(size);
+
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(test_data.data());
+        benchmark::DoNotOptimize(output.data());
+        bit_pack_1<__int128_t>(test_data.data(), n, w, output.data());
+        benchmark::ClobberMemory();
+    }
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * size);
+}
+BENCHMARK(BM_BitPack_1)->DenseRange(1, 32)->Unit(benchmark::kNanosecond);
 } // namespace doris
