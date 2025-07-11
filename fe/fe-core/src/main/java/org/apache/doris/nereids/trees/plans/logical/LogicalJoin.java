@@ -403,7 +403,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin<Plan, Plan> withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
-                hint, markJoinSlotReference, exceptAsteriskOutputs,
+                hint, markJoinSlotReference,
                 Optional.empty(), Optional.empty(),
                 ImmutableList.of(left(), right()), joinReorderContext);
     }
