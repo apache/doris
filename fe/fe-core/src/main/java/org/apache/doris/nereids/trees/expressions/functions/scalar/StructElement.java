@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -38,7 +37,7 @@ import java.util.List;
  * ScalarFunction 'struct_element'.
  */
 public class StructElement extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNullable {
+        implements ExplicitlyCastableSignature {
 
     /**
      * constructor with 0 or more arguments.
@@ -95,5 +94,28 @@ public class StructElement extends ScalarFunction
                     + " constant int or string second parameter: " + this.toSql());
         }
         return ImmutableList.of(FunctionSignature.ret(retType).args(structArgType, child(1).getDataType()));
+    }
+
+    @Override
+    public boolean nullable() {
+        StructType structArgType = (StructType) child(0).getDataType();
+        if (child(1) instanceof IntegerLikeLiteral) {
+            int offset = ((IntegerLikeLiteral) child(1)).getIntValue();
+            if (offset <= 0 || offset > structArgType.getFields().size()) {
+                throw new AnalysisException("the specified field index out of bound: " + this.toSql());
+            } else {
+                return structArgType.getFields().get(offset - 1).isNullable();
+            }
+        } else if (child(1) instanceof StringLikeLiteral) {
+            String name = ((StringLikeLiteral) child(1)).getStringValue();
+            if (!structArgType.getNameToFields().containsKey(name)) {
+                throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
+            } else {
+                return structArgType.getNameToFields().get(name).isNullable();
+            }
+        } else {
+            throw new AnalysisException("struct_element only allows"
+                    + " constant int or string second parameter: " + this.toSql());
+        }
     }
 }
