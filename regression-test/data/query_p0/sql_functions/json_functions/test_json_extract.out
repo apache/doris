@@ -65,3 +65,59 @@ v31
 -- !array_last3 --
 4	4
 
+-- !test_col_vector_vector --
+"v31"
+1234.56
+null
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !test_col_scalar_vector --
+"v1"
+\N
+2
+333
+\N
+\N
+\N
+\N
+"v1"
+\N
+2
+333
+
+-- !test_col_vector_scalar --
+"v31"
+"v31"
+"v31"
+"v31"
+"v31"
+"v31"
+"v31"
+"v31"
+\N
+\N
+\N
+\N
+
+-- !test_col_vector_scalar_2 --
+{"k1":"v31","k2":300}	["v31",300]
+{"k1":"v31","k2":{"sub_key":1234.56}}	["v31",{"sub_key":1234.56}]
+{"k1":"v31","k2":null}	["v31",null]
+{"k1":"v31","k2":300}	["v31",300]
+{"k1":"v31","k2":300}	["v31",300]
+{"k1":"v31","k2":{"sub_key":1234.56}}	["v31",{"sub_key":1234.56}]
+{"k1":"v31","k2":null}	["v31",null]
+{"k1":"v31","k2":300}	["v31",300]
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+
