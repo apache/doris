@@ -26,7 +26,6 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ModifyColumnClause;
@@ -348,8 +347,8 @@ public class InternalSchemaInitializer extends Thread {
         if (!optionalColumn.isPresent() || !optionalColumn.get().isAllowNull()) {
             try {
                 Env.getCurrentEnv().getInternalCatalog()
-                        .dropTable(new DropTableStmt(true, new TableName(null,
-                                StatisticConstants.DB_NAME, StatisticConstants.TABLE_STATISTIC_TBL_NAME), true));
+                        .dropTable(StatisticConstants.DB_NAME, StatisticConstants.TABLE_STATISTIC_TBL_NAME,
+                                false, false, true, true);
             } catch (Exception e) {
                 LOG.warn("Failed to drop outdated table", e);
             }

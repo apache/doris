@@ -75,6 +75,8 @@ import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -3332,7 +3334,7 @@ public class Env {
         } else {
             catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
         }
-        catalogIf.createDb(stmt);
+        catalogIf.createDb(stmt.getFullDbName(), stmt.isSetIfNotExists(), stmt.getProperties());
     }
 
     // For replay edit log, need't lock metadata
@@ -3358,7 +3360,7 @@ public class Env {
         } else {
             catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
         }
-        catalogIf.dropDb(stmt);
+        catalogIf.dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void replayDropDb(DropDbInfo info) throws DdlException {
@@ -4310,12 +4312,8 @@ public class Env {
     public void dropTable(DropTableStmt stmt) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.dropTable(stmt);
-    }
-
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-                                      Long recycleTime) {
-        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
+        catalogIf.dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(),
+                stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
@@ -6015,7 +6013,10 @@ public class Env {
     public void truncateTable(TruncateTableStmt stmt) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.truncateTable(stmt);
+        TableRef tableRef = stmt.getTblRef();
+        TableName tableName = tableRef.getName();
+        catalogIf.truncateTable(tableName.getDb(), tableName.getTbl(), tableRef.getPartitionNames(),
+                false, stmt.toSqlWithoutTable());
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {

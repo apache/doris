@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
@@ -301,14 +302,13 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private List<HivePartition> getPrunedPartitions(HoodieTableMetaClient metaClient) {
+        NameMapping nameMapping = hmsTable.getOrBuildNameMapping();
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
         if (!partitionColumnTypes.isEmpty()) {
             this.totalPartitionNum = selectedPartitions.totalPartitionNum;
             Map<String, PartitionItem> prunedPartitions = selectedPartitions.selectedPartitions;
             this.selectedPartitionNum = prunedPartitions.size();
 
-            String dbName = hmsTable.getDbName();
-            String tblName = hmsTable.getName();
             String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
             String basePath = metaClient.getBasePathV2().toString();
 
@@ -317,7 +317,7 @@ public class HudiScanNode extends HiveScanNode {
                     (key, value) -> {
                         String path = basePath + "/" + key;
                         hivePartitions.add(new HivePartition(
-                                dbName, tblName, false, inputFormat, path,
+                                nameMapping, false, inputFormat, path,
                                 ((ListPartitionItem) value).getItems().get(0).getPartitionValuesAsStringList(),
                                 Maps.newHashMap()));
                     }
@@ -327,7 +327,7 @@ public class HudiScanNode extends HiveScanNode {
         // unpartitioned table, create a dummy partition to save location and
         // inputformat,
         // so that we can unify the interface.
-        HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
+        HivePartition dummyPartition = new HivePartition(nameMapping, true,
                 hmsTable.getRemoteTable().getSd().getInputFormat(),
                 hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
         this.totalPartitionNum = 1;

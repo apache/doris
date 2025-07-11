@@ -51,11 +51,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -601,49 +601,28 @@ public class IcebergUtils {
         }
     }
 
-
-    public static org.apache.iceberg.Table getIcebergTable(ExternalCatalog catalog, String dbName, String tblName) {
-        return getIcebergTableInternal(catalog, dbName, tblName, false);
-    }
-
-    public static org.apache.iceberg.Table getAndCloneTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
-        return getIcebergTableInternal(catalog, tableInfo.getDbName(), tableInfo.getTbName(), true);
-    }
-
-    public static org.apache.iceberg.Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+    public static org.apache.iceberg.Table getIcebergTable(ExternalTable dorisTable) {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
-                .getIcebergMetadataCache()
-                .getIcebergTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
-    }
-
-    private static org.apache.iceberg.Table getIcebergTableInternal(ExternalCatalog catalog, String dbName,
-            String tblName,
-            boolean isClone) {
-        IcebergMetadataCache metadataCache = Env.getCurrentEnv()
-                .getExtMetaCacheMgr()
-                .getIcebergMetadataCache();
-        return isClone ? metadataCache.getAndCloneTable(catalog, dbName, tblName)
-                : metadataCache.getIcebergTable(catalog, dbName, tblName);
+                .getIcebergMetadataCache().getIcebergTable(dorisTable);
     }
 
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
-    public static List<Column> getSchema(
-            ExternalCatalog catalog, String dbName, String name, long schemaId, boolean isView) {
+    private static List<Column> getSchema(ExternalTable dorisTable, long schemaId, boolean isView) {
         try {
-            return catalog.getPreExecutionAuthenticator().execute(() -> {
+            return dorisTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
                 Schema schema;
                 if (isView) {
-                    View icebergView = getIcebergView(catalog, dbName, name);
+                    View icebergView = getIcebergView(dorisTable);
                     if (schemaId == NEWEST_SCHEMA_ID) {
                         schema = icebergView.schema();
                     } else {
                         schema = icebergView.schemas().get((int) schemaId);
                     }
                 } else {
-                    Table icebergTable = getIcebergTable(catalog, dbName, name);
+                    Table icebergTable = getIcebergTable(dorisTable);
                     if (schemaId == NEWEST_SCHEMA_ID || icebergTable.currentSnapshot() == null) {
                         schema = icebergTable.schema();
                     } else {
@@ -652,13 +631,13 @@ public class IcebergUtils {
                 }
                 String type = isView ? "view" : "table";
                 Preconditions.checkNotNull(schema,
-                        "Schema for " + type + " " + catalog.getName() + "." + dbName + "." + name + " is null");
+                        "Schema for " + type + " " + dorisTable.getCatalog().getName()
+                                + "." + dorisTable.getDbName() + "." + dorisTable.getName() + " is null");
                 return parseSchema(schema);
             });
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
-
     }
 
     /**
@@ -681,23 +660,25 @@ public class IcebergUtils {
      *
      * @return estimated row count
      */
-    public static long getIcebergRowCount(ExternalCatalog catalog, String dbName, String tbName) {
+    public static long getIcebergRowCount(ExternalTable tbl) {
         // the table may be null when the iceberg metadata cache is not loaded.But I don't think it's a problem,
         // because the NPE would be caught in the caller and return the default value -1.
         // Meanwhile, it will trigger iceberg metadata cache to load the table, so we can get it next time.
         Table icebergTable = Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
                 .getIcebergMetadataCache()
-                .getIcebergTable(catalog, dbName, tbName);
+                .getIcebergTable(tbl);
         Snapshot snapshot = icebergTable.currentSnapshot();
         if (snapshot == null) {
-            LOG.info("Iceberg table {}.{}.{} is empty, return -1.", catalog.getName(), dbName, tbName);
+            LOG.info("Iceberg table {}.{}.{} is empty, return -1.",
+                    tbl.getCatalog().getName(), tbl.getDbName(), tbl.getName());
             // empty table
             return TableIf.UNKNOWN_ROW_COUNT;
         }
         Map<String, String> summary = snapshot.summary();
         long rows = Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
-        LOG.info("Iceberg table {}.{}.{} row count in summary is {}", catalog.getName(), dbName, tbName, rows);
+        LOG.info("Iceberg table {}.{}.{} row count in summary is {}",
+                tbl.getCatalog().getName(), tbl.getDbName(), tbl.getName(), rows);
         return rows;
     }
 
@@ -909,38 +890,37 @@ public class IcebergUtils {
     }
 
     // read schema from external schema cache
-    public static IcebergSchemaCacheValue getSchemaCacheValue(
-            ExternalCatalog catalog, String dbName, String name, long schemaId) {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+    public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
+        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(dorisTable.getCatalog());
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-            new IcebergSchemaCacheKey(dbName, name, schemaId));
+                new IcebergSchemaCacheKey(dorisTable.getOrBuildNameMapping(), schemaId));
         if (!schemaCacheValue.isPresent()) {
             throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-                null, catalog.getName(), dbName, name, schemaId);
+                    null, dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), schemaId);
         }
         return (IcebergSchemaCacheValue) schemaCacheValue.get();
     }
 
-    public static IcebergSnapshot getLastedIcebergSnapshot(ExternalCatalog catalog, String dbName, String tbName) {
-        Table table = IcebergUtils.getIcebergTable(catalog, dbName, tbName);
+    public static IcebergSnapshot getLastedIcebergSnapshot(ExternalTable dorisTable) {
+        Table table = IcebergUtils.getIcebergTable(dorisTable);
         Snapshot snapshot = table.currentSnapshot();
         long snapshotId = snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : snapshot.snapshotId();
         return new IcebergSnapshot(snapshotId, table.schema().schemaId());
     }
 
-    public static IcebergPartitionInfo loadPartitionInfo(
-            ExternalCatalog catalog, String dbName, String tbName, long snapshotId) throws AnalysisException {
+    public static IcebergPartitionInfo loadPartitionInfo(ExternalTable dorisTable, long snapshotId)
+            throws AnalysisException {
         // snapshotId == UNKNOWN_SNAPSHOT_ID means this is an empty table, haven't contained any snapshot yet.
         if (snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
             return IcebergPartitionInfo.empty();
         }
-        Table table = getIcebergTable(catalog, dbName, tbName);
+        Table table = getIcebergTable(dorisTable);
         List<IcebergPartition> icebergPartitions = loadIcebergPartition(table, snapshotId);
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
 
         List<Column> partitionColumns = IcebergUtils.getSchemaCacheValue(
-                catalog, dbName, tbName, table.snapshot(snapshotId).schemaId()).getPartitionColumns();
+                dorisTable, table.snapshot(snapshotId).schemaId()).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
             String transform = table.specs().get(partition.getSpecId()).fields().get(0).transform().toString();
@@ -1156,16 +1136,12 @@ public class IcebergUtils {
 
     public static IcebergSnapshotCacheValue getIcebergSnapshotCacheValue(
             Optional<TableSnapshot> tableSnapshot,
-            ExternalCatalog catalog,
-            String dbName,
-            String tbName,
+            ExternalTable dorisTable,
             Optional<TableScanParams> scanParams) {
-        IcebergSnapshotCacheValue snapshotCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
-                .getSnapshotCache(catalog, dbName, tbName);
         if (tableSnapshot.isPresent() || IcebergUtils.isIcebergBranchOrTag(scanParams)) {
             // If a snapshot is specified,
             // use the specified snapshot and the corresponding schema(not the latest schema).
-            Table icebergTable = getIcebergTable(catalog, dbName, tbName);
+            Table icebergTable = getIcebergTable(dorisTable);
             IcebergTableQueryInfo info;
             try {
                 info = getQuerySpecSnapshot(icebergTable, tableSnapshot, scanParams);
@@ -1177,53 +1153,41 @@ public class IcebergUtils {
                     new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
-            return snapshotCache;
+            return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+                    .getSnapshotCache(dorisTable);
         }
     }
 
-    public static List<Column> getIcebergSchema(
-            TableIf tableIf,
-            ExternalCatalog catalog,
-            String dbName,
-            String tbName) {
-        Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(tableIf);
+    public static List<Column> getIcebergSchema(ExternalTable dorisTable) {
+        Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(dorisTable);
         IcebergSnapshotCacheValue cacheValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshotFromContext, catalog, dbName, tbName);
-        return IcebergUtils.getSchemaCacheValue(
-                catalog, dbName, tbName, cacheValue.getSnapshot().getSchemaId())
-            .getSchema();
+                IcebergUtils.getOrFetchSnapshotCacheValue(snapshotFromContext, dorisTable);
+        return IcebergUtils.getSchemaCacheValue(dorisTable, cacheValue.getSnapshot().getSchemaId())
+                .getSchema();
     }
 
     public static IcebergSnapshotCacheValue getOrFetchSnapshotCacheValue(
             Optional<MvccSnapshot> snapshot,
-            ExternalCatalog catalog,
-            String dbName,
-            String tbName) {
+            ExternalTable dorisTable) {
         if (snapshot.isPresent()) {
             return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {
-            return IcebergUtils.getIcebergSnapshotCacheValue(
-                Optional.empty(), catalog, dbName, tbName, Optional.empty());
+            return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), dorisTable, Optional.empty());
         }
     }
 
-    public static org.apache.iceberg.view.View getIcebergView(ExternalCatalog catalog, String dbName, String tblName) {
-        return getIcebergViewInternal(catalog, dbName, tblName);
-    }
-
-    private static org.apache.iceberg.view.View getIcebergViewInternal(ExternalCatalog catalog, String dbName,
-            String tblName) {
+    public static org.apache.iceberg.view.View getIcebergView(ExternalTable dorisTable) {
         IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
-        return metadataCache.getIcebergView(catalog, dbName, tblName);
+        return metadataCache.getIcebergView(dorisTable);
     }
 
     public static Optional<SchemaCacheValue> loadSchemaCacheValue(
-            ExternalCatalog catalog, String dbName, String tbName, long schemaId, boolean isView) {
-        List<Column> schema = IcebergUtils.getSchema(catalog, dbName, tbName, schemaId, isView);
+            ExternalTable dorisTable, long schemaId, boolean isView) {
+        List<Column> schema = IcebergUtils.getSchema(dorisTable, schemaId, isView);
         List<Column> tmpColumns = Lists.newArrayList();
         if (!isView) {
             // get table partition column info
-            Table table = IcebergUtils.getIcebergTable(catalog, dbName, tbName);
+            Table table = IcebergUtils.getIcebergTable(dorisTable);
             PartitionSpec spec = table.spec();
             for (PartitionField field : spec.fields()) {
                 Types.NestedField col = table.schema().findField(field.sourceId());

@@ -346,19 +346,19 @@ public class Alter {
                 setExternalTableAutoAnalyzePolicy(table, alterClauses);
             } else if (alterClause instanceof CreateOrReplaceBranchClause) {
                 table.getCatalog().createOrReplaceBranch(
-                        table.getDbName(), table.getName(),
+                        table,
                         ((CreateOrReplaceBranchClause) alterClause).getBranchInfo());
             } else if (alterClause instanceof CreateOrReplaceTagClause) {
                 table.getCatalog().createOrReplaceTag(
-                        table.getDbName(), table.getName(),
+                        table,
                         ((CreateOrReplaceTagClause) alterClause).getTagInfo());
             } else if (alterClause instanceof DropBranchClause) {
                 table.getCatalog().dropBranch(
-                        table.getDbName(), table.getName(),
+                        table,
                         ((DropBranchClause) alterClause).getDropBranchInfo());
             } else if (alterClause instanceof DropTagClause) {
                 table.getCatalog().dropTag(
-                        table.getDbName(), table.getName(),
+                        table,
                         ((DropTagClause) alterClause).getDropTagInfo());
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
