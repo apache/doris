@@ -146,6 +146,7 @@ private:
         std::vector<PathInData::Parts> paths;
         std::vector<Field> values;
         bool enable_flatten_nested = false;
+        bool has_nested_in_flatten = false;
     };
     using PathPartsWithArray = std::pair<PathInData::Parts, Array>;
     using PathToArray = phmap::flat_hash_map<UInt128, PathPartsWithArray, UInt128TrivialHash>;
@@ -155,6 +156,7 @@ private:
         size_t total_size = 0;
         PathToArray arrays_by_path;
         KeyToSizes nested_sizes_by_key;
+        bool has_nested_in_flatten = false;
     };
     void traverse(const Element& element, ParseContext& ctx);
     void traverseObject(const JSONObject& object, ParseContext& ctx);
