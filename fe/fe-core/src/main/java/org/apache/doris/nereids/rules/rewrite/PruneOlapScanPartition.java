@@ -148,7 +148,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
             if (sortedPartitionRangesOpt.isPresent()) {
                 sortedPartitionRanges = (Optional) sortedPartitionRangesOpt;
             }
-            idToPartitions = partitionInfo.getIdToItem(false);
+            idToPartitions = partitionInfo.getIdToItemWithoutLock(false);
         } else {
             Map<Long, PartitionItem> allPartitions = partitionInfo.getAllPartitions();
             idToPartitions = allPartitions.keySet().stream()

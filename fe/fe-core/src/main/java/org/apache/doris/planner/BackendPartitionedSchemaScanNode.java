@@ -139,7 +139,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
             }
         }
         createPartitionInfo(partitionColumns);
-        Map<Long, PartitionItem> keyItemMap = backendPartitionInfo.getIdToItem(false);
+        Map<Long, PartitionItem> keyItemMap = backendPartitionInfo.getIdToItemWithoutLock(false);
         PartitionPruner partitionPruner = new ListPartitionPrunerV2(keyItemMap,
                 backendPartitionInfo.getPartitionColumns(),
                 columnNameToRange);

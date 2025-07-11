@@ -628,12 +628,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             if (!Strings.isNullOrEmpty(newDbName)) {
-                try {
-                    db.writeUnlock();
-                    db.setNameWithLock(newDbName);
-                } finally {
-                    db.writeLock();
-                }
+                db.setNameNoLock(newDbName);
             }
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
@@ -1225,7 +1220,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // check if table exists in db
+        db.readLock();
         boolean isTableExist = db.isTableExist(tableName);
+        db.readUnlock();
         if (isTableExist) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableShowName);

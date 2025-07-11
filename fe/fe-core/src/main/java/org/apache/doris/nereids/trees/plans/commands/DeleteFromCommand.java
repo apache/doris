@@ -271,7 +271,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             }
         }
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        Map<Long, PartitionItem> idToPartitions = partitionInfo.getIdToItem(false);
+        Map<Long, PartitionItem> idToPartitions = partitionInfo.getIdToItemWithoutLock(false);
         Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
         // User specified partition is not empty.
         if (partitionNames != null && !partitionNames.isEmpty()) {

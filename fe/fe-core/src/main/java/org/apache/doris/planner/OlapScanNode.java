@@ -337,7 +337,7 @@ public class OlapScanNode extends ScanNode {
                 keyItemMap.put(partition.getId(), partitionInfo.getItem(partition.getId()));
             }
         } else {
-            keyItemMap = partitionInfo.getIdToItem(false);
+            keyItemMap = partitionInfo.getIdToItemWithoutLock(false);
         }
         if (partitionInfo.getType() == PartitionType.RANGE) {
             if (isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {

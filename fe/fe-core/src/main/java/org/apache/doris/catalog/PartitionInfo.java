@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /*
@@ -50,7 +51,7 @@ import java.util.stream.Collectors;
  */
 public class PartitionInfo {
     private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
-
+    protected ReentrantReadWriteLock rwLock;
     @SerializedName("Type")
     protected PartitionType type;
     // partition columns for list and range partitions
@@ -98,6 +99,7 @@ public class PartitionInfo {
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
         this.partitionExprs = new ArrayList<>();
+        this.rwLock = new ReentrantReadWriteLock();
     }
 
     public PartitionInfo(PartitionType type) {
@@ -108,13 +110,33 @@ public class PartitionInfo {
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
         this.partitionExprs = new ArrayList<>();
+        this.rwLock = new ReentrantReadWriteLock();
     }
 
     public PartitionInfo(PartitionType type, List<Column> partitionColumns) {
         this(type);
         this.partitionColumns = partitionColumns;
         this.isMultiColumnPartition = partitionColumns.size() > 1;
+        this.rwLock = new ReentrantReadWriteLock();
     }
+
+
+    public void readLock() {
+        rwLock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        rwLock.readLock().unlock();
+    }
+
+    public void writeLock() {
+        rwLock.writeLock().lock();
+    }
+
+    public void writeUnlock() {
+        rwLock.writeLock().unlock();
+    }
+
 
     public PartitionType getType() {
         return type;
@@ -127,6 +149,7 @@ public class PartitionInfo {
     public String getDisplayPartitionColumns() {
         StringBuilder sb = new StringBuilder();
         int index = 0;
+        readLock();
         for (Column c : partitionColumns) {
             if (index  != 0) {
                 sb.append(", ");
@@ -134,10 +157,12 @@ public class PartitionInfo {
             sb.append(c.getDisplayName());
             index++;
         }
+        readUnlock();
         return sb.toString();
     }
 
-    public Map<Long, PartitionItem> getIdToItem(boolean isTemp) {
+    // ATTN: no lock here, just Read-Only Access
+    public Map<Long, PartitionItem> getIdToItemWithoutLock(boolean isTemp) {
         if (isTemp) {
             return idToTempItem;
         } else {
@@ -150,15 +175,36 @@ public class PartitionInfo {
      */
     public Map<Long, PartitionItem> getAllPartitions() {
         HashMap all = new HashMap<>();
-        all.putAll(idToTempItem);
-        all.putAll(idToItem);
+        readLock();
+        try {
+            all.putAll(idToTempItem);
+            all.putAll(idToItem);
+        } finally {
+            readUnlock();
+        }
         return all;
     }
 
-    public PartitionItem getItem(long partitionId) {
-        PartitionItem item = idToItem.get(partitionId);
+    public PartitionItem getItemWithoutLock(long partitionId) {
+        PartitionItem item = null;
+        item = idToItem.get(partitionId);
         if (item == null) {
             item = idToTempItem.get(partitionId);
+        }
+        return item;
+    }
+
+
+    public PartitionItem getItem(long partitionId) {
+        PartitionItem item = null;
+        readLock();
+        try {
+            item = idToItem.get(partitionId);
+            if (item == null) {
+                item = idToTempItem.get(partitionId);
+            }
+        } finally {
+            readUnlock();
         }
         return item;
     }
@@ -173,22 +219,24 @@ public class PartitionInfo {
         return partitionRange;
     }
 
-    public PartitionItem getItemOrAnalysisException(long partitionId) throws AnalysisException {
-        PartitionItem item = idToItem.get(partitionId);
-        if (item == null) {
-            item = idToTempItem.get(partitionId);
-        }
-        if (item == null) {
-            throw new AnalysisException("PartitionItem not found: " + partitionId);
-        }
-        return item;
-    }
-
     public void setItem(long partitionId, boolean isTemp, PartitionItem item) {
-        setItemInternal(partitionId, isTemp, item);
+        setItemInternalWithLock(partitionId, isTemp, item);
     }
 
-    private void setItemInternal(long partitionId, boolean isTemp, PartitionItem item) {
+    private void setItemInternalWithLock(long partitionId, boolean isTemp, PartitionItem item) {
+        writeLock();
+        try {
+            if (isTemp) {
+                idToTempItem.put(partitionId, item);
+            } else {
+                idToItem.put(partitionId, item);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void setItemInternalWithOutLock(long partitionId, boolean isTemp, PartitionItem item) {
         if (isTemp) {
             idToTempItem.put(partitionId, item);
         } else {
@@ -200,12 +248,17 @@ public class PartitionInfo {
                                                       long partitionId, boolean isTemp) throws DdlException {
         Preconditions.checkArgument(desc.isAnalyzed());
         PartitionItem partitionItem = createAndCheckPartitionItem(desc, isTemp);
-        setItemInternal(partitionId, isTemp, partitionItem);
+        writeLock();
+        try {
+            setItemInternalWithOutLock(partitionId, isTemp, partitionItem);
 
-        idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
-        idToReplicaAllocation.put(partitionId, desc.getReplicaAlloc());
-        idToInMemory.put(partitionId, desc.isInMemory());
-        idToStoragePolicy.put(partitionId, desc.getStoragePolicy());
+            idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
+            idToReplicaAllocation.put(partitionId, desc.getReplicaAlloc());
+            idToInMemory.put(partitionId, desc.isInMemory());
+            idToStoragePolicy.put(partitionId, desc.getStoragePolicy());
+        } finally {
+            writeUnlock();
+        }
 
         return partitionItem;
     }
@@ -217,57 +270,77 @@ public class PartitionInfo {
     public void unprotectHandleNewSinglePartitionDesc(long partitionId, boolean isTemp, PartitionItem partitionItem,
                                                       DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                                       boolean isInMemory, boolean isMutable) {
-        setItemInternal(partitionId, isTemp, partitionItem);
-        idToDataProperty.put(partitionId, dataProperty);
-        idToReplicaAllocation.put(partitionId, replicaAlloc);
-        idToInMemory.put(partitionId, isInMemory);
-        idToStoragePolicy.put(partitionId, "");
-        //TODO
-        //idToMutable.put(partitionId, isMutable);
+        writeLock();
+        try {
+            setItemInternalWithOutLock(partitionId, isTemp, partitionItem);
+            idToDataProperty.put(partitionId, dataProperty);
+            idToReplicaAllocation.put(partitionId, replicaAlloc);
+            idToInMemory.put(partitionId, isInMemory);
+            idToStoragePolicy.put(partitionId, "");
+            //TODO
+            //idToMutable.put(partitionId, isMutable);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
-        Map<Long, PartitionItem> tmpMap = idToItem;
-        if (isTemp) {
-            tmpMap = idToTempItem;
+        readLock();
+        try {
+            Map<Long, PartitionItem> tmpMap = idToItem;
+            if (isTemp) {
+                tmpMap = idToTempItem;
+            }
+            List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
+            if (isSorted) {
+                Collections.sort(itemEntryList, PartitionItem.ITEM_MAP_ENTRY_COMPARATOR);
+            }
+            return itemEntryList;
+        } finally {
+            readUnlock();
         }
-        List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
-        if (isSorted) {
-            Collections.sort(itemEntryList, PartitionItem.ITEM_MAP_ENTRY_COMPARATOR);
-        }
-        return itemEntryList;
     }
 
     // get sorted item list, exclude partitions which ids are in 'excludePartitionIds'
     public List<PartitionItem> getItemList(Set<Long> excludePartitionIds, boolean isTemp) {
-        Map<Long, PartitionItem> tempMap = idToItem;
-        if (isTemp) {
-            tempMap = idToTempItem;
-        }
-        List<PartitionItem> resultList = Lists.newArrayList();
-        for (Map.Entry<Long, PartitionItem> entry : tempMap.entrySet()) {
-            if (!excludePartitionIds.contains(entry.getKey())) {
-                resultList.add(entry.getValue());
+        readLock();
+        try {
+            Map<Long, PartitionItem> tempMap = idToItem;
+            if (isTemp) {
+                tempMap = idToTempItem;
             }
+            List<PartitionItem> resultList = Lists.newArrayList();
+            for (Map.Entry<Long, PartitionItem> entry : tempMap.entrySet()) {
+                if (!excludePartitionIds.contains(entry.getKey())) {
+                    resultList.add(entry.getValue());
+                }
+            }
+            return resultList;
+        } finally {
+            readUnlock();
         }
-        return resultList;
     }
 
     // return any item intersect with the newItem.
     // return null if no item intersect.
     public PartitionItem getAnyIntersectItem(PartitionItem newItem, boolean isTemp) {
-        Map<Long, PartitionItem> tmpMap = idToItem;
-        if (isTemp) {
-            tmpMap = idToTempItem;
-        }
-        PartitionItem retItem;
-        for (PartitionItem item : tmpMap.values()) {
-            retItem = item.getIntersect(newItem);
-            if (null != retItem) {
-                return retItem;
+        readLock();
+        try {
+            Map<Long, PartitionItem> tmpMap = idToItem;
+            if (isTemp) {
+                tmpMap = idToTempItem;
             }
+            PartitionItem retItem;
+            for (PartitionItem item : tmpMap.values()) {
+                retItem = item.getIntersect(newItem);
+                if (null != retItem) {
+                    return retItem;
+                }
+            }
+            return null;
+        } finally {
+            readUnlock();
         }
-        return null;
     }
 
     public boolean enableAutomaticPartition() {
@@ -287,94 +360,156 @@ public class PartitionInfo {
     }
 
     public DataProperty getDataProperty(long partitionId) {
-        return idToDataProperty.get(partitionId);
+        readLock();
+        try {
+            return idToDataProperty.get(partitionId);
+        } finally {
+            readUnlock();
+        }
     }
 
     public void setDataProperty(long partitionId, DataProperty newDataProperty) {
-        idToDataProperty.put(partitionId, newDataProperty);
+        writeUnlock();
+        try {
+            idToDataProperty.put(partitionId, newDataProperty);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void refreshTableStoragePolicy(String storagePolicy) {
-        idToStoragePolicy.replaceAll((k, v) -> storagePolicy);
-        idToDataProperty.entrySet().forEach(entry -> {
-            entry.getValue().setStoragePolicy(storagePolicy);
-        });
+        writeLock();
+        try {
+            idToStoragePolicy.replaceAll((k, v) -> storagePolicy);
+            idToDataProperty.entrySet().forEach(entry -> {
+                entry.getValue().setStoragePolicy(storagePolicy);
+            });
+        } finally {
+            writeUnlock();
+        }
     }
 
     public String getStoragePolicy(long partitionId) {
-        return idToStoragePolicy.getOrDefault(partitionId, "");
+        readLock();
+        try {
+            return idToStoragePolicy.getOrDefault(partitionId, "");
+        } finally {
+            readUnlock();
+        }
     }
 
     public void setStoragePolicy(long partitionId, String storagePolicy) {
-        idToStoragePolicy.put(partitionId, storagePolicy);
+        readLock();
+        try {
+            idToStoragePolicy.put(partitionId, storagePolicy);
+        } finally {
+            readUnlock();
+        }
     }
 
-    public Map<Long, ReplicaAllocation> getPartitionReplicaAllocations() {
+    public Map<Long, ReplicaAllocation> getPartitionReplicaAllocationsWithoutLock() {
         return idToReplicaAllocation;
     }
 
     public ReplicaAllocation getReplicaAllocation(long partitionId) {
-        if (!idToReplicaAllocation.containsKey(partitionId)) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to get replica allocation for partition: {}", partitionId);
+        readLock();
+        try {
+            if (!idToReplicaAllocation.containsKey(partitionId)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("failed to get replica allocation for partition: {}", partitionId);
+                }
+                return ReplicaAllocation.DEFAULT_ALLOCATION;
             }
-            return ReplicaAllocation.DEFAULT_ALLOCATION;
+            return idToReplicaAllocation.get(partitionId);
+        } finally {
+            readUnlock();
         }
-        return idToReplicaAllocation.get(partitionId);
     }
 
     public void setReplicaAllocation(long partitionId, ReplicaAllocation replicaAlloc) {
+        writeLock();
         this.idToReplicaAllocation.put(partitionId, replicaAlloc);
+        writeUnlock();
     }
 
     public boolean getIsInMemory(long partitionId) {
-        return idToInMemory.get(partitionId);
+        readLock();
+        try {
+            return idToInMemory.get(partitionId);
+        } finally {
+            readUnlock();
+        }
     }
 
     public boolean getIsMutable(long partitionId) {
-        return idToDataProperty.get(partitionId).isMutable();
+        readLock();
+        try {
+            return idToDataProperty.get(partitionId).isMutable();
+        } finally {
+            readUnlock();
+        }
     }
 
     public void setIsMutable(long partitionId, boolean isMutable) {
+        writeLock();
         idToDataProperty.get(partitionId).setMutable(isMutable);
+        writeUnlock();
     }
 
     public void setIsInMemory(long partitionId, boolean isInMemory) {
+        writeLock();
         idToInMemory.put(partitionId, isInMemory);
+        writeUnlock();
     }
 
     public TTabletType getTabletType(long partitionId) {
-        if (!idToTabletType.containsKey(partitionId)) {
-            return TTabletType.TABLET_TYPE_DISK;
+        readLock();
+        try {
+            if (!idToTabletType.containsKey(partitionId)) {
+                return TTabletType.TABLET_TYPE_DISK;
+            }
+            return idToTabletType.get(partitionId);
+        } finally {
+            readUnlock();
         }
-        return idToTabletType.get(partitionId);
     }
 
     public void setTabletType(long partitionId, TTabletType tabletType) {
+        writeLock();
         idToTabletType.put(partitionId, tabletType);
+        writeUnlock();
     }
 
     public void dropPartition(long partitionId) {
+        writeLock();
         idToDataProperty.remove(partitionId);
         idToReplicaAllocation.remove(partitionId);
         idToInMemory.remove(partitionId);
         idToItem.remove(partitionId);
         idToTempItem.remove(partitionId);
+        writeUnlock();
     }
 
     public void addPartition(long partitionId, boolean isTemp, PartitionItem item, DataProperty dataProperty,
                              ReplicaAllocation replicaAlloc, boolean isInMemory, boolean isMutable) {
-        addPartition(partitionId, dataProperty, replicaAlloc, isInMemory, isMutable);
-        setItemInternal(partitionId, isTemp, item);
+        writeLock();
+        dataProperty.setMutable(isMutable);
+        idToDataProperty.put(partitionId, dataProperty);
+        idToReplicaAllocation.put(partitionId, replicaAlloc);
+        idToInMemory.put(partitionId, isInMemory);
+        setItemInternalWithOutLock(partitionId, isTemp, item);
+        writeUnlock();
     }
 
     public void addPartition(long partitionId, DataProperty dataProperty,
                              ReplicaAllocation replicaAlloc,
                              boolean isInMemory, boolean isMutable) {
+        writeLock();
         dataProperty.setMutable(isMutable);
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicaAllocation.put(partitionId, replicaAlloc);
         idToInMemory.put(partitionId, isInMemory);
+        writeUnlock();
     }
 
     public boolean isMultiColumnPartition() {
@@ -404,15 +539,18 @@ public class PartitionInfo {
     }
 
     public void moveFromTempToFormal(long tempPartitionId) {
+        writeLock();
         PartitionItem item = idToTempItem.remove(tempPartitionId);
         if (item != null) {
             idToItem.put(tempPartitionId, item);
         }
+        writeUnlock();
     }
 
     public void resetPartitionIdForRestore(
             Map<Long, Long> partitionIdMap,
             ReplicaAllocation restoreReplicaAlloc, boolean isSinglePartitioned) {
+        writeLock();
         Map<Long, DataProperty> origIdToDataProperty = idToDataProperty;
         Map<Long, ReplicaAllocation> origIdToReplicaAllocation = idToReplicaAllocation;
         Map<Long, PartitionItem> origIdToItem = idToItem;
@@ -435,6 +573,7 @@ public class PartitionInfo {
             idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
             idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.getOrDefault(entry.getValue(), ""));
         }
+        writeUnlock();
     }
 
     @Override

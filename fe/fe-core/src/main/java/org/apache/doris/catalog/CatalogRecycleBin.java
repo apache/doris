@@ -657,7 +657,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             Table table = tableInfo.getTable();
             if (table.getType() == TableType.OLAP) {
+                db.writeLock();
                 db.registerTable(table);
+                db.writeUnlock();
                 LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
             } else {
                 LOG.info("ignore recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());

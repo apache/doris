@@ -817,6 +817,7 @@ public class Alter {
         OlapTable newTbl = (OlapTable) db.getTableOrMetaException(newTblId, tableTypes);
         List<Table> tableList = Lists.newArrayList(origTable, newTbl);
         tableList.sort((Comparator.comparing(Table::getId)));
+        db.writeLock();
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
             replaceTableInternal(db, origTable, newTbl, log.isSwapTable(), true, log.isForce());
@@ -824,6 +825,7 @@ public class Alter {
             LOG.warn("should not happen", e);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
+            db.writeUnlock();
         }
         LOG.info("finish replay replacing table {} with table {}, is swap: {}", origTblId, newTblId, log.isSwapTable());
     }

@@ -291,7 +291,7 @@ public class EsScanNode extends ExternalScanNode {
         switch (partitionInfo.getType()) {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                Map<Long, PartitionItem> keyRangeById = rangePartitionInfo.getIdToItem(false);
+                Map<Long, PartitionItem> keyRangeById = rangePartitionInfo.getIdToItemWithoutLock(false);
                 partitionPruner = new RangePartitionPrunerV2(keyRangeById, rangePartitionInfo.getPartitionColumns(),
                         columnNameToRange);
                 return partitionPruner.prune();

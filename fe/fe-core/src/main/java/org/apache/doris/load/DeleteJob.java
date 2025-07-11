@@ -648,7 +648,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     Collection<Long> selectedPartitionId = null;
                     if (!columnNameToRange.isEmpty()) {
                         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                        Map<Long, PartitionItem> keyItemMap = partitionInfo.getIdToItem(false);
+                        Map<Long, PartitionItem> keyItemMap = partitionInfo.getIdToItemWithoutLock(false);
                         PartitionPruner pruner = olapTable.getPartitionInfo().getType() == PartitionType.RANGE
                                 ? new RangePartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
                                 columnNameToRange)

@@ -524,7 +524,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         } else {
             if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && filterPredicate != null) {
                 PartitionInfo partitionInfo = destTable.getPartitionInfo();
-                Map<Long, PartitionItem> idToPartitions = partitionInfo.getIdToItem(false);
+                Map<Long, PartitionItem> idToPartitions = partitionInfo.getIdToItemWithoutLock(false);
                 Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
                 List<Long> prunedPartitions = PartitionPruner.prune(
                         partitionSlots, filterPredicate, idToPartitions,

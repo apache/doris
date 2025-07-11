@@ -231,6 +231,15 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    // caller has locked
+    public void setNameNoLock(String newName) {
+        // ClusterNamespace.getNameFromFullName should be removed in 3.0
+        this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
+        for (Table table : idToTable.values()) {
+            table.setQualifiedDbName(fullQualifiedName);
+        }
+    }
+
     public void setNameWithLock(String newName) {
         writeLock();
         try {
@@ -383,6 +392,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         checkReplicaQuota();
     }
 
+    // outer locked
     public boolean isTableExist(String tableName) {
         if (Env.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
@@ -411,7 +421,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 result = setIfNotExist;
                 isTableExist = true;
             } else {
-                registerTable(table);
                 if (table.isTemporary()) {
                     Env.getCurrentEnv().registerTempTableAndSession(table);
                 }
@@ -426,6 +435,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
                 }
+                // after write log, write to mem
+                registerTable(table);
             }
             return Pair.of(result, isTableExist);
         } finally {
@@ -433,6 +444,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
+    // outer locked
     @Override
     public boolean registerTable(TableIf table) {
         boolean result = true;
@@ -456,6 +468,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return result;
     }
 
+    // outer locked
     @Override
     public void unregisterTable(String tableName) {
         if (Env.isStoredTableNamesLowerCase()) {

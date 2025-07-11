@@ -201,7 +201,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         // auto bucket
         // get all history partitions
         RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
-        List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
+        List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItemWithoutLock(false).entrySet());
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
         List<Partition> partitions = idToItems.stream()
                 .map(entry -> table.getPartition(entry.getKey()))
@@ -304,7 +304,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 }
                 continue;
             }
-            for (PartitionItem partitionItem : rangePartitionInfo.getIdToItem(false).values()) {
+            for (PartitionItem partitionItem : rangePartitionInfo.getIdToItemWithoutLock(false).values()) {
                 // only support single column partition now
                 try {
                     RangeUtils.checkRangeIntersect(partitionItem.getItems(), addPartitionKeyRange);
@@ -514,7 +514,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
 
-        List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
+        List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItemWithoutLock(false).entrySet());
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
         Map<Long, Boolean> isContaineds = new HashMap<>();
         for (Map.Entry<Long, PartitionItem> idToItem : idToItems) {

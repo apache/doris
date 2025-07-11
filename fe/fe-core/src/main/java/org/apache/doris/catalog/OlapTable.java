@@ -135,7 +135,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public Map<Long, PartitionItem> getOriginPartitions(CatalogRelation scan) {
-        return getPartitionInfo().getIdToItem(false);
+        return getPartitionInfo().getIdToItemWithoutLock(false);
     }
 
     @Override
@@ -1947,7 +1947,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
         RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
         if (tempRangeInfo != null) {
-            for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
+            for (long partitionId : tempRangeInfo.getIdToItemWithoutLock(false).keySet()) {
                 this.partitionInfo.addPartition(partitionId, true,
                         tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
                         tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId),
@@ -2075,13 +2075,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         if (partitionInfo.getType() == PartitionType.RANGE
                 || partitionInfo.getType() == PartitionType.LIST) {
-            PartitionItem item = partitionInfo.getItem(oldPartition.getId());
+            PartitionItem item = partitionInfo.getItemWithoutLock(oldPartition.getId());
             partitionInfo.dropPartition(oldPartition.getId());
             partitionInfo.addPartition(newPartition.getId(), false, item, dataProperty,
                     replicaAlloc, isInMemory, isMutable);
         } else {
             partitionInfo.dropPartition(oldPartition.getId());
-            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicaAlloc, isInMemory, isMutable);
+            partitionInfo.addPartition(newPartition.getId(),
+                    dataProperty, replicaAlloc, isInMemory, isMutable);
         }
 
         return oldPartition;
@@ -3351,7 +3352,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         readLock();
         try {
             Map<String, PartitionItem> res = Maps.newHashMap();
-            for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
+            for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItemWithoutLock(false).entrySet()) {
                 Partition partition = idToPartition.get(entry.getKey());
                 if (partition != null) {
                     res.put(partition.getName(), entry.getValue());
