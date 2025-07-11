@@ -358,9 +358,19 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     }
     auto delete_bitmap_size = delete_bitmap->delete_bitmap.size();
     if (config::delete_bitmap_store_version == 2) {
-        _tablet->tablet_meta()->delete_bitmap().subset(_input_rowsets.front()->start_version(),
-                                                       _input_rowsets.back()->end_version(),
-                                                       delete_bitmap.get());
+        std::vector<RowsetId> other_rowset_ids;
+        {
+            std::shared_lock rlock(_tablet->get_header_lock());
+            for (const auto& [rowset_version, rowset_ptr] : cloud_tablet()->rowset_map()) {
+                if (rowset_version.second < _output_rowset->start_version() ||
+                    rowset_version.first > _output_rowset->end_version()) {
+                    other_rowset_ids.emplace_back(rowset_ptr->rowset_id());
+                }
+            }
+        }
+        _tablet->tablet_meta()->delete_bitmap().subset(
+                other_rowset_ids, _input_rowsets.front()->start_version(),
+                _input_rowsets.back()->end_version(), delete_bitmap.get());
     }
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *cloud_tablet(), -1, initiator, delete_bitmap.get(),

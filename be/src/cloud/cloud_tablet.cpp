@@ -1116,7 +1116,18 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     // 3. store delete bitmap
     auto delete_bitmap_size = output_rowset_delete_bitmap->delete_bitmap.size();
     if (config::delete_bitmap_store_version == 2) {
-        tablet_meta()->delete_bitmap().subset(output_rowset->start_version(),
+        std::vector<RowsetId> other_rowset_ids;
+        {
+            std::shared_lock rlock(get_header_lock());
+            for (const auto& [rowset_version, rowset_ptr] : rowset_map()) {
+                if (rowset_version.second < output_rowset->start_version() ||
+                    rowset_version.first > output_rowset->end_version()) {
+                    other_rowset_ids.emplace_back(rowset_ptr->rowset_id());
+                }
+            }
+        }
+        // get pre and following rowsets
+        tablet_meta()->delete_bitmap().subset(other_rowset_ids, output_rowset->start_version(),
                                               output_rowset->end_version(),
                                               output_rowset_delete_bitmap.get());
     }
