@@ -98,6 +98,11 @@ public class StructElement extends ScalarFunction
 
     @Override
     public boolean nullable() {
+        for (Expression child : children()) {
+            if (child.nullable()) {
+                return true;
+            }
+        }
         StructType structArgType = (StructType) child(0).getDataType();
         if (child(1) instanceof IntegerLikeLiteral) {
             int offset = ((IntegerLikeLiteral) child(1)).getIntValue();
