@@ -23,6 +23,8 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 import java.util.Map;
 
+// Copy from
+// fe/fe-core/src/main/java/org/apache/doris/datasource/iceberg/s3tables/CustomAwsCredentialsProvider.java
 public class CustomAwsCredentialsProvider implements AwsCredentialsProvider {
     private final String accessKeyId;
     private final String secretAccessKey;
