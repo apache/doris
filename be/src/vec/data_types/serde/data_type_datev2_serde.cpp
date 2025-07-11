@@ -60,7 +60,7 @@ Status DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, in
 }
 
 Status DataTypeDateV2SerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -90,8 +90,8 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
 }
 
 void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int start,
-                                                int end, const cctz::time_zone& ctz) const {
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = static_cast<const ColumnVector<UInt32>&>(column).get_data();
     auto& date32_builder = assert_cast<arrow::Date32Builder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
@@ -108,7 +108,7 @@ void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const Nul
 }
 
 void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int start, int end,
+                                                 int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<UInt32>&>(column).get_data();
     const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
@@ -124,7 +124,7 @@ Status DataTypeDateV2SerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int row_idx, bool col_const,
                                                    const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
+    const auto& data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     DateV2Value<DateV2ValueType> date_val =
             binary_cast<UInt32, DateV2Value<DateV2ValueType>>(data[col_index]);
@@ -180,7 +180,8 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
 }
 
 Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, Slice& slice,
-                                                               int rows, int* num_deserialized,
+                                                               uint64_t rows,
+                                                               uint64_t* num_deserialized,
                                                                const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
@@ -195,7 +196,7 @@ Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, 
 }
 
 void DataTypeDateV2SerDe::insert_column_last_value_multiple_times(IColumn& column,
-                                                                  int times) const {
+                                                                  uint64_t times) const {
     if (times < 1) [[unlikely]] {
         return;
     }
@@ -204,6 +205,21 @@ void DataTypeDateV2SerDe::insert_column_last_value_multiple_times(IColumn& colum
     UInt32 val = col.get_element(sz - 1);
 
     col.insert_many_vals(val, times);
+}
+
+void DataTypeDateV2SerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                   ColumnString::Chars& chars,
+                                                   int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_DATEV2);
+    const auto& data_ref =
+            assert_cast<const ColumnVector<UInt32>&>(src_column).get_data_at(row_num);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
 }
 
 } // namespace vectorized

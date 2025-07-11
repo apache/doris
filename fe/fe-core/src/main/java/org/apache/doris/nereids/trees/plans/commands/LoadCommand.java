@@ -30,7 +30,6 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.extensions.insert.InsertJob;
@@ -64,6 +63,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -243,7 +243,8 @@ public class LoadCommand extends Command implements ForwardWithSync {
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
                 && sinkCols.size() < olapTable.getColumns().size();
         return UnboundTableSinkCreator.createUnboundTableSink(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
-                false, dataDesc.getPartitionNames(), isPartialUpdate, DMLCommandType.LOAD, tvfLogicalPlan);
+                false, dataDesc.getPartitionNames(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                        DMLCommandType.LOAD, tvfLogicalPlan);
     }
 
     private static void fillDeleteOnColumn(BulkLoadDataDesc dataDesc, OlapTable olapTable,
@@ -469,10 +470,8 @@ public class LoadCommand extends Command implements ForwardWithSync {
         // TODO: support multi location by union
         String listFilePath = filePaths.get(0);
         if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.S3) {
-            S3Properties.convertToStdProperties(tvfProperties);
-            tvfProperties.keySet().removeIf(S3Properties.Env.FS_KEYS::contains);
             // TODO: check file path by s3 fs list status
-            tvfProperties.put(S3TableValuedFunction.PROP_URI, listFilePath);
+            tvfProperties.put("uri", listFilePath);
         }
 
         final Map<String, String> dataDescProps = dataDesc.getProperties();

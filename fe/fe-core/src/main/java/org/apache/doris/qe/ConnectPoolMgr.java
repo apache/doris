@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConnectPoolMgr {
@@ -130,7 +131,8 @@ public class ConnectPoolMgr {
     }
 
     // used for thrift
-    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql) {
+    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
+            Optional<String> timeZone) {
         List<List<String>> list = new ArrayList<>();
         long nowMs = System.currentTimeMillis();
         for (ConnectContext ctx : connectionMap.values()) {
@@ -139,7 +141,7 @@ public class ConnectPoolMgr {
                     .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
                 continue;
             }
-            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs));
+            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, timeZone));
         }
         return list;
     }

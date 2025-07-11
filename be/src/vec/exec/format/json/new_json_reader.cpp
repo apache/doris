@@ -22,22 +22,22 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <inttypes.h>
 #include <rapidjson/error/en.h>
 #include <rapidjson/reader.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
-#include <stdio.h>
-#include <string.h>
 
 #include <algorithm>
+#include <cinttypes>
+#include <cstdio>
+#include <cstring>
 #include <map>
 #include <memory>
-#include <ostream>
 #include <string_view>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -50,9 +50,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "util/defer_op.h"
 #include "util/slice.h"
-#include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
@@ -60,12 +58,9 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/typeid_cast.h"
-#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
-#include "vec/json/simd_json_parser.h"
 
 namespace doris::io {
 struct IOContext;
@@ -73,6 +68,7 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris::io
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
@@ -212,6 +208,9 @@ Status NewJsonReader::init_reader(
     }
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
+        if (_file_slot_descs[i]->is_skip_bitmap_col()) {
+            skip_bitmap_col_idx = i;
+        }
     }
     return Status::OK();
 }
@@ -255,18 +254,23 @@ Status NewJsonReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     return Status::OK();
 }
 
-Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                        std::vector<TypeDescriptor>* col_types) {
+// init decompressor, file reader and line reader for parsing schema
+Status NewJsonReader::init_schema_reader() {
     RETURN_IF_ERROR(_get_range_params());
-
+    // create decompressor.
+    // _decompressor may be nullptr if this is not a compressed file
+    RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
     RETURN_IF_ERROR(_open_file_reader(true));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
-
     // generate _parsed_jsonpaths and _parsed_json_root
     RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
+    return Status::OK();
+}
 
+Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                        std::vector<TypeDescriptor>* col_types) {
     bool eof = false;
     const uint8_t* json_str = nullptr;
     std::unique_ptr<uint8_t[]> json_str_ptr;
@@ -785,6 +789,11 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 
     int ctx_idx = 0;
     bool has_valid_value = false;
+    size_t cur_row_count = block.rows();
+
+    if (_should_process_skip_bitmap_col()) {
+        _append_empty_skip_bitmap_value(block, cur_row_count);
+    }
 
     if (_is_hive_table) {
         //don't like _fuzzy_parse,each line read in must modify name_map once.
@@ -803,6 +812,9 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
         if (!slot_desc->is_materialized()) {
             continue;
         }
+        if (slot_desc->is_skip_bitmap_col()) {
+            continue;
+        }
 
         int dest_index = ctx_idx++;
         auto* column_ptr = block.get_by_position(dest_index).column->assume_mutable().get();
@@ -815,7 +827,8 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
             }
         } else {
             it = objectValue.FindMember(
-                    rapidjson::Value(slot_desc->col_name().c_str(), slot_desc->col_name().size()));
+                    rapidjson::Value(slot_desc->col_name().c_str(),
+                                     cast_set<rapidjson::SizeType>(slot_desc->col_name().size())));
         }
 
         if (it != objectValue.MemberEnd()) {
@@ -827,10 +840,34 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
             }
             has_valid_value = true;
         } else {
-            // not found, filling with default value
-            RETURN_IF_ERROR(_fill_missing_column(slot_desc, _serdes[slot_idx], column_ptr, valid));
-            if (!(*valid)) {
-                return Status::OK();
+            if (_should_process_skip_bitmap_col()) {
+                // not found, skip this column in flexible partial update
+                if (slot_desc->is_key() && !slot_desc->is_auto_increment()) {
+                    RETURN_IF_ERROR(
+                            _append_error_msg(objectValue,
+                                              "The key columns can not be ommited in flexible "
+                                              "partial update, missing key column: {}",
+                                              slot_desc->col_name(), valid));
+                    // remove this line in block
+                    for (int i = 0; i < block.columns(); ++i) {
+                        auto column = block.get_by_position(i).column->assume_mutable();
+                        if (column->size() != cur_row_count) {
+                            DCHECK(column->size() == cur_row_count + 1);
+                            column->pop_back(1);
+                            DCHECK(column->size() == cur_row_count);
+                        }
+                    }
+                    return Status::OK();
+                }
+                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
+                column_ptr->insert_default();
+            } else {
+                // not found, filling with default value
+                RETURN_IF_ERROR(
+                        _fill_missing_column(slot_desc, _serdes[slot_idx], column_ptr, valid));
+                if (!(*valid)) {
+                    return Status::OK();
+                }
             }
         }
     }
@@ -961,7 +998,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         const auto& struct_value = value->GetObject();
 
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
+        auto* struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
 
         std::map<std::string, size_t> sub_col_name_to_idx;
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
@@ -975,7 +1012,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
                         "Json file struct column `{}` subfield name isn't a String", column_name);
             }
 
-            auto sub_key_char = sub.name.GetString();
+            const auto* sub_key_char = sub.name.GetString();
             auto sub_key_length = sub.name.GetStringLength();
 
             std::string sub_key(sub_key_char, sub_key_length);
@@ -989,7 +1026,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         }
 
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
-            auto sub_value = sub_values[sub_col_idx];
+            const auto* sub_value = sub_values[sub_col_idx];
 
             const auto& sub_col_type = type_desc.children[sub_col_idx];
 
@@ -1005,7 +1042,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         }
         const auto& object_value = value->GetObject();
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
+        auto* map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
 
         for (const auto& member_value : object_value) {
             RETURN_IF_ERROR(_write_data_to_column(
@@ -1028,7 +1065,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         }
         const auto& array_value = value->GetArray();
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
+        auto* array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
 
         for (const auto& sub_value : array_value) {
             RETURN_IF_ERROR(_write_data_to_column(&sub_value, type_desc.children[0],
@@ -1134,7 +1171,7 @@ std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
     buffer.Clear();
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     value.Accept(writer);
-    return std::string(buffer.GetString());
+    return {buffer.GetString()};
 }
 
 Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size) {
@@ -1235,6 +1272,9 @@ Status NewJsonReader::_simdjson_init_reader() {
     _ondemand_json_parser = std::make_unique<simdjson::ondemand::parser>();
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
+        if (_file_slot_descs[i]->is_skip_bitmap_col()) {
+            skip_bitmap_col_idx = i;
+        }
     }
     _simdjson_ondemand_padding_buffer.resize(_padded_size);
     _simdjson_ondemand_unscape_padding_buffer.resize(_padded_size);
@@ -1581,6 +1621,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
                 continue;
             }
         }
+        if (column_index == skip_bitmap_col_idx) {
+            continue;
+        }
         simdjson::ondemand::value val = field.value();
         auto* column_ptr = block.get_by_position(column_index).column->assume_mutable().get();
         RETURN_IF_ERROR(_simdjson_write_data_to_column(
@@ -1607,28 +1650,61 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         return Status::OK();
     }
 
+    if (_should_process_skip_bitmap_col()) {
+        _append_empty_skip_bitmap_value(block, cur_row_count);
+    }
+
     // fill missing slot
     int nullcount = 0;
     for (size_t i = 0; i < slot_descs.size(); ++i) {
         if (_seen_columns[i]) {
             continue;
         }
+        if (i == skip_bitmap_col_idx) {
+            continue;
+        }
+
         auto* slot_desc = slot_descs[i];
+        auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
+
         // Quick path to insert default value, instead of using default values in the value map.
-        if (_col_default_value_map.empty() ||
-            _col_default_value_map.find(slot_desc->col_name()) == _col_default_value_map.end()) {
-            block.get_by_position(i).column->assume_mutable()->insert_default();
+        if (!_should_process_skip_bitmap_col() &&
+            (_col_default_value_map.empty() ||
+             _col_default_value_map.find(slot_desc->col_name()) == _col_default_value_map.end())) {
+            column_ptr->insert_default();
             continue;
         }
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
         if (column_ptr->size() < cur_row_count + 1) {
             DCHECK(column_ptr->size() == cur_row_count);
-            RETURN_IF_ERROR(_fill_missing_column(slot_desc, _serdes[i], column_ptr, valid));
-            if (!(*valid)) {
-                return Status::OK();
+            if (_should_process_skip_bitmap_col()) {
+                // not found, skip this column in flexible partial update
+                if (slot_desc->is_key() && !slot_desc->is_auto_increment()) {
+                    RETURN_IF_ERROR(
+                            _append_error_msg(value,
+                                              "The key columns can not be ommited in flexible "
+                                              "partial update, missing key column: {}",
+                                              slot_desc->col_name(), valid));
+                    // remove this line in block
+                    for (int index = 0; index < block.columns(); ++index) {
+                        auto column = block.get_by_position(index).column->assume_mutable();
+                        if (column->size() != cur_row_count) {
+                            DCHECK(column->size() == cur_row_count + 1);
+                            column->pop_back(1);
+                            DCHECK(column->size() == cur_row_count);
+                        }
+                    }
+                    return Status::OK();
+                }
+                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
+                column_ptr->insert_default();
+            } else {
+                RETURN_IF_ERROR(_fill_missing_column(slot_desc, _serdes[i], column_ptr, valid));
+                if (!(*valid)) {
+                    return Status::OK();
+                }
             }
             ++nullcount;
         }
@@ -1698,7 +1774,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         auto sub_col_size = type_desc.children.size();
         simdjson::ondemand::object struct_value = value.get_object();
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
+        auto* struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
 
         std::map<std::string, size_t> sub_col_name_to_idx;
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
@@ -1731,7 +1807,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
 
         //fill missing subcolumn
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
-            if (has_value[sub_col_idx] == true) {
+            if (has_value[sub_col_idx]) {
                 continue;
             }
 
@@ -1753,17 +1829,17 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         simdjson::ondemand::object object_value = value.get_object();
 
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
+        auto* map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
 
         size_t field_count = 0;
         for (simdjson::ondemand::field member_value : object_value) {
             auto f = [](std::string_view key_view, const TypeDescriptor& type_desc,
                         vectorized::IColumn* column_ptr, DataTypeSerDeSPtr serde,
                         vectorized::DataTypeSerDe::FormatOptions serde_options, bool* valid) {
-                auto data_column_ptr = column_ptr;
+                auto* data_column_ptr = column_ptr;
                 auto data_serde = serde;
                 if (column_ptr->is_nullable()) {
-                    auto nullable_column = static_cast<ColumnNullable*>(column_ptr);
+                    auto* nullable_column = static_cast<ColumnNullable*>(column_ptr);
 
                     nullable_column->get_null_map_data().push_back(0);
                     data_column_ptr = nullable_column->get_nested_column().get_ptr();
@@ -1800,7 +1876,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         simdjson::ondemand::array array_value = value.get_array();
 
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
+        auto* array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
 
         int field_count = 0;
         for (simdjson::ondemand::value sub_value : array_value) {
@@ -2119,6 +2195,36 @@ Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, DataTypeSe
     return Status::OK();
 }
 
+void NewJsonReader::_append_empty_skip_bitmap_value(Block& block, size_t cur_row_count) {
+    auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
+            block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
+    auto* skip_bitmap_col_ptr =
+            assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
+    DCHECK(skip_bitmap_nullable_col_ptr->size() == cur_row_count);
+    // should append an empty bitmap for every row wheather this line misses columns
+    skip_bitmap_nullable_col_ptr->get_null_map_data().push_back(0);
+    skip_bitmap_col_ptr->insert_default();
+    DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
+}
+
+void NewJsonReader::_process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr,
+                                              Block& block, size_t cur_row_count, bool* valid) {
+    // we record the missing column's column unique id in skip bitmap
+    // to indicate which columns need to do the alignment process
+    auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
+            block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
+    auto* skip_bitmap_col_ptr =
+            assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
+    DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
+    auto& skip_bitmap = skip_bitmap_col_ptr->get_data().back();
+    if (!slot_desc->is_auto_increment()) {
+        // For auto-increment column, it will always have a valid value when in SegmentWriter.
+        // Either the row specifies it, or its value is filled with generated value. So never mark the
+        // auto-increment column in skip bitmap
+        skip_bitmap.add(slot_desc->col_unique_id());
+    }
+}
+
 void NewJsonReader::_collect_profile_before_close() {
     if (_line_reader != nullptr) {
         _line_reader->collect_profile_before_close();
@@ -2128,4 +2234,5 @@ void NewJsonReader::_collect_profile_before_close() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

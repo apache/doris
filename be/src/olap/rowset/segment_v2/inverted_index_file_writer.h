@@ -30,7 +30,9 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -55,14 +57,15 @@ public:
     InvertedIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
                             std::string rowset_id, int64_t seg_id,
                             InvertedIndexStorageFormatPB storage_format,
-                            io::FileWriterPtr file_writer = nullptr)
+                            io::FileWriterPtr file_writer = nullptr, bool can_use_ram_dir = true)
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _rowset_id(std::move(rowset_id)),
               _seg_id(seg_id),
               _storage_format(storage_format),
               _local_fs(io::global_local_filesystem()),
-              _idx_v2_writer(std::move(file_writer)) {
+              _idx_v2_writer(std::move(file_writer)),
+              _can_use_ram_dir(can_use_ram_dir) {
         auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
         _tmp_dir = tmp_file_dir.native();
     }
@@ -71,6 +74,7 @@ public:
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     virtual ~InvertedIndexFileWriter() = default;
+    Status add_into_searcher_cache();
     Status write();
     Status write_v1();
     Status close();
@@ -148,6 +152,8 @@ private:
                          const std::vector<FileMetadata>& file_metadata);
     Status _insert_directory_into_map(int64_t index_id, const std::string& index_suffix,
                                       std::shared_ptr<DorisFSDirectory> dir);
+    virtual Result<std::unique_ptr<IndexSearcherBuilder>> _construct_index_searcher_builder(
+            const DorisCompoundReader* dir);
     // Member variables...
     InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;
@@ -169,6 +175,7 @@ private:
 
     // only once
     bool _closed = false;
+    bool _can_use_ram_dir = true;
 };
 } // namespace segment_v2
 } // namespace doris

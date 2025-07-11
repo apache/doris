@@ -17,11 +17,9 @@
 
 suite("test_predefine_ddl", "p0"){ 
 
-    def tableName = "test_ddl_table"
-    boolean findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
+    test {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
             `var` variant<
                 MATCH_NAME 'ab' : string,
@@ -35,145 +33,78 @@ suite("test_predefine_ddl", "p0"){
             INDEX idx_bx_glob (var) USING INVERTED PROPERTIES("field_pattern"="bx?", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("can not find field pattern: bb* in column: var"))
-        findException = true
+        exception("can not find field pattern: bb* in column: var")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
-            `id` bigint NULL,
-            `var` variant<
-                MATCH_NAME 'ab' : string,
-                MATCH_NAME '*cc' : string,
-                MATCH_NAME 'b?b' : string
-            > NOT NULL,
-            INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT '',
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        findException = true
-    }
-    assertFalse(findException)
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant<
+            MATCH_NAME 'ab' : string,
+            MATCH_NAME '*cc' : string,
+            MATCH_NAME 'b?b' : string
+        > NOT NULL,
+        INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT '',
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
+    test {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
             `var` variant NOT NULL,
             INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("can not find field pattern: ab in column: var"))
-        findException = true
+        exception("can not find field pattern: ab in column: var")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
-            `id` bigint NULL,
-            `var` variant NULL
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        findException = true
-    }
-    assertFalse(findException)
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant<properties("variant_max_subcolumns_count" = "10")> NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    findException = false
-    try {
-         sql """ create index idx_ab on ${tableName} (var) using inverted properties("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not create index with field pattern"))
-        findException = true
+    test {
+         sql """ create index idx_ab on test_ddl_table (var) using inverted properties("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") """
+        exception("Can not create index with field pattern")
     }
-    assertTrue(findException)   
     
+    sql """ alter table test_ddl_table add column var2 variant<'ab' : string, properties("variant_max_subcolumns_count" = "5")> NULL """
 
-    findException = false
-    try {
-        sql """ alter table ${tableName} add column var2 variant<'ab' : string> NULL """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        findException = true
+    test {
+        sql """ alter table test_ddl_table modify column var variant<'ab' : string> NULL """
+        exception("Can not modify variant column with children")
     }
-    assertFalse(findException)
 
-    findException = false
-    try {
-        sql """ alter table ${tableName} modify column var variant<'ab' : string> NULL """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify variant column with children"))
-        findException = true
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant<
+            MATCH_NAME 'ab' : string,
+            MATCH_NAME '*cc' : string,
+            MATCH_NAME 'b?b' : string
+        > NULL,
+        INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+
+    test {
+        sql """ alter table test_ddl_table modify column var variant NULL """
+        exception("Can not modify variant column with children")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
-            `id` bigint NULL,
-            `var` variant<
-                MATCH_NAME 'ab' : string,
-                MATCH_NAME '*cc' : string,
-                MATCH_NAME 'b?b' : string
-            > NULL,
-            INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        findException = true
+    test {
+        sql """ alter table test_ddl_table drop index idx_ab """
+        exception("Can not drop index with field pattern")
     }
-    assertFalse(findException)
 
-    findException = false
-    try {
-        sql """ alter table ${tableName} modify column var variant NULL """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify variant column with children"))
-        findException = true
-    }
-    assertTrue(findException)
+    sql """ alter table test_ddl_table drop column var """
 
-    findException = false
-    try {
-        sql """ alter table ${tableName} drop index idx_ab """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not drop index with field pattern"))
-        findException = true
-    }
-    assertTrue(findException)
-
-    findException = false
-    try {
-        sql """ alter table ${tableName} drop column var """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        findException = true
-    }
-    assertFalse(findException)
-
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
+    test {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
             `var` variant<
                 MATCH_NAME 'ab' : json
@@ -181,102 +112,75 @@ suite("test_predefine_ddl", "p0"){
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: json"))
-        findException = true
+        exception("VARIANT unsupported sub-type: json")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
+    test {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
             `var` variant<
                 MATCH_NAME 'ab' : int,
-                MATCH_NAME 'ab' : string
+                MATCH_NAME 'ab' : string,
+                properties("variant_max_subcolumns_count" = "10", "variant_enable_typed_paths_to_sparse" = "true")
             > NULL,
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Duplicate field name ab in struct variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text>"))
-        findException = true
+        exception("""Duplicate field name ab in variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text,
+PROPERTIES (
+"variant_max_subcolumns_count" = "10",
+"variant_enable_typed_paths_to_sparse" = "true"
+)>""")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
+    test {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
             `var` variant<
                 MATCH_NAME 'ab' : decimalv2(22, 2)
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: decimalv2(22,2)"))
-        findException = true
+        exception("VARIANT unsupported sub-type: decimalv2(22,2)")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
+    test {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
             `var` variant<
                 MATCH_NAME 'ab' : datev1
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: date"))
-        findException = true
+        exception("VARIANT unsupported sub-type: date")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
+    test {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
             `var` variant<
                 MATCH_NAME 'ab' : datetimev1
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: datetime"))
-        findException = true
+        exception("VARIANT unsupported sub-type: datetime")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS test_ddl_table"
-        sql """CREATE TABLE test_ddl_table (
-            `id` bigint NULL,
-            `var` variant<
-                MATCH_NAME 'ab' : double
-            > NULL,
-            INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        findException = true
-    }
-    assertFalse(findException)
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant<
+            MATCH_NAME 'ab' : double
+        > NULL,
+        INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    findException = false
-    try {
+    test {
         sql "DROP TABLE IF EXISTS test_ddl_table"
         sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
@@ -287,33 +191,21 @@ suite("test_predefine_ddl", "p0"){
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("column: var cannot have multiple inverted indexes with field pattern: ab"))
-        findException = true
+        exception("column: var cannot have multiple inverted indexes with field pattern: ab")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
-        sql "DROP TABLE IF EXISTS test_ddl_table"
-        sql """CREATE TABLE test_ddl_table (
-            `id` bigint NULL,
-            `var` variant<
-                MATCH_NAME 'ab' : string
-            > NULL,
-            INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT '',
-            INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        findException = true
-    }
-    assertFalse(findException)
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant<
+            MATCH_NAME 'ab' : string
+        > NULL,
+        INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT '',
+        INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    findException = false
-    try {
+    test {
         sql "DROP TABLE IF EXISTS test_ddl_table"
         sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
@@ -324,15 +216,10 @@ suite("test_predefine_ddl", "p0"){
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("column: var cannot have multiple inverted indexes with field pattern: ab"))
-        findException = true
+        exception("column: var cannot have multiple inverted indexes with field pattern: ab")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
+    test {
         sql "DROP TABLE IF EXISTS test_ddl_table"
         sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
@@ -343,15 +230,10 @@ suite("test_predefine_ddl", "p0"){
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("column: var cannot have multiple inverted indexes with field pattern: ab"))
-        findException = true
+        exception("column: var cannot have multiple inverted indexes with field pattern: ab")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
+    test {
         sql "DROP TABLE IF EXISTS test_ddl_table"
         sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
@@ -362,15 +244,10 @@ suite("test_predefine_ddl", "p0"){
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("column: var cannot have multiple inverted indexes with field pattern: ab"))
-        findException = true
+        exception("column: var cannot have multiple inverted indexes with field pattern: ab")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
+    test {
         sql "DROP TABLE IF EXISTS test_ddl_table"
         sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
@@ -379,24 +256,59 @@ suite("test_predefine_ddl", "p0"){
             INDEX idx_ab_2 (var) USING INVERTED
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("column: var cannot have multiple inverted indexes with file storage format: V1"))
-        findException = true
+        exception("column: var cannot have multiple inverted indexes with file storage format: V1")
     }
-    assertTrue(findException)
 
-    findException = false
-    try {
+    test {
         sql """CREATE TABLE test_ddl_table (
             `id` bigint NULL,
             `var` variant <'c' :char(10)> NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: char(10)"))
-        findException = true
+        exception("VARIANT unsupported sub-type: char(10)")
     }
-    assertTrue(findException)
+
+    test {
+        sql """CREATE TABLE test_ddl_table (
+            `id` bigint NULL,
+            `var` variant <'c' :array<char(10)>> NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
+        exception("VARIANT unsupported sub-type: array<char(10)>")
+    }
+
+    test {
+        sql """CREATE TABLE test_ddl_table (
+            `id` bigint NULL,
+            `var` variant <'c' :array<array<int>>> NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
+        exception("VARIANT unsupported sub-type: array<array<int>>")
+    }
+
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant <'c' :text, properties("variant_max_subcolumns_count" = "10")> NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant <properties("variant_max_subcolumns_count" = "10")> NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+
+    test {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
+            `id` bigint NULL,
+            `var1` variant <properties("variant_max_subcolumns_count" = "10")> NULL,
+            `var2` variant <properties("variant_max_subcolumns_count" = "0")> NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+        exception("The variant_max_subcolumns_count must either be 0 in all columns, or greater than 0 in all columns")
+    }
 }

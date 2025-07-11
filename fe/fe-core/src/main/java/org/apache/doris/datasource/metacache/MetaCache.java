@@ -45,7 +45,7 @@ public class MetaCache<T> {
 
     public MetaCache(String name,
             ExecutorService executor,
-            OptionalLong expireAfterWriteSec,
+            OptionalLong expireAfterAccessSec,
             OptionalLong refreshAfterWriteSec,
             long maxSize,
             CacheLoader<String, List<Pair<String, String>>> namesCacheLoader,
@@ -60,13 +60,13 @@ public class MetaCache<T> {
         // from remote datasource, it is just a local generated object to represent the meta info.
         // So it only need to be expired after specified duration.
         CacheFactory namesCacheFactory = new CacheFactory(
-                expireAfterWriteSec,
+                expireAfterAccessSec,
                 refreshAfterWriteSec,
                 1, // names cache has one and only one entry
                 true,
                 null);
         CacheFactory objCacheFactory = new CacheFactory(
-                expireAfterWriteSec,
+                expireAfterAccessSec,
                 OptionalLong.empty(),
                 maxSize,
                 true,

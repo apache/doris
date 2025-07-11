@@ -224,7 +224,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
             if (limitedRole != null && !limitedRole.contains(role.getRoleName())) {
                 continue;
             }
-            String isGrantable = role.checkGlobalPriv(PrivPredicate.ADMIN) ? "YES" : "NO";
+            String isGrantable = role.checkGlobalPriv(PrivPredicate.ADMIN, PrivBitSet.of()) ? "YES" : "NO";
 
             for (Map.Entry<WorkloadGroupPattern, PrivBitSet> entry : role.getWorkloadGroupPatternToPrivs().entrySet()) {
                 List<String> row = Lists.newArrayList();

@@ -23,6 +23,7 @@
 #include <stddef.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory> // unique_ptr
 #include <string>
@@ -65,6 +66,8 @@ namespace segment_v2 {
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
 
+class VariantStatsCaculator;
+
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     uint32_t max_rows_per_segment = UINT32_MAX;
@@ -96,11 +99,13 @@ public:
 
     Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
-                             bool have_delete_sign, PartialUpdateReadPlan& read_plan,
+                             bool have_delete_sign,
                              const std::vector<RowsetSharedPtr>& specified_rowsets,
                              std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                              bool& has_default_or_nullable,
                              std::vector<bool>& use_default_or_null_flag,
+                             const std::function<void(const RowLocation& loc)>& found_cb,
+                             const std::function<Status()>& not_found_cb,
                              PartialUpdateStats& stats);
     Status partial_update_preconditions_check(size_t row_pos);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
@@ -170,8 +175,6 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key);
-    void _maybe_calculate_variant_stats(const vectorized::Block* block, size_t id, size_t cid,
-                                        size_t row_pos, size_t num_rows);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos);
     // used for unique-key with merge on write and segment min_max key
@@ -260,6 +263,8 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;
+    // variant statistics calculator for efficient stats collection
+    std::unique_ptr<VariantStatsCaculator> _variant_stats_calculator;
 };
 
 } // namespace segment_v2

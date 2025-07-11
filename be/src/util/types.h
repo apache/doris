@@ -43,5 +43,18 @@ inline int128_t get_int128_from_unalign(const void* address) {
     memcpy(&value, address, sizeof(int128_t));
     return value;
 }
+struct PackedUInt128 {
+    // PackedInt128() : value(0) {}
+    PackedUInt128() = default;
+
+    PackedUInt128(const unsigned __int128& value_) { value = value_; }
+    PackedUInt128& operator=(const unsigned __int128& value_) {
+        value = value_;
+        return *this;
+    }
+    PackedUInt128& operator=(const PackedUInt128& rhs) = default;
+
+    unsigned __int128 value;
+} __attribute__((packed));
 
 } // namespace doris

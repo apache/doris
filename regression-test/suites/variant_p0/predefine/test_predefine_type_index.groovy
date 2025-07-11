@@ -19,6 +19,7 @@ suite("test_variant_predefine_index_type", "p0"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
 
     def tableName = "test_variant_predefine_index_type"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -27,12 +28,13 @@ suite("test_variant_predefine_index_type", "p0"){
         `var` variant <
             MATCH_NAME 'path.int' : int,
             MATCH_NAME 'path.decimal' : DECIMAL(15, 12),
-            MATCH_NAME 'path.string' : string
+            MATCH_NAME 'path.string' : string,
+            properties("variant_max_subcolumns_count" = "10")
         > NULL,
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="path.int", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_a_c (var) USING INVERTED PROPERTIES("field_pattern"="path.decimal") COMMENT '',
         INDEX idx_a_d (var) USING INVERTED PROPERTIES("field_pattern"="path.string", "parser"="unicode", "support_phrase" = "true") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "10")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
     sql """insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}'),
                                           (2, '{"path" : {"int" : 456, "decimal" : 456.456789123456, "string" : "world"}}'),
@@ -69,7 +71,8 @@ suite("test_variant_predefine_index_type", "p0"){
           `id` int NOT NULL,
           `overflow_properties` variant<
             MATCH_NAME 'color' : text,
-            MATCH_NAME 'tags' : array<string>
+            MATCH_NAME 'tags' : array<string>,
+            properties("variant_max_subcolumns_count" = "10")
           > NULL,
           INDEX idx1 (`overflow_properties`) USING INVERTED PROPERTIES( "field_pattern" = "color", "support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
           INDEX idx2 (`overflow_properties`) USING INVERTED PROPERTIES( "field_pattern" = "tags", "support_phrase" = "true", "parser" = "english", "lower_case" = "true")
@@ -87,7 +90,6 @@ suite("test_variant_predefine_index_type", "p0"){
         "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
-        "variant_max_subcolumns_count" = "10",
         "disable_auto_compaction" = "true"
         );
     """ 

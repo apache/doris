@@ -34,7 +34,6 @@ suite("variant_rqg_fix1", "p0") {
         "storage_format" = "V2",
         "inverted_index_storage_format" = "V2",
         "light_schema_change" = "true",
-        "variant_max_subcolumns_count" = "0",
         "disable_auto_compaction" = "false",
         "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",

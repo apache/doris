@@ -399,7 +399,8 @@ public abstract class DataType {
                                 cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
                         .collect(ImmutableList.toImmutableList());
                 return new VariantType(variantFields,
-                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
+                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse());
             }
             return new VariantType(0);
         } else {

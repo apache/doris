@@ -133,7 +133,7 @@ public:
 
     int32_t size() const { return _fields.size(); }
 
-    bool has_parquet_field_id() const { return _field_id_name_mapping.size() > 0; }
+    bool has_parquet_field_id() const { return !_field_id_name_mapping.empty(); }
 
     std::map<int32, std::string> get_field_id_name_map() { return _field_id_name_mapping; }
 

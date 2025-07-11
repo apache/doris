@@ -83,9 +83,9 @@ public class IndexDef {
         }
     }
 
-    public IndexDef(String indexName, PartitionNames partitionNames, boolean isBuildDeferred) {
+    public IndexDef(String indexName, PartitionNames partitionNames, IndexType indexType, boolean isBuildDeferred) {
         this.indexName = indexName;
-        this.indexType = IndexType.INVERTED;
+        this.indexType = indexType;
         this.partitionNames = partitionNames;
         this.isBuildDeferred = isBuildDeferred;
     }
@@ -313,6 +313,7 @@ public class IndexDef {
     public boolean isAnalyzedInvertedIndex() {
         return indexType == IndexDef.IndexType.INVERTED
             && properties != null
-            && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY);
+            && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

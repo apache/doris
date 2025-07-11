@@ -48,8 +48,8 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
 
     @Override
     protected void beforeExec() throws UserException {
-        String dbName = ((IcebergExternalTable) table).getDbName();
-        String tbName = table.getName();
+        String dbName = ((IcebergExternalTable) table).getRemoteDbName();
+        String tbName = ((IcebergExternalTable) table).getRemoteName();
         SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbName);
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         transaction.beginInsert(tableInfo);
@@ -57,8 +57,8 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
 
     @Override
     protected void doBeforeCommit() throws UserException {
-        String dbName = ((IcebergExternalTable) table).getDbName();
-        String tbName = table.getName();
+        String dbName = ((IcebergExternalTable) table).getRemoteDbName();
+        String tbName = ((IcebergExternalTable) table).getRemoteName();
         SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbName);
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         this.loadedRows = transaction.getUpdateCnt();

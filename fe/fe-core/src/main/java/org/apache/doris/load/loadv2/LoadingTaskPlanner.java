@@ -44,6 +44,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -68,7 +69,8 @@ public class LoadingTaskPlanner {
     private final List<BrokerFileGroup> fileGroups;
     private final boolean strictMode;
     private final boolean isPartialUpdate;
-    private final long timeoutS;    // timeout of load job, in second
+    private final TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy;
+    private final long timeoutS; // timeout of load job, in second
     private final int loadParallelism;
     private final int sendBatchParallelism;
     private final boolean useNewLoadScanNode;
@@ -88,7 +90,8 @@ public class LoadingTaskPlanner {
 
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-            boolean strictMode, boolean isPartialUpdate, String timezone, long timeoutS, int loadParallelism,
+            boolean strictMode, boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            String timezone, long timeoutS, int loadParallelism,
             int sendBatchParallelism, boolean useNewLoadScanNode, UserIdentity userInfo,
             boolean singleTabletLoadPerSink, boolean enableMemtableOnSinkNode) {
         this.loadJobId = loadJobId;
@@ -100,6 +103,7 @@ public class LoadingTaskPlanner {
         this.strictMode = strictMode;
         this.isPartialUpdate = isPartialUpdate;
         this.analyzer.setTimezone(timezone);
+        this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
@@ -219,7 +223,9 @@ public class LoadingTaskPlanner {
         olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, singleTabletLoadPerSink, strictMode,
                 txnTimeout);
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
-
+        if (isPartialUpdate) {
+            olapTableSink.setPartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
+        }
         olapTableSink.complete(analyzer);
 
         // 3. Plan fragment

@@ -73,23 +73,23 @@ TEST(TabletMetaTest, TestReviseMeta) {
     }
     ASSERT_EQ(4, tablet_meta.all_rs_metas().size());
 
-    tablet_meta.delete_bitmap().add({rsids[0], 1, 1}, 1);
-    tablet_meta.delete_bitmap().add({rsids[1], 0, 2}, 2);
-    tablet_meta.delete_bitmap().add({rsids[2], 1, 1}, 1);
-    tablet_meta.delete_bitmap().add({rsids[3], 0, 2}, 3);
-    tablet_meta.delete_bitmap().add({rsids[3], 0, 4}, 4);
-    ASSERT_EQ(5, tablet_meta.delete_bitmap().delete_bitmap.size());
+    tablet_meta.delete_bitmap()->add({rsids[0], 1, 1}, 1);
+    tablet_meta.delete_bitmap()->add({rsids[1], 0, 2}, 2);
+    tablet_meta.delete_bitmap()->add({rsids[2], 1, 1}, 1);
+    tablet_meta.delete_bitmap()->add({rsids[3], 0, 2}, 3);
+    tablet_meta.delete_bitmap()->add({rsids[3], 0, 4}, 4);
+    ASSERT_EQ(5, tablet_meta.delete_bitmap()->delete_bitmap.size());
 
     std::vector<RowsetMetaSharedPtr> new_rowsets;
     new_rowsets.push_back(src_rowsets[2]->rowset_meta());
     new_rowsets.push_back(src_rowsets[3]->rowset_meta());
     tablet_meta.revise_rs_metas(std::move(new_rowsets));
     // Take a snapshot with max_version=3.
-    DeleteBitmap snap = tablet_meta.delete_bitmap().snapshot(3);
+    DeleteBitmap snap = tablet_meta.delete_bitmap()->snapshot(3);
     tablet_meta.revise_delete_bitmap_unlocked(snap);
     ASSERT_EQ(2, tablet_meta.all_rs_metas().size());
-    ASSERT_EQ(2, tablet_meta.delete_bitmap().delete_bitmap.size());
-    for (auto entry : tablet_meta.delete_bitmap().delete_bitmap) {
+    ASSERT_EQ(2, tablet_meta.delete_bitmap()->delete_bitmap.size());
+    for (auto entry : tablet_meta.delete_bitmap()->delete_bitmap) {
         RowsetId rsid = std::get<0>(entry.first);
         ASSERT_TRUE(rsid == rsids[2] || rsid == rsids[3]);
         int64_t version = std::get<2>(entry.first);

@@ -56,8 +56,8 @@ public class ExternalSchemaCache {
                 (catalog.getProperties().get(ExternalCatalog.SCHEMA_CACHE_TTL_SECOND)), ExternalCatalog.CACHE_NO_TTL);
         CacheFactory schemaCacheFactory = new CacheFactory(
                 OptionalLong.of(schemaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? schemaCacheTtlSecond : 86400),
-                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                        ? schemaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 Config.max_external_schema_cache_num,
                 false,
                 null);
@@ -79,6 +79,9 @@ public class ExternalSchemaCache {
 
     private Optional<SchemaCacheValue> loadSchema(SchemaCacheKey key) {
         Optional<SchemaCacheValue> schema = catalog.getSchema(key);
+        if (schema.isPresent()) {
+            schema.get().validateSchema();
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("load schema for {} in catalog {}", key, catalog.getName());
         }

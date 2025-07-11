@@ -145,8 +145,8 @@ Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& ar
 }
 
 void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                              arrow::ArrayBuilder* array_builder, int start,
-                                              int end, const cctz::time_zone& ctz) const {
+                                              arrow::ArrayBuilder* array_builder, int64_t start,
+                                              int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
@@ -162,13 +162,13 @@ void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullM
 }
 
 void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                               int start, int end,
+                                               int64_t start, int64_t end,
                                                const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
     const auto* concrete_array = assert_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
-    for (size_t offset_i = start; offset_i < end; ++offset_i) {
+    for (auto offset_i = start; offset_i < end; ++offset_i) {
         if (!concrete_array->IsNull(offset_i)) {
             const char* raw_data = reinterpret_cast<const char*>(
                     buffer->data() + concrete_array->value_offset(offset_i));
@@ -196,26 +196,65 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
                                               orc::ColumnVectorBatch* orc_col_batch, int start,
                                               int end, std::vector<StringRef>& buffer_list) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
-    orc::StringVectorBatch* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
+    auto* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-    INIT_MEMORY_FOR_ORC_WRITER()
-
+    // First pass: calculate total memory needed and collect serialized values
+    std::vector<std::string> serialized_values;
+    std::vector<size_t> valid_row_indices;
+    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            std::string ipv6_str = IPv6Value::to_string(col_data[row_id]);
-            size_t len = ipv6_str.size();
-
-            REALLOC_MEMORY_FOR_ORC_WRITER()
-
-            strcpy(const_cast<char*>(bufferRef.data) + offset, ipv6_str.c_str());
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
-            cur_batch->length[row_id] = len;
-            offset += len;
+            auto serialized_value = IPv6Value::to_string(col_data[row_id]);
+            serialized_values.push_back(std::move(serialized_value));
+            size_t len = serialized_values.back().length();
+            total_size += len;
+            valid_row_indices.push_back(row_id);
         }
+    }
+    // Allocate continues memory based on calculated size
+    char* ptr = (char*)malloc(total_size);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory {} error when write variant column data to orc file.", total_size);
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = total_size;
+    buffer_list.emplace_back(bufferRef);
+    // Second pass: copy data to allocated memory
+    size_t offset = 0;
+    for (size_t i = 0; i < serialized_values.size(); i++) {
+        const auto& serialized_value = serialized_values[i];
+        size_t row_id = valid_row_indices[i];
+        size_t len = serialized_value.length();
+        if (offset + len > total_size) {
+            return Status::InternalError(
+                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "exceed total_size {} . ",
+                    offset, len, total_size);
+        }
+        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
+        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+        cur_batch->length[row_id] = len;
+        offset += len;
     }
 
     cur_batch->numElements = end - start;
     return Status::OK();
+}
+
+void DataTypeIPv6SerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                 ColumnString::Chars& chars,
+                                                 int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_IPV6);
+    const auto& data_ref = assert_cast<const ColumnIPv6&>(src_column).get_data_at(row_num);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
 }
 
 } // namespace vectorized

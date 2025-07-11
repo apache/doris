@@ -19,14 +19,14 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -39,6 +39,7 @@
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class SlotDescriptor;
 class RuntimeProfile;
@@ -50,7 +51,6 @@ struct IOContext;
 struct TypeDescriptor;
 
 namespace vectorized {
-
 struct ScannerCounter;
 class Block;
 
@@ -72,7 +72,7 @@ public:
 class CsvProtoFieldSplitter final : public BaseLineFieldSplitter<CsvProtoFieldSplitter> {
 public:
     inline void split_line_impl(const Slice& line, std::vector<Slice>* splitted_values) {
-        PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
+        auto** row_ptr = reinterpret_cast<PDataRow**>(line.data);
         PDataRow* row = *row_ptr;
         for (const PDataColumn& col : row->col()) {
             splitted_values->emplace_back(col.value());
@@ -140,7 +140,7 @@ public:
                                          std::shared_ptr<EncloseCsvLineReaderCtx> line_reader_ctx,
                                          size_t value_sep_len = 1, char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _text_line_reader_ctx(line_reader_ctx) {}
+              _text_line_reader_ctx(std::move(line_reader_ctx)) {}
 
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
@@ -151,10 +151,10 @@ private:
 class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFieldSplitter> {
 public:
     explicit PlainCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                       const std::string& value_sep, size_t value_sep_len = 1,
+                                       std::string value_sep, size_t value_sep_len = 1,
                                        char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _value_sep(value_sep) {
+              _value_sep(std::move(value_sep)) {
         is_single_char_delim = (value_sep_len == 1);
     }
 
@@ -182,6 +182,7 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
+    Status init_schema_reader() override;
     // get schema of csv file from first one line or first two lines.
     // if file format is FORMAT_CSV_DEFLATE and if
     // 1. header_type is empty, get schema from first line.
@@ -231,9 +232,6 @@ private:
     void _init_system_properties();
     void _init_file_description();
 
-    // used for parse table schema of csv file.
-    // Currently, this feature is for table valued function.
-    Status _prepare_parse(size_t* read_line, bool* is_parse_name);
     Status _parse_col_nums(size_t* col_nums);
     Status _parse_col_names(std::vector<std::string>* col_names);
     // TODO(ftw): parse type
@@ -263,6 +261,9 @@ private:
     // True if this is a load task
     bool _is_load = false;
     bool _line_reader_eof;
+    // For schema reader
+    size_t _read_line = 0;
+    bool _is_parse_name = false;
     TFileFormatType::type _file_format_type;
     bool _is_proto_format;
     TFileCompressType::type _file_compress_type;
@@ -284,4 +285,5 @@ private:
     std::vector<int> _use_nullable_string_opt;
 };
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

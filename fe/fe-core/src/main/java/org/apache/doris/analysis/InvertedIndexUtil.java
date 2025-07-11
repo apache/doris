@@ -83,6 +83,16 @@ public class InvertedIndexUtil {
         return fieldPattern != null ? fieldPattern : "";
     }
 
+    public static boolean getInvertedIndexSupportPhrase(Map<String, String> properties) {
+        String supportPhrase = properties == null ? null : properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
+        return supportPhrase != null ? Boolean.parseBoolean(supportPhrase) : true;
+    }
+
+    public static String getCustomAnalyzer(Map<String, String> properties) {
+        String customAnalyzer = properties == null ? null : properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+        return customAnalyzer != null ? customAnalyzer : "";
+    }
+
     public static String getInvertedIndexParserMode(Map<String, String> properties) {
         String mode = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
         // default is "none" if not set
@@ -148,8 +158,10 @@ public class InvertedIndexUtil {
             Map<String, String> properties,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         String parser = null;
+        String analyzer = null;
         if (properties != null) {
             parser = properties.get(INVERTED_INDEX_PARSER_KEY);
+            analyzer = properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
             checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
         }
 
@@ -158,9 +170,10 @@ public class InvertedIndexUtil {
             parser = INVERTED_INDEX_PARSER_NONE;
         }
 
-        // array type is not supported parser except "none"
-        if (colType.isArrayType() && !parser.equals(INVERTED_INDEX_PARSER_NONE)) {
-            throw new AnalysisException("INVERTED index with parser: " + parser
+        // array type does not support parser (except "none") or analyzer
+        if (colType.isArrayType()
+                && (!parser.equals(INVERTED_INDEX_PARSER_NONE) || analyzer != null)) {
+            throw new AnalysisException("INVERTED index with parser or analyzer"
                 + " is not supported for array column: " + indexColName);
         }
 

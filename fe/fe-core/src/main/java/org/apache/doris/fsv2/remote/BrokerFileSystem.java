@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.fs.operations.BrokerFileOperations;
 import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.service.FrontendOptions;
@@ -81,6 +82,8 @@ public class BrokerFileSystem extends RemoteFileSystem {
         properties.putAll(PropertyConverter.convertToHadoopFSProperties(properties));
         this.properties = properties;
         this.operations = new BrokerFileOperations(name, properties);
+        // support broker properties in future
+        this.storageProperties = new BrokerProperties(properties);
     }
 
     public Pair<TPaloBrokerService.Client, TNetworkAddress> getBroker() {

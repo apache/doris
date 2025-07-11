@@ -50,6 +50,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant_stats_calculator.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/storage_engine.h"
@@ -190,6 +191,9 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     // except for columns whose type don't support zone map.
     opts.need_zone_map = column.is_key() || schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
+    if (opts.need_bloom_filter) {
+        opts.bf_options.fpp = schema->has_bf_fpp() ? schema->bloom_filter_fpp() : 0.05;
+    }
     auto* tablet_index = schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
         opts.need_bloom_filter = true;
@@ -315,6 +319,10 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     }
 
     RETURN_IF_ERROR(_create_writers(_tablet_schema, col_ids));
+
+    // Initialize variant statistics calculator
+    _variant_stats_calculator =
+            std::make_unique<VariantStatsCaculator>(&_footer, _tablet_schema, col_ids);
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
@@ -488,10 +496,11 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 
 Status SegmentWriter::probe_key_for_mow(
         std::string key, std::size_t segment_pos, bool have_input_seq_column, bool have_delete_sign,
-        PartialUpdateReadPlan& read_plan, const std::vector<RowsetSharedPtr>& specified_rowsets,
+        const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-        PartialUpdateStats& stats) {
+        const std::function<void(const RowLocation& loc)>& found_cb,
+        const std::function<Status()>& not_found_cb, PartialUpdateStats& stats) {
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
@@ -499,16 +508,8 @@ Status SegmentWriter::probe_key_for_mow(
                                       specified_rowsets, &loc, _mow_context->max_version,
                                       segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
-        if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-            ++stats.num_rows_filtered;
-            // delete the invalid newly inserted row
-            _mow_context->delete_bitmap->add(
-                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                    segment_pos);
-        } else if (!have_delete_sign) {
-            RETURN_IF_ERROR(
-                    _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                            *_tablet_schema));
+        if (!have_delete_sign) {
+            RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
         has_default_or_nullable = true;
@@ -532,7 +533,7 @@ Status SegmentWriter::probe_key_for_mow(
         // partial update should not contain invisible columns
         use_default_or_null_flag.emplace_back(false);
         _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-        read_plan.prepare_to_read(loc, segment_pos);
+        found_cb(loc);
     }
 
     if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -567,11 +568,10 @@ Status SegmentWriter::partial_update_preconditions_check(size_t row_pos) {
         DCHECK(false) << msg;
         return Status::InternalError<false>(msg);
     }
-    if (!_opts.rowset_ctx->partial_update_info->is_partial_update) {
+    if (!_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
         auto msg = fmt::format(
-                "in fixed partial update code, but is_partial_update=false, please check, "
-                "tablet_id={}",
-                _tablet->tablet_id());
+                "in fixed partial update code, but update_mode={}, please check, tablet_id={}",
+                _opts.rowset_ctx->partial_update_info->update_mode(), _tablet->tablet_id());
         DCHECK(false) << msg;
         return Status::InternalError<false>(msg);
     }
@@ -650,7 +650,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
-    PartialUpdateReadPlan read_plan;
+    FixedReadPlan read_plan;
 
     // locate rows in base data
     PartialUpdateStats stats;
@@ -680,10 +680,19 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
-        RETURN_IF_ERROR(probe_key_for_mow(key, segment_pos, have_input_seq_column, have_delete_sign,
-                                          read_plan, specified_rowsets, segment_caches,
+        auto not_found_cb = [&]() {
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema, [&]() -> std::string {
+                        return block->dump_one_line(block_pos, _num_sort_key_columns);
+                    });
+        };
+        auto update_read_plan = [&](const RowLocation& loc) {
+            read_plan.prepare_to_read(loc, segment_pos);
+        };
+        RETURN_IF_ERROR(probe_key_for_mow(std::move(key), segment_pos, have_input_seq_column,
+                                          have_delete_sign, specified_rowsets, segment_caches,
                                           has_default_or_nullable, use_default_or_null_flag,
-                                          stats));
+                                          update_read_plan, not_found_cb, stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
@@ -692,7 +701,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                     _mow_context->rowset_ids);
     }
 
-    // read and fill block
+    // read to fill full block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, block));
@@ -747,15 +756,30 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
-        _opts.rowset_ctx->partial_update_info->is_partial_update &&
+        _opts.rowset_ctx->partial_update_info->is_partial_update() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
-        RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
+        if (_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
+            RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
+        } else {
+            return Status::NotSupported<false>(
+                    "SegmentWriter doesn't support flexible partial update, please set "
+                    "enable_vertical_segment_writer=true in be.conf on all BEs to use "
+                    "VerticalSegmentWriter.");
+        }
         return Status::OK();
+    }
+    if (block->columns() < _column_writers.size()) {
+        return Status::InternalError(
+                "block->columns() < _column_writers.size(), block->columns()=" +
+                std::to_string(block->columns()) +
+                ", _column_writers.size()=" + std::to_string(_column_writers.size()) +
+                ", _tablet_schema->dump_structure()=" + _tablet_schema->dump_structure());
     }
     CHECK(block->columns() >= _column_writers.size())
             << ", block->columns()=" << block->columns()
-            << ", _column_writers.size()=" << _column_writers.size();
+            << ", _column_writers.size()=" << _column_writers.size()
+            << ", _tablet_schema->dump_structure()=" << _tablet_schema->dump_structure();
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
@@ -799,10 +823,10 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         }
         RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
                                                     converted_result.second->get_data(), num_rows));
-
-        // caculate stats for variant type
-        // TODO it's tricky here, maybe come up with a better idea
-        _maybe_calculate_variant_stats(block, id, cid, row_pos, num_rows);
+    }
+    if (_opts.write_type == DataWriteType::TYPE_COMPACTION) {
+        RETURN_IF_ERROR(
+                _variant_stats_calculator->calculate_variant_stats(block, row_pos, num_rows));
     }
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
@@ -1316,57 +1340,6 @@ inline bool SegmentWriter::_is_mow() {
 
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_idxes().empty();
-}
-
-// Compaction will extend sparse column and is visible during read and write, in order to
-// persit variant stats info, we should do extra caculation during flushing segment, otherwise
-// the info is lost
-void SegmentWriter::_maybe_calculate_variant_stats(
-        const vectorized::Block* block,
-        size_t id,  // id is the offset of the column in the block
-        size_t cid, // cid is the column id in TabletSchema
-        size_t row_pos, size_t num_rows) {
-    const auto& tablet_column = _tablet_schema->columns()[cid];
-    // Only process sub columns and sparse columns during compaction
-    if (_tablet_schema->need_record_variant_extended_schema() || !tablet_column->has_path_info() ||
-        !tablet_column->path_info_ptr()->need_record_stats() ||
-        _opts.write_type != DataWriteType::TYPE_COMPACTION) {
-        return;
-    }
-
-    // Get parent column's unique ID for matching
-    int64_t parent_unique_id = tablet_column->parent_unique_id();
-
-    // Find matching column in footer
-    for (auto& column : *_footer.mutable_columns()) {
-        // Check if this is the target sparse column
-        if (!column.has_column_path_info() ||
-            column.column_path_info().parrent_column_unique_id() != parent_unique_id) {
-            continue;
-        }
-
-        // sprse column from variant column
-        if (column.column_path_info().path().ends_with(SPARSE_COLUMN_PATH)) {
-            // Found matching column, calculate statistics
-            auto* stats = column.mutable_variant_statistics();
-            vectorized::schema_util::calculate_variant_stats(*block->get_by_position(id).column,
-                                                             stats, row_pos, num_rows);
-            VLOG_DEBUG << "sparse stats columns " << stats->sparse_column_non_null_size_size();
-            break;
-        }
-        // sub column from variant column
-        else if (column.column_path_info().path() == tablet_column->path_info_ptr()->get_path()) {
-            const auto& null_data = assert_cast<const vectorized::ColumnNullable&>(
-                                            *block->get_by_position(id).column)
-                                            .get_null_map_data();
-            const int8_t* start = (int8_t*)null_data.data() + row_pos;
-            // none null size in block + current none null size
-            size_t res = simd::count_zero_num(start, num_rows) + column.none_null_size();
-            column.set_none_null_size(res);
-            VLOG_DEBUG << "none null size " << res << " path: " << column.column_path_info().path();
-            break;
-        }
-    }
 }
 
 } // namespace segment_v2
