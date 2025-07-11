@@ -3095,6 +3095,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                         "original lock_id=" + std::to_string(lock_info.lock_id());
                 lock_info.set_lock_id(request->lock_id());
                 lock_info.set_expiration(expiration);
+                lock_info.add_initiators(request->initiator());
                 if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id, request->lock_id(),
                                                        request->initiator(), lock_key, lock_info,
                                                        current_lock_msg)) {
