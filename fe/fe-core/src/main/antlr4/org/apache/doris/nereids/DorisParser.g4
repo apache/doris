@@ -1240,7 +1240,7 @@ distributeType
     ;
 
 skewHint
-    :  LEFT_PAREN identifier LEFT_PAREN qualifiedName constantList RIGHT_PAREN RIGHT_PAREN
+    :  LEFT_BRACKET identifier LEFT_PAREN qualifiedName constantList RIGHT_PAREN RIGHT_BRACKET
     ;
 
 constantList

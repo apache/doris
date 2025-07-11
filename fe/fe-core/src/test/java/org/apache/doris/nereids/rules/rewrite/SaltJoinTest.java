@@ -40,7 +40,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
     @Test
     public void testInnerJoin() {
         PlanChecker.from(connectContext)
-                .analyze("select * from test_skew9 tl inner join [shuffle(skew(tl.b(1,2)))] test_skew10 tr on tl.b = tr.b")
+                .analyze("select * from test_skew9 tl inner join [shuffle[skew(tl.b(1,2))]] test_skew10 tr on tl.b = tr.b")
                 .rewrite()
                 .printlnTree()
                 .matches(
@@ -61,7 +61,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
     @Test
     public void testLeftJoin() {
         PlanChecker.from(connectContext)
-                .analyze("select * from test_skew9 tl left join [shuffle(skew(tl.b(1,2)))] test_skew10 tr on tl.b = tr.b;")
+                .analyze("select * from test_skew9 tl left join [shuffle[skew(tl.b(1,2))]] test_skew10 tr on tl.b = tr.b;")
                 .rewrite()
                 .printlnTree()
                 .matches(
@@ -82,7 +82,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
     @Test
     public void testRightJoin() {
         PlanChecker.from(connectContext)
-                .analyze("select * from test_skew9 tl right join [shuffle(skew(tr.b(1,2)))] test_skew10 tr on tl.b = tr.b;")
+                .analyze("select * from test_skew9 tl right join [shuffle[skew(tr.b(1,2))]] test_skew10 tr on tl.b = tr.b;")
                 .rewrite()
                 .printlnTree()
                 .matches(
@@ -103,7 +103,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
 
     @Test
     public void testRightJoinPhysicalPlan() {
-        String sql = "select * from test_skew9 tl right join [shuffle(skew(tr.b(1,2)))] test_skew10 tr on tl.b = tr.b;";
+        String sql = "select * from test_skew9 tl right join [shuffle[skew(tr.b(1,2))]] test_skew10 tr on tl.b = tr.b;";
         PlanChecker.from(connectContext).checkExplain(sql, planner -> {
             Plan plan = planner.getOptimizedPlan();
             MatchingUtils.assertMatches(plan,
@@ -134,7 +134,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
 
     @Test void testSkewValueIsNull() {
         PlanChecker.from(connectContext)
-                .analyze("select * from test_skew9 tl inner join [shuffle(skew(tl.b(null)))] test_skew10 tr on tl.b = tr.b")
+                .analyze("select * from test_skew9 tl inner join [shuffle[skew(tl.b(null))]] test_skew10 tr on tl.b = tr.b")
                 .rewrite()
                 .printlnTree()
                 .matches(
@@ -147,7 +147,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
 
     @Test void testLeftJoinSkewValueIsNull() {
         PlanChecker.from(connectContext)
-                .analyze("select * from test_skew9 tl left join [shuffle(skew(tl.b(null)))] test_skew10 tr on tl.b = tr.b")
+                .analyze("select * from test_skew9 tl left join [shuffle[skew(tl.b(null))]] test_skew10 tr on tl.b = tr.b")
                 .rewrite()
                 .printlnTree()
                 .matches(
@@ -163,7 +163,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
 
     @Test void testRightJoinSkewValueIsNull() {
         PlanChecker.from(connectContext)
-                .analyze("select * from test_skew9 tl right join [shuffle(skew(tr.b(null)))] test_skew10 tr on tl.b = tr.b")
+                .analyze("select * from test_skew9 tl right join [shuffle[skew(tr.b(null))]] test_skew10 tr on tl.b = tr.b")
                 .rewrite()
                 .printlnTree()
                 .matches(
@@ -180,7 +180,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
     @Test
     public void testLeading() {
         PlanChecker.from(connectContext)
-                .analyze("select /*+leading(tl shuffle (skew(tr.b(1,2))) tr) */ * from test_skew9 tl right join test_skew10 tr on tl.b=tr.b;")
+                .analyze("select /*+leading(tl shuffle [skew(tr.b(1,2))] tr) */ * from test_skew9 tl right join test_skew10 tr on tl.b=tr.b;")
                 .rewrite()
                 .printlnTree()
                 .matches(
@@ -202,7 +202,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
     @Test
     public void testMultiLeading() {
         PlanChecker.from(connectContext)
-                .analyze("select /*+leading(tl shuffle (skew(tl.c(\"abc\",\"def\"))) tr shuffle(skew(tl.c(\"abc\",\"def\"))) tt) */ * from \n"
+                .analyze("select /*+leading(tl shuffle [skew(tl.c(\"abc\",\"def\"))] tr shuffle[skew(tl.c(\"abc\",\"def\"))] tt) */ * from \n"
                         + "    test_skew9 tl join test_skew10 tr on tl.c=tr.c and tl.a=tr.a inner join test_skew10 tt on tl.c = tt.c")
                 .rewrite()
                 .printlnTree()
@@ -241,7 +241,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
     @Test
     public void testMultiWithBracket() {
         PlanChecker.from(connectContext)
-                .analyze("select /*+leading(tl shuffle (skew(tl.c(\"abc\",\"def\"))) {tr shuffle(skew(tr.c(\"abc\",\"def\"))) tt}) */ * from \n"
+                .analyze("select /*+leading(tl shuffle [skew(tl.c(\"abc\",\"def\"))] {tr shuffle[skew(tr.c(\"abc\",\"def\"))] tt}) */ * from \n"
                         + "    test_skew9 tl join test_skew10 tr on tl.c=tr.c and tl.a=tr.a inner join test_skew10 tt on tr.c = tt.c")
                 .rewrite()
                 .printlnTree()
