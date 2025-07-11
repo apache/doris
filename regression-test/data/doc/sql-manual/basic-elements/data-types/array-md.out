@@ -87,3 +87,7 @@
 {"key1":1}	{"key2":2}
 {"key1":1}	{"key2":2}
 
+-- !sql --
+{"id":1, "name":"John"}	{"id":2, "name":"Jane"}
+{"id":1, "name":"John"}	{"id":2, "name":"Jane"}
+

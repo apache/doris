@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("docs/sql-manual/basic-elements/array-md.md", "p0") {
+suite("array-md", "p0") {
     
     def tableName = "array_table"
     sql """
@@ -692,5 +692,22 @@ suite("docs/sql-manual/basic-elements/array-md.md", "p0") {
     sql """ INSERT INTO ${tableName} VALUES (2, ARRAY(MAP('key1', 1), MAP('key2', 2))) """
 
     qt_sql """ SELECT array_map[1], array_map[2] FROM ${tableName} ORDER BY id """
-   
+
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            id INT,
+            array_struct ARRAY<STRUCT<id: INT, name: STRING>>,
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    sql """ INSERT INTO ${tableName} VALUES (1, ARRAY(STRUCT(1, 'John'), STRUCT(2, 'Jane'))) """
+    sql """ INSERT INTO ${tableName} VALUES (2, ARRAY(STRUCT(1, 'John'), STRUCT(2, 'Jane'))) """
+
+    qt_sql """ SELECT array_struct[1], array_struct[2] FROM ${tableName} ORDER BY id """
+    
 }
