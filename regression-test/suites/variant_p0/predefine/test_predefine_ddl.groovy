@@ -311,4 +311,14 @@ PROPERTIES (
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
         exception("The variant_max_subcolumns_count must either be 0 in all columns, or greater than 0 in all columns")
     }
+
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    sql "set global_variant_max_subcolumns_count = 10"
+    sql """CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    qt_sql "desc test_ddl_table"
 }

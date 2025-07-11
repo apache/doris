@@ -3522,17 +3522,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         List<VariantField> fields = Lists.newArrayList();
         Map<String, String> properties = Maps.newHashMap();
-        if (variantDef instanceof VariantWithFieldsAndPropsContext) {
-            VariantWithFieldsAndPropsContext withBoth = (VariantWithFieldsAndPropsContext) variantDef;
-            fields = visitVariantSubColTypeList(withBoth.variantSubColTypeList());
-            properties = Maps.newHashMap(visitPropertyClause(withBoth.properties));
-        } else if (variantDef instanceof VariantWithOnlyFieldsContext) {
-            VariantWithOnlyFieldsContext withFields = (VariantWithOnlyFieldsContext) variantDef;
-            fields = visitVariantSubColTypeList(withFields.variantSubColTypeList());
-        } else if (variantDef instanceof VariantWithOnlyPropsContext) {
-            VariantWithOnlyPropsContext withProps = (VariantWithOnlyPropsContext) variantDef;
-            properties = Maps.newHashMap(visitPropertyClause(withProps.properties));
-        }
+        do {
+            if (variantDef instanceof VariantWithFieldsAndPropsContext) {
+                VariantWithFieldsAndPropsContext withBoth = (VariantWithFieldsAndPropsContext) variantDef;
+                if (withBoth.variantSubColTypeList() == null) {
+                    break;
+                }
+                fields = visitVariantSubColTypeList(withBoth.variantSubColTypeList());
+                properties = Maps.newHashMap(visitPropertyClause(withBoth.properties));
+            } else if (variantDef instanceof VariantWithOnlyFieldsContext) {
+                VariantWithOnlyFieldsContext withFields = (VariantWithOnlyFieldsContext) variantDef;
+                if (withFields.variantSubColTypeList() == null) {
+                    break;
+                }
+                fields = visitVariantSubColTypeList(withFields.variantSubColTypeList());
+            } else if (variantDef instanceof VariantWithOnlyPropsContext) {
+                VariantWithOnlyPropsContext withProps = (VariantWithOnlyPropsContext) variantDef;
+                if (withProps.properties == null) {
+                    break;
+                }
+                properties = Maps.newHashMap(visitPropertyClause(withProps.properties));
+            }
+        } while (false);
 
         int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getGlobalVariantMaxSubcolumnsCount();
