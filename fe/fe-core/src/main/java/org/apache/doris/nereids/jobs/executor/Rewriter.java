@@ -655,8 +655,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("stats related jobs",
                                 custom(RuleType.STATS_DERIVER, StatsDerive::new)),
                         topic("whole plan check",
-                                custom(RuleType.ADJUST_NULLABLE,
-                                        () -> new AdjustNullable(false))
+                                custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
                         ),
                         // NullableDependentExpressionRewrite need to be done after nullable fixed
                         topic("condition function", bottomUp(ImmutableList.of(

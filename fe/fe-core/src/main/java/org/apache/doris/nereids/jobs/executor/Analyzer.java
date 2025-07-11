@@ -197,8 +197,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             ),
             // for cte: analyze producer -> analyze consumer -> rewrite consumer -> rewrite producer,
             // in order to ensure cte consumer had right nullable attribute, need adjust nullable at analyze phase.
-            custom(RuleType.ADJUST_NULLABLE,
-                    () -> new AdjustNullable(true))
+            custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(true))
         );
     }
 }
