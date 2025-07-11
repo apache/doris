@@ -114,6 +114,7 @@ public:
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
+
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
@@ -209,6 +210,7 @@ public:
 
         void add_new_column_part(DataTypePtr type);
 
+<<<<<<< HEAD:be/src/vec/columns/column_object.h
         // Serialize the i-th row of the column into the sparse column.
         void serialize_to_sparse_column(ColumnString* key, std::string_view path,
                                         ColumnString* value, size_t row);
@@ -220,6 +222,12 @@ public:
         bool is_empty_nested(size_t row) const;
 
         void resize(size_t n);
+=======
+        /// Converts Array<String> to Array<JsonbField> for special case handling
+        static void convert_array_string_to_array_jsonb(Field& array_field);
+
+        friend class ColumnVariant;
+>>>>>>> 179627f735 ([fix](variant)fix variant type conflicts in nested types (#52696)):be/src/vec/columns/column_variant.h
 
     private:
         class LeastCommonType {
