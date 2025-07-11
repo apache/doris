@@ -601,13 +601,13 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // timev2
     {
-        VLiteral literal(create_literal<TYPE_TIMEV2, double>(121234, 4));
+        VLiteral literal(create_literal<TYPE_TIMEV2, double>(12123400, 4));
         Block block;
         int ret = -1;
         EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<Float64>();
-        EXPECT_FLOAT_EQ(v / 1000000, 12 * 60 * 60);
-        EXPECT_EQ("12:00:00.0000", literal.value());
+        EXPECT_FLOAT_EQ(v / 1000000, 12.1234);
+        EXPECT_EQ("00:00:12.1234", literal.value());
     }
 }
