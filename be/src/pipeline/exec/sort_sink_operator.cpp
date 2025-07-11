@@ -59,9 +59,13 @@ Status SortSinkLocalState::open(RuntimeState* state) {
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
-        _shared_state->sorter = vectorized::FullSorter::create_shared(
+        auto sorter = vectorized::FullSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child->row_desc(), state, custom_profile());
+        if (p._max_buffered_bytes > 0) {
+            sorter->set_max_buffered_block_bytes(p._max_buffered_bytes);
+        }
+        _shared_state->sorter = std::move(sorter);
         break;
     }
     default: {
@@ -98,7 +102,11 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest
                                                                : std::vector<TExpr> {}),
           _algorithm(tnode.sort_node.__isset.algorithm ? tnode.sort_node.algorithm
                                                        : TSortAlgorithm::FULL_SORT),
-          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT) {}
+          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT),
+          _max_buffered_bytes(tnode.sort_node.__isset.full_sort_max_buffered_bytes
+                                      ? tnode.sort_node.full_sort_max_buffered_bytes
+                                      : -1) {
+ }
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
