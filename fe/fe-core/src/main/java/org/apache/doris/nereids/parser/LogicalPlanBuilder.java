@@ -188,8 +188,7 @@ import org.apache.doris.nereids.DorisParser.DropIndexClauseContext;
 import org.apache.doris.nereids.DorisParser.DropIndexContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenizerContext;
-import org.apache.doris.nereids.DorisParser.DropMTMVContext;
-import org.apache.doris.nereids.DorisParser.DropMaterializedViewContext;
+import org.apache.doris.nereids.DorisParser.DropMVContext;
 import org.apache.doris.nereids.DorisParser.DropPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.DropRepositoryContext;
@@ -1524,17 +1523,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions, ctx.COMPLETE() != null));
     }
 
-    @Override
-    public DropMTMVCommand visitDropMTMV(DropMTMVContext ctx) {
+    private DropMTMVCommand visitDropMTMV(DropMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         return new DropMTMVCommand(new DropMTMVInfo(new TableNameInfo(nameParts), ctx.EXISTS() != null));
     }
 
+    private DropMaterializedViewCommand visitDropSyncMv(DropMVContext ctx) {
+        List<String> tableNameParts = visitMultipartIdentifier(ctx.tableName);
+        List<String> mvNameParts = visitMultipartIdentifier(ctx.mvName);
+        if (mvNameParts == null || mvNameParts.size() != 1) {
+            throw new AnalysisException("The mvName name must be a single identifier");
+        }
+        return new DropMaterializedViewCommand(new TableNameInfo(tableNameParts), ctx.EXISTS() != null,
+                mvNameParts.get(0));
+    }
+
     @Override
-    public DropMaterializedViewCommand visitDropMaterializedView(DropMaterializedViewContext ctx) {
-        List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
-        return new DropMaterializedViewCommand(new TableNameInfo(nameParts), ctx.EXISTS() != null,
-                visitIdentifierOrText(ctx.mvName));
+    public Command visitDropMV(DropMVContext ctx) {
+        if (ctx.tableName != null) {
+            return visitDropSyncMv(ctx);
+        } else {
+            return visitDropMTMV(ctx);
+        }
     }
 
     @Override
