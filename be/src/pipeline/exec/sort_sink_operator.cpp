@@ -105,8 +105,7 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest
           _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT),
           _max_buffered_bytes(tnode.sort_node.__isset.full_sort_max_buffered_bytes
                                       ? tnode.sort_node.full_sort_max_buffered_bytes
-                                      : -1) {
- }
+                                      : -1) {}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
