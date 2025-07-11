@@ -551,6 +551,8 @@ private:
     friend class VTabletWriter;
     friend class VRowDistribution;
 
+    int _max_failed_replicas(int64_t tablet_id);
+
     VTabletWriter* _parent = nullptr;
     int64_t _index_id;
     vectorized::VExprContextSPtr _where_clause;
@@ -635,6 +637,8 @@ private:
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 
     void _do_try_close(RuntimeState* state, const Status& exec_status);
+
+    void _build_tablet_replica_info(const int64_t tablet_id, VOlapTablePartition* partition);
 
     TDataSink _t_sink;
 
@@ -738,5 +742,8 @@ private:
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
+
+    // tablet_id -> <total replicas num, load required replicas num>
+    std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
 };
 } // namespace doris::vectorized

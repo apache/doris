@@ -713,6 +713,12 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
                     part_result->indexes[j].index_id, _schema->indexes()[j]->index_id);
         }
     }
+    if (t_part.__isset.total_replica_num) {
+        part_result->total_replica_num = t_part.total_replica_num;
+    }
+    if (t_part.__isset.load_required_replica_num) {
+        part_result->load_required_replica_num = t_part.load_required_replica_num;
+    }
     return Status::OK();
 }
 
