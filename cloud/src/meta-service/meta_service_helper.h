@@ -97,18 +97,18 @@ inline std::string encryt_sk(std::string debug_string) {
 template <class Request>
 void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req) {
     if constexpr (std::is_same_v<Request, CreateRowsetRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " be "
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " init ip "
                   << req->request_ip();
     } else if constexpr (std::is_same_v<Request, CreateTabletsRequest>) {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side();
     } else if constexpr (std::is_same_v<Request, UpdateDeleteBitmapRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " be "
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " init ip "
                   << req->request_ip() << " table_id=" << req->table_id()
                   << " tablet_id=" << req->tablet_id() << " lock_id=" << req->lock_id()
                   << " initiator=" << req->initiator()
                   << " delete_bitmap_size=" << req->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Request, GetDeleteBitmapRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " be "
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " init ip "
                   << req->request_ip() << " tablet_id=" << req->tablet_id()
                   << " rowset_size=" << req->rowset_ids_size();
     } else if constexpr (std::is_same_v<Request, GetTabletStatsRequest>) {
@@ -117,20 +117,20 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
     } else if constexpr (std::is_same_v<Request, GetVersionRequest> ||
                          std::is_same_v<Request, GetRowsetRequest> ||
                          std::is_same_v<Request, GetTabletRequest>) {
-        VLOG_DEBUG << "begin " << func_name << " from " << ctrl->remote_side() << " be "
+        VLOG_DEBUG << "begin " << func_name << " from " << ctrl->remote_side() << " init ip "
                    << req->request_ip() << " request=" << req->ShortDebugString();
     } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " be "
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " init ip "
                   << req->request_ip() << " tablet_id=" << req->tablet_id()
                   << " rowset_size=" << req->rowset_ids_size();
     } else if constexpr (std::is_same_v<Request, GetDeleteBitmapUpdateLockRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " be "
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " init ip "
                   << req->request_ip() << " table_id=" << req->table_id()
                   << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
                   << " expiration=" << req->expiration()
                   << " require_compaction_stats=" << req->require_compaction_stats();
     } else {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " be "
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side() << " init ip "
                   << req->request_ip() << " request=" << req->ShortDebugString();
     }
 }
