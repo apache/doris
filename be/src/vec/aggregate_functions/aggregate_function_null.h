@@ -40,7 +40,7 @@ class AggregateFunctionNullBaseInline : public IAggregateFunctionHelper<Derived>
 protected:
     std::unique_ptr<NestFunction> nested_function;
     size_t prefix_size;
-    size_t null_count_size = 4; // 4 bytes for null count
+    size_t null_count_size;
 
     /** In addition to data for nested aggregate function, we keep a flag
       *  indicating - was there at least one non-NULL value accumulated.
@@ -97,9 +97,26 @@ public:
               nested_function {assert_cast<NestFunction*>(nested_function_)} {
         DCHECK(nested_function_ != nullptr);
         if (result_is_nullable) {
-            prefix_size = nested_function->align_of_data();
+            // flag|-------padding-------|--------------null_count-------|--nested_data----|
+            // [0] :[1...(prefix_size-1)]:[prefix_size...(prefix_size+3)]:[prefix_size+4...]
+            size_t nested_align = nested_function->align_of_data();
+            size_t null_count_align = alignof(int32_t);
+            prefix_size = 1;
+            null_count_size = sizeof(int32_t);
+            // firstly calculate the prefix_size to align with null_count_size
+            if (prefix_size % null_count_align != 0) {
+                prefix_size += (null_count_align - (prefix_size % null_count_align));
+            }
+
+            // （flag + padding + null_count）
+            size_t total_before_nested = prefix_size + null_count_size;
+            // secondly, calculate the total size to align with nested_align
+            if (total_before_nested % nested_align != 0) {
+                prefix_size += (nested_align - (total_before_nested % nested_align));
+            }
         } else {
             prefix_size = 0;
+            null_count_size = 0;
         }
     }
 
@@ -141,7 +158,9 @@ public:
         return prefix_size + null_count_size + nested_function->size_of_data();
     }
 
-    size_t align_of_data() const override { return nested_function->align_of_data(); }
+    size_t align_of_data() const override {
+        return std::max(nested_function->align_of_data(), alignof(int32_t));
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena& arena) const override {
