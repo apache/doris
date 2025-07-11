@@ -69,10 +69,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_REPEAT, groupExpression, logicalProperties, child);
-        this.groupingSets = Objects.requireNonNull(groupingSets, "groupingSets can not be null")
-                .stream()
-                .map(ImmutableList::copyOf)
-                .collect(ImmutableList.toImmutableList());
+        this.groupingSets = ImmutableList.copyOf(Objects.requireNonNull(groupingSets, "groupingSets can not be null"));
         this.outputExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(outputExpressions, "outputExpressions can not be null"));
     }

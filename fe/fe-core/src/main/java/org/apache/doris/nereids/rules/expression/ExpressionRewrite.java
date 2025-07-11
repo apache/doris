@@ -317,13 +317,17 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         public Rule build() {
             return logicalRepeat().thenApply(ctx -> {
                 LogicalRepeat<Plan> repeat = ctx.root;
-                ImmutableList.Builder<List<Expression>> groupingExprs = ImmutableList.builder();
+                ImmutableList.Builder<List<Expression>> groupingExprs
+                        = ImmutableList.builderWithExpectedSize(repeat.getGroupingSets().size());
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                 for (List<Expression> expressions : repeat.getGroupingSets()) {
-                    groupingExprs.add(expressions.stream()
-                            .map(expr -> rewriter.rewrite(expr, context))
-                            .collect(ImmutableList.toImmutableList())
-                    );
+                    ImmutableList.Builder<Expression> rewrittenExprs
+                            = ImmutableList.builderWithExpectedSize(expressions.size());
+                    for (Expression expr : expressions) {
+                        Expression newExpr = expr;
+                        rewrittenExprs.add(newExpr);
+                    }
+                    groupingExprs.add(rewrittenExprs.build());
                 }
                 return repeat.withGroupSetsAndOutput(groupingExprs.build(),
                         repeat.getOutputExpressions().stream()
