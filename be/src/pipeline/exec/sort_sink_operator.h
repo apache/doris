@@ -122,6 +122,7 @@ private:
     const std::vector<TExpr> _partition_exprs;
     const TSortAlgorithm::type _algorithm;
     const bool _reuse_mem;
+    const int64_t _max_buffered_bytes;
 };
 
 #include "common/compile_check_end.h"
