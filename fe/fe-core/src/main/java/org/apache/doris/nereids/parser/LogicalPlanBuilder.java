@@ -577,6 +577,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
@@ -5962,6 +5963,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             NodeType.FRONTEND,
             configs,
             applyToAll);
+    }
+
+    @Override
+    public LogicalPlan visitAdminSetPartitionVersion(DorisParser.AdminSetPartitionVersionContext ctx) {
+        List<String> parts = visitMultipartIdentifier(ctx.name);
+        TableNameInfo info = new TableNameInfo(parts);
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+
+        return new AdminSetPartitionVersionCommand(info, properties);
     }
 
     @Override
