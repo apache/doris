@@ -79,16 +79,17 @@ PhysicalResultSink
 -- !uncorrelate_top_notnullable_agg_scalar_subquery_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[AND[count(x) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+----PhysicalProject[FALSE AS `x > 10 and x < 1`, a AS `a`]
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalProject[test_subquery_nullable_t1.a]
 ----------PhysicalOlapScan[test_subquery_nullable_t1]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecGather]
-------------hashAgg[LOCAL]
---------------PhysicalProject[test_subquery_nullable_t2.x]
-----------------filter((test_subquery_nullable_t2.x > 1000))
-------------------PhysicalOlapScan[test_subquery_nullable_t2]
+--------PhysicalProject[1 AS `1`]
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecGather]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject[test_subquery_nullable_t2.x]
+------------------filter((test_subquery_nullable_t2.x > 1000))
+--------------------PhysicalOlapScan[test_subquery_nullable_t2]
 
 -- !correlate_top_notnullable_agg_scalar_subquery --
 1	false
