@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -65,6 +66,12 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         initCatalog();
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
+        threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
+                ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+                Integer.MAX_VALUE,
+                String.format("iceberg_catalog_%s_executor_pool", name),
+                true,
+                preExecutionAuthenticator);
         metadataOps = ops;
     }
 

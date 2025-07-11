@@ -143,6 +143,16 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "strip_outer_array" = "false",
                         "read_json_by_line" = "true") order by id; """
 
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json.gz"
+            format = "json"
+            qt_json_compressed """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "compress_type" = "GZ",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true") order by id; """
+
 
            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
             format = "json"
