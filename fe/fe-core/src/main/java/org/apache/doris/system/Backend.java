@@ -212,12 +212,23 @@ public class Backend implements Writable {
         return tagMap.getOrDefault(Tag.CLOUD_UNIQUE_ID, "");
     }
 
+    // This modification changes
+    // CLOUD_CLUSTER_PUBLIC_ENDPOINT/CLOUD_CLUSTER_PRIVATE_ENDPOINT to
+    // PUBLIC_ENDPOINT/PRIVATE_ENDPOINT, but backend information
+    // has been persisted in the edit log. For upgrade compatibility, the tag may
+    // not have public_endpoint/private_endpoint
+    // during initial upgrade, so we first try to get
+    // CLOUD_CLUSTER_PUBLIC_ENDPOINT/CLOUD_CLUSTER_PRIVATE_ENDPOINT, and later it
+    // will be
+    // synchronized from meta service to the public_endpoint/private_endpoint tag.
+    // CLOUD_CLUSTER_PUBLIC_ENDPOINT/CLOUD_CLUSTER_PRIVATE_ENDPOINT can be
+    // removed in future versions.
     public String getPublicEndpoint() {
-        return tagMap.getOrDefault(Tag.PUBLIC_ENDPOINT, "");
+        return tagMap.getOrDefault(Tag.PUBLIC_ENDPOINT, tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, ""));
     }
 
     public String getPrivateEndpoint() {
-        return tagMap.getOrDefault(Tag.PRIVATE_ENDPOINT, "");
+        return tagMap.getOrDefault(Tag.PRIVATE_ENDPOINT, tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, ""));
     }
 
     public long getId() {

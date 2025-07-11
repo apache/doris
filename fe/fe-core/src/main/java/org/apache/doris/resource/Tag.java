@@ -25,8 +25,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -53,7 +51,6 @@ import java.util.Objects;
  * A Tag is immutable once it being created.
  */
 public class Tag implements Writable {
-    private static final Logger LOG = LogManager.getLogger(Writable.class);
 
     public static final String TYPE_ROLE = "role";
     public static final String TYPE_FUNCTION = "function";
@@ -73,6 +70,8 @@ public class Tag implements Writable {
     public static final String CLOUD_CLUSTER_ID = "cloud_cluster_id";
     public static final String CLOUD_UNIQUE_ID = "cloud_unique_id";
     public static final String CLOUD_CLUSTER_STATUS = "cloud_cluster_status";
+    public static final String CLOUD_CLUSTER_PUBLIC_ENDPOINT = "cloud_cluster_public_endpoint";
+    public static final String CLOUD_CLUSTER_PRIVATE_ENDPOINT = "cloud_cluster_private_endpoint";
 
     public static final String PUBLIC_ENDPOINT = "public_endpoint";
     public static final String PRIVATE_ENDPOINT = "private_endpoint";
