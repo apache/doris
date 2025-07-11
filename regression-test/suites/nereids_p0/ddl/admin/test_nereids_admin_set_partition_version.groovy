@@ -32,8 +32,16 @@ suite("test_nereids_admin_set_partition_version") {
     """
 
     def res = sql """show partitions from test_nereids_admin_set_partition_version"""
+    def partitionId = res.get(0).get(0)
+
+    checkNereidsExecute("ADMIN SET TABLE test_nereids_admin_set_partition_version PARTITION VERSION PROPERTIES('partition_id' = '${partitionId}', 'visible_version' = '100')")
 
     sql """
-        ADMIN SET TABLE __internal_schema.audit_log PARTITION VERSION PROPERTIES(\"partition_id\" = \"10075\", \"visible_version\" = \"100\"
+        ADMIN SET TABLE test_nereids_admin_set_partition_version PARTITION VERSION PROPERTIES('partition_id' = '${partitionId}', 'visible_version' = '101')
     """
+    assertThrows(Exception.class, {
+        sql """ADMIN SET TABLE test_nereids_admin_set_partition_version PARTITION VERSION PROPERTIES('a'='b')"""
+    })
+
+    sql "drop table if exists test_nereids_admin_set_partition_version"
 }
