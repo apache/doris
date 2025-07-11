@@ -601,9 +601,9 @@ void CloudTablet::remove_unused_rowsets() {
             }
             tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
             rs->clear_cache();
-            removed_rowsets.push_back(std::move(rs));
             g_unused_rowsets_count << -1;
             g_unused_rowsets_bytes << -rs->total_disk_size();
+            removed_rowsets.push_back(std::move(rs));
             it = _unused_rowsets.erase(it);
         }
     }
