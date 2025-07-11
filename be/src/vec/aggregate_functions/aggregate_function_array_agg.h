@@ -308,12 +308,12 @@ public:
     DataTypePtr get_return_type() const override { return return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         this->data(place).add(*columns[0], row_num);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena& arena) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -322,7 +322,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 
@@ -339,7 +339,7 @@ public:
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena* arena) const override {
+                                           Arena& arena) const override {
         const size_t num_rows = column.size();
         for (size_t i = 0; i != num_rows; ++i) {
             this->data(place).deserialize_and_merge(column, i);
@@ -347,14 +347,14 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
         for (size_t i = 0; i != num_rows; ++i) {
             this->data(places[i] + offset).deserialize_and_merge(*column, i);
         }
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena& arena,
                                  size_t num_rows) const override {
         for (size_t i = 0; i != num_rows; ++i) {
             this->data(places).deserialize_and_merge(column, i);
@@ -363,7 +363,7 @@ public:
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
-                                                 Arena* arena) const override {
+                                                 Arena& arena) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         for (size_t i = begin; i <= end; ++i) {
@@ -373,7 +373,7 @@ public:
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
-                                            Arena* arena, const size_t num_rows) const override {
+                                            Arena& arena, const size_t num_rows) const override {
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
                 this->data(places[i] + offset).deserialize_and_merge(*column, i);
@@ -390,7 +390,7 @@ public:
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena* arena) const override {
+                                           const size_t num_rows, Arena& arena) const override {
         auto& to_arr = assert_cast<ColumnArray&>(*dst);
         auto& to_nested_col = to_arr.get_data();
         DCHECK(num_rows == columns[0]->size());
