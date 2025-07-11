@@ -65,6 +65,8 @@ namespace segment_v2 {
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
 
+class VariantStatsCaculator;
+
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     uint32_t max_rows_per_segment = UINT32_MAX;
@@ -173,8 +175,6 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key);
-    void _maybe_calculate_variant_stats(const vectorized::Block* block, size_t id, size_t cid,
-                                        size_t row_pos, size_t num_rows);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos);
     // used for unique-key with merge on write and segment min_max key
@@ -265,6 +265,8 @@ private:
     TabletSchemaSPtr _flush_schema = nullptr;
     std::vector<std::string> _primary_keys;
     uint64_t _primary_keys_size = 0;
+    // variant statistics calculator for efficient stats collection
+    std::unique_ptr<VariantStatsCaculator> _variant_stats_calculator;
 };
 
 } // namespace segment_v2
