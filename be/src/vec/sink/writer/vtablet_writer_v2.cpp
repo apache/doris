@@ -174,7 +174,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_vpartition->init());
 
     _state = state;
-    _profile = profile;
+    _operator_profile = profile;
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
@@ -193,7 +193,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     DBUG_EXECUTE_IF("VTabletWriterV2._init.is_high_priority", { _is_high_priority = true; });
     _mem_tracker =
             std::make_shared<MemTracker>("VTabletWriterV2:" + std::to_string(state->load_job_id()));
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // get table's tuple descriptor
@@ -227,21 +227,21 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
     // add all counter
-    _input_rows_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
-    _output_rows_counter = ADD_COUNTER(_profile, "RowsProduced", TUnit::UNIT);
-    _filtered_rows_counter = ADD_COUNTER(_profile, "RowsFiltered", TUnit::UNIT);
-    _send_data_timer = ADD_TIMER_WITH_LEVEL(_profile, "SendDataTime", 1);
+    _input_rows_counter = ADD_COUNTER(_operator_profile, "RowsRead", TUnit::UNIT);
+    _output_rows_counter = ADD_COUNTER(_operator_profile, "RowsProduced", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_operator_profile, "RowsFiltered", TUnit::UNIT);
+    _send_data_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "SendDataTime", 1);
     _wait_mem_limit_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WaitMemLimitTime", "SendDataTime", 1);
+            ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "WaitMemLimitTime", "SendDataTime", 1);
     _row_distribution_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowDistributionTime", "SendDataTime", 1);
+            ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "RowDistributionTime", "SendDataTime", 1);
     _write_memtable_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WriteMemTableTime", "SendDataTime", 1);
-    _validate_data_timer = ADD_TIMER_WITH_LEVEL(_profile, "ValidateDataTime", 1);
-    _open_timer = ADD_TIMER(_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
-    _close_writer_timer = ADD_CHILD_TIMER(_profile, "CloseWriterTime", "CloseWaitTime");
-    _close_load_timer = ADD_CHILD_TIMER(_profile, "CloseLoadTime", "CloseWaitTime");
+            ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "WriteMemTableTime", "SendDataTime", 1);
+    _validate_data_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "ValidateDataTime", 1);
+    _open_timer = ADD_TIMER(_operator_profile, "OpenTime");
+    _close_timer = ADD_TIMER(_operator_profile, "CloseWaitTime");
+    _close_writer_timer = ADD_CHILD_TIMER(_operator_profile, "CloseWriterTime", "CloseWaitTime");
+    _close_load_timer = ADD_CHILD_TIMER(_operator_profile, "CloseLoadTime", "CloseWaitTime");
 
     if (config::share_delta_writers) {
         _delta_writer_for_tablet = ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(
@@ -259,7 +259,7 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     LOG(INFO) << "opening olap table sink, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
               << ", sink_id=" << _sender_id;
     _timeout_watch.start();
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -473,7 +473,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     if (UNLIKELY(input_rows == 0)) {
         return status;
     }
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_operator_profile->total_time_counter());
     _number_input_rows += input_rows;
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
@@ -616,7 +616,7 @@ Status VTabletWriterV2::close(Status exec_status) {
     Status status = exec_status;
 
     if (status.ok()) {
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
         _row_distribution._deal_batched = true;
         status = _send_new_partition_batch();
     }
@@ -626,7 +626,7 @@ Status VTabletWriterV2::close(Status exec_status) {
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
 
         COUNTER_SET(_input_rows_counter, _number_input_rows);
         COUNTER_SET(_output_rows_counter, _number_output_rows);
@@ -641,7 +641,7 @@ Status VTabletWriterV2::close(Status exec_status) {
             std::unordered_map<int64_t, int32_t> segments_for_tablet;
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            auto st = _delta_writer_for_tablet->close(segments_for_tablet, _profile);
+            auto st = _delta_writer_for_tablet->close(segments_for_tablet, _operator_profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
                 _cancel(st);
@@ -666,7 +666,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         // close_wait on all non-incremental streams, even if this is not the last sink.
         // because some per-instance data structures are now shared among all sinks
         // due to sharing delta writers and load stream stubs.
-        RETURN_IF_ERROR(_close_wait(false));
+        RETURN_IF_ERROR(_close_wait(_non_incremental_streams()));
 
         // send CLOSE_LOAD on all incremental streams if this is the last sink.
         // this must happen after all non-incremental streams are closed,
@@ -676,7 +676,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         }
 
         // close_wait on all incremental streams, even if this is not the last sink.
-        RETURN_IF_ERROR(_close_wait(true));
+        RETURN_IF_ERROR(_close_wait(_incremental_streams()));
 
         // calculate and submit commit info
         if (is_last_sink) {
@@ -721,32 +721,87 @@ Status VTabletWriterV2::close(Status exec_status) {
     return status;
 }
 
-Status VTabletWriterV2::_close_wait(bool incremental) {
-    SCOPED_TIMER(_close_load_timer);
-    auto st = _load_stream_map->for_each_st(
-            [this, incremental](int64_t dst_id, LoadStreamStubs& streams) -> Status {
-                if (streams.is_incremental() != incremental) {
-                    return Status::OK();
-                }
-                int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
-                                    _timeout_watch.elapsed_time() / 1000 / 1000;
-                DBUG_EXECUTE_IF("VTabletWriterV2._close_wait.load_timeout", { remain_ms = 0; });
-                if (remain_ms <= 0) {
-                    LOG(WARNING) << "load timed out before close waiting, load_id="
-                                 << print_id(_load_id);
-                    return Status::TimedOut("load timed out before close waiting");
-                }
-                auto st = streams.close_wait(_state, remain_ms);
-                if (!st.ok()) {
-                    LOG(WARNING) << "close_wait timeout on streams to dst_id=" << dst_id
-                                 << ", load_id=" << print_id(_load_id) << ": " << st;
-                }
-                return st;
-            });
-    if (!st.ok()) {
-        LOG(WARNING) << "close_wait failed: " << st << ", load_id=" << print_id(_load_id);
+std::unordered_set<std::shared_ptr<LoadStreamStub>> VTabletWriterV2::_incremental_streams() {
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> incremental_streams;
+    auto streams_for_node = _load_stream_map->get_streams_for_node();
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        for (const auto& stream : streams->streams()) {
+            if (stream->is_incremental()) {
+                incremental_streams.insert(stream);
+            }
+        }
     }
-    return st;
+    return incremental_streams;
+}
+
+std::unordered_set<std::shared_ptr<LoadStreamStub>> VTabletWriterV2::_non_incremental_streams() {
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> non_incremental_streams;
+    auto streams_for_node = _load_stream_map->get_streams_for_node();
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        for (const auto& stream : streams->streams()) {
+            if (!stream->is_incremental()) {
+                non_incremental_streams.insert(stream);
+            }
+        }
+    }
+    return non_incremental_streams;
+}
+
+Status VTabletWriterV2::_close_wait(
+        std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams) {
+    SCOPED_TIMER(_close_load_timer);
+    Status status;
+    auto streams_for_node = _load_stream_map->get_streams_for_node();
+    while (true) {
+        RETURN_IF_ERROR(_check_timeout());
+        RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
+        if (!status.ok() || unfinished_streams.empty()) {
+            LOG(INFO) << "is all unfinished: " << unfinished_streams.empty()
+                      << ", status: " << status << ", txn_id: " << _txn_id
+                      << ", load_id: " << print_id(_load_id);
+            break;
+        }
+        bthread_usleep(1000 * 10);
+    }
+    if (!status.ok()) {
+        LOG(WARNING) << "close_wait failed: " << status << ", load_id=" << print_id(_load_id);
+    }
+    return status;
+}
+
+Status VTabletWriterV2::_check_timeout() {
+    int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
+                        _timeout_watch.elapsed_time() / 1000 / 1000;
+    DBUG_EXECUTE_IF("VTabletWriterV2._close_wait.load_timeout", { remain_ms = 0; });
+    if (remain_ms <= 0) {
+        LOG(WARNING) << "load timed out before close waiting, load_id=" << print_id(_load_id);
+        return Status::TimedOut("load timed out before close waiting");
+    }
+    return Status::OK();
+}
+
+Status VTabletWriterV2::_check_streams_finish(
+        std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams, Status& status,
+        const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node) {
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        for (const auto& stream : streams->streams()) {
+            if (!unfinished_streams.contains(stream)) {
+                continue;
+            }
+            bool is_closed = false;
+            auto stream_st = stream->close_finish_check(_state, &is_closed);
+            if (!stream_st.ok()) {
+                status = stream_st;
+                unfinished_streams.erase(stream);
+                LOG(WARNING) << "close_wait failed: " << stream_st
+                             << ", load_id=" << print_id(_load_id);
+            }
+            if (is_closed) {
+                unfinished_streams.erase(stream);
+            }
+        }
+    }
+    return status;
 }
 
 void VTabletWriterV2::_calc_tablets_to_commit() {

@@ -34,7 +34,6 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.Subquery;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
@@ -100,6 +99,7 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.LocationUtil;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
@@ -276,9 +276,6 @@ public class IcebergUtils {
         } else if (expr instanceof InPredicate) {
             // InPredicate, only support a in (1,2,3)
             InPredicate inExpr = (InPredicate) expr;
-            if (inExpr.contains(Subquery.class)) {
-                return null;
-            }
             SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0));
             if (slotRef == null) {
                 return null;
@@ -607,6 +604,29 @@ public class IcebergUtils {
                 .getIcebergMetadataCache().getIcebergTable(dorisTable);
     }
 
+    private static void updateIcebergColumnUniqueId(Column column, Types.NestedField icebergField) {
+        column.setUniqueId(icebergField.fieldId());
+        List<NestedField> icebergFields = Lists.newArrayList();
+        switch (icebergField.type().typeId()) {
+            case LIST:
+                icebergFields = ((Types.ListType) icebergField.type()).fields();
+                break;
+            case MAP:
+                icebergFields =  ((Types.MapType) icebergField.type()).fields();
+                break;
+            case STRUCT:
+                icebergFields = ((Types.StructType) icebergField.type()).fields();
+                break;
+            default:
+                return;
+        }
+
+        List<Column> childColumns = column.getChildren();
+        for (int idx = 0; idx < childColumns.size(); idx++) {
+            updateIcebergColumnUniqueId(childColumns.get(idx), icebergFields.get(idx));
+        }
+    }
+
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
@@ -648,9 +668,11 @@ public class IcebergUtils {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
-            resSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
-                    IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
-                    schema.caseInsensitiveFindField(field.name()).fieldId()));
+            Column column =  new Column(field.name().toLowerCase(Locale.ROOT),
+                            IcebergUtils.icebergTypeToDorisType(field.type()), true, null,
+                            true, field.doc(), true, -1);
+            updateIcebergColumnUniqueId(column, field);
+            resSchema.add(column);
         }
         return resSchema;
     }
@@ -754,7 +776,6 @@ public class IcebergUtils {
         }
         String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
-
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
     }

@@ -593,10 +593,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return remoteTable.getViewOriginalText();
     }
 
-    public String getMetastoreUri() {
-        return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
-    }
-
     public Map<String, String> getCatalogProperties() {
         return catalog.getProperties();
     }
@@ -683,9 +679,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             Types.Field hudiInternalfield = hudiInternalSchema.getRecord().fields().get(i);
             org.apache.avro.Schema.Field hudiAvroField =  hudiSchema.getFields().get(i);
             String columnName = hudiAvroField.name().toLowerCase(Locale.ROOT);
-            tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
+            Column column = new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
                     true, null, true, null, "", true, null,
-                    hudiInternalfield.fieldId(), null));
+                    -1, null);
+            HudiUtils.updateHudiColumnUniqueId(column, hudiInternalfield);
+            tmpSchema.add(column);
+
             colTypes.add(HudiUtils.convertAvroToHiveType(hudiAvroField.schema()));
         }
         List<Column> partitionColumns = initPartitionColumns(tmpSchema);

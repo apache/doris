@@ -186,10 +186,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalAggregate[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalAggregate[" + id.asInt() + "]",
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
-                "hasRepeat", sourceRepeat.isPresent()
+                "hasRepeat", sourceRepeat.isPresent(),
+                "stats", statistics
         );
     }
 

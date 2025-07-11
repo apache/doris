@@ -302,7 +302,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalOlapScan[t1]
 --PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
-------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > (cast(0.05 as DOUBLE) * avg(c11)))
+------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > 0.05 * avg(t1.c11))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
