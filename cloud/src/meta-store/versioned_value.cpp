@@ -34,7 +34,7 @@
 namespace doris::cloud {
 
 bool VersionedRangeGetIterator::has_next() {
-    while (error_code_ == TxnErrorCode::TXN_OK && !has_find_ && iter_->has_next()) {
+    while (is_valid() && !has_find_ && iter_->has_next()) {
         auto [key, value] = iter_->peek().value();
         auto [parsed_key, version] = parse_key(key);
         if (error_code_ != TxnErrorCode::TXN_OK) {
@@ -53,7 +53,7 @@ bool VersionedRangeGetIterator::has_next() {
         current_value_ = value;
         return true;
     }
-    return has_find_;
+    return is_valid() && has_find_;
 }
 
 std::optional<VersionedRangeGetIterator::Element> VersionedRangeGetIterator::next() {

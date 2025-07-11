@@ -23,12 +23,16 @@
 #include "gen_cpp/cloud.pb.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versionstamp.h"
 
 namespace doris::cloud {
 
 namespace details {
 void document_delete_single(Transaction* txn, std::string_view key);
 void document_delete_range(Transaction* txn, std::string_view prefix);
+void versioned_document_delete_range(Transaction* txn, std::string_view key_prefix, Versionstamp v);
+void versioned_document_delete_single(Transaction* txn, std::string_view key_prefix,
+                                      Versionstamp v);
 } // namespace details
 
 template <typename Message>
@@ -72,4 +76,64 @@ void document_remove(Transaction* txn, std::string_view key) {
     }
 }
 
+namespace versioned {
+
+// Put a document message into the transaction with a versionstamp (set by FDB).
+//
+// The document put operation will split some messages into multiple keys, such as RowsetMetaCloudPB.
+// The split fields will be stored in the `split_schema` field of the message.
+bool document_put(Transaction* txn, std::string_view key_prefix, google::protobuf::Message&& msg);
+
+// Put a document message into the transaction with a versionstamp (set by FDB).
+//
+// The document put operation will split some messages into multiple keys, such as RowsetMetaCloudPB.
+// The split fields will be stored in the `split_schema` field of the message.
+bool document_put(Transaction* txn, std::string_view key_prefix, Versionstamp v,
+                  google::protobuf::Message&& msg);
+
+// Get a document from the transaction by key prefix (find the latest versionstamp).
+//
+// If the message is split into multiple keys, it will reconstruct the message using the split
+// schema defined in the message.
+//
+// The `v` parameter is used to return the versionstamp of the document.
+TxnErrorCode document_get(Transaction* txn, std::string_view key_prefix,
+                          google::protobuf::Message* msg, Versionstamp* v, bool snapshot = false);
+
+// Get a document from the transaction by key prefix, by the specified versionstamp.
+//
+// If the message is split into multiple keys, it will reconstruct the message using the split
+// schema defined in the message.
+//
+// The `v` parameter is used to return the versionstamp of the document.
+TxnErrorCode document_get(Transaction* txn, std::string_view key_prefix,
+                          Versionstamp snapshot_version, google::protobuf::Message* msg,
+                          Versionstamp* v, bool snapshot = false);
+
+// Remove a document message from the transaction by key.
+//
+// If the message is split into multiple keys, it will remove all keys that match the prefix
+// of the message key.
+template <typename Message>
+    requires IsProtobufMessage<Message>
+void document_remove(Transaction* txn, std::string_view key_prefix, Versionstamp v) {
+    if constexpr (std::is_same_v<Message, RowsetMetaCloudPB> ||
+                  std::is_same_v<Message, SplitSingleMessagePB>) {
+        details::versioned_document_delete_range(txn, key_prefix, v);
+    } else {
+        details::versioned_document_delete_single(txn, key_prefix, v);
+    }
+}
+
+// Get a document from the iterator and populate the message.
+//
+// The iterator is expected to be positioned at the key of the document. If the document is
+// split into multiple keys, it will reconstruct the message using the split schema defined
+// in the message.
+//
+// The iterator will be advanced to the next key after processing the current key.
+TxnErrorCode document_get_versioned_children(FullRangeGetIterator* iter,
+                                             google::protobuf::Message* msg);
+
+} // namespace versioned
 } // namespace doris::cloud
