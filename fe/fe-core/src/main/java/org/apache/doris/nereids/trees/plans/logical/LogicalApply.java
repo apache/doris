@@ -184,13 +184,13 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         if (markJoinSlotReference.isPresent()) {
             builder.add(markJoinSlotReference.get());
         }
-        // only scalar apply will needAddSubOutputToProjects = true
+        // only scalar apply can be needAddSubOutputToProjects = true
         if (needAddSubOutputToProjects) {
             // correlated apply right child may contain multiple output slots
             // in rule ScalarApplyToJoin, only '(isCorrelated() && correlationFilter.isPresent())'
-            // can convert to a left outer join, the right child output will be nullable
             // but at analyzed phase, the correlationFilter is empty, only after rule UnCorrelatedApplyAggregateFilter
-            // correlationFilter will be checked, so we skip check correlationFilter here.
+            // correlationFilter will be set, so we skip check correlationFilter here.
+            // correlated apply will change to a left outer join, then all the right child output will be nullable.
             if (isCorrelated()) {
                 // for sql:
                 // `select t1.a,
@@ -217,10 +217,10 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 // from t1`,
                 // its plan is:
                 // LogicalProject(t1.a, k)
-                //        |--LogicalApply(correlationSlot = [])
-                //            |- LogicalOlapScan(t1)
-                //            |- LogicalProject(if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k)
-                //                    |-- LogicalAggregate(output = [sum(t2.a), count(t2.b), max(t2.c)])
+                //      |--LogicalApply(correlationSlot = [])
+                //          |- LogicalOlapScan(t1)
+                //          |- LogicalProject(if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k)
+                //                 |-- LogicalAggregate(output = [sum(t2.a), count(t2.b), max(t2.c)])
                 builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(), correlationSlot));
             }
         }
