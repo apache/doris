@@ -2015,9 +2015,10 @@ private:
         case TypeIndex::Int128:
             return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128, DataTypeInt128>::execute;
         case TypeIndex::Float64:
-            return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64, DataTypeFloat64>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64,
+                                         DataTypeFloat64>::execute;
         case TypeIndex::String:
-	    if (!jsonb_string_as_string) {
+            if (!jsonb_string_as_string) {
                 return &ConvertImplGenericToString::execute2;
             } else {
                 return ConvertImplGenericFromJsonb::execute;
