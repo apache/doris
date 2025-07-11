@@ -131,8 +131,8 @@ struct PlusDecimalImpl {
 
     template <PrimitiveType Result>
         requires(is_decimal(Result))
-    static inline typename PrimitiveTypeTraits<Result>::CppNativeType
-            apply(ArgNativeTypeA a, ArgNativeTypeB b) {
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(ArgNativeTypeA a,
+                                                                            ArgNativeTypeB b) {
         return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) + b;
     }
 
