@@ -44,6 +44,8 @@ public:
               ::google::protobuf::Closure* done) override;
 
 private:
+    void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code, std::string& msg);
+
     void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
 
 private:

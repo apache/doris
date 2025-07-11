@@ -110,11 +110,11 @@ bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
 // recycler's mbvars
 bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter("recycler_instance_running_counter");
 // cost time of the last whole recycle process
-mBvarStatus<int64_t> g_bvar_recycler_instance_last_recycle_duration("recycler_instance_last_recycle_duration",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration("recycler_instance_last_round_recycle_duration",{"instance_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts("recycler_instance_next_ts",{"instance_id"});
 // start and end timestamps of the recycle process
-mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_st_ts("recycler_instance_recycle_st_ts",{"instance_id"});
-mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_ed_ts("recycler_instance_recycle_ed_ts",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts("recycler_instance_recycle_start_ts",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts("recycler_instance_recycle_end_ts",{"instance_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts("recycler_instance_recycle_last_success_ts",{"instance_id"});
 
 // recycler's mbvars
