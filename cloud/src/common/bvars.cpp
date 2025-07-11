@@ -395,6 +395,6 @@ mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_counter("rpc_kv_clean_txn_labe
 mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter("rpc_kv_get_txn_id_get_counter",{"instance_id"});
 
 // meta ranges
-mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count("meta_ranges_job_partition_count", {"category","instance_id", "sub_category"});
+mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count("fdb_kv_ranges_count", {"category","instance_id", "sub_category"});
 
 // clang-format on
