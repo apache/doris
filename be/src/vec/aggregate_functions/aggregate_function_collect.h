@@ -127,13 +127,13 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
 
     size_t size() const { return data_set.size(); }
 
-    void add(const IColumn& column, size_t row_num, Arena* arena) {
+    void add(const IColumn& column, size_t row_num, Arena& arena) {
         auto key = column.get_data_at(row_num);
-        key.data = arena->insert(key.data, key.size);
+        key.data = arena.insert(key.data, key.size);
         data_set.insert(key);
     }
 
-    void merge(const SelfType& rhs, Arena* arena) {
+    void merge(const SelfType& rhs, Arena& arena) {
         if (max_size == -1) {
             max_size = rhs.max_size;
         }
@@ -145,9 +145,8 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
                     return;
                 }
             }
-            assert(arena != nullptr);
             StringRef key = rhs_elem;
-            key.data = arena->insert(key.data, key.size);
+            key.data = arena.insert(key.data, key.size);
             data_set.insert(key);
         }
     }
@@ -421,7 +420,7 @@ public:
     DataTypePtr get_return_type() const override { return return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         auto& data = this->data(place);
         if constexpr (HasLimit) {
             if (data.max_size == -1) {
@@ -442,7 +441,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena& arena) const override {
         auto& data = this->data(place);
         const auto& rhs_data = this->data(rhs);
         if constexpr (ENABLE_ARENA) {
@@ -457,7 +456,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

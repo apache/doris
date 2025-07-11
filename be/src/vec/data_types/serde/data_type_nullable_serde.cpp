@@ -275,7 +275,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
 }
 
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                    Arena* mem_pool, int32_t col_id,
+                                                    Arena& mem_pool, int32_t col_id,
                                                     int64_t row_num) const {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
