@@ -401,7 +401,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 new EliminateGroupBy(),
                                 new MergeAggregate()
-                                // need to adjust min/max/sum nullable attribute after merge aggregate
                         )
                 ),
                 topic("Eager aggregation",
