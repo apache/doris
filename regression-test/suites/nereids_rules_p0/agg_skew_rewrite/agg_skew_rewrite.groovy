@@ -167,7 +167,7 @@ suite("test_agg_skew_hint") {
                     WHERE b IS NOT NULL
     ) order by 1"""
 
-    sql "set agg_distinct_skew_rewrite_bucket_num = 65535"
+    sql "set skew_rewrite_agg_bucket_num = 65535"
     qt_hint_variable "select a , count(distinct [skew] b)from test_skew_hint group by a order by 1,2"
 
     qt_hint_agg_join "select t1.a , count(distinct [skew] t2.b) from test_skew_hint t1 left join test_skew_hint t2 on t1.a=t2.a group by t1.a order by 1,2"
@@ -179,7 +179,7 @@ suite("test_agg_skew_hint") {
     qt_not_rewrite "select b , count(distinct [skew] a)from test_skew_hint group by b,a order by 1,2;"
 
     // shape
-    sql "set agg_distinct_skew_rewrite_bucket_num = 1024"
+    sql "set skew_rewrite_agg_bucket_num = 1024"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     qt_shape_hint "explain shape plan select a , count(distinct [skew] b)from test_skew_hint group by a"
     qt_shape_hint_other_agg_func "explain shape plan select a , count(distinct [skew] b), count(a) from test_skew_hint group by a"
@@ -203,7 +203,7 @@ suite("test_agg_skew_hint") {
     qt_shape_hint_groupconcat_grouping "explain shape plan select b , group_concat(distinct [skew] cast(a as string)) from test_skew_hint group by grouping sets((b), (c,b));"
     qt_shape_hint_groupconcat_orderby "explain shape plan select b , group_concat(distinct [skew] cast(c as string) order by c) from test_skew_hint group by b;"
 
-    sql "set agg_distinct_skew_rewrite_bucket_num = 65535"
+    sql "set skew_rewrite_agg_bucket_num = 65535"
     qt_shape_hint_variable "explain shape plan select a , count(distinct [skew] b)from test_skew_hint group by a"
 
     qt_shape_hint_agg_join "explain shape plan select t1.a , count(distinct [skew] t2.b) from test_skew_hint t1 left join test_skew_hint t2 on t1.a=t2.a group by t1.a"

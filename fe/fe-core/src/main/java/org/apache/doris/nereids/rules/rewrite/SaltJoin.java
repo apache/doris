@@ -86,12 +86,12 @@ import java.util.Set;
  *   +--LogicalOlapScan(t2)
  * ->
  * LogicalJoin (type:inner, t1.a=t2.a and r1=r2)
- *   |--LogicalProject (t1.a, if (t1.a IN (1, 2), random(0, 999), DEFAULT_SALT_VALUE) AS r1))
+ *   |--LogicalProject (t1.a, if (t1.a IN (1, 2), random(0, ExplodeFactor - 1), DEFAULT_SALT_VALUE) AS r1))
  *   |  +--LogicalFilter(t1.a is not null)
  *   |    +--LogicalOlapScan(t1)
  *   +--LogicalProject (projections: t2.a, if(explodeNumber IS NULL, DEFAULT_SALT_VALUE, explodeNumber) as r2)
  *     +--LogicalJoin (type=right_outer_join, t2.a = skewValue)
- *       |--LogicalGenerate(generators=[explode_numbers(1000)], generatorOutput=[explodeNumber])
+ *       |--LogicalGenerate(generators=[explode_numbers(ExplodeFactor)], generatorOutput=[explodeNumber])
  *       |  +--LogicalUnion(outputs=[skewValue], constantExprsList(1,2))
  *       +--LogicalFilter(t2.a is not null)
  *         +--LogicalOlapScan(t2)
@@ -102,11 +102,11 @@ import java.util.Set;
  *   +--LogicalOlapScan(t2)
  * ->
  * LogicalJoin (type:inner, t1.a=t2.a and r1=r2)
- *   |--LogicalProject (t1.a, if (t1.a IN (1, 2), random(0, 999), DEFAULT_SALT_VALUE) AS r1))
+ *   |--LogicalProject (t1.a, if (t1.a IN (1, 2), random(0, ExplodeFactor - 1), DEFAULT_SALT_VALUE) AS r1))
  *   | +--LogicalOlapScan(t1)
  *   +--LogicalProject (projections: t2.a, if(explodeNumber IS NULL, DEFAULT_SALT_VALUE, explodeNumber) as r2)
  *     +--LogicalJoin (type=right_outer_join, t2.a = skewValue)
- *       |--LogicalGenerate(generators=[explode_numbers(1000)], generatorOutput=[explodeNumber])
+ *       |--LogicalGenerate(generators=[explode_numbers(ExplodeFactor)], generatorOutput=[explodeNumber])
  *       |  +--LogicalUnion(outputs=[skewValue], constantExprsList(1,2))
  *       +--LogicalOlapScan(t2)
  *
@@ -324,13 +324,13 @@ public class SaltJoin extends OneRewriteRuleFactory {
 
     private static int getSaltFactor(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {
         int factor = ctx.connectContext.getStatementContext().getConnectContext()
-                .getSessionVariable().joinSkewAddSaltExplodeFactor;
-        if (factor <= 0) {
+                .getSessionVariable().skewRewriteJoinSaltExplodeFactor;
+        if (factor == 0) {
             int beNumber = Math.max(1, ctx.connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
             int parallelInstance = Math.max(1, ctx.connectContext.getSessionVariable().getParallelExecInstanceNum());
             factor = (int) Math.min((long) beNumber * parallelInstance * SALT_FACTOR, Integer.MAX_VALUE);
         }
-        return factor;
+        return Math.max(factor, 1);
     }
 
     private static List<Expression> getSaltedSkewValuesForExpandSide(Expression skewConjunct,

@@ -112,12 +112,21 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
                 && getGroupByExpressions().stream().allMatch(e -> e instanceof Slot);
     }
 
-    /**canSkewRewrite*/
+    /**
+     * Skew rewrite is applicable only when all the following conditions are met:
+     * 1. The rule is not disabled in the current session (checked via `disableRules`).
+     * 2. There is exactly one distinct argument (e.g., `COUNT(DISTINCT x,y)` cannot be optimized).
+     * 3. There is exactly one aggregate function (e.g., not mixed `COUNT` and `SUM`).
+     * 4. The aggregate function supports multi-distinct (e.g., `COUNT`, `SUM`, `GROUP_CONCAT`).
+     * 6. The aggregate function is marked as skewed
+     * 7. Skew rewrite requires group by key.
+     * 8. The distinct argument is not part of the GROUP BY.
+     */
     default boolean canSkewRewrite() {
         ConnectContext connectContext = ConnectContext.get();
         BitSet disableRules = connectContext == null ? new BitSet() : connectContext.getStatementContext()
                 .getOrCacheDisableRules(connectContext.getSessionVariable());
-        if (disableRules.get(RuleType.COUNT_DISTINCT_AGG_SKEW_REWRITE.type())) {
+        if (disableRules.get(RuleType.AGG_SKEW_REWRITE.type())) {
             return false;
         }
         Set<Expression> distinctArguments = getDistinctArguments();
@@ -125,8 +134,9 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
         return distinctArguments.size() == 1
                 && aggregateFunctions.size() == 1
                 && aggregateFunctions.iterator().next() instanceof SupportMultiDistinct
+                && aggregateFunctions.iterator().next().isSkew()
                 && aggregateFunctions.iterator().next().arity() == 1
-                && (aggregateFunctions.iterator().next()).isSkew()
+                && aggregateFunctions.iterator().next().child(0) instanceof Slot
                 && !getGroupByExpressions().isEmpty()
                 && !(new HashSet<>(getGroupByExpressions()).containsAll(distinctArguments));
     }

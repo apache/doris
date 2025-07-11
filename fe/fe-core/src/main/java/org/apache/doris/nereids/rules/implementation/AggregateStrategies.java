@@ -453,8 +453,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         );
                     })
             ),
-            RuleType.COUNT_DISTINCT_AGG_SKEW_REWRITE.build(
-                    basePattern.thenApply(ctx -> countDistinctSkewRewrite(ctx.root, ctx.cascadesContext))
+            RuleType.AGG_SKEW_REWRITE.build(
+                    basePattern
+                            .when(Aggregate::canSkewRewrite)
+                            .thenApply(ctx -> aggSkewRewrite(ctx.root, ctx.cascadesContext))
             )
         );
     }
@@ -2118,28 +2120,21 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     /**
      * LogicalAggregate(groupByExpr=[a], outputExpr=[a,count(distinct b)])
      * ->
-     * +--PhysicalHashAggregate(groupByExpr=[a], outputExpr=[a, count(partial_count(m))]
+     * +--PhysicalHashAggregate(groupByExpr=[a], outputExpr=[a, sum0(partial_sum0(m))]
      *   +--PhysicalDistribute(shuffleColumn=[a])
-     *     +--PhysicalHashAggregate(groupByExpr=[a], outputExpr=[a, partial_count(m)]
+     *     +--PhysicalHashAggregate(groupByExpr=[a], outputExpr=[a, partial_sum0(m)]
      *       +--PhysicalHashAggregate(groupByExpr=[a, saltExpr], outputExpr=[a, multi_distinct_count(b) as m])
      *         +--PhysicalDistribute(shuffleColumn=[a, saltExpr])
      *           +--PhysicalProject(projects=[a, b, xxhash_32(b)%512 as saltExpr])
      *             +--PhysicalHashAggregate(groupByExpr=[a, b], outputExpr=[a, b])
      * */
-    private PhysicalHashAggregate<Plan> countDistinctSkewRewrite(LogicalAggregate<GroupPlan> logicalAgg,
+    private PhysicalHashAggregate<Plan> aggSkewRewrite(LogicalAggregate<GroupPlan> logicalAgg,
             CascadesContext cascadesContext) {
-        if (!logicalAgg.canSkewRewrite()) {
-            return null;
-        }
-
         // 1.local agg
         ImmutableList.Builder<Expression> localAggGroupByBuilder = ImmutableList.builderWithExpectedSize(
                 logicalAgg.getGroupByExpressions().size() + 1);
         localAggGroupByBuilder.addAll(logicalAgg.getGroupByExpressions());
         AggregateFunction aggFunc = logicalAgg.getAggregateFunctions().iterator().next();
-        if (!(aggFunc.child(0) instanceof Slot)) {
-            return null;
-        }
         localAggGroupByBuilder.add(aggFunc.child(0));
         List<Expression> localAggGroupBy = localAggGroupByBuilder.build();
         List<NamedExpression> localAggOutput = Utils.fastToImmutableList((List) localAggGroupBy);
@@ -2242,12 +2237,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     private Alias getShuffleExpr(AggregateFunction aggFunc, CascadesContext cascadesContext) {
-        int bucketNum = cascadesContext.getConnectContext().getSessionVariable().aggDistinctSkewRewriteBucketNum;
+        int bucketNum = cascadesContext.getConnectContext().getSessionVariable().skewRewriteAggBucketNum;
+        // divide bucketNum by 2 is because XxHash32 return negative and positive number
         int bucket = bucketNum / 2;
         DataType type = bucket <= 128 ? TinyIntType.INSTANCE : SmallIntType.INSTANCE;
         Mod mod = new Mod(new XxHash32(TypeCoercionUtils.castIfNotSameType(
                 aggFunc.child(0), StringType.INSTANCE)), new SmallIntLiteral((short) bucket));
         Cast cast = new Cast(mod, type);
-        return new Alias(cast, SALT_EXPR);
+        return new Alias(cast, SALT_EXPR + cascadesContext.getStatementContext().generateColumnName());
     }
 }
