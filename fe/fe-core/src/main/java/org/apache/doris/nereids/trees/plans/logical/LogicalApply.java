@@ -187,7 +187,11 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         // only scalar apply will needAddSubOutputToProjects = true
         if (needAddSubOutputToProjects) {
             // correlated apply right child may contain multiple output slots
-            if (isCorrelated() && correlationFilter.isPresent()) {
+            // in rule ScalarApplyToJoin, only '(isCorrelated() && correlationFilter.isPresent())'
+            // can convert to a left outer join, the right child output will be nullable
+            // but at first, the correlationFilter is empty, rule UnCorrelatedApplyAggregateFilter
+            // will set correlationFilter, so we don't check whether correlationFilter here.
+            if (isCorrelated()) {
                 // for sql:
                 // `select t1.a,
                 //         (select if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k from t2 where t1.a = t2.a)
@@ -211,7 +215,8 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 // from t1`,
                 // its plan:
                 // LogicalProject(t1.a, k)
-                //     |--LogicalApply(correlationSlot = [])
+                //    LogicalProject(..., if(sum(t2.a > 10), ifnull(count(t2.b), 0), max(t2.c)) as k)
+                //        |--LogicalApply(correlationSlot = [])
                 //            |- LogicalOlapScan(t1)
                 //            |- LogicalProject(if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k)
                 //                    |-- LogicalAggregate(output = [sum(t2.a), count(t2.b), max(t2.c)])

@@ -279,7 +279,12 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
                 .filter(e -> slotKName.contains(e.getName()))
                 .findFirst().orElse(null);
         Assertions.assertNotNull(applySubqueySlot);
-        Assertions.assertEquals(outputNullable, applySubqueySlot.nullable());
+        if (apply.isCorrelated()) {
+            // apply will change to outer join
+            Assertions.assertTrue(applySubqueySlot.nullable());
+        } else {
+            Assertions.assertEquals(outputNullable, applySubqueySlot.nullable());
+        }
 
         for (LogicalPlan plan : plansAboveApply) {
             Assertions.assertTrue(plan.getInputSlots().stream()
