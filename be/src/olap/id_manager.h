@@ -166,7 +166,7 @@ public:
         return it->second;
     }
 
-    uint32 get_file_mapping_id(const std::shared_ptr<FileMapping>& mapping) {
+    uint32_t get_file_mapping_id(const std::shared_ptr<FileMapping>& mapping) {
         DCHECK(mapping.get() != nullptr);
         auto value = mapping->file_mapping_info_to_string();
 

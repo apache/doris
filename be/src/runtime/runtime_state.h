@@ -86,17 +86,17 @@ public:
                  ExecEnv* exec_env, QueryContext* ctx,
                  const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker = nullptr);
 
-    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32_t fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
     // Used by pipeline. This runtime state is only used for setup.
-    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+    RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
     // Only used in the materialization phase of delayed materialization,
     // when there may be no corresponding QueryContext.
-    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+    RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // RuntimeState for executing expr in fe-support.

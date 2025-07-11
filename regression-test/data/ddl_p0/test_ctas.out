@@ -6,6 +6,6 @@
 2
 
 -- !select --
-r1	{"title":"Amount","value":1.1}
-r2	{"title":"Amount","value":2.1}
+r1	{"title":"Amount","value":1.100000}
+r2	{"title":"Amount","value":2.100000}
 

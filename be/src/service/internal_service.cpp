@@ -1810,8 +1810,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     brpc::ClosureGuard closure_guard(done);
     const RowsetMetaPB& rowset_meta_pb = request->rowset_meta();
     const std::string& rowset_path = request->rowset_path();
-    google::protobuf::Map<int64, int64> segments_size = request->segments_size();
-    google::protobuf::Map<int64, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
+    google::protobuf::Map<int64_t, int64_t> segments_size = request->segments_size();
+    google::protobuf::Map<int64_t, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
             request->inverted_indices_size();
     std::string host = request->host();
     int64_t http_port = request->http_port();

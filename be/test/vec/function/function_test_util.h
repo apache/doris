@@ -418,15 +418,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         } else {
             auto comp_res = column->compare_at(i, i, *expected_col_ptr, 1);
-            if (0 != comp_res) {
-                std::cerr << "function " << func_name << " result mismatch, row " << i << ":\n"
-                          << block.dump_data(i, 1) << std::endl
-                          << ", expected result: "
-                          << result_type_ptr->to_string(*expected_col_ptr, i) << std::endl;
-            }
             EXPECT_EQ(0, comp_res)
-                    << ", function " << func_name
-                    << " result: " << block.get_data_types()[result]->to_string(*column, i)
+                    << ", function " << func_name << ". input row:\n"
+                    << block.dump_data(i, 1)
+                    << "result: " << block.get_data_types()[result]->to_string(*column, i)
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         }
     }

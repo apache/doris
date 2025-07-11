@@ -65,6 +65,8 @@ struct AggregateFunctionDistinctSingleNumericData {
     using Self = AggregateFunctionDistinctSingleNumericData<T, stable>;
     Container data;
 
+    void clear() { data.clear(); }
+
     void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena*) {
         const auto& vec =
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0])
@@ -86,9 +88,9 @@ struct AggregateFunctionDistinctSingleNumericData {
     void serialize(BufferWritable& buf) const {
         DCHECK(!stable);
         if constexpr (!stable) {
-            write_var_uint(data.size(), buf);
+            buf.write_var_uint(data.size());
             for (const auto& value : data) {
-                write_binary(value, buf);
+                buf.write_binary(value);
             }
         }
     }
@@ -97,10 +99,10 @@ struct AggregateFunctionDistinctSingleNumericData {
         DCHECK(!stable);
         if constexpr (!stable) {
             uint64_t new_size = 0;
-            read_var_uint(new_size, buf);
+            buf.read_var_uint(new_size);
             typename PrimitiveTypeTraits<T>::CppType x;
             for (size_t i = 0; i < new_size; ++i) {
-                read_binary(x, buf);
+                buf.read_binary(x);
                 data.insert(x);
             }
         }
@@ -135,6 +137,8 @@ struct AggregateFunctionDistinctGenericData {
     using Self = AggregateFunctionDistinctGenericData;
     Container data;
 
+    void clear() { data.clear(); }
+
     void merge(const Self& rhs, Arena* arena) {
         DCHECK(!stable);
         if constexpr (!stable) {
@@ -149,9 +153,9 @@ struct AggregateFunctionDistinctGenericData {
     void serialize(BufferWritable& buf) const {
         DCHECK(!stable);
         if constexpr (!stable) {
-            write_var_uint(data.size(), buf);
+            buf.write_var_uint(data.size());
             for (const auto& elem : data) {
-                write_string_binary(elem, buf);
+                buf.write_binary(elem);
             }
         }
     }
@@ -160,11 +164,11 @@ struct AggregateFunctionDistinctGenericData {
         DCHECK(!stable);
         if constexpr (!stable) {
             UInt64 size;
-            read_var_uint(size, buf);
+            buf.read_var_uint(size);
 
             StringRef ref;
             for (size_t i = 0; i < size; ++i) {
-                read_string_binary(ref, buf);
+                buf.read_binary(ref);
                 data.insert(ref);
             }
         }
@@ -322,6 +326,15 @@ public:
         nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
                                             arguments_raw.data(), &arena);
         nested_func->insert_result_into(get_nested_place(place), to);
+        // for distinct agg function, the real calculate is add_batch_single_place at last step of insert_result_into function.
+        // but with distinct agg and over() window function together, the result will be inserted into many times with different rows
+        // so we need to clear the data, thus not to affect the next insert_result_into
+        this->data(place).clear();
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        this->data(place).clear();
+        nested_func->reset(get_nested_place(place));
     }
 
     size_t size_of_data() const override { return prefix_size + nested_func->size_of_data(); }

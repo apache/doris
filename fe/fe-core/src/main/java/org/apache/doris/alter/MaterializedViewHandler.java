@@ -19,8 +19,6 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CancelAlterTableStmt;
-import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
@@ -1581,63 +1579,6 @@ public class MaterializedViewHandler extends AlterHandler {
                                OlapTable olapTable)
             throws DdlException, AnalysisException, MetaNotFoundException {
         // TODO: convert alterClauses to alterSystemCommands for mv
-    }
-
-    @Override
-    public void cancel(CancelStmt stmt) throws DdlException {
-        CancelAlterTableStmt cancelAlterTableStmt = (CancelAlterTableStmt) stmt;
-
-        String dbName = cancelAlterTableStmt.getDbName();
-        String tableName = cancelAlterTableStmt.getTableName();
-        Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
-        Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
-
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-        List<AlterJobV2> rollupJobV2List = new ArrayList<>();
-        OlapTable olapTable;
-        try {
-            olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.writeLock();
-        try {
-            if (olapTable.getState() != OlapTableState.ROLLUP
-                    && olapTable.getState() != OlapTableState.WAITING_STABLE) {
-                throw new DdlException("Table[" + tableName + "] is not under ROLLUP. "
-                        + "Use 'ALTER TABLE DROP ROLLUP' if you want to.");
-            }
-
-            // find from new alter jobs first
-            if (cancelAlterTableStmt.getAlterJobIdList() != null) {
-                for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
-                    AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
-                    if (alterJobV2 == null) {
-                        continue;
-                    }
-                    rollupJobV2List.add(getUnfinishedAlterJobV2ByJobId(jobId));
-                }
-            } else {
-                rollupJobV2List = getUnfinishedAlterJobV2ByTableId(olapTable.getId());
-            }
-            if (rollupJobV2List.size() == 0) {
-                // Alter job v1 is not supported, delete related code
-                throw new DdlException("Table[" + tableName + "] is not under ROLLUP. Maybe it has old alter job");
-            }
-        } finally {
-            olapTable.writeUnlock();
-        }
-
-        // alter job v2's cancel must be called outside the table lock
-        if (rollupJobV2List.size() != 0) {
-            for (AlterJobV2 alterJobV2 : rollupJobV2List) {
-                alterJobV2.cancel("user cancelled");
-                if (alterJobV2.isDone()) {
-                    onJobDone(alterJobV2);
-                }
-            }
-        }
     }
 
     // just for ut

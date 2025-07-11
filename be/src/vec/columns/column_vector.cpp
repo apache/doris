@@ -156,8 +156,8 @@ void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 template <PrimitiveType T>
 void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                        int nan_direction_hint, int direction,
-                                       std::vector<uint8>& cmp_res,
-                                       uint8* __restrict filter) const {
+                                       std::vector<uint8_t>& cmp_res,
+                                       uint8_t* __restrict filter) const {
     const auto sz = data.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(rhs)
@@ -284,14 +284,13 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
-        new_col.data.resize(size);
-
         size_t count = std::min(this->size(), size);
+        new_col.data.resize(count);
         memcpy(new_col.data.data(), data.data(), count * sizeof(data[0]));
 
-        if (size > count)
-            memset(static_cast<void*>(&new_col.data[count]), static_cast<int>(value_type()),
-                   (size - count) * sizeof(value_type));
+        if (size > count) {
+            new_col.insert_many_defaults(size - count);
+        }
     }
 
     return res;
@@ -498,7 +497,7 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
         return;
     }
     for (size_t i = 0; i < s; ++i) {
-        data[i] = null_map[i] ? value_type() : data[i];
+        data[i] = null_map[i] ? default_value() : data[i];
     }
 }
 

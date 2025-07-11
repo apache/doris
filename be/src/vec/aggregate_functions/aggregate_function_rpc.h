@@ -246,13 +246,13 @@ public:
         } else {
             LOG(ERROR) << "serialize empty buf";
         }
-        write_binary(serialize_data, buf);
+        buf.write_binary(serialize_data);
     }
 
     void deserialize(BufferReadable& buf) {
         static_cast<void>(send_buffer_to_rpc_server());
         std::string serialize_data;
-        read_binary(serialize_data, buf);
+        buf.read_binary(serialize_data);
         if (error_default_str != serialize_data) {
             _res.ParseFromString(serialize_data);
             set_last_result(true);

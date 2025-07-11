@@ -21,6 +21,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 
@@ -239,7 +240,8 @@ public class AcidUtil {
     // when using the Hive 4 library directly, this method is implemented.
     //Ref: hive/ql/src/java/org/apache/hadoop/hive/ql/io/AcidUtils.java#getAcidState
     public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
-            Map<String, String> txnValidIds, Map<String, String> catalogProps, boolean isFullAcid) throws Exception {
+            Map<String, String> txnValidIds, Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
+                                              boolean isFullAcid) throws Exception {
 
         // Ref: https://issues.apache.org/jira/browse/HIVE-18192
         // Readers should use the combination of ValidTxnList and ValidWriteIdList(Table) for snapshot isolation.
@@ -420,7 +422,7 @@ public class AcidUtil {
                     continue;
                 }
                 remoteFiles.stream().filter(f -> fileFilter.accept(f.getName())).forEach(file -> {
-                    LocationPath path = new LocationPath(file.getPath().toString(), catalogProps);
+                    LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
                     fileCacheValue.addFile(file, path);
                 });
             } else {
@@ -435,7 +437,7 @@ public class AcidUtil {
             if (status.ok()) {
                 remoteFiles.stream().filter(f -> fileFilter.accept(f.getName()))
                         .forEach(file -> {
-                            LocationPath path = new LocationPath(file.getPath().toString(), catalogProps);
+                            LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
                             fileCacheValue.addFile(file, path);
                         });
             } else {

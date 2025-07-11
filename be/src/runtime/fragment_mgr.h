@@ -195,9 +195,6 @@ private:
         std::vector<std::weak_ptr<QueryContext>> queries;
     };
 
-    template <typename Param>
-    void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
-
     Status _get_or_create_query_ctx(const TPipelineFragmentParams& params,
                                     const TPipelineFragmentParamsList& parent,
                                     QuerySource query_type,

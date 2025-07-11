@@ -300,7 +300,7 @@ static ThreadContext* thread_context() {
 
 class ScopedPeakMem {
 public:
-    explicit ScopedPeakMem(int64* peak_mem)
+    explicit ScopedPeakMem(int64_t* peak_mem)
             : _peak_mem(peak_mem),
               _mem_tracker("ScopedPeakMem:" + UniqueId::gen_uid().to_string()) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
@@ -314,7 +314,7 @@ public:
     }
 
 private:
-    int64* _peak_mem;
+    int64_t* _peak_mem;
     MemTracker _mem_tracker;
 };
 

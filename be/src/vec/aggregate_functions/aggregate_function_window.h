@@ -63,7 +63,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena*, UInt8*, UInt8*) const override {
         ++data(place).count;
     }
 
@@ -112,7 +112,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena*, UInt8*, UInt8*) const override {
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionRank::data(place).peer_group_start != frame_start) {
             WindowFunctionRank::data(place).peer_group_start = frame_start;
@@ -168,7 +168,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena*, UInt8*, UInt8*) const override {
         if (WindowFunctionDenseRank::data(place).peer_group_start != frame_start) {
             WindowFunctionDenseRank::data(place).peer_group_start = frame_start;
             WindowFunctionDenseRank::data(place).rank++;
@@ -210,7 +210,7 @@ struct PercentRankData {
 class WindowFunctionPercentRank final
         : public IAggregateFunctionDataHelper<PercentRankData, WindowFunctionPercentRank> {
 private:
-    static double _cal_percent(int64 rank, int64 total_rows) {
+    static double _cal_percent(int64_t rank, int64_t total_rows) {
         return total_rows <= 1 ? 0.0 : double(rank - 1) * 1.0 / double(total_rows - 1);
     }
 
@@ -226,7 +226,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena*, UInt8*, UInt8*) const override {
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionPercentRank::data(place).peer_group_start != frame_start) {
             WindowFunctionPercentRank::data(place).peer_group_start = frame_start;
@@ -296,7 +296,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena*, UInt8*, UInt8*) const override {
         check_default(place, partition_start, partition_end);
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionCumeDist::data(place).peer_group_start != frame_start) {
@@ -352,7 +352,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena*, UInt8*, UInt8*) const override {
         // some variables are partition related, but there is no chance to init them
         // when the new partition arrives, so we calculate them every time now.
         // Partition = big_bucket_num * big_bucket_size + small_bucket_num * small_bucket_size
@@ -360,9 +360,9 @@ public:
         int64_t bucket_num = columns[0]->get_int(0);
         int64_t partition_size = partition_end - partition_start;
 
-        int64 small_bucket_size = partition_size / bucket_num;
-        int64 big_bucket_num = partition_size % bucket_num;
-        int64 first_small_bucket_row_index = big_bucket_num * (small_bucket_size + 1);
+        int64_t small_bucket_size = partition_size / bucket_num;
+        int64_t big_bucket_num = partition_size % bucket_num;
+        int64_t first_small_bucket_row_index = big_bucket_num * (small_bucket_size + 1);
         if (row_index >= first_small_bucket_row_index) {
             // small_bucket_size can't be zero
             WindowFunctionNTile::data(place).bucket_index =
@@ -655,7 +655,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena*, UInt8*, UInt8*) const override {
         this->data(place).add_range_single_place(partition_start, partition_end, frame_start,
                                                  frame_end, columns);
     }

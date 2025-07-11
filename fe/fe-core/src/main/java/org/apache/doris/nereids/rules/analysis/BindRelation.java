@@ -31,6 +31,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
@@ -61,6 +62,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -95,8 +97,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -110,8 +112,6 @@ import java.util.Optional;
  */
 public class BindRelation extends OneAnalysisRuleFactory {
     private static final Logger LOG = LogManager.getLogger(StatementContext.class);
-
-    public BindRelation() {}
 
     @Override
     public Rule build() {
@@ -130,7 +130,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private Plan doBindRelation(MatchingContext<UnboundRelation> ctx) {
         List<String> nameParts = ctx.root.getNameParts();
         switch (nameParts.size()) {
-            case 1: { // table
+            case 1: {
+                // table
                 // Use current database name from catalog.
                 return bindWithCurrentDb(ctx.cascadesContext, ctx.root);
             }
@@ -167,7 +168,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(
                 cascadesContext.getConnectContext(), unboundRelation.getNameParts());
         TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
-                unboundRelation.getLocation());
+                Optional.of(unboundRelation));
 
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
         if (cascadesContext.isLeadingJoin()) {
@@ -182,7 +183,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
-                unboundRelation.getLocation());
+                Optional.of(unboundRelation));
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
@@ -268,9 +269,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 ? olapTable.getSchemaByIndexId(olapScan.getSelectedIndexId())
                 : olapTable.getBaseSchema();
 
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (Column col : columns) {
             // use exist slot in the plan
-            SlotReference slot = SlotReference.fromColumn(olapTable, col, olapScan.qualified());
+            SlotReference slot = SlotReference.fromColumn(
+                    exprIdGenerator.getNextId(), olapTable, col, olapScan.qualified()
+            );
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
                 if (childSlot instanceof SlotReference && childSlot.getName().equals(col.getName())) {
@@ -351,12 +355,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 }
             }
             Preconditions.checkArgument(deleteSlot != null);
-            Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
+            Expression conjunct = new EqualTo(deleteSlot, new TinyIntLiteral((byte) 0));
             if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 scan = scan.withPreAggStatus(PreAggStatus.off(
                         Column.DELETE_SIGN + " is used as conjuncts."));
             }
-            return new LogicalFilter<>(Sets.newHashSet(conjunct), scan);
+            return new LogicalFilter<>(ImmutableSet.of(conjunct), scan);
         }
         return scan;
     }
@@ -387,8 +391,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return logicalPlan.get();
         }
 
-        List<String> qualifierWithoutTableName = Lists.newArrayList();
-        qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
+        List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
         cascadesContext.getStatementContext().loadSnapshots(
                 unboundRelation.getTableSnapshot(),
                 Optional.ofNullable(unboundRelation.getScanParams()));
@@ -563,11 +566,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return parts.stream().map(name -> {
             Partition part = ((OlapTable) t).getPartition(name, unboundRelation.isTempPart());
             if (part == null) {
-                List<String> qualified;
+                List<String> qualified = Lists.newArrayList();
                 if (!CollectionUtils.isEmpty(qualifier)) {
-                    qualified = qualifier;
-                } else {
-                    qualified = Lists.newArrayList();
+                    qualified.addAll(qualifier);
                 }
                 qualified.add(unboundRelation.getTableName());
                 throw new AnalysisException(String.format("Partition: %s is not exists on table %s",

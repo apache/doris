@@ -39,9 +39,9 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
 
         createTable("create table test_list_parts(id int, part int not null) "
                 + "partition by list(part) ("
-                + "  partition p1 (('1'), ('4'), ('7')),"
-                + "  partition p2 (('8'), ('9'), ('5')),"
-                + "  partition p3 (('11'), ('0'), ('6'))"
+                + "  partition p1 values in (('1'), ('4'), ('7')),"
+                + "  partition p2 values in (('8'), ('9'), ('5')),"
+                + "  partition p3 values in (('11'), ('0'), ('6'))"
                 + ") "
                 + "distributed by hash(id) "
                 + "properties ('replication_num'='1')");
@@ -265,8 +265,8 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     public void pruneMultiColumnListPartition() throws Exception {
         createTable("create table test_multi_list_parts(id int, part1 int not null, part2 varchar(32) not null) "
                 + "partition by list(part1, part2) ("
-                + "  partition p1 (('1', 'd'), ('3', 'a')),"
-                + "  partition p2 (('4', 'c'), ('6', 'f'))"
+                + "  partition p1 values in (('1', 'd'), ('3', 'a')),"
+                + "  partition p2 values in (('4', 'c'), ('6', 'f'))"
                 + ") "
                 + "distributed by hash(id) "
                 + "properties ('replication_num'='1')");

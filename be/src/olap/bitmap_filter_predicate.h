@@ -64,6 +64,8 @@ public:
         return _specific_filter->contains_any(min_value, max_value);
     }
 
+    using ColumnPredicate::evaluate;
+
     Status evaluate(BitmapIndexIterator*, uint32_t, roaring::Roaring*) const override {
         return Status::OK();
     }

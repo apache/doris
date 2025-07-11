@@ -131,7 +131,7 @@ struct AggregateFunctionMapAggDataV2 {
         DCHECK_LE(written_bytes, serialized_bytes);
 
         serialized_buffer.resize(serialized_bytes);
-        write_string_binary(serialized_buffer, buf);
+        buf.write_binary(serialized_buffer);
 
         serialized_bytes =
                 _value_type->get_uncompressed_serialized_bytes(*_value_column, _be_version);
@@ -143,20 +143,20 @@ struct AggregateFunctionMapAggDataV2 {
         DCHECK_LE(written_bytes, serialized_bytes);
 
         serialized_buffer.resize(written_bytes);
-        write_string_binary(serialized_buffer, buf);
+        buf.write_binary(serialized_buffer);
     }
 
     void read(BufferReadable& buf) {
         std::string deserialized_buffer;
 
-        read_string_binary(deserialized_buffer, buf);
+        buf.read_binary(deserialized_buffer);
 
         const auto* ptr =
                 _key_type->deserialize(deserialized_buffer.data(), &_key_column, _be_version);
         auto read_bytes = ptr - deserialized_buffer.data();
         DCHECK_EQ(read_bytes, deserialized_buffer.size());
 
-        read_string_binary(deserialized_buffer, buf);
+        buf.read_binary(deserialized_buffer);
 
         ptr = _value_type->deserialize(deserialized_buffer.data(), &_value_column, _be_version);
         read_bytes = ptr - deserialized_buffer.data();

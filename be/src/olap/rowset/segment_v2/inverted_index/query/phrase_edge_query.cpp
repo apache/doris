@@ -37,15 +37,15 @@ PhraseEdgeQuery::PhraseEdgeQuery(const std::shared_ptr<lucene::search::IndexSear
           _max_expansions(query_options.inverted_index_max_expansions) {}
 
 void PhraseEdgeQuery::add(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.empty()) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "PhraseEdgeQuery::add: terms empty");
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
     _field_name = query_info.field_name;
-    _terms = query_info.terms;
+    _term_infos = query_info.term_infos;
 }
 
 void PhraseEdgeQuery::search(roaring::Roaring& roaring) {
-    if (_terms.size() == 1) {
+    if (_term_infos.size() == 1) {
         search_one_term(roaring);
     } else {
         search_multi_term(roaring);
@@ -54,7 +54,7 @@ void PhraseEdgeQuery::search(roaring::Roaring& roaring) {
 
 void PhraseEdgeQuery::search_one_term(roaring::Roaring& roaring) {
     bool first = true;
-    std::wstring sub_term = StringUtil::string_to_wstring(_terms[0]);
+    std::wstring sub_term = StringUtil::string_to_wstring(_term_infos[0].get_single_term());
     find_words([this, &first, &sub_term, &roaring](Term* term) {
         std::wstring_view ws_term(term->text(), term->textLength());
         if (ws_term.find(sub_term) == std::wstring::npos) {
@@ -83,8 +83,8 @@ void PhraseEdgeQuery::search_one_term(roaring::Roaring& roaring) {
 }
 
 void PhraseEdgeQuery::search_multi_term(roaring::Roaring& roaring) {
-    std::wstring suffix_term = StringUtil::string_to_wstring(_terms[0]);
-    std::wstring prefix_term = StringUtil::string_to_wstring(_terms.back());
+    std::wstring suffix_term = StringUtil::string_to_wstring(_term_infos[0].get_single_term());
+    std::wstring prefix_term = StringUtil::string_to_wstring(_term_infos.back().get_single_term());
 
     std::vector<CL_NS(index)::Term*> suffix_terms;
     std::vector<CL_NS(index)::Term*> prefix_terms;
@@ -105,13 +105,13 @@ void PhraseEdgeQuery::search_multi_term(roaring::Roaring& roaring) {
         }
     });
 
-    for (size_t i = 0; i < _terms.size(); i++) {
+    for (size_t i = 0; i < _term_infos.size(); i++) {
         if (i == 0) {
             handle_terms(_field_name, suffix_term, suffix_terms);
-        } else if (i == _terms.size() - 1) {
+        } else if (i == _term_infos.size() - 1) {
             handle_terms(_field_name, prefix_term, prefix_terms);
         } else {
-            std::wstring ws_term = StringUtil::string_to_wstring(_terms[i]);
+            std::wstring ws_term = StringUtil::string_to_wstring(_term_infos[i].get_single_term());
             add_default_term(_field_name, ws_term);
         }
     }

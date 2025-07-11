@@ -87,7 +87,7 @@ struct RetentionState {
 
         u_serialized_events >>= 1;
         for (int64_t i = MAX_EVENTS - 1; i >= 0; i--) {
-            events[i] = (uint8)(1 & u_serialized_events);
+            events[i] = (uint8_t)(1 & u_serialized_events);
             u_serialized_events >>= 1;
         }
     }

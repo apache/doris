@@ -22,11 +22,16 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.CollectOneLevelRelation;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -50,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -161,10 +167,12 @@ public class PlanUtils {
      */
     public static boolean canReplaceWithProjections(List<? extends NamedExpression> childProjects,
             List<? extends Expression> targetExpressions) {
-        Set<Slot> nonfoldableSlots = ExpressionUtils.generateReplaceMap(childProjects).entrySet().stream()
-                .filter(entry -> entry.getValue().containsNonfoldable())
-                .map(Entry::getKey)
-                .collect(Collectors.toSet());
+        Set<Slot> nonfoldableSlots = Sets.newHashSet();
+        for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
+            if (kv.getValue().containsNonfoldable()) {
+                nonfoldableSlots.add(kv.getKey());
+            }
+        }
         if (nonfoldableSlots.isEmpty()) {
             return true;
         }
@@ -407,5 +415,18 @@ public class PlanUtils {
             slotRef.disableTableName();
             return slotRef;
         }
+    }
+
+    /**
+     * table collect
+     */
+    public static Map<List<String>, TableIf> tableCollect(String sql, ConnectContext connectContext) {
+        ImmutableList<RewriteJob> rewriteJobs = ImmutableList.of(Rewriter.topDown(new CollectOneLevelRelation()));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        CascadesContext cascadesContext = CascadesContext.initContext(
+                statementContext, new NereidsParser().parseSingle(sql), PhysicalProperties.GATHER);
+        Rewriter.getCteChildrenRewriter(cascadesContext, rewriteJobs).execute();
+        return statementContext.getTables();
     }
 }

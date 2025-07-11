@@ -301,8 +301,8 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
         DecimalV2Value* target = (DecimalV2Value*)(data.data() + old_size);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
-            int64_t int_value = unaligned_load<int64_t>(cur_ptr);
-            int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
+            auto int_value = unaligned_load<int64_t>(cur_ptr);
+            auto frac_value = unaligned_load<int32_t>(cur_ptr + sizeof(int64_t));
             target[i].from_olap_decimal(int_value, frac_value);
         }
     } else {
@@ -467,8 +467,8 @@ void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags
 template <PrimitiveType T>
 void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                         int nan_direction_hint, int direction,
-                                        std::vector<uint8>& cmp_res,
-                                        uint8* __restrict filter) const {
+                                        std::vector<uint8_t>& cmp_res,
+                                        uint8_t* __restrict filter) const {
     auto sz = this->size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnDecimal<T>&>(rhs).get_data()[rhs_row_id];

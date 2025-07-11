@@ -125,20 +125,20 @@ struct AggregateFunctionCountByEnumData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(data_vec.size(), buf);
+        buf.write_binary(data_vec.size());
 
         for (const auto& data : data_vec) {
             const MapType& unordered_map = data.cbe;
-            write_binary(unordered_map.size(), buf);
+            buf.write_binary(unordered_map.size());
 
             for (const auto& [key, value] : unordered_map) {
-                write_binary(value, buf);
-                write_binary(key, buf);
+                buf.write_binary(value);
+                buf.write_binary(key);
             }
 
-            write_binary(data.not_null, buf);
-            write_binary(data.null, buf);
-            write_binary(data.all, buf);
+            buf.write_binary(data.not_null);
+            buf.write_binary(data.null);
+            buf.write_binary(data.all);
         }
     }
 
@@ -146,27 +146,27 @@ struct AggregateFunctionCountByEnumData {
         data_vec.clear();
 
         uint64_t vec_size_number = 0;
-        read_binary(vec_size_number, buf);
+        buf.read_binary(vec_size_number);
 
         for (int idx = 0; idx < vec_size_number; idx++) {
             uint64_t element_number = 0;
-            read_binary(element_number, buf);
+            buf.read_binary(element_number);
 
             MapType unordered_map;
             unordered_map.reserve(element_number);
             for (auto i = 0; i < element_number; i++) {
                 std::string key;
                 uint64_t value;
-                read_binary(value, buf);
-                read_binary(key, buf);
+                buf.read_binary(value);
+                buf.read_binary(key);
                 unordered_map.emplace(std::move(key), value);
             }
 
             CountByEnumData data;
             data.cbe = std::move(unordered_map);
-            read_binary(data.not_null, buf);
-            read_binary(data.null, buf);
-            read_binary(data.all, buf);
+            buf.read_binary(data.not_null);
+            buf.read_binary(data.null);
+            buf.read_binary(data.all);
             data_vec.emplace_back(std::move(data));
         }
     }

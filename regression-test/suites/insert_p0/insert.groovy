@@ -154,4 +154,13 @@ suite("insert") {
         sql("insert into dest values(now(), 0xff, 0xaa)")
         exception "Unknown column '0xff' in 'table list' in UNBOUND_OLAP_TABLE_SINK clause"
     }
+
+    try {
+        sql """ insert into source values('2000-12-08', 1, 1);
+            insert into source values('2000-12-09', 1, 1, 100);
+            insert into source values('2000-12-10', 1, 1); """
+    } catch (Exception e) {
+        logger.info("exception: " + e.getMessage())
+    }
+    order_qt_select1 """ select * from source; """
 }

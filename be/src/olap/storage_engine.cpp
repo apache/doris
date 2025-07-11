@@ -87,7 +87,7 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
-extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+extern void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap(
@@ -531,7 +531,7 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
-int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
+int StorageEngine::_get_and_set_next_disk_index(int64_t partition_id,
                                                 TStorageMedium::type storage_medium) {
     auto key = CreateTabletRRIdxCache::get_key(partition_id, storage_medium);
     int curr_index = _create_tablet_idx_lru_cache->get_index(key);
@@ -605,7 +605,7 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
 }
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
-        int64 partition_id, TStorageMedium::type storage_medium) {
+        int64_t partition_id, TStorageMedium::type storage_medium) {
     std::vector<DirInfo> dir_infos;
     int curr_index = 0;
     std::vector<DataDir*> stores;
@@ -622,7 +622,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
 }
 
 // maintain in stores LOW,MID,HIGH level round robin
-void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_infos,
                             std::vector<DataDir*>& stores) {
     for (size_t i = 0; i < dir_infos.size();) {
         size_t end = i + 1;

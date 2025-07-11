@@ -130,7 +130,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     _query_mem_tracker = ctx->query_mem_tracker();
 }
 
-RuntimeState::RuntimeState(const TUniqueId& query_id, int32 fragment_id,
+RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env)
         : _profile("PipelineX  " + std::to_string(fragment_id)),

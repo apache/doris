@@ -109,8 +109,8 @@ private:
 
 public:
     bool is_variable_length() const override { return true; }
-    // used in string ut testd
-    void sanity_check() const;
+
+    void sanity_check() const override;
     void sanity_check_simple() const;
 
     std::string get_name() const override { return "String"; }
@@ -521,8 +521,8 @@ public:
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                          int direction, std::vector<uint8>& cmp_res,
-                          uint8* __restrict filter) const override;
+                          int direction, std::vector<uint8_t>& cmp_res,
+                          uint8_t* __restrict filter) const override;
 
     ColumnPtr convert_column_if_overflow() override;
 

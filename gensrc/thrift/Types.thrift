@@ -241,6 +241,7 @@ enum TTaskType {
     CLEAN_TRASH = 32,
     UPDATE_VISIBLE_VERSION = 33,
     CLEAN_UDF_CACHE = 34,
+    PUSH_INDEX_POLICY = 35,
 
     // CLOUD
     CALCULATE_DELETE_BITMAP = 1000
@@ -747,6 +748,7 @@ enum TMetadataType {
   PARTITIONS = 9,
   PARTITION_VALUES = 10,
   HUDI = 11,
+  PAIMON = 12,
 }
 
 enum THudiQueryType {

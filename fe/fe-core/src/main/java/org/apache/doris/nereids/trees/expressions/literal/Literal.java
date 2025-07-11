@@ -300,8 +300,11 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new IPv4Literal(desc);
         } else if (targetType.isIPv6Type()) {
             return new IPv6Literal(desc);
-        } else if (targetType.isTimeLikeType()) {
-            return new TimeV2Literal((TimeV2Type) targetType, desc);
+        } else if (targetType.isTimeType()) {
+            if (this.dataType.isStringLikeType()) { // could parse in FE
+                return new TimeV2Literal((TimeV2Type) targetType, desc);
+            }
+            throw new AnalysisException("cast to TimeType only in BE now");
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }

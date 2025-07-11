@@ -81,6 +81,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -506,7 +507,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         logicalQuery = handleCte(logicalQuery);
         // make UnboundTableSink
         return UnboundTableSinkCreator.createUnboundTableSink(nameParts, cols, ImmutableList.of(),
-                isTempPart, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
+                isTempPart, partitions, isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                        DMLCommandType.DELETE, logicalQuery);
     }
 
     protected LogicalPlan handleCte(LogicalPlan logicalPlan) {

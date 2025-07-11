@@ -50,6 +50,7 @@ import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
@@ -59,6 +60,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.indexpolicy.DropIndexPolicyLog;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
@@ -1267,6 +1270,28 @@ public class EditLog {
                     env.getDictionaryManager().replayDecreaseVersion(info);
                     break;
                 }
+                case OperationType.OP_CREATE_INDEX_POLICY: {
+                    IndexPolicy log = (IndexPolicy) journal.getData();
+                    env.getIndexPolicyMgr().replayCreateIndexPolicy(log);
+                    break;
+                }
+                case OperationType.OP_DROP_INDEX_POLICY: {
+                    DropIndexPolicyLog log = (DropIndexPolicyLog) journal.getData();
+                    env.getIndexPolicyMgr().replayDropIndexPolicy(log);
+                    break;
+                }
+                case OperationType.OP_BRANCH_OR_TAG: {
+                    TableBranchOrTagInfo info = (TableBranchOrTagInfo) journal.getData();
+                    CatalogIf ctl = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.getCtlName());
+                    if (ctl != null) {
+                        ctl.replayOperateOnBranchOrTag(info.getDbName(), info.getTblName());
+                    }
+                    break;
+                }
+                case OperationType.OP_OPERATE_KEY: {
+                    //KeyOperationInfo info = (KeyOperationInfo) journal.getData();
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2054,6 +2079,14 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_POLICY, log);
     }
 
+    public void logCreateIndexPolicy(IndexPolicy policy) {
+        logEdit(OperationType.OP_CREATE_INDEX_POLICY, policy);
+    }
+
+    public void logDropIndexPolicy(DropIndexPolicyLog policy) {
+        logEdit(OperationType.OP_DROP_INDEX_POLICY, policy);
+    }
+
     public void logCatalogLog(short id, CatalogLog log) {
         logEdit(id, log);
     }
@@ -2250,5 +2283,9 @@ public class EditLog {
 
     public void logDictionaryDecVersion(Dictionary dictionary) {
         logEdit(OperationType.OP_DICTIONARY_DEC_VERSION, new DictionaryDecreaseVersionInfo(dictionary));
+    }
+
+    public void logBranchOrTag(TableBranchOrTagInfo info) {
+        logEdit(OperationType.OP_BRANCH_OR_TAG, info);
     }
 }

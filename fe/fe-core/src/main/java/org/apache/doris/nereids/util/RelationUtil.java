@@ -26,10 +26,12 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -110,15 +112,15 @@ public class RelationUtil {
     /**
      * get table
      */
-    public static TableIf getTable(List<String> qualifierName, Env env, Optional<Location> location) {
-        return getDbAndTable(qualifierName, env, location).second;
+    public static TableIf getTable(List<String> qualifierName, Env env, Optional<UnboundRelation> unboundRelation) {
+        return getDbAndTable(qualifierName, env, unboundRelation).second;
     }
 
     /**
      * get database and table
      */
     public static Pair<DatabaseIf<?>, TableIf> getDbAndTable(
-            List<String> qualifierName, Env env, Optional<Location> location) {
+            List<String> qualifierName, Env env, Optional<UnboundRelation> unboundRelation) {
         String catalogName = qualifierName.get(0);
         String dbName = qualifierName.get(1);
         String tableName = qualifierName.get(2);
@@ -126,17 +128,18 @@ public class RelationUtil {
         if (catalog == null) {
             throw new AnalysisException(java.lang.String.format("Catalog %s does not exist.", catalogName));
         }
+        Optional<Origin> origin = unboundRelation.flatMap(AbstractTreeNode::getOrigin);
         try {
             DatabaseIf<TableIf> db = catalog.getDbOrException(dbName, s -> new AnalysisException(
                     "Database [" + dbName + "] does not exist."
-                            + (location.map(loc -> "(" + loc + ")").orElse("")))
+                            + (origin.map(loc -> "(" + loc + ")").orElse("")))
             );
             Pair<String, String> tableNameWithSysTableName
                     = SysTable.getTableNameWithSysTableName(tableName);
             TableIf tbl = db.getTableOrException(tableNameWithSysTableName.first,
                     s -> new AnalysisException(
                             "Table [" + tableName + "] does not exist in database [" + dbName + "]."
-                                    + (location.map(loc -> "(" + loc + ")").orElse("")))
+                                    + (origin.map(loc -> "(" + loc + ")").orElse("")))
             );
             Optional<TableValuedFunction> sysTable = tbl.getSysTableFunction(catalogName, dbName, tableName);
             if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second) && !sysTable.isPresent()) {
@@ -171,9 +174,6 @@ public class RelationUtil {
                 connectContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
                 LogicalPlan logicalPlan;
                 try {
-                    // disable rbo sync mv rewrite
-                    connectContext.getSessionVariable()
-                            .setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
                     // disable constant fold
                     connectContext.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
                     planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY,

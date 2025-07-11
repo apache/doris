@@ -26,6 +26,7 @@
 #include "util/coding.h"
 #include "util/slice.h"
 #include "util/tdigest.h"
+#include "vec/common/unaligned.h"
 
 namespace doris {
 
@@ -69,7 +70,7 @@ bool QuantileState::is_valid(const Slice& slice) {
     }
     const uint8_t* ptr = (uint8_t*)slice.data;
     const uint8_t* end = (uint8_t*)slice.data + slice.size;
-    float compress_value = *reinterpret_cast<const float*>(ptr);
+    float compress_value = unaligned_load<float>(ptr);
     if (compress_value < QUANTILE_STATE_COMPRESSION_MIN ||
         compress_value > QUANTILE_STATE_COMPRESSION_MAX) {
         return false;
@@ -159,7 +160,7 @@ bool QuantileState::deserialize(const Slice& slice) {
     }
 
     const uint8_t* ptr = (uint8_t*)slice.data;
-    _compression = *reinterpret_cast<const float*>(ptr);
+    _compression = unaligned_load<float>(ptr);
     ptr += sizeof(float);
     // first byte : type
     _type = (QuantileStateType)*ptr++;
@@ -169,7 +170,7 @@ bool QuantileState::deserialize(const Slice& slice) {
         break;
     case SINGLE: {
         // 2: single_data value
-        _single_data = *reinterpret_cast<const double*>(ptr);
+        _single_data = unaligned_load<double>(ptr);
         ptr += sizeof(double);
         break;
     }
@@ -200,7 +201,7 @@ bool QuantileState::deserialize(const Slice& slice) {
 
 size_t QuantileState::serialize(uint8_t* dst) const {
     uint8_t* ptr = dst;
-    *reinterpret_cast<float*>(ptr) = _compression;
+    unaligned_store<float>(ptr, _compression);
     ptr += sizeof(float);
     switch (_type) {
     case EMPTY: {
@@ -209,14 +210,14 @@ size_t QuantileState::serialize(uint8_t* dst) const {
     }
     case SINGLE: {
         *ptr++ = SINGLE;
-        *reinterpret_cast<double*>(ptr) = _single_data;
+        unaligned_store<double>(ptr, _single_data);
         ptr += sizeof(double);
         break;
     }
     case EXPLICIT: {
         *ptr++ = EXPLICIT;
         uint16_t size = _explicit_data.size();
-        *reinterpret_cast<uint16_t*>(ptr) = size;
+        unaligned_store<uint16_t>(ptr, size);
         ptr += sizeof(uint16_t);
         memcpy(ptr, &_explicit_data[0], size * sizeof(double));
         ptr += size * sizeof(double);

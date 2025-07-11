@@ -440,7 +440,7 @@ public:
         void sort() {
             size_t dict_size = _dict_data->size();
 
-            _code_convert_table.reserve(dict_size);
+            _code_convert_table.resize(dict_size);
             _perm.resize(dict_size);
             for (size_t i = 0; i < dict_size; ++i) {
                 _perm[i] = i;
@@ -505,7 +505,7 @@ public:
         // This may because the magnitude of the data is not large enough(in q60, only about 80k rows data is filtered for largest table)
         // So we may need more test here.
         mutable HashValueContainer _hash_values;
-        mutable std::vector<uint8> _compute_hash_value_flags;
+        mutable std::vector<uint8_t> _compute_hash_value_flags;
         IColumn::Permutation _perm;
         size_t _total_str_len;
     };

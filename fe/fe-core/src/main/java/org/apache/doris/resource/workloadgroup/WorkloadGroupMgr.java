@@ -350,7 +350,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         sumOfAllMemLimit += newWg.getMemoryLimitPercentWhenCalSum();
 
         // 3 check total sum
-        if (sumOfAllMemLimit > 100.0 + 1e-6) {
+        if (Config.enable_wg_memory_sum_limit && sumOfAllMemLimit > 100.0 + 1e-6) {
             throw new DdlException(
                     "The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT + " within compute group " + (
                             newWgCg)
@@ -375,9 +375,8 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             throw new DdlException("Alter workload group should contain at least one property");
         }
 
-        String cgName = cg.getName();
         WorkloadGroup newWorkloadGroup;
-        WorkloadGroupKey wgKey = WorkloadGroupKey.get(cgName, workloadGroupName);
+        WorkloadGroupKey wgKey = WorkloadGroupKey.get(cg.getId(), workloadGroupName);
         writeLock();
         try {
             // get 0 idx here because there can only be one wg in cg with specify wg name.
@@ -386,7 +385,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                 throw new RuntimeException(
                         "Unexpected error: find " + ret.size() + " workload group " + workloadGroupName
                                 + " in compute group "
-                                + cgName);
+                                + cg.getName());
             }
             WorkloadGroup currentWorkloadGroup = ret.get(0);
             newWorkloadGroup = WorkloadGroup.copyAndUpdate(currentWorkloadGroup, properties);
@@ -397,7 +396,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         } finally {
             writeUnlock();
         }
-        LOG.info("Alter workload group {} for compute group {} success: {}", newWorkloadGroup, cgName);
+        LOG.info("Alter workload group {} for compute group {} success: {}", newWorkloadGroup, cg.getName());
     }
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {

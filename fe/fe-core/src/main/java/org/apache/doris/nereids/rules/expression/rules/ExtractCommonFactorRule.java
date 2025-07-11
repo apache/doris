@@ -21,6 +21,7 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.rewrite.SkipSimpleExprs;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -42,7 +43,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Extract common expr for `CompoundPredicate`.
@@ -57,12 +57,14 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                 matchesTopType(CompoundPredicate.class).then(ExtractCommonFactorRule::extractCommonFactor)
-                        .toRule(ExpressionRuleType.EXTRACT_COMMON_FACTOR)
+                 matchesTopType(CompoundPredicate.class)
+                         .then(ExtractCommonFactorRule::extractCommonFactor)
+                         .toRule(ExpressionRuleType.EXTRACT_COMMON_FACTOR)
         );
     }
 
-    private static Expression extractCommonFactor(CompoundPredicate originExpr) {
+    /** extractCommonFactor */
+    public static Expression extractCommonFactor(CompoundPredicate originExpr) {
         // fast return
         boolean canExtract = false;
         Set<Expression> childrenSet = new LinkedHashSet<>();
@@ -77,9 +79,11 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
                 if (childrenSet.size() == 1) {
                     return childrenSet.iterator().next();
                 } else {
-                    return originExpr.withChildren(childrenSet.stream().collect(Collectors.toList()));
+                    return originExpr.withChildren(Utils.fastToImmutableList(childrenSet));
                 }
             }
+            return originExpr;
+        } else if (SkipSimpleExprs.isSimpleExpr(originExpr)) {
             return originExpr;
         }
         // flatten same type to a list

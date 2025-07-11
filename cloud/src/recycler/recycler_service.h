@@ -19,8 +19,8 @@
 
 #include <gen_cpp/cloud.pb.h>
 
-#include "meta-service/txn_kv.h"
 #include "meta-service/txn_lazy_committer.h"
+#include "meta-store/txn_kv.h"
 
 namespace doris::cloud {
 

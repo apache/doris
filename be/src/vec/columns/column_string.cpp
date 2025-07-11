@@ -650,8 +650,8 @@ void ColumnStr<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 
 template <typename T>
 void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                                    int direction, std::vector<uint8>& cmp_res,
-                                    uint8* __restrict filter) const {
+                                    int direction, std::vector<uint8_t>& cmp_res,
+                                    uint8_t* __restrict filter) const {
     sanity_check_simple();
     auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);

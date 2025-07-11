@@ -37,6 +37,9 @@ import java.util.List;
 public class EliminateSort extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        if (!plan.containsType(LogicalSort.class)) {
+            return plan;
+        }
         Boolean eliminateSort = true;
         return plan.accept(this, eliminateSort);
     }

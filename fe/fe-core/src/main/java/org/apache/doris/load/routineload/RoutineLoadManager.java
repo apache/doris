@@ -41,6 +41,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
@@ -496,8 +497,18 @@ public class RoutineLoadManager implements Writable {
     // check if the specified BE is available for running task
     // return true if it is available. return false if otherwise.
     // throw exception if unrecoverable errors happen.
-    public long getAvailableBeForTask(long jobId, long previousBeId) throws LoadException {
+    public long getAvailableBeForTask(long jobId, long previousBeId) throws UserException {
         List<Long> availableBeIds = getAvailableBackendIds(jobId);
+        if (availableBeIds.isEmpty()) {
+            RoutineLoadJob job = getJob(jobId);
+            if (job != null) {
+                String msg = "no available BE found for job " + jobId
+                        + "please check the BE status and user's cluster or tags";
+                job.updateState(RoutineLoadJob.JobState.PAUSED,
+                        new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR, msg), false /* not replay */);
+            }
+            return -1L;
+        }
 
         // check if be has idle slot
         readLock();
@@ -882,6 +893,31 @@ public class RoutineLoadManager implements Writable {
                 .add("current_state", operation.getJobState())
                 .add("msg", "replay change routine load job")
                 .build());
+    }
+
+    /**
+     * Enter of altering a routine load job
+     */
+    public void alterRoutineLoadJob(AlterRoutineLoadCommand command) throws UserException {
+        RoutineLoadJob job;
+        // it needs lock when getting routine load job,
+        // otherwise, it may cause the editLog out of order in the following scenarios:
+        // thread A: create job and record job meta
+        // thread B: change job state and persist in editlog according to meta
+        // thread A: persist in editlog
+        // which will cause the null pointer exception when replaying editLog
+        readLock();
+        try {
+            job = checkPrivAndGetJob(command.getDbName(), command.getJobName());
+        } finally {
+            readUnlock();
+        }
+        if (command.hasDataSourceProperty()
+                && !command.getDataSourceProperties().getDataSourceType().equalsIgnoreCase(job.dataSourceType.name())) {
+            throw new DdlException("The specified job type is not: "
+                + command.getDataSourceProperties().getDataSourceType());
+        }
+        job.modifyProperties(command);
     }
 
     /**
