@@ -38,6 +38,7 @@
 
 #include "common/config.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "exec/tablet_info.h"
 #include "http/action/download_action.h"
 #include "http/ev_http_server.h"
@@ -462,4 +463,136 @@ TEST_F(SnapshotLoaderTest, TestLinkSameRowsetFiles) {
     // 9. Verify skip download files
     ASSERT_EQ(loader.get_http_download_files_num(), 0);
 }
+
+TEST_F(SnapshotLoaderTest, TestLinkSameRowsetFilesAfterClone) {
+    // 1. Create a tablet
+    int64_t tablet_id = 555;
+    int32_t schema_hash = 666;
+    int64_t partition_id = 777;
+    TCreateTabletReq req = create_tablet(partition_id, tablet_id, schema_hash);
+    RuntimeProfile profile("CreateTablet");
+    Status status = engine_ref->create_tablet(req, &profile);
+    EXPECT_TRUE(status.ok());
+    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
+    EXPECT_TRUE(tablet != nullptr);
+
+    // 2. Add a rowset to the tablet
+    add_rowset(tablet_id, schema_hash, partition_id, 100, 100);
+    auto version = tablet->max_version();
+    std::cout << "Original version: " << version.first << ", " << version.second << std::endl;
+
+    // 3. Make a snapshot of the tablet
+    std::string snapshot_path;
+    bool allow_incremental_clone = false;
+    TSnapshotRequest snapshot_request;
+    snapshot_request.tablet_id = tablet_id;
+    snapshot_request.schema_hash = schema_hash;
+    snapshot_request.version = version.second;
+    status = engine_ref->snapshot_mgr()->make_snapshot(snapshot_request, &snapshot_path,
+                                                       &allow_incremental_clone);
+    ASSERT_TRUE(status.ok());
+    snapshot_path = fmt::format("{}/{}/{}", snapshot_path, tablet_id, schema_hash);
+    std::cout << "snapshot_path: " << snapshot_path << std::endl;
+
+    // 4. Create a destination path for "remote" snapshot
+    std::string remote_snapshot_dir = storage_root_path + "/remote_snapshot_0";
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(remote_snapshot_dir).ok());
+    std::string remote_tablet_path =
+            fmt::format("{}/{}/{}", remote_snapshot_dir, tablet_id, schema_hash);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(remote_tablet_path).ok());
+
+    std::string remote_snapshot_dir_0 = storage_root_path + "/remote_snapshot_1";
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(remote_snapshot_dir_0).ok());
+    std::string remote_tablet_path_0 =
+            fmt::format("{}/{}/{}", remote_snapshot_dir_0, tablet_id, schema_hash);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(remote_tablet_path_0).ok());
+
+    // 5. Copy snapshot files to remote path and calls convert_rowset_ids
+    std::vector<io::FileInfo> snapshot_files;
+    bool is_exists = false;
+    ASSERT_TRUE(io::global_local_filesystem()
+                        ->list(snapshot_path, true, &snapshot_files, &is_exists)
+                        .ok());
+    for (const auto& file : snapshot_files) {
+        if (!file.file_name.ends_with(".hdr")) {
+            continue;
+        }
+        std::string src_file = snapshot_path + "/" + file.file_name;
+        std::string dst_file = remote_tablet_path + "/" + file.file_name;
+        ASSERT_TRUE(io::global_local_filesystem()->copy_path(src_file, dst_file).ok());
+    }
+
+    int64_t dest_tablet_id = 888;
+    std::string src_hdr = remote_tablet_path + "/" + std::to_string(tablet_id) + ".hdr";
+    std::string dst_hdr = remote_tablet_path + "/" + std::to_string(dest_tablet_id) + ".hdr";
+    ASSERT_TRUE(io::global_local_filesystem()->rename(src_hdr, dst_hdr).ok());
+
+    auto guards = engine_ref->snapshot_mgr()->convert_rowset_ids(snapshot_path, tablet_id, 0, 0,
+                                                                 partition_id, schema_hash, true);
+
+    snapshot_files.clear();
+    is_exists = false;
+    ASSERT_TRUE(io::global_local_filesystem()
+                        ->list(snapshot_path, true, &snapshot_files, &is_exists)
+                        .ok());
+    for (const auto& file : snapshot_files) {
+        std::string src_file = snapshot_path + "/" + file.file_name;
+        std::string dst_file = remote_tablet_path_0 + "/" + file.file_name;
+        ASSERT_TRUE(io::global_local_filesystem()->copy_path(src_file, dst_file).ok());
+    }
+
+    // 7. Setup a remote tablet snapshot for download
+    TRemoteTabletSnapshot remote_snapshot;
+    remote_snapshot.remote_tablet_id = dest_tablet_id;
+    remote_snapshot.local_tablet_id = tablet_id;
+    remote_snapshot.local_snapshot_path = snapshot_path;
+    remote_snapshot.remote_snapshot_path = remote_tablet_path;
+    remote_snapshot.remote_be_addr.hostname = "127.0.0.1";
+    remote_snapshot.remote_be_addr.port = 1234;
+    remote_snapshot.remote_token = "fake_token";
+
+    // 8. Download the snapshot
+    std::vector<TRemoteTabletSnapshot> remote_snapshots = {remote_snapshot};
+    std::vector<int64_t> downloaded_tablet_ids;
+    SnapshotLoader loader(*engine_ref, ExecEnv::GetInstance(), 3L, tablet_id);
+    status = loader.remote_http_download(remote_snapshots, &downloaded_tablet_ids);
+    ASSERT_TRUE(status.ok());
+
+    ASSERT_EQ(loader.get_http_download_files_num(), 0);
+
+    // 9. Verify skip download files
+    ASSERT_EQ(loader.get_http_download_files_num(), 0);
+
+    int64_t dest_tablet_id_0 = 999;
+    req = create_tablet(partition_id, dest_tablet_id_0, schema_hash);
+    status = engine_ref->create_tablet(req, &profile);
+    EXPECT_TRUE(status.ok());
+    tablet = engine_ref->tablet_manager()->get_tablet(dest_tablet_id_0);
+    EXPECT_TRUE(tablet != nullptr);
+    add_rowset(dest_tablet_id_0, schema_hash, partition_id, 200, 200);
+    version = tablet->max_version();
+    std::cout << "Original version: " << version.first << ", " << version.second << std::endl;
+    src_hdr = remote_tablet_path_0 + "/" + std::to_string(tablet_id) + ".hdr";
+    dst_hdr = remote_tablet_path_0 + "/" + std::to_string(dest_tablet_id_0) + ".hdr";
+    ASSERT_TRUE(io::global_local_filesystem()->rename(src_hdr, dst_hdr).ok());
+    guards = engine_ref->snapshot_mgr()->convert_rowset_ids(remote_tablet_path_0, dest_tablet_id_0,
+                                                            0, 0, partition_id, schema_hash, true);
+
+    TRemoteTabletSnapshot remote_snapshot_0;
+    remote_snapshot_0.remote_tablet_id = tablet_id;
+    remote_snapshot_0.local_tablet_id = dest_tablet_id_0;
+    remote_snapshot_0.local_snapshot_path = remote_tablet_path_0;
+    remote_snapshot_0.remote_snapshot_path = snapshot_path;
+    remote_snapshot_0.remote_be_addr.hostname = "127.0.0.1";
+    remote_snapshot_0.remote_be_addr.port = 1234;
+    remote_snapshot_0.remote_token = "fake_token";
+
+    std::vector<TRemoteTabletSnapshot> remote_snapshots_0 = {remote_snapshot_0};
+    std::vector<int64_t> downloaded_tablet_ids_0;
+    SnapshotLoader loader_0(*engine_ref, ExecEnv::GetInstance(), 3L, tablet_id);
+    status = loader_0.remote_http_download(remote_snapshots_0, &downloaded_tablet_ids_0);
+    ASSERT_TRUE(status.ok());
+    ASSERT_EQ(loader_0.get_http_download_files_num(), 0);
+}
+
 } // namespace doris

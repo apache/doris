@@ -530,6 +530,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
+    out->set_source_tablet_id(in.source_tablet_id());
 }
 
 void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
@@ -604,6 +605,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
+    out->set_source_tablet_id(in.source_tablet_id());
 }
 
 TabletMetaPB cloud_tablet_meta_to_doris(const TabletMetaCloudPB& in) {
@@ -685,6 +687,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
+    out->set_source_tablet_id(in.source_tablet_id());
 }
 
 void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
@@ -759,6 +762,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
+    out->set_source_tablet_id(in.source_tablet_id());
 }
 
 } // namespace doris::cloud
