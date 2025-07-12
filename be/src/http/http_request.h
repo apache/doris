@@ -33,8 +33,8 @@ namespace doris {
 class HttpHandler;
 
 enum SendReplyType {
-    SYNC = 0,
-    ASYNC = 1
+    REPLY_SYNC = 0,
+    REPLY_ASYNC = 1
 };
 
 class HttpRequest {
@@ -84,7 +84,7 @@ public:
 
     const char* remote_host() const;
 
-    void mark_send_reply(SendReplyType type = ASYNC) {
+    void mark_send_reply(SendReplyType type = REPLY_ASYNC) {
         _send_reply_type = type;
     }
 
@@ -93,7 +93,7 @@ public:
     }
 
     void wait_finish_send_reply() {
-        if (_send_reply_type == SYNC) {
+        if (_send_reply_type == REPLY_SYNC) {
             return;
         }
 
@@ -104,7 +104,7 @@ public:
     }
 
 private:
-    SendReplyType _send_reply_type = SYNC;
+    SendReplyType _send_reply_type = REPLY_SYNC;
     HttpMethod _method;
     std::string _uri;
     std::string _raw_path;
