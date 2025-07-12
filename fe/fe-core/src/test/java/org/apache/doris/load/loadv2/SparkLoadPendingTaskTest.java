@@ -96,7 +96,9 @@ public class SparkLoadPendingTaskTest {
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 null, null, null, false, null);
+        desc.analyzeWithoutCheckPriv(database.getFullName());
         BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
+        brokerFileGroup.parse(database, desc);
         brokerFileGroups.add(brokerFileGroup);
         BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);
         aggKeyToFileGroups.put(aggKey, brokerFileGroups);
@@ -190,7 +192,9 @@ public class SparkLoadPendingTaskTest {
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 null, null, null, false, null);
+        desc.analyzeWithoutCheckPriv(database.getFullName());
         BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
+        brokerFileGroup.parse(database, desc);
         brokerFileGroups.add(brokerFileGroup);
         BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);
         aggKeyToFileGroups.put(aggKey, brokerFileGroups);
