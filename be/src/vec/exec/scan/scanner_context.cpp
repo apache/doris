@@ -115,6 +115,11 @@ Status ScannerContext::init() {
     } else {
         _scanner_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
     }
+    std::shared_ptr<TaskExecutor> task_executor = _scanner_scheduler->task_executor();
+    vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
+    _task_handle = DORIS_TRY(task_executor->create_task(
+            task_id, []() { return 0.0; }, config::task_executor_initial_split_concurrency,
+            std::chrono::milliseconds(100), std::nullopt));
 #endif
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.
     // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
@@ -199,6 +204,21 @@ Status ScannerContext::init() {
     RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
 
     return Status::OK();
+}
+
+ScannerContext::~ScannerContext() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+    _tasks_queue.clear();
+    vectorized::BlockUPtr block;
+    while (_free_blocks.try_dequeue(block)) {
+        // do nothing
+    }
+    block.reset();
+    DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
+    if (_task_handle) {
+        static_cast<void>(_scanner_scheduler->task_executor()->remove_task(_task_handle));
+        _task_handle = nullptr;
+    }
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
@@ -357,7 +377,8 @@ Status ScannerContext::validate_block_schema(Block* block) {
         auto& data = block->get_by_position(index++);
         if (data.column->is_nullable() != data.type->is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
-                    "column(name: {}) nullable({}) does not match type nullable({}), slot(id: {}, "
+                    "column(name: {}) nullable({}) does not match type nullable({}), slot(id: "
+                    "{}, "
                     "name:{})",
                     data.name, data.column->is_nullable(), data.type->is_nullable(), slot->id(),
                     slot->col_name());
@@ -387,6 +408,10 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         }
     }
     _tasks_queue.clear();
+    if (_task_handle) {
+        static_cast<void>(_scanner_scheduler->task_executor()->remove_task(_task_handle));
+        _task_handle = nullptr;
+    }
     // TODO yiguolei, call mark close to scanners
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
@@ -589,7 +614,8 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
     if (current_concurrency >= _max_scan_concurrency) {
         VLOG_DEBUG << fmt::format(
-                "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip pull",
+                "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip "
+                "pull",
                 ctx_id, current_concurrency, _max_scan_concurrency);
         return nullptr;
     }
