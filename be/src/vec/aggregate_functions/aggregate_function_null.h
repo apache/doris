@@ -40,7 +40,7 @@ class AggregateFunctionNullBaseInline : public IAggregateFunctionHelper<Derived>
 protected:
     std::unique_ptr<NestFunction> nested_function;
     size_t prefix_size;
-    mutable int64_t null_count = 0;
+    size_t null_count_size;
 
     /** In addition to data for nested aggregate function, we keep a flag
       *  indicating - was there at least one non-NULL value accumulated.
@@ -50,11 +50,11 @@ protected:
       */
 
     AggregateDataPtr nested_place(AggregateDataPtr __restrict place) const noexcept {
-        return place + prefix_size;
+        return place + prefix_size + null_count_size;
     }
 
     ConstAggregateDataPtr nested_place(ConstAggregateDataPtr __restrict place) const noexcept {
-        return place + prefix_size;
+        return place + prefix_size + null_count_size;
     }
 
     static void init_flag(AggregateDataPtr __restrict place) noexcept {
@@ -73,6 +73,23 @@ protected:
         return result_is_nullable ? place[0] : true;
     }
 
+    static void init_null_count(AggregateDataPtr __restrict place) noexcept {
+        if constexpr (result_is_nullable) {
+            *reinterpret_cast<int32_t*>(place) = 0; // Initialize null count to 0
+        }
+    }
+
+    static void update_null_count(AggregateDataPtr __restrict place, bool incremental) noexcept {
+        if constexpr (result_is_nullable) {
+            auto* ptr = reinterpret_cast<int32_t*>(place);
+            incremental ? (*ptr)++ : (*ptr)--;
+        }
+    }
+
+    static int32_t get_null_count(ConstAggregateDataPtr __restrict place) noexcept {
+        return result_is_nullable ? *reinterpret_cast<const int32_t*>(place) : 0;
+    }
+
 public:
     AggregateFunctionNullBaseInline(IAggregateFunction* nested_function_,
                                     const DataTypes& arguments)
@@ -80,9 +97,26 @@ public:
               nested_function {assert_cast<NestFunction*>(nested_function_)} {
         DCHECK(nested_function_ != nullptr);
         if (result_is_nullable) {
-            prefix_size = nested_function->align_of_data();
+            // flag|-------padding-------|--------------null_count-------|--nested_data----|
+            // [0] :[1...(prefix_size-1)]:[prefix_size...(prefix_size+3)]:[prefix_size+4...]
+            size_t nested_align = nested_function->align_of_data();
+            size_t null_count_align = alignof(int32_t);
+            prefix_size = 1;
+            null_count_size = sizeof(int32_t);
+            // firstly calculate the prefix_size to align with null_count_size
+            if (prefix_size % null_count_align != 0) {
+                prefix_size += (null_count_align - (prefix_size % null_count_align));
+            }
+
+            // （flag + padding + null_count）
+            size_t total_before_nested = prefix_size + null_count_size;
+            // secondly, calculate the total size to align with nested_align
+            if (total_before_nested % nested_align != 0) {
+                prefix_size += (nested_align - (total_before_nested % nested_align));
+            }
         } else {
             prefix_size = 0;
+            null_count_size = 0;
         }
     }
 
@@ -104,6 +138,7 @@ public:
     void create(AggregateDataPtr __restrict place) const override {
         init_flag(place);
         nested_function->create(nested_place(place));
+        init_null_count(place + this->prefix_size);
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
@@ -112,16 +147,20 @@ public:
     void reset(AggregateDataPtr place) const override {
         init_flag(place);
         nested_function->reset(nested_place(place));
-        null_count = 0;
+        init_null_count(place + this->prefix_size);
     }
 
     bool has_trivial_destructor() const override {
         return nested_function->has_trivial_destructor();
     }
 
-    size_t size_of_data() const override { return prefix_size + nested_function->size_of_data(); }
+    size_t size_of_data() const override {
+        return prefix_size + null_count_size + nested_function->size_of_data();
+    }
 
-    size_t align_of_data() const override { return nested_function->align_of_data(); }
+    size_t align_of_data() const override {
+        return std::max(nested_function->align_of_data(), alignof(int32_t));
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena& arena) const override {
@@ -205,7 +244,7 @@ public:
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         if (column->is_null_at(row_num)) {
-            this->null_count++;
+            this->update_null_count(place + this->prefix_size, true);
         } else {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
@@ -365,20 +404,21 @@ public:
             if (outcoming_pos >= partition_start && outcoming_pos < partition_end &&
                 null_map_data[outcoming_pos] == 1) {
                 is_previous_frame_start_null = true;
-                this->null_count--;
+                this->update_null_count(place + this->prefix_size, false);
             }
             bool is_current_frame_end_null = false;
             if (incoming_pos >= partition_start && incoming_pos < partition_end &&
                 null_map_data[incoming_pos] == 1) {
                 is_current_frame_end_null = true;
-                this->null_count++;
+                this->update_null_count(place + this->prefix_size, true);
             }
             const IColumn* columns_tmp[2] {nested_column, &(*column->get_null_map_column_ptr())};
             this->nested_function->execute_function_with_incremental(
                     partition_start, partition_end, frame_start, frame_end,
                     this->nested_place(place), columns_tmp, arena, is_previous_frame_start_null,
                     is_current_frame_end_null, true, use_null_result, could_use_previous_result);
-            if (current_frame_end - current_frame_start != this->null_count) {
+            if (current_frame_end - current_frame_start !=
+                this->get_null_count(place + this->prefix_size)) {
                 this->set_flag(place);
             }
         } else {
