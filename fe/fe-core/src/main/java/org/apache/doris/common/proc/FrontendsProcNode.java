@@ -48,9 +48,8 @@ public class FrontendsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("ArrowFlightSqlPort").add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
-            .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat")
-            .add("IsHelper").add("ErrMsg").add("Version")
-            .add("CurrentConnected")
+            .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat").add("IsHelper").add("ErrMsg")
+            .add("Version").add("CurrentConnected").add("LiveSince")
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -163,6 +162,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
             info.add(TimeUtils.longToTimeString(fe.getLastStartupTime()));
             info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
+            info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
             info.add(String.valueOf(isHelperNode(helperNodes, fe)));
             info.add(fe.getHeartbeatErrMsg());
             info.add(fe.getVersion());

@@ -32,5 +32,6 @@ suite("test_show_backends", "show") {
         }
     log.info(result2.toString())
     assertEquals(result1[0].size(),result2[0].size())
+    assertTrue(result1.get(0).contains("LiveSince"))
 }
 
