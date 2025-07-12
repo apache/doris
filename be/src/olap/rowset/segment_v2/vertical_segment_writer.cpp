@@ -1172,7 +1172,9 @@ Status VerticalSegmentWriter::write_batch() {
             _serialize_block_to_row_column(*const_cast<vectorized::Block*>(data.block));
         }
     }
-
+#ifdef BE_TEST
+    int64_t total_data_size = 0;
+#endif
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     // the key is cluster key column unique id
@@ -1205,6 +1207,13 @@ Status VerticalSegmentWriter::write_batch() {
                                                          data.num_rows));
             _olap_data_convertor->clear_source_content();
         }
+#ifdef BE_TEST
+        total_data_size += _column_writers[cid]->estimate_buffer_size();
+#endif
+        // estimate column data size for flush memtable, may be inaccurate at low cardinality
+        _footer.mutable_columns(cid)->set_estimate_total_data_size(
+                _column_writers[cid]->estimate_buffer_size());
+
         if (_data_dir != nullptr &&
             _data_dir->reach_capacity_limit(_column_writers[cid]->estimate_buffer_size())) {
             return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
@@ -1213,7 +1222,10 @@ Status VerticalSegmentWriter::write_batch() {
         RETURN_IF_ERROR(_column_writers[cid]->finish());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
     }
-
+#ifdef BE_TEST
+    auto origin_data_footprint = _footer.data_footprint();
+    _footer.set_data_footprint(origin_data_footprint + total_data_size);
+#endif
     for (auto& data : _batched_blocks) {
         _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
         RETURN_IF_ERROR(_generate_key_index(data, key_columns, seq_column, cid_to_column));
