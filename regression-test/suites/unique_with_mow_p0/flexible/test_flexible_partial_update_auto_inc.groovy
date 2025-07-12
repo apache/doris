@@ -92,5 +92,30 @@ suite('test_flexible_partial_update_auto_inc') {
         qt_autoinc_val_2 "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k not in (8,10) order by k;"
         qt_autoinc_val_3 "select k,v1,v2,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} where k in (8,10) order by k;"
         qt_autoinc_val_4 "select count(distinct v3) from ${tableName} where k in (8,10);"
+
+        def originAutoIncVals = []
+        def res1 = sql_return_maparray "select k,v1,v2,v3,v4,v5 from ${tableName} where k in (8,10)";
+        for (def row : res1) {
+            originAutoIncVals << row.v3
+        }
+        Collections.sort(originAutoIncVals)
+        logger.info("originAutoIncVals; ${originAutoIncVals}")
+        streamLoad {
+            table "${tableName}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'strict_mode', 'false'
+            set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+            file "autoinc2.json"
+            time 20000
+        }
+        def autoIncVals = []
+        def res2 = sql_return_maparray "select k,v1,v2,v3,v4,v5 from ${tableName} where k in (8,10)";
+        for (def row : res1) {
+            autoIncVals << row.v3
+        }
+        Collections.sort(autoIncVals)
+        logger.info("autoIncVals: ${autoIncVals}")
+        assertEquals(originAutoIncVals, autoIncVals)
     }
 }
