@@ -586,6 +586,35 @@ void CloudTablet::remove_unused_rowsets() {
               << ", cost(us)=" << watch.get_elapse_time_us();
 }
 
+Status CloudTablet::rowsets_delete_bitmap_digest(int64_t version, std::string& msg) {
+    std::vector<RowsetSharedPtr> rowsets;
+    RowsetIdUnorderedSet rowset_ids;
+    {
+        std::lock_guard<std::shared_mutex> rlock(get_header_lock());
+        RETURN_IF_ERROR(get_all_rs_id_unlocked(version, &rowset_ids));
+        rowsets = get_rowset_by_ids(&rowset_ids);
+    }
+    std::vector<std::string> rowset_msgs;
+    for (const auto& rs : rowsets) {
+        DeleteBitmap rowset_dbm(tablet_id());
+        tablet_meta()->delete_bitmap().subset(
+                {rs->rowset_id(), 0, 0},
+                {rs->rowset_id(), std::numeric_limits<DeleteBitmap::SegmentId>::max(),
+                 std::numeric_limits<DeleteBitmap::Version>::max()},
+                &rowset_dbm);
+        size_t cardinality = rowset_dbm.cardinality();
+        size_t count = rowset_dbm.get_delete_bitmap_count();
+        if (cardinality > 0) {
+            rowset_msgs.push_back(fmt::format("({}{},{},{})", rs->rowset_id().to_string(),
+                                              rs->version().to_string(), count, cardinality));
+        }
+    }
+    msg = fmt::format("tablet_id={}, version={}, rowsets_count={}, rowsets=[{}]", tablet_id(),
+                      Version(0, version).to_string(), rowsets.size(),
+                      fmt::join(rowset_msgs, ", "));
+    return Status::OK();
+}
+
 void CloudTablet::update_base_size(const Rowset& rs) {
     // Define base rowset as the rowset of version [2-x]
     if (rs.start_version() == 2) {
