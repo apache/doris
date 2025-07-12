@@ -67,7 +67,7 @@ public class StatementScopeIdGenerator {
         if (ConnectContext.get() != null) {
             ConnectContext.get().setStatementContext(new StatementContext());
         }
-        statementContext = new StatementContext();
+        statementContext = new StatementContext(10000);
     }
 
     /** getStatementContext */
