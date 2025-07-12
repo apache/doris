@@ -84,6 +84,27 @@ public class LogicalPlanBuilderAssistant {
     }
 
     /**
+     * determine if there are escape characters
+     */
+    public static boolean hasEscapeChar(String str) {
+        return getEscapeCharPosition(str) != -1;
+    }
+
+    /**
+     * get position of escape charater
+     */
+    public static int getEscapeCharPosition(String str) {
+        int strLen = str.length();
+        for (int i = 0; i < strLen; ++i) {
+            char c = str.charAt(i);
+            if (c == '\\' && (i + 1) < strLen) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
      * Handle Integer literal by BigInteger.
      */
     public static Literal handleIntegerLiteral(String value) {

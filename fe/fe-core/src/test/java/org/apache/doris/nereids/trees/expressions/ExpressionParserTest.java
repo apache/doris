@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class ExpressionParserTest extends ParserTestBase {
@@ -63,15 +64,27 @@ public class ExpressionParserTest extends ParserTestBase {
                 .assertEquals(new StringLiteral("\t"));
         parseExpression("'\\0'")
                 .assertEquals(new StringLiteral("\0"));
+        parseExpression("'It\\'s a test'")
+                .assertEquals(new StringLiteral("It's a test"));
+        parseExpression("'It\\\\\\'s a test'")
+                .assertEquals(new StringLiteral("It\\'s a test"));
         ConnectContext.get().getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
-        parseExpression("'\\b'")
-                .assertEquals(new StringLiteral("\\b"));
-        parseExpression("'\\n'")
-                .assertEquals(new StringLiteral("\\n"));
-        parseExpression("'\\t'")
-                .assertEquals(new StringLiteral("\\t"));
-        parseExpression("'\\0'")
-                .assertEquals(new StringLiteral("\\0"));
+        NereidsParser parser = new NereidsParser();
+        Assertions.assertThrows(ParseException.class, () -> parser.parseExpression("'\\b'"),
+                "invalid escape character when sql_mode='NO_BACKSLASH_ESCAPES'(line 1, pos 1)");
+        Assertions.assertThrows(ParseException.class, () -> parser.parseExpression("'\\n'"),
+                "invalid escape character when sql_mode='NO_BACKSLASH_ESCAPES'(line 1, pos 1)");
+        Assertions.assertThrows(ParseException.class, () -> parser.parseExpression("'\\t'"),
+                "invalid escape character when sql_mode='NO_BACKSLASH_ESCAPES'(line 1, pos 1)");
+        Assertions.assertThrows(ParseException.class, () -> parser.parseExpression("'\\0'"),
+                "invalid escape character when sql_mode='NO_BACKSLASH_ESCAPES'(line 1, pos 1)");
+
+        Assertions.assertThrows(ParseException.class, () -> parser.parseExpression("'It\\'s a test'"),
+                "invalid escape character when sql_mode='NO_BACKSLASH_ESCAPES'(line 1, pos 3)");
+        Assertions.assertThrows(ParseException.class, () -> parser.parseExpression("'\\'It\\'s a test''"),
+                "invalid escape character when sql_mode='NO_BACKSLASH_ESCAPES'(line 1, pos 1)");
+        Assertions.assertThrows(ParseException.class, () -> parser.parseExpression("'It\\\\\\'s a test'"),
+                "invalid escape character when sql_mode='NO_BACKSLASH_ESCAPES'(line 1, pos 3)");
     }
 
     @Test
