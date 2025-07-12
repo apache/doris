@@ -1184,7 +1184,7 @@ Status CloudStorageEngine::_check_all_root_path_cluster_id() {
                 "different cluster ids: {}",
                 fmt::join(cluster_ids, ", "));
     }
-    if (_effective_cluster_id != -1  && * cluster_ids.begin() != _effective_cluster_id) {
+    if (_effective_cluster_id != -1 && * cluster_ids.begin() != _effective_cluster_id) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::Corruption("multiple cluster ids is not equal. config::cluster_id={}, "
                                    "storage path cluster_id={}",
