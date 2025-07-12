@@ -123,7 +123,7 @@ void ForEncoder<T>::bit_pack_8(const T* input, uint8_t in_num, int bit_width, ui
 
 template <typename T>
 template <typename U>
-void ForEncoder<T>::bit_pack_32(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
+void ForEncoder<T>::bit_pack_4(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
     U s = 0;
     uint8_t output_mask = 255;
     int tail_count = in_num & 3;              // the remainder of in_num modulo 4
@@ -191,7 +191,7 @@ void ForEncoder<T>::bit_pack_32(const T* input, uint8_t in_num, int bit_width, u
 }
 
 template <typename T>
-void ForEncoder<T>::bit_pack_128(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
+void ForEncoder<T>::bit_pack_1(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
     int output_mask = 255;
     int need_bit = 0; // still need
 
@@ -245,15 +245,21 @@ void ForEncoder<T>::bit_pack(const T* input, uint8_t in_num, int bit_width, uint
     if (in_num == 0 || bit_width == 0) {
         return;
     }
-
+    /*
+        bit_width <= 8 : pack_8 > pack_16 > pack_32
+        bit_width <= 16 : pack_4 > pack_8 > pack_16
+        bit_width <= 32 : pack_4 >= pack_2 > pack_8 
+        (pack_4 and pack_2 have nearly similar execution times, but pack_4 utilizes space more efficiently)
+        bit_width <= 64 : pack_1 > pack_4
+    */
     if (bit_width <= 8) {
         bit_pack_8(input, in_num, bit_width, output);
     } else if (bit_width <= 16) {
-        bit_pack_32<int64_t>(input, in_num, bit_width, output);
+        bit_pack_4<int64_t>(input, in_num, bit_width, output);
     } else if (bit_width <= 32) {
-        bit_pack_32<__int128_t>(input, in_num, bit_width, output);
+        bit_pack_4<__int128_t>(input, in_num, bit_width, output);
     } else {
-        bit_pack_128(input, in_num, bit_width, output);
+        bit_pack_1(input, in_num, bit_width, output);
     }
 }
 
