@@ -53,7 +53,7 @@ protected:
     io::FileSystemSPtr _fs;
     std::string directory;
 
-    void priv_getFN(char* buffer, const char* name) const;
+    std::string priv_getFN(const std::string& name) const;
     /// Removes an existing file in the directory.
     bool doDeleteFile(const char* name) override;
 
@@ -96,6 +96,8 @@ public:
 private:
     int32_t filemode;
     io::FileWriterOptions _opts;
+
+    friend class DorisFSDirectoryTest;
 };
 
 class CLUCENE_EXPORT DorisRAMFSDirectory : public DorisFSDirectory {
