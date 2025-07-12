@@ -37,6 +37,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
@@ -313,6 +314,8 @@ public:
 
     bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
 
+    bool get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends);
+
     bool should_fetch_from_peer(int64_t tablet_id);
 
     const std::shared_ptr<StreamLoadRecorder>& get_stream_load_recorder() {
@@ -342,6 +345,10 @@ public:
     bool remove_broken_path(std::string path);
 
     std::set<string> get_broken_paths() { return _broken_paths; }
+
+    Status submit_clone_task(Tablet* tablet, int64_t version);
+
+    std::unordered_map<int64_t, std::unique_ptr<TaskWorkerPoolIf>>* workers;
 
 private:
     // Instance should be inited from `static open()`
@@ -564,6 +571,8 @@ private:
 
     // thread to check tablet delete bitmap count tasks
     scoped_refptr<Thread> _check_delete_bitmap_score_thread;
+
+    int64_t _last_get_peers_replica_backends_time_ms {0};
 };
 
 // lru cache for create tabelt round robin in disks
