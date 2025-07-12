@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -64,6 +65,9 @@ public:
         return mem_kv_.size();
     }
 
+    int64_t get_bytes_ {};
+    int64_t put_bytes_ {};
+    int64_t del_bytes_ {};
     int64_t get_count_ {};
     int64_t put_count_ {};
     int64_t del_count_ {};
@@ -229,6 +233,8 @@ public:
 
     size_t put_bytes() const override { return put_bytes_; }
 
+    size_t get_bytes() const override { return get_bytes_; }
+
 private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
 
@@ -255,6 +261,7 @@ private:
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};
     size_t put_bytes_ {0};
+    size_t get_bytes_ {0};
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {
@@ -285,6 +292,12 @@ public:
     int remaining() const override {
         if (idx_ < 0 || idx_ >= kvs_size_) return 0;
         return kvs_size_ - idx_;
+    }
+
+    int64_t get_kv_bytes() const override {
+        int64_t kv_bytes {};
+        for (auto& [k, v] : kvs_) kv_bytes += k.size() + v.size();
+        return kv_bytes;
     }
 
     int size() const override { return kvs_size_; }
