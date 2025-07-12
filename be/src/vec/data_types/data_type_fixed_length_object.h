@@ -68,6 +68,7 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     bool have_subtypes() const override { return false; }
 

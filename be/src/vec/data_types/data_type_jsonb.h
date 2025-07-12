@@ -63,6 +63,7 @@ public:
                             int data_version) const override;
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
