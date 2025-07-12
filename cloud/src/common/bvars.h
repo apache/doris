@@ -262,10 +262,10 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earl
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
 extern bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
 extern bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_recycle_duration;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_st_ts;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_ed_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
 
 extern mBvarIntAdder g_bvar_recycler_vault_recycle_status;
