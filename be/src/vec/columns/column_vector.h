@@ -148,6 +148,7 @@ public:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<value_type> il) : data {il} {}
 
+    PrimitiveType get_primitive_type() const override { return T; }
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {

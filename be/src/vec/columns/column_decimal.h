@@ -97,6 +97,8 @@ private:
 public:
     std::string get_name() const override { return type_to_string(T); }
 
+    PrimitiveType get_primitive_type() const override { return T; }
+
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
     size_t allocated_bytes() const override { return data.allocated_bytes(); }

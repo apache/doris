@@ -153,6 +153,10 @@ public:
         nested_column->sanity_check();
     }
 
+    PrimitiveType get_primitive_type() const override {
+        return nested_column->get_primitive_type();
+    }
+
     void shrink_padding_chars() override;
 
     bool is_variable_length() const override { return nested_column->is_variable_length(); }

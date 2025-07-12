@@ -41,6 +41,8 @@ private:
 
 public:
     std::string get_name() const override { return "Nothing"; }
+
+    PrimitiveType get_primitive_type() const override { return INVALID_TYPE; }
     MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
 
     bool structure_equals(const IColumn& rhs) const override {

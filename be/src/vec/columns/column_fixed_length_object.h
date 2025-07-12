@@ -54,6 +54,8 @@ public:
 
     size_t size() const override { return _item_count; }
 
+    PrimitiveType get_primitive_type() const override { return TYPE_FIXED_LENGTH_OBJECT; }
+
     const Container& get_data() const { return _data; }
 
     Container& get_data() { return _data; }

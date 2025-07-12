@@ -49,6 +49,8 @@ public:
 
     size_t size() const override { return data.size(); }
 
+    PrimitiveType get_primitive_type() const override { return T; }
+
     StringRef get_data_at(size_t n) const override {
         return {reinterpret_cast<const char*>(&data[n]), sizeof(data[n])};
     }
