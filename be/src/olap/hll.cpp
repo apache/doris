@@ -21,6 +21,7 @@
 #include <map>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "util/coding.h"
 #include "util/slice.h"
@@ -29,6 +30,7 @@ using std::string;
 using std::stringstream;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 HyperLogLog::HyperLogLog(const Slice& src) {
     // When deserialize return false, we make this object a empty
@@ -194,7 +196,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
             encode_fixed32_le(ptr, num_non_zero_registers);
             ptr += 4;
 
-            for (uint32_t i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+            for (uint16_t i = 0; i < HLL_REGISTERS_COUNT; ++i) {
                 if (_registers[i] == 0) {
                     continue;
                 }
@@ -335,7 +337,8 @@ int64_t HyperLogLog::estimate_cardinality() const {
     }
 
     float harmonic_mean = 0;
-    int num_zero_registers = 0;
+    // num_zero_registers will not exceed HLL_REGISTERS_COUNT
+    uint16_t num_zero_registers = 0;
 
     for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
         harmonic_mean += powf(2.0F, -_registers[i]);
@@ -366,5 +369,6 @@ int64_t HyperLogLog::estimate_cardinality() const {
     }
     return (int64_t)(estimate + 0.5);
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris
