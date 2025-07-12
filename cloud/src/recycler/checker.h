@@ -121,7 +121,7 @@ private:
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
 
-    int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
+    int traverse_mow_tablet(const std::function<int(int64_t, bool)>& check_func);
     int traverse_rowset_delete_bitmaps(
             int64_t tablet_id, std::string rowset_id,
             const std::function<int(int64_t, std::string_view, int64_t, int64_t)>& callback);
@@ -130,7 +130,8 @@ private:
             const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
     int get_pending_delete_bitmap_keys(int64_t tablet_id,
                                        std::unordered_set<std::string>& pending_delete_bitmaps);
-    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, int64_t& abnormal_rowsets_num);
+    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, bool has_sequence_col,
+                                                int64_t& abnormal_rowsets_num);
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
