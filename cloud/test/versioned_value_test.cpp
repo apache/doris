@@ -119,11 +119,9 @@ TEST(VersionedValueTest, Remove) {
 
     {
         // Remove a specific version
-        std::string key(key_prefix);
-        encode_versionstamp(Versionstamp(50, 0), &key);
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        versioned_remove(txn.get(), key);
+        versioned_remove(txn.get(), key_prefix, Versionstamp(50, 0));
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
