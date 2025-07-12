@@ -26,9 +26,9 @@
 #include <iterator>
 #include <limits>
 
+#include "gutil/endian.h"
 #include "util/bit_util.h"
 #include "util/coding.h"
-#include "gutil/endian.h"
 
 namespace doris {
 
@@ -429,64 +429,46 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
                                         T* output) {
     static_assert(std::is_same<U, int64_t>::value || std::is_same<U, __int128_t>::value,
                   "bit_unpack_optimize only supports U = int64_t or __int128_t");
-    // constexpr int shift_size = sizeof(int64_t);         // For moving s
     constexpr int u_size = sizeof(U);                   // Size of U
     constexpr int u_size_shift = (u_size == 8) ? 3 : 4; // log2(u_size)
     int valid_bit = 0;                                  // How many valid bits
     int need_bit = 0;                                   // still need
-    T output_mask = ((static_cast<T>(1)) << bit_width) - 1;
-    size_t input_size = (in_num * bit_width + 7) >> 3; // input's size
+    size_t input_size = (in_num * bit_width + 7) >> 3;  // input's size
     int full_batch_size = (input_size >> u_size_shift)
                           << u_size_shift;      // Adjust input_size to a multiple of u_size
     int tail_count = input_size & (u_size - 1); // The remainder of input_size modulo u_size.
     // The number of bits in input to adjust to multiples of 8 and thus more
     int more_bit = (input_size << 3) - (in_num * bit_width);
+
+    // to ensure that only bit_width bits are valid
+    T output_mask;
+    if (bit_width >= static_cast<int>(sizeof(T) * 8)) {
+        output_mask = static_cast<T>(~T(0));
+    } else {
+        output_mask = static_cast<T>((static_cast<T>(1) << bit_width) - 1);
+    }
+
     U s = 0; // Temporary buffer for bitstream: aggregates input bytes into a large integer for unpacking
 
     for (int i = 0; i < full_batch_size; i += u_size) {
-        // s |= static_cast<U>(input[i]);
-        // s <<= 8;
-        // s |= static_cast<U>(input[i + 1]);
-        // s <<= 8;
-        // s |= static_cast<U>(input[i + 2]);
-        // s <<= 8;
-        // s |= static_cast<U>(input[i + 3]);
-        // s <<= 8;
-        // s |= static_cast<U>(input[i + 4]);
-        // s <<= 8;
-        // s |= static_cast<U>(input[i + 5]);
-        // s <<= 8;
-        // s |= static_cast<U>(input[i + 6]);
-        // s <<= 8;
-        // s |= static_cast<U>(input[i + 7]);
-        if constexpr (std::endian::native == std::endian::little) {
-            s |= *((int64_t*)(input + i));
-            
-        } else if constexpr (std::endian::native == std::endian::big) {
-            s |= *((int64_t*)(input + i));
-        }
-        
-        if constexpr (u_size == 16) {
-            s <<= 64;
-            s |= static_cast<U>(input[i + 8]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 9]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 10]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 11]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 12]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 13]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 14]);
-            s <<= 8;
-            s |= static_cast<U>(input[i + 15]);
+        s = 0;
+
+        if constexpr (u_size == 8) {
+            if constexpr (std::endian::native == std::endian::little) {
+                s = to_endian<std::endian::big>(*((int64_t*)(input + i)));
+            } else if constexpr (std::endian::native == std::endian::big) {
+                s = *((int64_t*)(input + i));
+            }
+        } else if constexpr (u_size == 16) {
+            if constexpr (std::endian::native == std::endian::little) {
+                s = to_endian<std::endian::big>(*((__int128_t*)(input + i)));
+            } else if constexpr (std::endian::native == std::endian::big) {
+                s = *((__int128_t*)(input + i));
+            }
         }
 
         // Determine what the valid bits are based on u_size
-        valid_bit = u_size * 8;
+        valid_bit = u_size << 3;
 
         // If input_size is exactly a multiple of 8, then need to remove the last more_bit in the last loop.
         if (tail_count == 0 && i == full_batch_size - u_size) {
@@ -528,8 +510,6 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
         } else {
             need_bit = 0;
         }
-
-        s = 0;
     }
 
     // remainder
@@ -542,7 +522,7 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
 
         // tail * 8 is the number of bits that are left to process
         // tail * 8 - more_bit is to remove the last more_bit
-        valid_bit = tail_count * 8 - more_bit;
+        valid_bit = (tail_count << 3) - more_bit;
         s >>= more_bit;
 
         // same as before
@@ -569,7 +549,11 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
 // param[out] output: the original integer data list
 template <typename T>
 void ForDecoder<T>::bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output) {
-    if (bit_width <= 64) {
+    /*
+        When 32 < bit_width <= 64 unrolling the loop 16 times is more efficient than unrolling it 8 times.
+        When bit_width > 64, we must use __int128_t and unroll the loop 16 times.
+    */
+    if (bit_width <= 32) {
         bit_unpack_optimize<int64_t>(input, in_num, bit_width, output);
     } else {
         bit_unpack_optimize<__int128_t>(input, in_num, bit_width, output);

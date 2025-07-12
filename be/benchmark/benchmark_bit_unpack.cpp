@@ -105,4 +105,7 @@ static void BM_BitUnpackOptimized(benchmark::State& state) {
     int64_t size = o.size();
     state.SetBytesProcessed(int64_t(state.iterations()) * size);
 }
+
+BENCHMARK(BM_BitUnpack)->DenseRange(1, 127)->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_BitUnpackOptimized)->DenseRange(1, 127)->Unit(benchmark::kNanosecond);
 } // namespace doris
