@@ -104,6 +104,82 @@ TEST(RuntimeProfileTest, Basic) {
     EXPECT_EQ(counter_updated->value(), 1);
 }
 
+TEST(RuntimeProfileTest, ProtoBasic) {
+    RuntimeProfile profile_a("ProfileA");
+    RuntimeProfile profile_a1("ProfileA1");
+    RuntimeProfile profile_a2("ProfileA2");
+
+    profile_a.add_child(&profile_a1, true);
+    profile_a.add_child(&profile_a2, true);
+
+    PRuntimeProfileTree proto_profile;
+
+    // Test Empty serialization
+    profile_a.to_proto(&proto_profile);
+    EXPECT_EQ(proto_profile.nodes_size(), 3);
+    proto_profile.clear_nodes();
+
+    RuntimeProfile::Counter* counter_a;
+    RuntimeProfile::Counter* counter_b;
+    RuntimeProfile::Counter* counter_merged;
+
+    // Updating/setting counter
+    counter_a = profile_a.add_counter("A", TUnit::UNIT);
+    EXPECT_TRUE(counter_a != nullptr);
+    counter_a->update(10);
+    counter_a->update(-5);
+    EXPECT_EQ(counter_a->value(), 5);
+    counter_a->set(1L);
+    EXPECT_EQ(counter_a->value(), 1);
+
+    counter_b = profile_a2.add_counter("B", TUnit::BYTES);
+    EXPECT_TRUE(counter_b != nullptr);
+
+    std::stringstream ss;
+    // Serialize to proto
+    profile_a.to_proto(&proto_profile, 2);
+    profile_a.pretty_print(&ss, " ", 4);
+    std::cout << "Profile A:\n" << ss.str() << std::endl;
+    ss.str("");
+    ss.clear();
+
+    ASSERT_EQ(proto_profile.nodes_size(), 3);
+
+    // Deserialize from proto
+    std::unique_ptr<RuntimeProfile> from_proto = RuntimeProfile::from_proto(proto_profile);
+    from_proto->pretty_print(&ss, "", 4);
+    std::cout << "From proto profile:\n" << ss.str() << std::endl;
+    ss.str("");
+    ss.clear();
+
+    counter_merged = from_proto->get_counter("A");
+    ASSERT_NE(counter_merged, nullptr);
+    EXPECT_EQ(counter_merged->value(), 1);
+    EXPECT_TRUE(from_proto->get_counter("Not there") == nullptr);
+
+    // merge
+    RuntimeProfile merged_profile("Merged");
+    merged_profile.merge(from_proto.get());
+    counter_merged = merged_profile.get_counter("A");
+    EXPECT_EQ(counter_merged->value(), 1);
+
+    // merge 2 more times, counters should get aggregated
+    merged_profile.merge(from_proto.get());
+    merged_profile.merge(from_proto.get());
+    EXPECT_EQ(counter_merged->value(), 3);
+
+    // update
+    RuntimeProfile updated_profile("updated");
+    updated_profile.update(proto_profile);
+    RuntimeProfile::Counter* counter_updated = updated_profile.get_counter("A");
+    EXPECT_EQ(counter_updated->value(), 1);
+
+    // update 2 more times, counters should stay the same
+    updated_profile.update(proto_profile);
+    updated_profile.update(proto_profile);
+    EXPECT_EQ(counter_updated->value(), 1);
+}
+
 void ValidateCounter(RuntimeProfile* profile, const string& name, int64_t value) {
     RuntimeProfile::Counter* counter = profile->get_counter(name);
     ASSERT_TRUE(counter != nullptr);
@@ -227,6 +303,118 @@ TEST(RuntimeProfileTest, MergeAndupdate) {
     profile2.pretty_print(&dummy);
 }
 
+TEST(RuntimeProfileTest, ProtoMergeAndUpdate) {
+    ObjectPool pool;
+    RuntimeProfile profile1("Parent1");
+    RuntimeProfile p1_child1("Child1");
+    RuntimeProfile p1_child2("Child2");
+    profile1.add_child(&p1_child1, true);
+    profile1.add_child(&p1_child2, true);
+
+    RuntimeProfile profile2("Parent2");
+    RuntimeProfile p2_child1("Child1");
+    RuntimeProfile p2_child3("Child3");
+    profile2.add_child(&p2_child1, true);
+    profile2.add_child(&p2_child3, true);
+
+    // Create parent-level counters
+    RuntimeProfile::Counter* parent1_shared = profile1.add_counter("Parent Shared", TUnit::UNIT);
+    RuntimeProfile::Counter* parent2_shared = profile2.add_counter("Parent Shared", TUnit::UNIT);
+    RuntimeProfile::Counter* parent1_only = profile1.add_counter("Parent 1 Only", TUnit::UNIT);
+    RuntimeProfile::Counter* parent2_only = profile2.add_counter("Parent 2 Only", TUnit::UNIT);
+    parent1_shared->update(1);
+    parent2_shared->update(3);
+    parent1_only->update(2);
+    parent2_only->update(5);
+
+    // Create child-level counters
+    RuntimeProfile::Counter* p1_c1_shared = p1_child1.add_counter("Child1 Shared", TUnit::UNIT);
+    RuntimeProfile::Counter* p1_c1_only =
+            p1_child1.add_counter("Child1 Parent 1 Only", TUnit::UNIT);
+    RuntimeProfile::Counter* p1_c2 = p1_child2.add_counter("Child2", TUnit::UNIT);
+
+    RuntimeProfile::Counter* p2_c1_shared = p2_child1.add_counter("Child1 Shared", TUnit::UNIT);
+    RuntimeProfile::Counter* p2_c1_only =
+            p1_child1.add_counter("Child1 Parent 2 Only", TUnit::UNIT);
+    RuntimeProfile::Counter* p2_c3 = p2_child3.add_counter("Child3", TUnit::UNIT);
+
+    p1_c1_shared->update(10);
+    p1_c1_only->update(50);
+    p2_c1_shared->update(20);
+    p2_c1_only->update(100);
+    p2_c3->update(30);
+    p1_c2->update(40);
+
+    // Serialize profile1 to proto
+    PRuntimeProfileTree proto_profile1;
+    profile1.to_proto(&proto_profile1, 2);
+
+    // Deserialize from proto and merge with profile2
+    std::unique_ptr<RuntimeProfile> merged_profile = RuntimeProfile::from_proto(proto_profile1);
+    merged_profile->merge(&profile2);
+
+    std::stringstream ss;
+    merged_profile->pretty_print(&ss);
+    std::cout << "Merged profile:\n" << ss.str() << std::endl;
+
+    EXPECT_EQ(4, merged_profile->num_counters());
+    ValidateCounter(merged_profile.get(), "Parent Shared", 4);
+    ValidateCounter(merged_profile.get(), "Parent 1 Only", 2);
+    ValidateCounter(merged_profile.get(), "Parent 2 Only", 5);
+
+    std::vector<RuntimeProfile*> children;
+    merged_profile->get_children(&children);
+    EXPECT_EQ(children.size(), 3);
+
+    for (RuntimeProfile* profile : children) {
+        if (profile->name() == "Child1") {
+            EXPECT_EQ(4, profile->num_counters());
+            ValidateCounter(profile, "Child1 Shared", 30);
+            ValidateCounter(profile, "Child1 Parent 1 Only", 50);
+            ValidateCounter(profile, "Child1 Parent 2 Only", 100);
+        } else if (profile->name() == "Child2") {
+            EXPECT_EQ(2, profile->num_counters());
+            ValidateCounter(profile, "Child2", 40);
+        } else if (profile->name() == "Child3") {
+            EXPECT_EQ(2, profile->num_counters());
+            ValidateCounter(profile, "Child3", 30);
+        } else {
+            FAIL() << "Unexpected child profile name: " << profile->name();
+        }
+    }
+
+    // Test update: update profile2 with profile1's proto tree
+    profile2.update(proto_profile1);
+    EXPECT_EQ(4, profile2.num_counters());
+    ValidateCounter(&profile2, "Parent Shared", 1);
+    ValidateCounter(&profile2, "Parent 1 Only", 2);
+    ValidateCounter(&profile2, "Parent 2 Only", 5);
+
+    profile2.get_children(&children);
+    EXPECT_EQ(children.size(), 3);
+
+    for (RuntimeProfile* profile : children) {
+        if (profile->name() == "Child1") {
+            EXPECT_EQ(4, profile->num_counters());
+            ValidateCounter(profile, "Child1 Shared", 10);
+            ValidateCounter(profile, "Child1 Parent 1 Only", 50);
+            ValidateCounter(profile, "Child1 Parent 2 Only", 100);
+        } else if (profile->name() == "Child2") {
+            EXPECT_EQ(2, profile->num_counters());
+            ValidateCounter(profile, "Child2", 40);
+        } else if (profile->name() == "Child3") {
+            EXPECT_EQ(2, profile->num_counters());
+            ValidateCounter(profile, "Child3", 30);
+        } else {
+            FAIL() << "Unexpected child profile name: " << profile->name();
+        }
+    }
+
+    // Ensure pretty_print doesn't crash
+    std::stringstream dummy;
+    profile2.pretty_print(&dummy);
+}
+
 TEST(RuntimeProfileTest, DerivedCounters) {
     ObjectPool pool;
     RuntimeProfile profile("Profile");
@@ -286,6 +474,47 @@ TEST(RuntimeProfileTest, InfoStringTest) {
     profile.to_thrift(&tprofile);
 
     update_dst_profile.update(tprofile);
+    EXPECT_EQ(*update_dst_profile.get_info_string("Key"), "NewValue");
+    EXPECT_EQ(*update_dst_profile.get_info_string("Foo"), "Bar");
+}
+
+TEST(RuntimeProfileTest, ProtoInfoStringTest) {
+    ObjectPool pool;
+    RuntimeProfile profile("Profile");
+
+    EXPECT_TRUE(profile.get_info_string("Key") == nullptr);
+
+    profile.add_info_string("Key", "Value");
+    const std::string* value = profile.get_info_string("Key");
+    EXPECT_TRUE(value != nullptr);
+    EXPECT_EQ(*value, "Value");
+
+    // Convert it to proto
+    PRuntimeProfileTree pprofile;
+    profile.to_proto(&pprofile);
+
+    // Convert it back from proto
+    std::unique_ptr<RuntimeProfile> from_proto = RuntimeProfile::from_proto(pprofile);
+    value = from_proto->get_info_string("Key");
+    EXPECT_TRUE(value != nullptr);
+    EXPECT_EQ(*value, "Value");
+
+    // Test update
+    RuntimeProfile update_dst_profile("Profile2");
+    update_dst_profile.update(pprofile);
+    value = update_dst_profile.get_info_string("Key");
+    EXPECT_TRUE(value != nullptr);
+    EXPECT_EQ(*value, "Value");
+
+    // Modify original profile, convert again, and update dst
+    profile.add_info_string("Key", "NewValue");
+    profile.add_info_string("Foo", "Bar");
+    EXPECT_EQ(*profile.get_info_string("Key"), "NewValue");
+    EXPECT_EQ(*profile.get_info_string("Foo"), "Bar");
+
+    profile.to_proto(&pprofile);
+    update_dst_profile.update(pprofile);
+
     EXPECT_EQ(*update_dst_profile.get_info_string("Key"), "NewValue");
     EXPECT_EQ(*update_dst_profile.get_info_string("Foo"), "Bar");
 }

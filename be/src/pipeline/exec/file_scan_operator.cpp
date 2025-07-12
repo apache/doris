@@ -39,7 +39,7 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
 
     auto& id_file_map = state()->get_id_file_map();
     if (id_file_map != nullptr) {
-        id_file_map->set_external_scan_params(state()->get_query_ctx());
+        id_file_map->set_external_scan_params(state()->get_query_ctx(), _max_scanners);
     }
 
     auto& p = _parent->cast<FileScanOperatorX>();

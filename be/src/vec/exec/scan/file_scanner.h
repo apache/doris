@@ -62,6 +62,10 @@ class FileScanner : public Scanner {
 public:
     static constexpr const char* NAME = "FileScanner";
 
+    // sub profile name (for parquet/orc)
+    static const std::string FileReadBytesProfile;
+    static const std::string FileReadTimeProfile;
+
     FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
@@ -89,12 +93,11 @@ public:
               _col_name_to_slot_id(colname_to_slot_id),
               _real_tuple_desc(tuple_desc) {};
 
-    Status read_one_line_from_range(const TFileRangeDesc& range, const segment_v2::rowid_t rowid,
-                                    Block* result_block,
-                                    const ExternalFileMappingInfo& external_info,
-                                    int64_t* init_reader_ms, int64_t* get_block_ms);
+    Status read_lines_from_range(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
+                                 Block* result_block, const ExternalFileMappingInfo& external_info,
+                                 int64_t* init_reader_ms, int64_t* get_block_ms);
 
-    Status prepare_for_read_one_line(const TFileRangeDesc& range);
+    Status prepare_for_read_lines(const TFileRangeDesc& range);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -119,7 +122,7 @@ protected:
     TFileRangeDesc _current_range;
 
     std::unique_ptr<GenericReader> _cur_reader;
-    bool _cur_reader_eof;
+    bool _cur_reader_eof = false;
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
