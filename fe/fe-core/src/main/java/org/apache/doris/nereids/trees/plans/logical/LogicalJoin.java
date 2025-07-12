@@ -490,6 +490,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), Optional.empty(), ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
+    public LogicalJoin<Plan, Plan> withDistributeHintChildren(DistributeHint hint, Plan left, Plan right) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, exceptAsteriskOutputs,
+                Optional.empty(), Optional.empty(), ImmutableList.of(left, right), joinReorderContext);
+    }
+
     /**
      * extractNullRejectHashKeys
      */
