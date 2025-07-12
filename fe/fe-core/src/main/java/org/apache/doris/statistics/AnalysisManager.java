@@ -1413,13 +1413,9 @@ public class AnalysisManager implements Writable {
     // Invoke this when load transaction finished.
     public void updateUpdatedRows(Map<Long, Map<Long, Long>> tabletRecords, long dbId, long txnId) {
         try {
-            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
-                return;
-            }
             UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(tabletRecords, dbId);
             LOG.info("Update rows transactionId is {}", txnId);
             replayUpdateRowsRecord(updateRowsEvent);
-            logUpdateRowsRecord(updateRowsEvent);
         } catch (Throwable t) {
             LOG.warn("Failed to record update rows.", t);
         }
@@ -1455,7 +1451,7 @@ public class AnalysisManager implements Writable {
 
     // Set to true means new partition loaded data
     public void setNewPartitionLoaded(List<Long> tableIds) {
-        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread() || tableIds == null || tableIds.isEmpty()) {
+        if (tableIds == null || tableIds.isEmpty()) {
             return;
         }
         for (long tableId : tableIds) {
@@ -1464,7 +1460,9 @@ public class AnalysisManager implements Writable {
                 statsStatus.partitionChanged.set(true);
             }
         }
-        logNewPartitionLoadedEvent(new NewPartitionLoadedEvent(tableIds));
+        if (Config.isCloudMode() && Env.getCurrentEnv().isMaster() && !Env.isCheckpointThread()) {
+            logNewPartitionLoadedEvent(new NewPartitionLoadedEvent(tableIds));
+        }
     }
 
     public void updateTableStatsStatus(TableStatsMeta tableStats) {
