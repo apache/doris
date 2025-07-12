@@ -35,12 +35,7 @@ class GroupCommitBlockSinkLocalState final : public PipelineXSinkLocalState<Basi
     using Base = PipelineXSinkLocalState<BasicSharedState>;
 
 public:
-    GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _filter_bitmap(1024) {
-        _finish_dependency =
-                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
-    }
+    GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
     ~GroupCommitBlockSinkLocalState() override;
 

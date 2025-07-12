@@ -10,6 +10,7 @@
 #include <glog/logging.h>
 
 #include <cstdint>
+#include <expected>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -18,7 +19,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "common/expected.h"
 #include "util/stack_util.h"
 
 namespace doris {
@@ -721,16 +721,16 @@ inline std::string Status::to_string_no_stack() const {
     } while (false);
 
 template <typename T>
-using Result = expected<T, Status>;
+using Result = std::expected<T, Status>;
 
-using ResultError = unexpected<Status>;
+using ResultError = std::unexpected<Status>;
 
-#define RETURN_IF_ERROR_RESULT(stmt)                \
-    do {                                            \
-        Status _status_ = (stmt);                   \
-        if (UNLIKELY(!_status_.ok())) {             \
-            return unexpected(std::move(_status_)); \
-        }                                           \
+#define RETURN_IF_ERROR_RESULT(stmt)                     \
+    do {                                                 \
+        Status _status_ = (stmt);                        \
+        if (UNLIKELY(!_status_.ok())) {                  \
+            return std::unexpected(std::move(_status_)); \
+        }                                                \
     } while (false)
 
 #define DORIS_TRY(stmt)                          \

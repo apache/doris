@@ -28,7 +28,6 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
-#include "util/expected.hpp"
 
 namespace doris {
 
@@ -46,13 +45,13 @@ Result<WrapperField*> WrapperField::create(const TabletColumn& column, uint32_t 
     if (is_string_type && len > max_length) {
         LOG(WARNING) << "length of string parameter is too long[len=" << len
                      << ", max_len=" << max_length << "].";
-        return unexpected {Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+        return std::unexpected {Status::Error<ErrorCode::EXCEEDED_LIMIT>(
                 "length of string parameter is too long[len={}, max_len={}].", len, max_length)};
     }
 
     Field* rep = FieldFactory::create(column);
     if (rep == nullptr) {
-        return unexpected {Status::Uninitialized("Unsupport field creation of {}", column.name())};
+        return std::unexpected {Status::Uninitialized("Unsupport field creation of {}", column.name())};
     }
 
     size_t variable_len = 0;

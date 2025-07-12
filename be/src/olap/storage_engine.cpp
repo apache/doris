@@ -1337,7 +1337,7 @@ Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetSt
     std::string err;
     tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
     if (tablet == nullptr) {
-        return unexpected(
+        return std::unexpected(
                 Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err));
     }
     return tablet;

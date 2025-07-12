@@ -49,7 +49,7 @@ private:
     int _total_rows = 0;
     int _db_index = 0;
     TGetDbsResult _db_result;
-    std::unique_ptr<vectorized::Block> _tableproperties_block = nullptr;
+    std::unique_ptr<vectorized::Block> _tableproperties_block {nullptr};
     int _rpc_timeout_ms = 3000;
 };
 }; // namespace doris

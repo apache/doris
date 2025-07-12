@@ -685,7 +685,7 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
     // TODO(plat1ko): Use monad op
     if (auto result = new_tablet->create_rowset_writer(context, false); !result.has_value())
             [[unlikely]] {
-        return unexpected(std::move(result).error());
+        return std::unexpected(std::move(result).error());
     } else {
         rowset_writer = std::move(result).value();
     }
@@ -713,7 +713,7 @@ Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
     // TODO(plat1ko): Use monad op
     if (auto result = new_tablet->create_rowset_writer(context, false); !result.has_value())
             [[unlikely]] {
-        return unexpected(std::move(result).error());
+        return std::unexpected(std::move(result).error());
     } else {
         rowset_writer = std::move(result).value();
     }

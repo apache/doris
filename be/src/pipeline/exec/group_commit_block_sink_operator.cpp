@@ -24,6 +24,15 @@
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
+GroupCommitBlockSinkLocalState::GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent,
+                                                               RuntimeState* state)
+        : Base(parent, state), _filter_bitmap(1024) {
+    _finish_dependency =
+            std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                         parent->get_name() + "_FINISH_DEPENDENCY", true);
+}
+
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
