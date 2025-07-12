@@ -97,7 +97,6 @@
 #include "service/backend_options.h"
 #include "service/point_query_executor.h"
 #include "util/arrow/row_batch.h"
-#include "util/async_io.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 #include "util/doris_metrics.h"
@@ -263,7 +262,6 @@ PInternalService::PInternalService(ExecEnv* exec_env)
     _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
 
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
-    CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
 
 PInternalServiceImpl::PInternalServiceImpl(StorageEngine& engine, ExecEnv* exec_env)
@@ -288,7 +286,6 @@ PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(arrow_flight_work_max_threads);
 
     CHECK_EQ(0, bthread_key_delete(btls_key));
-    CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
 
 void PInternalService::tablet_writer_open(google::protobuf::RpcController* controller,
