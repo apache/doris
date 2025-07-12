@@ -32,6 +32,7 @@
 #include "vec/common/allocator_fwd.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** Memory pool to append something. For example, short strings.
   * Usage scenario:
@@ -345,4 +346,5 @@ public:
 using ArenaPtr = std::shared_ptr<Arena>;
 using Arenas = std::vector<ArenaPtr>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

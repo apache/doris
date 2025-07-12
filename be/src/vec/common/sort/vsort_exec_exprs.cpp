@@ -25,6 +25,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -93,4 +94,5 @@ Status VSortExecExprs::clone(RuntimeState* state, VSortExecExprs& new_exprs) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -34,6 +34,7 @@
 #include "vec/common/unaligned.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 using Sizes = std::vector<size_t>;
 
@@ -164,4 +165,5 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
 };
 
 } // namespace ColumnsHashing
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

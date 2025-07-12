@@ -20,6 +20,7 @@
 #include "vec/columns/column.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 constexpr size_t CHECK_FRECUENCY = 65536;
 template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
@@ -55,4 +56,5 @@ private:
     RuntimeState* _state = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

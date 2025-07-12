@@ -17,6 +17,7 @@
 
 #include "hashjoin_build_sink.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <string>
 
@@ -191,7 +192,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                                              [&](auto&& hash_map_context) {
                                                  size_to_reserve += hash_map_context.estimated_size(
                                                          raw_ptrs, block.rows(), true, true,
-                                                         bucket_size);
+                                                         cast_set<uint32_t>(bucket_size));
                                              }},
                        _shared_state->hash_table_variant_vector.front()->method_variant);
         }

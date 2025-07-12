@@ -22,6 +22,7 @@
 #include "vec/core/types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 enum class HashKeyType {
     EMPTY = 0,
@@ -128,4 +129,5 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

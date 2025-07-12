@@ -27,6 +27,7 @@
 #include "vec/core/wide_integer.h"
 
 namespace exp_details {
+#include "common/compile_check_begin.h"
 
 // compile-time exp(v, n) by linear recursion
 template <typename T, T v, std::size_t n>
@@ -435,4 +436,5 @@ inline wide::Int256 max_i256(int digit_count) {
     };
     return values[digit_count];
 }
+#include "common/compile_check_end.h"
 } // namespace common

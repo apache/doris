@@ -21,7 +21,9 @@
 #include "vec/common/pod_array.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 /// Used for left padding of PODArray when empty
 const char empty_pod_array[EmptyPODArraySize] {};
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

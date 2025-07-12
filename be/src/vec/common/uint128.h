@@ -31,6 +31,7 @@
 #include "vec/core/wide_integer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 using UInt128 = wide::UInt128;
 
@@ -100,4 +101,5 @@ struct std::is_integral<doris::vectorized::UInt128> {
 template <>
 struct std::is_arithmetic<doris::vectorized::UInt128> {
     static constexpr bool value = false;
+#include "common/compile_check_end.h"
 };

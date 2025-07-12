@@ -22,6 +22,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 inline std::vector<vectorized::DataTypePtr> get_data_types(
         const vectorized::VExprContextSPtrs& expr_contexts) {
@@ -73,4 +74,5 @@ struct DataVariants {
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

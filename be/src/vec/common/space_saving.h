@@ -28,6 +28,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename TKey>
 struct SpaceSavingArena {
@@ -53,9 +54,9 @@ struct SpaceSavingArena<StringRef> {
     }
 
     template <typename Arena>
-    inline StringRef copy_string_in_arena(Arena& arena, StringRef value) {
+    inline StringRef copy_string_in_arena(Arena& arena_, StringRef value) {
         size_t value_size = value.size;
-        char* place_for_key = arena.alloc(value_size);
+        char* place_for_key = arena_.alloc(value_size);
         memcpy(reinterpret_cast<void*>(place_for_key), reinterpret_cast<const void*>(value.data),
                value_size);
         StringRef result {place_for_key, value_size};
@@ -339,4 +340,5 @@ private:
     size_t removed_keys = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

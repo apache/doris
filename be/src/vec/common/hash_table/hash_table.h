@@ -26,6 +26,7 @@
 #include <boost/noncopyable.hpp>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
@@ -55,6 +56,7 @@ struct HashTableNoState {
 
 /// These functions can be overloaded for custom types.
 namespace ZeroTraits {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 bool check(const T x) {
@@ -339,14 +341,17 @@ public:
                                    ? fill_capacity
                                    : fill_capacity + 1);
 
-        size_degree_ = num_elems <= 1 ? initial_size_degree
-                                      : (initial_size_degree > fill_capacity ? initial_size_degree
-                                                                             : fill_capacity);
+        size_degree_ =
+                num_elems <= 1
+                        ? initial_size_degree
+                        : (initial_size_degree > fill_capacity
+                                   ? initial_size_degree
+                                   : doris::cast_set<doris::vectorized::UInt8>(fill_capacity));
         increase_size_degree(0);
     }
 
     void set_buf_size(size_t buf_size_) {
-        size_degree_ = static_cast<size_t>(log2(buf_size_ - 1) + 1);
+        size_degree_ = static_cast<doris::vectorized::UInt8>(log2(buf_size_ - 1) + 1);
         increase_size_degree(0);
     }
 };
@@ -1075,4 +1080,5 @@ private:
             reinsert(buf[i], buf[i].get_hash(*this));
         }
     }
+#include "common/compile_check_end.h"
 };

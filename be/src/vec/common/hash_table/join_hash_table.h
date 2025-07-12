@@ -21,6 +21,7 @@
 
 #include <limits>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column_filter_helper.h"
@@ -28,6 +29,7 @@
 #include "vec/common/hash_table/hash.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 template <typename Key, typename Hash = DefaultHash<Key>>
 class JoinHashTable {
 public:
@@ -36,7 +38,7 @@ public:
     using value_type = void*;
     size_t hash(const Key& x) const { return Hash()(x); }
 
-    static uint32_t calc_bucket_size(size_t num_elem) {
+    static size_t calc_bucket_size(size_t num_elem) {
         size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
         return std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
                         static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
@@ -54,7 +56,7 @@ public:
         // the first row in build side is not really from build side table
         _empty_build_side = num_elem <= 1;
         max_batch_size = batch_size;
-        bucket_size = calc_bucket_size(num_elem + 1);
+        bucket_size = cast_set<uint32_t>(calc_bucket_size(num_elem + 1));
         first.resize(bucket_size + 1);
         next.resize(num_elem);
 
@@ -80,7 +82,7 @@ public:
         for (size_t i = 1; i < num_elem; i++) {
             uint32_t bucket_num = bucket_nums[i];
             next[i] = first[bucket_num];
-            first[bucket_num] = i;
+            first[bucket_num] = cast_set<uint32_t>(i);
         }
         if (!keep_null_key) {
             first[bucket_size] = 0; // index = bucket_size means null
@@ -477,4 +479,5 @@ private:
 
 template <typename Key, typename Hash = DefaultHash<Key>>
 using JoinHashMap = JoinHashTable<Key, Hash>;
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -38,6 +38,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 enum class FieldType;
 
 namespace vectorized {
@@ -125,4 +126,5 @@ std::string dump_column(DataTypePtr type, const ColumnPtr& col);
 bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
                            int32_t new_col_idx, int32_t old_col_idx);
 
+#include "common/compile_check_end.h"
 } // namespace  doris::vectorized::schema_util

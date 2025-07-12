@@ -41,6 +41,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 } // namespace doris
 
@@ -235,7 +236,7 @@ size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
         auto new_rows = rows + state->batch_size();
         // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
         if ((new_block_bytes * 100 / allocated_bytes) >= 85) {
-            size_to_reserve += (size_t)(allocated_bytes * 1.15);
+            size_to_reserve += (size_t)(cast_set<double>(allocated_bytes) * 1.15);
         }
         auto sort = new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes;
         if (sort) {
@@ -343,4 +344,5 @@ void FullSorter::reset() {
     _state->reset();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

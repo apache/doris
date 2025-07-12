@@ -24,6 +24,7 @@
 #include "vec/common/hash_table/hash_table.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 /** NOTE HashMap could only be used for memmoveable (position independent) types.
   * Example: std::string is not position independent in libstdc++ with C++11 ABI or in libc++.
   * Also, key in hash table must be of type, that zero bytes is compared equals to zero key.
@@ -188,4 +189,5 @@ public:
     bool has_null_key_data() const { return false; }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris
