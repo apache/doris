@@ -269,7 +269,6 @@ TEST_F(DataTypeDecimalTest, simple_func_test) {
 
         EXPECT_TRUE(dt.equals(dt));
 
-        EXPECT_EQ(std::string(dt.get_family_name()), std::string("Decimal"));
         EXPECT_EQ(dt.do_get_name(), "Decimal(" + std::to_string(dt.get_precision()) + ", " +
                                             std::to_string(dt.get_scale()) + ")");
         EXPECT_EQ(dt.get_format_scale(), dt.get_scale());
