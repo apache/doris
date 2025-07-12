@@ -228,9 +228,7 @@ Status CloudStorageEngine::open() {
             "init StreamLoadRecorder failed");
 
     // check cluster id
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            _check_all_root_path_cluster_id(),
-            "fail to check cluster id");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_all_root_path_cluster_id(), "fail to check cluster id");
 
     return ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
             .set_max_threads(config::sync_load_for_tablets_thread)
@@ -1181,9 +1179,10 @@ Status CloudStorageEngine::_check_all_root_path_cluster_id() {
         }
     }
     if (cluster_ids.size() > 1) {
-        return Status::InternalError("All root paths must have the same cluster id, but you have "
-                                     "different cluster ids: {}",
-                                     fmt::join(cluster_ids, ", "));
+        return Status::InternalError(
+                "All root paths must have the same cluster id, but you have "
+                "different cluster ids: {}",
+                fmt::join(cluster_ids, ", "));
     }
     if (_effective_cluster_id != -1  && * cluster_ids.begin() != _effective_cluster_id) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
