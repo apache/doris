@@ -47,6 +47,7 @@
 #include "io/cache/mem_file_cache_storage.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "util/thread.h"
 #include "util/time.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/uint128.h"
@@ -344,24 +345,15 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
     }
     RETURN_IF_ERROR(_storage->init(this));
     _cache_background_monitor_thread = std::thread(&BlockFileCache::run_background_monitor, this);
-    pthread_setname_np(_cache_background_monitor_thread.native_handle(), "run_background_monitor");
     _cache_background_ttl_gc_thread = std::thread(&BlockFileCache::run_background_ttl_gc, this);
-    pthread_setname_np(_cache_background_ttl_gc_thread.native_handle(), "run_background_ttl_gc");
     _cache_background_gc_thread = std::thread(&BlockFileCache::run_background_gc, this);
-    pthread_setname_np(_cache_background_gc_thread.native_handle(), "run_background_gc");
     _cache_background_evict_in_advance_thread =
             std::thread(&BlockFileCache::run_background_evict_in_advance, this);
-    pthread_setname_np(_cache_background_evict_in_advance_thread.native_handle(),
-                       "run_background_evict_in_advance");
 
     // Initialize LRU dump thread and restore queues
     _cache_background_lru_dump_thread = std::thread(&BlockFileCache::run_background_lru_dump, this);
-    pthread_setname_np(_cache_background_lru_dump_thread.native_handle(),
-                       "run_background_lru_dump");
     _cache_background_lru_log_replay_thread =
             std::thread(&BlockFileCache::run_background_lru_log_replay, this);
-    pthread_setname_np(_cache_background_lru_log_replay_thread.native_handle(),
-                       "run_background_lru_log_replay");
 
     return Status::OK();
 }
@@ -1857,6 +1849,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
 }
 
 void BlockFileCache::run_background_monitor() {
+    Thread::set_self_name("run_background_monitor");
     while (!_close) {
         int64_t interval_ms = config::file_cache_background_monitor_interval_ms;
         TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_ms);
@@ -1915,6 +1908,7 @@ void BlockFileCache::run_background_monitor() {
 }
 
 void BlockFileCache::run_background_ttl_gc() {
+    Thread::set_self_name("run_background_ttl_gc");
     while (!_close) {
         int64_t interval_ms = config::file_cache_background_ttl_gc_interval_ms;
         int64_t batch_size = config::file_cache_background_ttl_gc_batch;
@@ -1946,6 +1940,7 @@ void BlockFileCache::run_background_ttl_gc() {
 }
 
 void BlockFileCache::run_background_gc() {
+    Thread::set_self_name("run_background_gc");
     FileCacheKey key;
     size_t batch_count = 0;
     while (!_close) {
@@ -1979,6 +1974,7 @@ void BlockFileCache::run_background_gc() {
 }
 
 void BlockFileCache::run_background_evict_in_advance() {
+    Thread::set_self_name("run_background_evict_in_advance");
     LOG(INFO) << "Starting background evict in advance thread";
     int64_t batch = 0;
     while (!_close) {
@@ -2228,6 +2224,7 @@ void BlockFileCache::update_ttl_atime(const UInt128Wrapper& hash) {
 }
 
 void BlockFileCache::run_background_lru_log_replay() {
+    Thread::set_self_name("run_background_lru_log_replay");
     while (!_close) {
         int64_t interval_ms = config::file_cache_background_lru_log_replay_interval_ms;
         {
@@ -2254,6 +2251,7 @@ void BlockFileCache::run_background_lru_log_replay() {
 }
 
 void BlockFileCache::run_background_lru_dump() {
+    Thread::set_self_name("run_background_lru_dump");
     while (!_close) {
         int64_t interval_ms = config::file_cache_background_lru_dump_interval_ms;
         {
