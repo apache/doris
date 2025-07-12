@@ -68,7 +68,7 @@ union DateTimeV2UInt64Union {
 
 // similar to reinterpret_cast but won't break strict-aliasing rules. you can treat it as std::bit_cast with type checking
 template <typename From, typename To>
-constexpr PURE To binary_cast(From from) {
+constexpr PURE To binary_cast(const From& from) {
     constexpr bool from_u64_to_db = match_v<From, uint64_t, To, double>;
     constexpr bool from_i64_to_db = match_v<From, int64_t, To, double>;
     constexpr bool from_db_to_i64 = match_v<From, double, To, int64_t>;
