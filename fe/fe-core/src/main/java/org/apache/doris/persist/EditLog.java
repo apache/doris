@@ -108,8 +108,13 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * EditLog maintains a log of the memory modifications.
@@ -118,13 +123,30 @@ import java.util.Map;
 public class EditLog {
     public static final Logger LOG = LogManager.getLogger(EditLog.class);
 
+    // Helper class to hold log edit requests
+    private static class EditLogItem {
+        final short op;
+        final Writable writable;
+        final Object lock = new Object();
+        boolean finished = false;
+        long logId = -1;
+
+        EditLogItem(short op, Writable writable) {
+            this.op = op;
+            this.writable = writable;
+        }
+    }
+
+    private final BlockingQueue<EditLogItem> logEditQueue = new LinkedBlockingQueue<>();
+    private final Thread flushThread;
+
     private EditLogOutputStream editStream = null;
 
     private long txId = 0;
 
-    private long numTransactions;
-    private long totalTimeTransactions;
 
+    private AtomicLong numTransactions = new AtomicLong(0);
+    private AtomicLong totalTimeTransactions = new AtomicLong(0);
     private Journal journal;
 
     /**
@@ -138,6 +160,84 @@ public class EditLog {
             journal = new LocalJournal(Env.getCurrentEnv().getImageDir());
         } else {
             throw new IllegalArgumentException("Unknown edit log type: " + journalType);
+        }
+
+        // Flush thread initialization block
+        flushThread = new Thread(() -> {
+            while (true) {
+                flushEditLog();
+            }
+        }, "EditLog-Flusher");
+        flushThread.setDaemon(true);
+        flushThread.start();
+    }
+
+    private void flushEditLog() {
+        List<EditLogItem> batch = new ArrayList<>();
+        try {
+            batch.clear();
+            EditLogItem first = logEditQueue.poll(100, TimeUnit.MILLISECONDS);
+            if (first == null) {
+                return;
+            }
+            batch.add(first);
+            logEditQueue.drainTo(batch, Config.batch_edit_log_max_item_num - 1);
+
+            int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, batch.size()));
+            JournalBatch journalBatch = new JournalBatch(itemNum);
+
+            // Array to record pairs of logId and num
+            List<long[]> logIdNumPairs = new ArrayList<>();
+            for (EditLogItem req : batch) {
+                journalBatch.addJournal(req.op, req.writable);
+                if (journalBatch.shouldFlush()) {
+                    long logId = journal.write(journalBatch);
+                    logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
+                    journalBatch = new JournalBatch(itemNum);
+                }
+            }
+            // Write any remaining entries in the batch
+            if (!journalBatch.getJournalEntities().isEmpty()) {
+                long logId = journal.write(journalBatch);
+                logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
+            }
+
+            // Notify all producers
+            // For batch with index, assign logId to each request according to the batch flushes
+            int reqIndex = 0;
+            for (long[] pair : logIdNumPairs) {
+                long logId = pair[0];
+                int num = (int) pair[1];
+                for (int i = 0; i < num && reqIndex < batch.size(); i++, reqIndex++) {
+                    EditLogItem req = batch.get(reqIndex);
+                    req.logId = logId;
+                    synchronized (req.lock) {
+                        req.finished = true;
+                        req.lock.notifyAll();
+                    }
+                }
+            }
+
+        } catch (Throwable t) {
+            // Throwable contains all Exception and Error, such as IOException and
+            // OutOfMemoryError
+            if (journal instanceof BDBJEJournal) {
+                LOG.error("BDBJE stats : {}", ((BDBJEJournal) journal).getBDBStats());
+            }
+            LOG.error("Fatal Error : write stream Exception", t);
+            System.exit(-1);
+        }
+
+        txId += batch.size();
+        // update statistics, etc. (optional, can be added as needed)
+        if (txId >= Config.edit_log_roll_num) {
+            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
+                    Config.edit_log_roll_num);
+            rollEditLog();
+            txId = 0;
+        }
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(Long.valueOf(batch.size()));
         }
     }
 
@@ -1349,8 +1449,7 @@ public class EditLog {
         JournalBatch batch = new JournalBatch(itemNum);
         long batchCount = 0;
         for (T entry : entries) {
-            if (batch.getJournalEntities().size() >= Config.batch_edit_log_max_item_num
-                    || batch.getSize() >= Config.batch_edit_log_max_byte_size) {
+            if (batch.shouldFlush()) {
                 journal.write(batch);
                 batch = new JournalBatch(itemNum);
 
@@ -1371,18 +1470,43 @@ public class EditLog {
         if (!batch.getJournalEntities().isEmpty()) {
             journal.write(batch);
         }
+        txId += entries.size();
     }
 
     /**
-     * Write an operation to the edit log. Do not sync to persistent store yet.
+     * Asynchronously log an edit by putting it into a blocking queue and waiting for completion.
+     * This method blocks until the log is written and returns the logId.
      */
-    private synchronized long logEdit(short op, Writable writable) {
-        if (this.getNumEditStreams() == 0) {
-            LOG.error("Fatal Error : no editLog stream", new Exception());
-            throw new Error("Fatal Error : no editLog stream");
+    public long logEditWithQueue(short op, Writable writable) {
+        EditLogItem req = new EditLogItem(op, writable);
+        while (true) {
+            try {
+                logEditQueue.put(req);
+                break;
+            } catch (InterruptedException e) {
+                LOG.warn("Interrupted during put, will sleep and retry.");
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ex) {
+                    LOG.warn(" interrupted during sleep, will retry.", ex);
+                }
+            }
+        }
+        synchronized (req.lock) {
+            while (!req.finished) {
+                try {
+                    req.lock.wait();
+                } catch (InterruptedException e) {
+                    LOG.error("Fatal Error : write stream Exception");
+                    System.exit(-1);
+                }
+            }
         }
 
-        long start = System.currentTimeMillis();
+        return req.logId;
+    }
+
+    private synchronized long logEditDirectly(short op, Writable writable) {
         long logId = -1;
         try {
             logId = journal.write(op, writable);
@@ -1399,20 +1523,6 @@ public class EditLog {
         // get a new transactionId
         txId++;
 
-        // update statistics
-        long end = System.currentTimeMillis();
-        numTransactions++;
-        totalTimeTransactions += (end - start);
-        if (MetricRepo.isInit) {
-            MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
-            MetricRepo.COUNTER_EDIT_LOG_CURRENT.increase(1L);
-        }
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {} delta = {}",
-                    txId, numTransactions, totalTimeTransactions, op, end - start);
-        }
-
         if (txId >= Config.edit_log_roll_num) {
             LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
                     Config.edit_log_roll_num);
@@ -1420,8 +1530,39 @@ public class EditLog {
             txId = 0;
         }
 
+        return logId;
+    }
+
+    /**
+     * Write an operation to the edit log. Do not sync to persistent store yet.
+     */
+    private long logEdit(short op, Writable writable) {
+        if (this.getNumEditStreams() == 0) {
+            LOG.error("Fatal Error : no editLog stream", new Exception());
+            throw new Error("Fatal Error : no editLog stream");
+        }
+
+        long start = System.currentTimeMillis();
+        long logId = -1;
+        if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
+            logId = logEditWithQueue(op, writable);
+        } else {
+            logId = logEditDirectly(op, writable);
+        }
+
+        // update statistics
+        long end = System.currentTimeMillis();
+        numTransactions.incrementAndGet();
+        totalTimeTransactions.addAndGet(end - start);
         if (MetricRepo.isInit) {
+            MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
+            MetricRepo.COUNTER_EDIT_LOG_CURRENT.increase(1L);
             MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(1L);
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {} delta = {}",
+                    txId, numTransactions, totalTimeTransactions, op, end - start);
         }
 
         return logId;
