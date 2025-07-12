@@ -56,7 +56,7 @@ public:
                                  const TPipelineFragmentParamsList& parent);
 
     Status execute_plan_fragment(
-            std::shared_ptr<StreamLoadContext> ctx, const TPipelineFragmentParams& parent,
+            std::shared_ptr<StreamLoadContext> ctx, const TPipelineFragmentParamsList& parent,
             const std::function<void(std::shared_ptr<StreamLoadContext> ctx)>& cb);
 
 protected:
