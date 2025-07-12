@@ -176,7 +176,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
 
-    public static StatsCalculator INSTANCE = new StatsCalculator(null);
     protected static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
     protected final GroupExpression groupExpression;
 
