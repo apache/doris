@@ -950,13 +950,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int totalRetryTime = 0;
         String retryMsg = "";
         boolean res = false;
+        long startTime = System.currentTimeMillis();
         try {
             getPartitionInfo(mowTableList, tabletCommitInfos, lockContext);
             for (Map.Entry<Long, Set<Long>> entry : lockContext.getTableToPartitions().entrySet()) {
                 GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
-                builder.setTableId(entry.getKey()).setLockId(transactionId).setInitiator(-1)
+                long tableId = entry.getKey();
+                builder.setTableId(tableId).setLockId(transactionId).setInitiator(-1)
                         .setExpiration(Config.delete_bitmap_lock_expiration_seconds).setRequireCompactionStats(true);
-                List<Long> tabletList = lockContext.getTableToTabletList().get(entry.getKey());
+                List<Long> tabletList = lockContext.getTableToTabletList().get(tableId);
                 for (Long tabletId : tabletList) {
                     TabletMeta tabletMeta = lockContext.getTabletToTabletMeta().get(tabletId);
                     TabletIndexPB.Builder tabletIndexBuilder = TabletIndexPB.newBuilder();
@@ -967,11 +969,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     tabletIndexBuilder.setTabletId(tabletId);
                     builder.addTabletIndexes(tabletIndexBuilder);
                 }
-                final GetDeleteBitmapUpdateLockRequest request = builder.build();
                 GetDeleteBitmapUpdateLockResponse response = null;
 
                 int retryTime = 0;
                 while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
+                    long waitTime = System.currentTimeMillis() - startTime;
+                    boolean urgent = Config.enable_mow_load_force_take_ms_lock
+                            && waitTime > Config.mow_load_force_take_ms_lock_threshold_ms;
+                    if (urgent) {
+                        LOG.info("try to get delete bitmap lock with urgent flag, tableId={}, txnId={}",
+                                tableId, transactionId);
+                    }
+                    builder.setUrgent(urgent);
+                    GetDeleteBitmapUpdateLockRequest request = builder.build();
                     try {
                         response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                         if (LOG.isDebugEnabled()) {
@@ -1011,15 +1021,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                 "check delete bitmap lock release fail,response is " + response
                                         + ", tableList=(" + StringUtils.join(mowTableList, ",") + ")");
                     }
-                    // sleep random millis [20, 300] ms, avoid txn conflict
-                    int randomMillis = 20 + (int) (Math.random() * (300 - 20));
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("randomMillis:{}", randomMillis);
-                    }
-                    try {
-                        Thread.sleep(randomMillis);
-                    } catch (InterruptedException e) {
-                        LOG.info("InterruptedException: ", e);
+
+                    // don't sleep if it's urgent
+                    if (!urgent) {
+                        long start = Config.mow_get_ms_lock_retry_backoff_start_ms;
+                        long end = Config.mow_get_ms_lock_retry_backoff_end_ms;
+                        long randomMillis = start + (long) (Math.random() * (end - start));
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("randomMillis:{}", randomMillis);
+                        }
+                        try {
+                            Thread.sleep(randomMillis);
+                        } catch (InterruptedException e) {
+                            LOG.info("InterruptedException: ", e);
+                        }
                     }
                 }
                 Preconditions.checkNotNull(response);
