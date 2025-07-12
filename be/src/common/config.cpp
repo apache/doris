@@ -1378,6 +1378,10 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 DEFINE_mBool(enable_report_delete_bitmap_metrics, "false");
 DEFINE_mInt32(report_delete_bitmap_metrics_interval_s, "60");
 
+DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
+
+DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

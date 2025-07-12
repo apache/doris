@@ -1455,6 +1455,10 @@ DECLARE_mBool(enable_compaction_pause_on_high_memory);
 DECLARE_mBool(enable_report_delete_bitmap_metrics);
 DECLARE_mInt32(report_delete_bitmap_metrics_interval_s);
 
+DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
+
+DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

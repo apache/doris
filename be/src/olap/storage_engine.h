@@ -36,6 +36,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "agent/task_worker_pool.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -186,6 +188,8 @@ public:
 
     bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
 
+    bool get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends);
+
     bool should_fetch_from_peer(int64_t tablet_id);
 
     std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
@@ -228,6 +232,10 @@ public:
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
     int get_disk_num() { return _disk_num; }
+
+    Status submit_clone_task(Tablet* tablet, int64_t version);
+
+    std::unique_ptr<TaskWorkerPool>* clone_workers;
 
 private:
     // Instance should be inited from `static open()`
@@ -475,6 +483,7 @@ private:
     int _disk_num {-1};
 
     int64_t _memory_limitation_bytes_for_schema_change;
+    int64_t _last_get_peers_replica_backends_time_ms {0};
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

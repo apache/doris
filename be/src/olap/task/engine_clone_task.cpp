@@ -38,6 +38,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -992,5 +993,4 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
 }
-
 } // namespace doris
