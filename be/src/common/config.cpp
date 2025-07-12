@@ -1516,6 +1516,11 @@ DEFINE_mInt32(schema_dict_cache_capacity, "4096");
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
 DEFINE_mBool(enable_mow_verbose_log, "false");
+DEFINE_mInt32(mow_compaction_hold_lock_threshold_ms, "100");
+DEFINE_mInt32(sync_rowsets_hold_lock_threshold_ms, "70");
+DEFINE_mBool(enable_delete_stale_rowset_log, "true");
+DEFINE_mBool(mow_delete_stale_use_yield, "true");
+DEFINE_mInt32(mow_delete_stale_sleep_time_us, "10");
 
 DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
 DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
