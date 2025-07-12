@@ -3725,6 +3725,12 @@ public class Env {
             sb.append("\"");
         }
 
+        // storage medium specified
+        // Call getter method to trigger buildIsStorageMediumSpecified() for upgrade compatibility
+        olapTable.isStorageMediumSpecified();
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED).append("\" = \"");
+        sb.append(olapTable.getTableProperty().getProperties().get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED)).append("\"");
+
         // storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
         sb.append(olapTable.getStorageFormat()).append("\"");
@@ -5653,6 +5659,7 @@ public class Env {
                 .buildMinLoadReplicaNum()
                 .buildStoragePolicy()
                 .buildStorageMedium()
+                .buildIsStorageMediumSpecified()
                 .buildIsBeingSynced()
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()

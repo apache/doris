@@ -2738,6 +2738,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
                         new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                 olapTable.setStorageMedium(dataProperty.getStorageMedium());
+                olapTable.setIsStorageMediumSpecified(dataProperty.isStorageMediumSpecified());
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -2924,7 +2925,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         storagePolicy,
                         idGeneratorBuffer,
                         binlogConfigForTask,
-                        partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
+                        DataProperty.getFinalStorageMediumSpecified(partitionInfo.getDataProperty(partitionId), olapTable));
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
                 olapTable.addPartition(partition);
@@ -2935,6 +2936,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     Map<String, String> propertiesCheck = new HashMap<>(properties);
                     propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
+                    // Remove storage_medium_specified from properties check as it's handled separately
+                    propertiesCheck.entrySet().removeIf(entry -> entry.getKey().equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED));
                     if (propertiesCheck != null && !propertiesCheck.isEmpty()) {
                         // here, all properties should be checked
                         throw new DdlException("Unknown properties: " + propertiesCheck);
@@ -2942,6 +2945,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
                     olapTable.setStorageMedium(dataProperty.getStorageMedium());
+                    olapTable.setIsStorageMediumSpecified(dataProperty.isStorageMediumSpecified());
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkDynamicPartitionPropertyKeysValid(properties);
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
@@ -2984,6 +2988,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // this is a 2-level partitioned tables
                 for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
                     DataProperty dataProperty = partitionInfo.getDataProperty(entry.getValue());
+                    LOG.info("dataProperty: {}", dataProperty);
                     DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                     // use partition storage policy if it exist.
                     String partionStoragePolicy = partitionInfo.getStoragePolicy(entry.getValue());
@@ -3008,7 +3013,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             partitionInfo.getTabletType(entry.getValue()),
                             partionStoragePolicy, idGeneratorBuffer,
                             binlogConfigForTask,
-                            dataProperty.isStorageMediumSpecified());
+                            DataProperty.getFinalStorageMediumSpecified(dataProperty, olapTable));
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
@@ -3457,7 +3462,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
                         olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
                         idGeneratorBuffer, binlogConfig,
-                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified());
+                        DataProperty.getFinalStorageMediumSpecified(
+                            copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId), copiedTbl));
                 newPartitions.add(newPartition);
             }
 

@@ -77,6 +77,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_MIN_LOAD_REPLICA_NUM = "min_load_replica_num";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
+    public static final String PROPERTIES_STORAGE_MEDIUM_SPECIFIED = "storage_medium_specified";
     public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
     // base time for the data in the partition
     public static final String PROPERTIES_DATA_BASE_TIME = "data_base_time_ms";
@@ -347,12 +348,18 @@ public class PropertyAnalyzer {
             if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
                 if (value.equalsIgnoreCase(TStorageMedium.SSD.name())) {
                     storageMedium = TStorageMedium.SSD;
-                    storageMediumSpecified = true;
                 } else if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
                     storageMedium = TStorageMedium.HDD;
-                    storageMediumSpecified = true;
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
+                }
+            } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM_SPECIFIED)) {
+                if (value.equalsIgnoreCase("true")) {
+                    storageMediumSpecified = true;
+                } else if (value.equalsIgnoreCase("false")) {
+                    storageMediumSpecified = false;
+                } else {
+                    throw new AnalysisException("Invalid storage_medium_specified value: " + value + ". Must be 'true' or 'false'");
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
@@ -371,6 +378,7 @@ public class PropertyAnalyzer {
         } // end for properties
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
+        properties.remove(PROPERTIES_STORAGE_MEDIUM_SPECIFIED);
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
         properties.remove(PROPERTIES_STORAGE_POLICY);
         properties.remove(PROPERTIES_DATA_BASE_TIME);
@@ -450,10 +458,7 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_MUTABLE);
 
         DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
-        // check the state of data property
-        if (storageMediumSpecified) {
-            dataProperty.setStorageMediumSpecified(true);
-        }
+        dataProperty.setStorageMediumSpecified(storageMediumSpecified);
         return dataProperty;
     }
 
@@ -1829,5 +1834,21 @@ public class PropertyAnalyzer {
                     Boolean.toString(Config.enable_skip_bitmap_column_by_default));
         }
         return properties;
+    }
+
+    public static boolean analyzeStorageMediumSpecified(Map<String, String> properties) throws AnalysisException {
+        boolean storageMediumSpecified = false;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_MEDIUM_SPECIFIED)) {
+            String value = properties.get(PROPERTIES_STORAGE_MEDIUM_SPECIFIED);
+            if (value.equalsIgnoreCase("true")) {
+                storageMediumSpecified = true;
+            } else if (value.equalsIgnoreCase("false")) {
+                storageMediumSpecified = false;
+            } else {
+                throw new AnalysisException("Invalid storage_medium_specified value: " + value + ". Must be 'true' or 'false'");
+            }
+            properties.remove(PROPERTIES_STORAGE_MEDIUM_SPECIFIED);
+        }
+        return storageMediumSpecified;
     }
 }

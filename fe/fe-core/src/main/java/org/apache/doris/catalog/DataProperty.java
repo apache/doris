@@ -112,6 +112,21 @@ public class DataProperty implements GsonPostProcessable {
         storageMediumSpecified = isSpecified;
     }
 
+    /**
+     * Get the final storage medium specified status for a partition
+     * If the partition has its own setting, use it; otherwise use table-level setting
+     * @param olapTable the table to check
+     * @return true if storage medium is strictly specified
+     */
+    public static boolean getFinalStorageMediumSpecified(DataProperty dataProperty, OlapTable olapTable) {
+        // If partition has its own storageMediumSpecified setting, use it
+        if (dataProperty.isStorageMediumSpecified()) {
+            return true;
+        }
+        // Otherwise, fall back to table-level setting
+        return olapTable.isStorageMediumSpecified();
+    }
+
     public void setStorageMedium(TStorageMedium medium) {
         this.storageMedium = medium;
     }

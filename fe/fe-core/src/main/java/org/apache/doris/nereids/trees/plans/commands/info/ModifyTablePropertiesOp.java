@@ -48,6 +48,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
     private String storagePolicy;
 
     private boolean isBeingSynced = false;
+    private boolean isStorageMediumSpecified = false;
 
     public ModifyTablePropertiesOp(Map<String, String> properties) {
         super(AlterOpType.MODIFY_TABLE_PROPERTY);
@@ -68,6 +69,14 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
 
     public boolean isBeingSynced() {
         return isBeingSynced;
+    }
+
+    public void setIsStorageMediumSpecified(boolean isStorageMediumSpecified) {
+        this.isStorageMediumSpecified = isStorageMediumSpecified;
+    }
+
+    public boolean isStorageMediumSpecified() {
+        return isStorageMediumSpecified;
     }
 
     @Override
@@ -152,6 +161,11 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             this.needTableStable = false;
             setIsBeingSynced(Boolean.parseBoolean(properties.getOrDefault(
                     PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false")));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED)) {
+            boolean isStorageMediumSpecified = PropertyAnalyzer.analyzeStorageMediumSpecified(properties);
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+            setIsStorageMediumSpecified(isStorageMediumSpecified);
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)

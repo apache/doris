@@ -334,4 +334,56 @@ public class PropertyAnalyzerTest {
                     e.getMessage());
         }
     }
+
+    @Test
+    public void testAnalyzeDataProperty() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        Assert.assertFalse(dataProperty.isStorageMediumSpecified());
+
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        Assert.assertFalse(dataProperty.isStorageMediumSpecified());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED, "true");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        Assert.assertTrue(dataProperty.isStorageMediumSpecified());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED, "false");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        Assert.assertFalse(dataProperty.isStorageMediumSpecified());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED, "true");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        Assert.assertTrue(dataProperty.isStorageMediumSpecified());
+
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED, "false");
+        dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+        Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        Assert.assertFalse(dataProperty.isStorageMediumSpecified());
+    }
+
+    @Test
+    public void testAnalyzeDataPropertyWithInvalidStorageMediumSpecified() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED, "invalid");
+        
+        try {
+            PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.HDD));
+            Assert.fail("Should throw AnalysisException for invalid storage_medium_specified value");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Invalid storage_medium_specified value"));
+        }
+    }
 }

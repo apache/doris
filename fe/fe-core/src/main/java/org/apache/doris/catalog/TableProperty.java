@@ -66,6 +66,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
+    private Boolean isStorageMediumSpecified = null;
     private BinlogConfig binlogConfig;
 
     private TStorageMedium storageMedium = null;
@@ -154,6 +155,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildStorageMedium();
                 buildStoragePolicy();
                 buildIsBeingSynced();
+                buildIsStorageMediumSpecified();
                 buildCompactionPolicy();
                 buildTimeSeriesCompactionGoalSizeMbytes();
                 buildTimeSeriesCompactionFileCountThreshold();
@@ -470,6 +472,22 @@ public class TableProperty implements GsonPostProcessable {
             buildIsBeingSynced();
         }
         return isBeingSynced;
+    }
+
+    public TableProperty buildIsStorageMediumSpecified() {
+        // Handle upgrade compatibility: if the property doesn't exist, set default value for old tables
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED)) {
+            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED, "false");
+        }
+        isStorageMediumSpecified = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM_SPECIFIED));
+        return this;
+    }
+
+    public boolean isStorageMediumSpecified() {
+        if (isStorageMediumSpecified == null) {
+            buildIsStorageMediumSpecified();
+        }
+        return isStorageMediumSpecified;
     }
 
     public void removeInvalidProperties() {
