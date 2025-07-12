@@ -6102,6 +6102,8 @@ public class Env {
             // In previous versions(before 2.1.8), there is no catalog info in TruncateTableInfo,
             // So if the catalog info is empty, we assume it's internal table.
             getInternalCatalog().replayTruncateTable(info);
+            Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(info.getUpdateRecords(),
+                    info.getDbId(), info.getTblId(), 0);
         } else {
             ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
             if (ctl != null) {
