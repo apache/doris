@@ -167,6 +167,9 @@ public:
 private:
     void bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output);
 
+    template <typename U>
+    void bit_unpack_optimize(const uint8_t* input, uint8_t in_num, int bit_width, T* output);
+
     uint32_t frame_size(uint32_t frame_index) {
         return (frame_index == _frame_count - 1) ? _last_frame_size : _max_frame_size;
     }
