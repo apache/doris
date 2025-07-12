@@ -91,8 +91,11 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
     }
     reader_params.tablet_schema = merge_tablet_schema;
-    if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
+    if (tablet->enable_unique_key_merge_on_write() &&
+        (!tablet->tablet_schema()->cluster_key_uids().empty() ||
+         !config::enable_compaction_unique_mow_by_mor)) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        reader_params.unique_key_read_by_mor = false;
     }
 
     if (stats_output && stats_output->rowid_conversion) {
@@ -275,10 +278,11 @@ Status Merger::vertical_compact_one_group(
     }
 
     reader_params.tablet_schema = merge_tablet_schema;
-    bool has_cluster_key = false;
-    if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
+    if (tablet->enable_unique_key_merge_on_write() &&
+        (!tablet->tablet_schema()->cluster_key_uids().empty() ||
+         !config::enable_compaction_unique_mow_by_mor)) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
-        has_cluster_key = true;
+        reader_params.unique_key_read_by_mor = false;
     }
 
     if (is_key && stats_output && stats_output->rowid_conversion) {
@@ -307,8 +311,9 @@ Status Merger::vertical_compact_one_group(
                                        "failed to read next block when merging rowsets of tablet " +
                                                std::to_string(tablet->tablet_id()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment,
-                                               has_cluster_key),
+                dst_rowset_writer->add_columns(
+                        &block, column_group, is_key, max_rows_per_segment,
+                        !tablet->tablet_schema()->cluster_key_uids().empty()),
                 "failed to write block when merging rowsets of tablet " +
                         std::to_string(tablet->tablet_id()));
 
