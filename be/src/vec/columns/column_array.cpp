@@ -172,23 +172,39 @@ bool ColumnArray::is_default_at(size_t n) const {
     return offsets_data[n] == offsets_data[static_cast<ssize_t>(n) - 1];
 }
 
-StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
-                                                  char const*& begin) const {
-    size_t array_size = size_at(n);
-    size_t offset = offset_at(n);
+size_t ColumnArray::serialize_size_at(size_t row) const {
+    size_t array_size = size_at(row);
+    size_t offset = offset_at(row);
 
-    char* pos = arena.alloc_continue(sizeof(array_size), begin);
-    memcpy(pos, &array_size, sizeof(array_size));
-
-    StringRef res(pos, sizeof(array_size));
+    size_t sz = 0;
 
     for (size_t i = 0; i < array_size; ++i) {
-        auto value_ref = get_data().serialize_value_into_arena(offset + i, arena, begin);
-        res.data = value_ref.data - res.size;
-        res.size += value_ref.size;
+        sz += get_data().serialize_size_at(offset + i);
     }
 
-    return res;
+    return sz + sizeof(size_t);
+}
+
+size_t ColumnArray::serialize_impl(char* pos, const size_t row) const {
+    size_t array_size = size_at(row);
+    size_t offset = offset_at(row);
+
+    memcpy_fixed<size_t>(pos, (char*)&array_size);
+
+    size_t sz = sizeof(array_size);
+
+    for (size_t i = 0; i < array_size; ++i) {
+        sz += get_data().serialize_impl(pos + sz, offset + i);
+    }
+
+    DCHECK_EQ(sz, serialize_size_at(row));
+    return sz;
+}
+
+StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
+                                                  char const*& begin) const {
+    char* pos = arena.alloc_continue(serialize_size_at(n), begin);
+    return {pos, serialize_impl(pos, n)};
 }
 
 template <bool positive>
@@ -274,144 +290,33 @@ size_t ColumnArray::get_max_row_byte_size() const {
     return sizeof(size_t) + max_size;
 }
 
-void ColumnArray::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                              const UInt8* null_map) const {
-    DCHECK(null_map != nullptr);
-    DCHECK(!data->is_variable_length() || data->is_column_string() || data->is_column_string64());
-
-    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
-
-    const auto* nested_col = data->get_ptr().get();
-    if (data->is_nullable()) {
-        nested_col = assert_cast<const ColumnNullable*>(data->get_ptr().get())
-                             ->get_nested_column_ptr()
-                             .get();
-    }
-    auto serialize_impl = [&](size_t i, char* __restrict dest) {
-        size_t array_size = size_at(i);
-        size_t offset = offset_at(i);
-
-        memcpy(dest, &array_size, sizeof(array_size));
-        dest += sizeof(array_size);
-        keys[i].size += sizeof(array_size);
-        for (size_t j = 0; j < array_size; ++j) {
-            if (data->is_nullable()) {
-                auto flag = assert_cast<const ColumnNullable*>(data->get_ptr().get())
-                                    ->get_null_map_data()[offset + j];
-                memcpy(dest, &flag, sizeof(flag));
-                dest += sizeof(flag);
-                keys[i].size += sizeof(flag);
-                if (flag) {
-                    continue;
-                }
-            }
-            const auto& it = nested_col->get_data_at(offset + j);
-            if (nested_col->is_variable_length()) {
-                memcpy(dest, &it.size, sizeof(it.size));
-                dest += sizeof(it.size);
-                keys[i].size += sizeof(it.size);
-            }
-            memcpy(dest, it.data, it.size);
-            dest += it.size;
-            keys[i].size += it.size;
-        }
-    };
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
-            // serialize null first
-            memcpy(dest, null_map + i, sizeof(uint8_t));
-            dest += sizeof(uint8_t);
-            keys[i].size += sizeof(uint8_t);
-            if (null_map[i] == 0) {
-                serialize_impl(i, dest);
-            }
-        }
-    } else {
-        // All rows are not null, serialize null & value
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
-            // serialize null first
-            memcpy(dest, null_map + i, sizeof(uint8_t));
-            dest += sizeof(uint8_t);
-            keys[i].size += sizeof(uint8_t);
-            serialize_impl(i, dest);
-        }
+void ColumnArray::serialize_vec(StringRef* keys, size_t num_rows) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
-void ColumnArray::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                                const uint8_t* null_map) {
-    DCHECK(!data->is_variable_length() || data->is_column_string() || data->is_column_string64());
-    auto item_sz = remove_nullable(get_data().get_ptr())->get_max_row_byte_size();
-    for (size_t i = 0; i != num_rows; ++i) {
-        const auto* original_ptr = keys[i].data;
-        const auto* pos = keys[i].data;
-        if (null_map[i] == 0) {
-            size_t array_size = unaligned_load<size_t>(pos);
-            pos += sizeof(size_t);
-            for (size_t j = 0; j < array_size; j++) {
-                auto null_flag = unaligned_load<uint8_t>(pos);
-                pos += sizeof(uint8_t);
-                if (null_flag) {
-                    DCHECK(data->is_nullable()) << data->get_name();
-                    get_data().insert_default();
-                } else {
-                    size_t it_sz = item_sz;
-                    if (data->is_variable_length()) {
-                        it_sz = unaligned_load<size_t>(pos);
-                        pos += sizeof(it_sz);
-                    }
-                    get_data().insert_data(pos, it_sz);
-                    pos += it_sz;
-                }
-            }
-            get_offsets().push_back(get_offsets().back() + array_size);
-            keys[i].data = pos;
-        } else {
-            insert_default();
-        }
-        keys[i].size -= (keys[i].data - original_ptr);
+size_t ColumnArray::deserialize_impl(const char* pos) {
+    size_t sz = 0;
+    size_t array_size = unaligned_load<size_t>(pos);
+    sz += sizeof(size_t);
+    for (size_t j = 0; j < array_size; j++) {
+        sz += get_data().deserialize_impl(pos + sz);
     }
+    get_offsets().push_back(get_offsets().back() + array_size);
+    return sz;
 }
 
 void ColumnArray::deserialize_vec(StringRef* keys, const size_t num_rows) {
-    auto item_sz = remove_nullable(get_data().get_ptr())->get_max_row_byte_size();
     for (size_t i = 0; i != num_rows; ++i) {
-        const auto* original_ptr = keys[i].data;
-        const auto* pos = keys[i].data;
-        size_t array_size = unaligned_load<size_t>(pos);
-        pos += sizeof(size_t);
-        for (size_t j = 0; j < array_size; j++) {
-            auto null_flag = unaligned_load<uint8_t>(pos);
-            pos += sizeof(uint8_t);
-            if (null_flag) {
-                DCHECK(data->is_nullable()) << data->get_name();
-                get_data().insert_default();
-            } else {
-                size_t it_sz = item_sz;
-                if (data->is_variable_length()) {
-                    it_sz = unaligned_load<size_t>(pos);
-                    pos += sizeof(it_sz);
-                }
-                get_data().insert_data(pos, it_sz);
-                pos += it_sz;
-            }
-        }
-        get_offsets().push_back(get_offsets().back() + array_size);
-        keys[i].data = pos;
-        keys[i].size -= (keys[i].data - original_ptr);
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
     }
 }
 
 const char* ColumnArray::deserialize_and_insert_from_arena(const char* pos) {
-    size_t array_size = unaligned_load<size_t>(pos);
-    pos += sizeof(array_size);
-
-    for (size_t i = 0; i < array_size; ++i) pos = get_data().deserialize_and_insert_from_arena(pos);
-
-    get_offsets().push_back(get_offsets().back() + array_size);
-    return pos;
+    return pos + deserialize_impl(pos);
 }
 
 void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {

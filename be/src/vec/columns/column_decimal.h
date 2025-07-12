@@ -160,15 +160,9 @@ public:
 
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
-
-    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                     const uint8_t* null_map) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
 
     void deserialize_vec(StringRef* keys, const size_t num_rows) override;
-
-    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                       const uint8_t* null_map) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
@@ -254,11 +248,13 @@ public:
                 elements_to_move * sizeof(value_type));
         data.resize(data.size() - length);
     }
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 protected:
     Container data;
     UInt32 scale;
-
     template <typename U>
     void permutation(bool reverse, size_t limit, PaddedPODArray<U>& res) const {
         size_t s = data.size();

@@ -172,10 +172,7 @@ public:
                      EqualRange& range, bool last_column) const override;
     void deserialize_vec(StringRef* keys, const size_t num_rows) override;
     size_t get_max_row_byte_size() const override;
-    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                     const uint8_t* null_map) const override;
-    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                       const uint8_t* null_map) override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
     const IColumn& get_data() const { return *data; }
@@ -238,6 +235,10 @@ public:
     }
 
     void erase(size_t start, size_t length) override;
+
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override;
 
 private:
     // [2,1,5,9,1]\n[1,2,4] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
