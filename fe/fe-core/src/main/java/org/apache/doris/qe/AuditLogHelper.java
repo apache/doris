@@ -349,24 +349,21 @@ public class AuditLogHelper {
                     MetricRepo.COUNTER_QUERY_ALL.increase(1L);
                     MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
                 }
+                String physicalClusterName = "";
                 try {
                     if (Config.isCloudMode()) {
                         cloudCluster = ctx.getCloudCluster(false);
+                        physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                .getPhysicalCluster(cloudCluster);
+                        if (!cloudCluster.equals(physicalClusterName)) {
+                            MetricRepo.increaseClusterQueryAll(physicalClusterName);
+                        }
                     }
                 } catch (ComputeGroupException e) {
                     LOG.warn("Failed to get cloud cluster", e);
                     return;
                 }
-                String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getPhysicalCluster(cloudCluster);
-                if (cloudCluster.equals(physicalClusterName)) {
-                    // not vcg
-                    MetricRepo.increaseClusterQueryAll(cloudCluster);
-                } else {
-                    // vcg
-                    MetricRepo.increaseClusterQueryAll(cloudCluster);
-                    MetricRepo.increaseClusterQueryAll(physicalClusterName);
-                }
+
                 MetricRepo.increaseClusterQueryAll(cloudCluster);
                 if (!ctx.getState().isInternal()) {
                     if (ctx.getState().getStateType() == MysqlStateType.ERR

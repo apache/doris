@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property.fileformat;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -50,6 +49,8 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public static final String PROP_ENCLOSE = "enclose";
     public static final String PROP_ESCAPE = "escape";
 
+    public static final String PROP_ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
+
     private String headerType = "";
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
@@ -57,6 +58,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     private int skipLines;
     private byte enclose;
     private byte escape;
+    private boolean enableTextValidateUTF8 = true;
 
     String defaultColumnSeparator = DEFAULT_COLUMN_SEPARATOR;
 
@@ -120,6 +122,10 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                     PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
             compressionType = Util.getFileCompressType(compressTypeStr);
 
+            String validateUtf8 = getOrDefault(formatProperties, PROP_ENABLE_TEXT_VALIDATE_UTF8, "true",
+                    isRemoveOriginProperty);
+            enableTextValidateUTF8 = Boolean.parseBoolean(validateUtf8);
+
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -144,8 +150,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         fileAttributes.setHeaderType(headerType);
         fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
         fileAttributes.setSkipLines(skipLines);
-        fileAttributes.setEnableTextValidateUtf8(
-                ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
+        fileAttributes.setEnableTextValidateUtf8(enableTextValidateUTF8);
         return fileAttributes;
     }
 

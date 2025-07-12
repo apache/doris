@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -156,6 +157,7 @@ public class DataDescription implements InsertStmt.DataDesc {
     // The map should be only used in `constructor` and `analyzeWithoutCheckPriv` method.
     private Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
+    @VisibleForTesting
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
@@ -188,7 +190,7 @@ public class DataDescription implements InsertStmt.DataDesc {
                 mergeType, deleteCondition, sequenceColName, properties);
     }
 
-    public DataDescription(String tableName,
+    private DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
@@ -239,7 +241,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         columnsNameToLowerCase(columnsFromPath);
     }
 
-    // data from table external_hive_table
+    @VisibleForTesting
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            String srcTableName,
@@ -271,7 +273,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
     }
 
-    // data desc for mysql client
+    @VisibleForTesting
     public DataDescription(TableName tableName,
                            PartitionNames partitionNames,
                            String file,
@@ -1008,6 +1010,10 @@ public class DataDescription implements InsertStmt.DataDesc {
         analyzeSequenceCol(fullDbName);
 
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
+        if (ConnectContext.get() != null) {
+            analysisMap.putIfAbsent(CsvFileFormatProperties.PROP_ENABLE_TEXT_VALIDATE_UTF8,
+                    String.valueOf(ConnectContext.get().getSessionVariable().enableTextValidateUtf8));
+        }
         fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
