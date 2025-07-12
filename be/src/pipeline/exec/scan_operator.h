@@ -135,7 +135,9 @@ class ScanLocalState : public ScanLocalStateBase {
     ~ScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status open(RuntimeState* state) override;
+
+    virtual Status open(RuntimeState* state) override;
+
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const final;
 
@@ -183,7 +185,12 @@ class ScanLocalState : public ScanLocalStateBase {
                 continue;
             }
             if (_push_down_topn(pred) == push_down) {
+                LOG_INFO("push down topn filter, source node id: {}, target node id: {}", id,
+                         _parent->node_id());
                 result.push_back(id);
+            } else {
+                LOG_INFO("not push down topn filter, source node id: {}, target node id: {}", id,
+                         _parent->node_id());
             }
         }
         return result;

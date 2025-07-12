@@ -68,7 +68,7 @@ void TabletReader::ReaderParams::check_validation() const {
 std::string TabletReader::ReaderParams::to_string() const {
     std::stringstream ss;
     ss << "tablet=" << tablet->tablet_id() << " reader_type=" << int(reader_type)
-       << " aggregation=" << aggregation << " version=" << version
+       << " is_pre_aggregation=" << is_pre_aggregation << " version=" << version
        << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
     for (const auto& key : start_key) {
@@ -211,7 +211,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             // unique keys with merge on write, no need to merge sort keys in rowset
             need_ordered_result = false;
         }
-        if (_aggregation) {
+        if (_is_pre_aggregation) {
             // compute engine will aggregate rows with the same key,
             // it's ok for rowset to return unordered result
             need_ordered_result = false;
@@ -259,9 +259,13 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
-    _reader_context.output_columns = &read_params.output_columns;
+    _reader_context.output_columns = &read_params.output_column_unique_ids;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     _reader_context.ttl_seconds = _tablet->ttl_seconds();
+
+    _reader_context.virtual_column_exprs = read_params.virtual_column_exprs;
+    _reader_context.vir_cid_to_idx_in_block = read_params.vir_cid_to_idx_in_block;
+    _reader_context.vir_col_idx_to_type = read_params.vir_col_idx_to_type;
 
     return Status::OK();
 }
@@ -285,7 +289,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
     _direct_mode = read_params.direct_mode;
-    _aggregation = read_params.aggregation;
+    _is_pre_aggregation = read_params.is_pre_aggregation;
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
@@ -528,6 +532,12 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             predicates.emplace_back(predicate);
         }
     };
+    LOG_INFO(
+            "conditions {}, bloom_filters {}, bitmap_filters {}, in_filters {}, function_filters "
+            "{}",
+            read_params.conditions.size(), read_params.bloom_filters.size(),
+            read_params.bitmap_filters.size(), read_params.in_filters.size(),
+            read_params.function_filters.size());
 
     for (const auto& param : read_params.conditions) {
         TCondition tmp_cond = param.filter;
@@ -585,6 +595,9 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             _col_predicates.push_back(predicate);
         }
     }
+
+    LOG_INFO("init conditions, col_predicates size={}, value_col_predicates size={}",
+             _col_predicates.size(), _value_col_predicates.size());
 
     for (int id : read_params.topn_filter_source_node_ids) {
         auto& runtime_predicate =
