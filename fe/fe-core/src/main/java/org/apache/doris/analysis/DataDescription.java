@@ -190,7 +190,8 @@ public class DataDescription implements InsertStmt.DataDesc {
                 mergeType, deleteCondition, sequenceColName, properties);
     }
 
-    private DataDescription(String tableName,
+    // Visible for SqlParser.java
+    public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
