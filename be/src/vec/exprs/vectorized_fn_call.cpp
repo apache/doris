@@ -202,6 +202,8 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
 
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
+
+    block->check_number_of_rows();
     *result_column_id = num_columns_without_result;
     return Status::OK();
 }
