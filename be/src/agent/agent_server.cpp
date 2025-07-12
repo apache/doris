@@ -41,6 +41,7 @@
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "util/work_thread_pool.hpp"
 
 using std::string;
 using std::vector;
@@ -143,8 +144,8 @@ void AgentServer::start_workers(ExecEnv* exec_env) {
     _alter_tablet_workers = std::make_unique<TaskWorkerPool>(
             "ALTER_TABLE", config::alter_tablet_worker_count, [&engine](auto&& task) { return alter_tablet_callback(engine, task); });
 
-    _clone_workers = std::make_unique<TaskWorkerPool>(
-            "CLONE", config::clone_worker_count, [&engine, &master_info = _master_info](auto&& task) { return clone_callback(engine, master_info, task); });
+    _clone_workers = std::make_unique<PriorTaskWorkerPool>(
+            "CLONE", config::clone_worker_count,config::clone_worker_count, [&engine, &cluster_info = _cluster_info](auto&& task) { return clone_callback(engine, cluster_info, task); });
 
     _storage_medium_migrate_workers = std::make_unique<TaskWorkerPool>(
             "STORAGE_MEDIUM_MIGRATE", config::storage_medium_migrate_count, [&engine](auto&& task) { return storage_medium_migrate_callback(engine, task); });
@@ -168,6 +169,8 @@ void AgentServer::start_workers(ExecEnv* exec_env) {
             "UPDATE_VISIBLE_VERSION", 1, [&engine](auto&& task) { return visible_version_callback(engine, task); });
 
     // clang-format on
+
+    exec_env->storage_engine().to_local().clone_workers = &_clone_workers;
 }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and

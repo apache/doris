@@ -19,16 +19,23 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <cpp/sync_point.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Types_types.h>
 
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
@@ -130,6 +137,24 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                      << "prev rowset verison=" << missing_versions[0]
                      << ", next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
+        if (config::enable_auto_clone_on_compaction_missing_version) {
+            LOG_INFO("cumulative compaction submit missing rowset clone task.")
+                    .tag("tablet_id", _tablet->tablet_id())
+                    .tag("version", missing_versions.back().first)
+                    .tag("replica_id", tablet()->replica_id())
+                    .tag("partition_id", _tablet->partition_id())
+                    .tag("table_id", _tablet->table_id());
+            Status st = _engine.submit_clone_task(tablet(), missing_versions.back().first);
+            if (!st) {
+                LOG_WARNING("cumulative compaction failed to submit missing rowset clone task.")
+                        .tag("st", st.to_string())
+                        .tag("tablet_id", _tablet->tablet_id())
+                        .tag("version", missing_versions.back().first)
+                        .tag("replica_id", tablet()->replica_id())
+                        .tag("partition_id", _tablet->partition_id())
+                        .tag("table_id", _tablet->table_id());
+            }
+        }
     }
 
     int64_t max_score = config::cumulative_compaction_max_deltas;
