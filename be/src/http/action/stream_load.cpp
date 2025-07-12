@@ -133,7 +133,7 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx, HttpReq
         ctx->body_sink.reset();
         TPipelineFragmentParamsList mocked;
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(
-                ctx, mocked
+                ctx, mocked,
                 [req, this](std::shared_ptr<StreamLoadContext> ctx) { _on_finish(ctx, req); }));
     }
 
@@ -787,6 +787,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         return Status::OK();
     }
 
+    TPipelineFragmentParamsList mocked;
     return _exec_env->stream_load_executor()->execute_plan_fragment(
             ctx, mocked, [http_req, this](std::shared_ptr<StreamLoadContext> ctx) {
                 _on_finish(ctx, http_req);
