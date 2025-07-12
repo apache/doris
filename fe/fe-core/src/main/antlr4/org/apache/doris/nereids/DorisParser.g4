@@ -74,7 +74,6 @@ statementBase
 
 unsupportedStatement
     : unsupportedStatsStatement
-    | unsupportedAdminStatement
     | unsupportedLoadStatement
     ;
 
@@ -588,6 +587,8 @@ supportedAdminStatement
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
     | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
+    | ADMIN SET TABLE name=multipartIdentifier
+        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 supportedRecoverStatement
@@ -596,11 +597,6 @@ supportedRecoverStatement
         id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
     | RECOVER PARTITION name=identifier id=INTEGER_VALUE? (AS alias=identifier)?
         FROM tableName=multipartIdentifier                                          #recoverPartition
-    ;
-
-unsupportedAdminStatement
-    : ADMIN SET TABLE name=multipartIdentifier
-        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 baseTableRef
