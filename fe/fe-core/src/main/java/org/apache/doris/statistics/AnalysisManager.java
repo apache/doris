@@ -1424,12 +1424,8 @@ public class AnalysisManager implements Writable {
     // Invoke this when load truncate table finished.
     public void updateUpdatedRows(Map<Long, Long> partitionToUpdateRows, long dbId, long tableId, long txnId) {
         try {
-            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
-                return;
-            }
             UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(partitionToUpdateRows, dbId, tableId);
             replayUpdateRowsRecord(updateRowsEvent);
-            logUpdateRowsRecord(updateRowsEvent);
         } catch (Throwable t) {
             LOG.warn("Failed to record update rows.", t);
         }
