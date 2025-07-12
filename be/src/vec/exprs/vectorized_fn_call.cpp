@@ -60,7 +60,13 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     for (auto child : _children) {
-        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
+        if (child->is_literal()) {
+            auto literal_node = std::dynamic_pointer_cast<VLiteral>(child);
+            argument_template.emplace_back(literal_node->get_column_ptr(), child->data_type(),
+                                           child->expr_name());
+        } else {
+            argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
+        }
     }
 
     _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
