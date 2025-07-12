@@ -19,12 +19,10 @@
 
 #include <string>
 
-// #include "benchmark_bit_pack.cpp"
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
-#include "benchmark_every_bit_pack.cpp"
 
 namespace doris::vectorized { // change if need
 
