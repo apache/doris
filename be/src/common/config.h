@@ -1590,6 +1590,18 @@ DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
 
+// some LLM config
+DECLARE_String(llm_provider);
+DECLARE_String(llm_endpoint_url);
+DECLARE_String(llm_model_name);
+DECLARE_String(llm_api_key);
+DECLARE_mInt32(llm_max_retries);
+DECLARE_mInt32(llm_retry_delay_ms);
+DECLARE_mInt32(llm_timeout_ms);
+DECLARE_mDouble(llm_temperature);
+
+DECLARE_mInt32(llm_max_concurrent_requests);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

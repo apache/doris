@@ -1521,6 +1521,18 @@ DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 
+//some LLM config
+DEFINE_String(llm_provider, "openai");
+DEFINE_String(llm_endpoint_url, "");
+DEFINE_String(llm_model_name, "gpt-3.5-turbo");
+DEFINE_String(llm_api_key, "");
+DEFINE_mInt32(llm_max_retries, "3");
+DEFINE_mInt32(llm_retry_delay_ms, "1000");
+DEFINE_mInt32(llm_timeout_ms, "30000");
+DEFINE_mDouble(llm_temperature, "0.7");
+
+DEFINE_mInt32(llm_max_concurrent_requests, "5");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

@@ -35,12 +35,14 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LLMResource;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -174,6 +176,8 @@ import org.apache.doris.thrift.TGetColumnInfoRequest;
 import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetLLMResourceRequest;
+import org.apache.doris.thrift.TGetLLMResourceResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
 import org.apache.doris.thrift.TGetMasterTokenResult;
 import org.apache.doris.thrift.TGetMetaDB;
@@ -4275,6 +4279,115 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         result.setStatus(new TStatus(TStatusCode.OK));
         result.setRunningQueries(runningQueries);
+        return result;
+    }
+
+    @Override
+    public TGetLLMResourceResult getLLMResource(TGetLLMResourceRequest request) throws TException {
+        TGetLLMResourceResult result = new TGetLLMResourceResult();
+        TStatus status = new TStatus();
+
+        String resourceName = request.getResourceName();
+        String functionName = request.getFunctionName();
+
+        // 1. First, attempt to use the user-specified argument passed to the function.
+        // 2. If not available, try using a specific function-level session, e.g., default_llm_xxx_resource.
+        // 3. If that also fails, fall back to the global default LLM resource.
+        try {
+            if (Strings.isNullOrEmpty(resourceName)) {
+                switch (functionName) {
+                    case "llm_classify":
+                        resourceName = ConnectContext.get().getSessionVariable().defaultLLMClassifyResource;
+                        break;
+                    case "llm_extract":
+                        resourceName = ConnectContext.get().getSessionVariable().defaultLLMExtractResource;
+                        break;
+                    case "llm_fixgrammar":
+                        resourceName = ConnectContext.get().getSessionVariable().defaultLLMFixGrammarResource;
+                        break;
+                    case "llm_generate":
+                        resourceName = ConnectContext.get().getSessionVariable().defaultLLMGenerateResource;
+                        break;
+                    case "llm_mask":
+                        resourceName = ConnectContext.get().getSessionVariable().defaultLLMMaskResource;
+                        break;
+                    case "llm_sentiment":
+                        resourceName = ConnectContext.get().getSessionVariable().defaultLLMSentimentResource;
+                        break;
+                    case "llm_summarize":
+                        resourceName = ConnectContext.get().getSessionVariable().defaultLLMSummarizeResource;
+                        break;
+                    case "llm_translate":
+                        resourceName = VariableMgr.getDefaultSessionVariable().defaultLLMTranslateResource;
+                        break;
+                    default:
+                        throw new TException("Unknown LLM_Function: " + functionName);
+                }
+                if (Strings.isNullOrEmpty(resourceName)) {
+                    resourceName = ConnectContext.get().getSessionVariable().defaultLLMResource;
+                    if (Strings.isNullOrEmpty(resourceName)) {
+                        throw new TException("Please specify the LLM Resource in argument "
+                                + "or session variable.");
+                    }
+                }
+            }
+
+            LOG.warn("The LLM Resource name is '" + resourceName);
+
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+            if (!(resource instanceof LLMResource)) {
+                throw new TException("LLM resource '" + resourceName + "' does not exist");
+            }
+
+            LLMResource llmResource = (LLMResource) resource;
+
+            result.setEndpoint(llmResource.getEndpoint());
+            result.setProviderType(llmResource.getProviderType());
+            result.setApiKey(llmResource.getApiKey());
+            result.setModelName(llmResource.getModelName());
+            result.setAnthropicVersion(llmResource.getAnthropicVersion());
+
+            try {
+                result.setTemperature(Double.parseDouble(llmResource.getTemperature()));
+            } catch (NumberFormatException e) {
+                LOG.warn("Failed to parse temperature: " + llmResource.getTemperature(), e);
+            }
+
+            try {
+                result.setMaxTokens(Long.parseLong(llmResource.getMaxToken()));
+            } catch (NumberFormatException e) {
+                LOG.warn("Failed to parse max_token: " + llmResource.getMaxToken(), e);
+            }
+
+            try {
+                result.setMaxRetries(Long.parseLong(llmResource.getMaxRetries()));
+            } catch (NumberFormatException e) {
+                LOG.warn("Failed to parse max_retries: " + llmResource.getMaxRetries(), e);
+            }
+
+            try {
+                result.setRetryDelayMs(Long.parseLong(llmResource.getRetryDelayMs()));
+            } catch (NumberFormatException e) {
+                LOG.warn("Failed to parse retry_delay_ms: " + llmResource.getRetryDelayMs(), e);
+            }
+
+            try {
+                result.setTimeoutMs(Long.parseLong(llmResource.getTimeoutMs()));
+            } catch (NumberFormatException e) {
+                LOG.warn("Failed to parse timeout_ms: " + llmResource.getTimeoutMs(), e);
+            }
+
+            // 将TLLMResource添加到响应中
+            status.setStatusCode(TStatusCode.OK);
+        } catch (TException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.setErrorMsgs(Lists.newArrayList(e.getMessage()));
+        } catch (Exception e) {
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.setErrorMsgs(Lists.newArrayList(e.getMessage()));
+        }
+
+        result.setStatus(status);
         return result;
     }
 

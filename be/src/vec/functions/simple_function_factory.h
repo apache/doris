@@ -114,6 +114,14 @@ void register_function_compress(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
+void register_function_llm_translate(SimpleFunctionFactory& factory);
+void register_function_llm_sentiment(SimpleFunctionFactory& factory);
+void register_function_llm_fixgrammar(SimpleFunctionFactory& factory);
+void register_function_llm_extract(SimpleFunctionFactory& factory);
+void register_function_llm_generate(SimpleFunctionFactory& factory);
+void register_function_llm_mask(SimpleFunctionFactory& factory);
+void register_function_llm_classify(SimpleFunctionFactory& factory);
+void register_function_llm_summarize(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -318,6 +326,14 @@ public:
             register_function_compress(instance);
             register_function_dict_get(instance);
             register_function_dict_get_many(instance);
+            register_function_llm_translate(instance);
+            register_function_llm_sentiment(instance);
+            register_function_llm_fixgrammar(instance);
+            register_function_llm_extract(instance);
+            register_function_llm_generate(instance);
+            register_function_llm_mask(instance);
+            register_function_llm_classify(instance);
+            register_function_llm_summarize(instance);
         });
         return instance;
     }
