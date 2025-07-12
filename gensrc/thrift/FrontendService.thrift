@@ -1611,6 +1611,24 @@ struct TPlanNodeRuntimeStatsItem {
     12: optional i32 instance_num
 }
 
+struct TGetLLMResourceRequest {
+    1: required string resource_name
+}
+
+struct TGetLLMResourceResult {
+  1: required Status.TStatus status
+  2: required string endpoint
+  3: required string provider_type
+  4: required string model_name
+  5: optional string api_key
+  6: optional double temperature
+  7: optional i64 max_tokens
+  8: optional i64 max_retries
+  9: optional i64 retry_delay_ms
+  10: optional i64 timeout_ms
+  11: optional string anthropic_version
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1713,4 +1731,6 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TGetLLMResourceResult getLLMResource(1: TGetLLMResourceRequest request)
 }

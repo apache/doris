@@ -1573,6 +1573,9 @@ DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
 
 DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 
+// The maximum number of threads supported when executing LLMFunction
+DEFINE_mInt32(llm_max_concurrent_requests, "5");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
