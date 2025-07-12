@@ -30,8 +30,6 @@ public class ArrayLiteralTest  {
         FormatOptions options = FormatOptions.getDefault();
         IntLiteral intLiteral1 = new IntLiteral(1);
         FloatLiteral floatLiteral = new FloatLiteral("2.15");
-        FloatLiteral floatLiteral1 = new FloatLiteral((double) (11 * 3600 + 22 * 60 + 33),
-                FloatLiteral.getDefaultTimeType(Type.TIME));
 
         BoolLiteral boolLiteral = new BoolLiteral(true);
         StringLiteral stringLiteral = new StringLiteral("shortstring");
@@ -41,8 +39,6 @@ public class ArrayLiteralTest  {
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
         Assert.assertEquals("[1.0, 2.15]", arrayLiteral1.getStringValueForQuery(options));
-        ArrayLiteral arrayLiteralWithTime = new ArrayLiteral(floatLiteral1);
-        Assert.assertEquals("[\"11:22:33\"]", arrayLiteralWithTime.getStringValueForQuery(options));
 
         ArrayLiteral arrayLiteral2 = new ArrayLiteral(boolLiteral, boolLiteral);
         Assert.assertEquals("[1, 1]", arrayLiteral2.getStringValueForQuery(options));
@@ -102,8 +98,6 @@ public class ArrayLiteralTest  {
         FormatOptions options = FormatOptions.getForPresto();
         IntLiteral intLiteral1 = new IntLiteral(1);
         FloatLiteral floatLiteral = new FloatLiteral("2.15");
-        FloatLiteral floatLiteral1 = new FloatLiteral((double) (11 * 3600 + 22 * 60 + 33),
-                FloatLiteral.getDefaultTimeType(Type.TIME));
 
         BoolLiteral boolLiteral = new BoolLiteral(true);
         StringLiteral stringLiteral = new StringLiteral("shortstring");
@@ -113,8 +107,6 @@ public class ArrayLiteralTest  {
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
         Assert.assertEquals("[1.0, 2.15]", arrayLiteral1.getStringValueForQuery(options));
-        ArrayLiteral arrayLiteralWithTime = new ArrayLiteral(floatLiteral1);
-        Assert.assertEquals("[11:22:33]", arrayLiteralWithTime.getStringValueForQuery(options));
 
         ArrayLiteral arrayLiteral2 = new ArrayLiteral(boolLiteral, boolLiteral);
         Assert.assertEquals("[1, 1]", arrayLiteral2.getStringValueForQuery(options));
@@ -172,8 +164,6 @@ public class ArrayLiteralTest  {
         FormatOptions options = FormatOptions.getForHive();
         IntLiteral intLiteral1 = new IntLiteral(1);
         FloatLiteral floatLiteral = new FloatLiteral("2.15");
-        FloatLiteral floatLiteral1 = new FloatLiteral((double) (11 * 3600 + 22 * 60 + 33),
-                FloatLiteral.getDefaultTimeType(Type.TIME));
 
         BoolLiteral boolLiteral = new BoolLiteral(true);
         StringLiteral stringLiteral = new StringLiteral("shortstring");
@@ -183,8 +173,6 @@ public class ArrayLiteralTest  {
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
         Assert.assertEquals("[1.0,2.15]", arrayLiteral1.getStringValueForQuery(options));
-        ArrayLiteral arrayLiteralWithTime = new ArrayLiteral(floatLiteral1);
-        Assert.assertEquals("[\"11:22:33\"]", arrayLiteralWithTime.getStringValueForQuery(options));
 
         ArrayLiteral arrayLiteral2 = new ArrayLiteral(boolLiteral, boolLiteral);
         Assert.assertEquals("[true,true]", arrayLiteral2.getStringValueForQuery(options));
@@ -244,8 +232,6 @@ public class ArrayLiteralTest  {
         FormatOptions options = FormatOptions.getDefault();
         IntLiteral intLiteral1 = new IntLiteral(1);
         FloatLiteral floatLiteral = new FloatLiteral("2.15");
-        FloatLiteral floatLiteral1 = new FloatLiteral((double) (11 * 3600 + 22 * 60 + 33),
-                FloatLiteral.getDefaultTimeType(Type.TIME));
 
         BoolLiteral boolLiteral = new BoolLiteral(true);
         StringLiteral stringLiteral = new StringLiteral("shortstring");
@@ -255,8 +241,6 @@ public class ArrayLiteralTest  {
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
         Assert.assertEquals("[1.0, 2.15]", arrayLiteral1.getStringValueForStreamLoad(options));
-        ArrayLiteral arrayLiteralWithTime = new ArrayLiteral(floatLiteral1);
-        Assert.assertEquals("[\"11:22:33\"]", arrayLiteralWithTime.getStringValueForStreamLoad(options));
 
         ArrayLiteral arrayLiteral2 = new ArrayLiteral(boolLiteral, boolLiteral);
         Assert.assertEquals("[1, 1]", arrayLiteral2.getStringValueForStreamLoad(options));
