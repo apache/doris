@@ -40,16 +40,19 @@ public class ReplaceTableOperationLog implements Writable {
     private String newTblName;
     @SerializedName(value = "swapTable")
     private boolean swapTable;
+    @SerializedName(value = "isForce")
+    private boolean isForce;
 
     public ReplaceTableOperationLog(long dbId, long origTblId,
             String origTblName, long newTblId, String newTblName,
-            boolean swapTable) {
+            boolean swapTable, boolean isForce) {
         this.dbId = dbId;
         this.origTblId = origTblId;
         this.origTblName = origTblName;
         this.newTblId = newTblId;
         this.newTblName = newTblName;
         this.swapTable = swapTable;
+        this.isForce = isForce;
     }
 
     public long getDbId() {
@@ -74,6 +77,10 @@ public class ReplaceTableOperationLog implements Writable {
 
     public boolean isSwapTable() {
         return swapTable;
+    }
+
+    public boolean isForce() {
+        return isForce;
     }
 
     public String toJson() {
