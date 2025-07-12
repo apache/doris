@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
@@ -84,7 +85,7 @@ public:
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
-
+    PrimitiveType get_primitive_type() const override { return TYPE_STRUCT; }
     void sanity_check() const override {
         for (size_t i = 0; i < columns.size(); ++i) {
             columns[i]->sanity_check();
