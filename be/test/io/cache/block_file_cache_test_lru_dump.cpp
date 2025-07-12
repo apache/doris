@@ -156,10 +156,10 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 500000);
 
     // all queue are filled, let's check the lru log records
-    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size(), 5);
-    ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size(), 5);
-    ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size(), 5);
-    ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size(), 5);
+    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 5);
+    ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 5);
+    ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 5);
+    ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 5);
 
     // then check the log replay
     std::this_thread::sleep_for(std::chrono::milliseconds(
@@ -175,10 +175,10 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
                                        context2); // move index queue 3rd element to the end
         cache.remove_if_cached(key3);             // remove all element from ttl queue
     }
-    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size(), 5);
-    ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size(), 1);
-    ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size(), 0);
-    ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size(), 0);
+    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 5);
+    ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 1);
+    ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 0);
+    ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 0);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(
             2 * config::file_cache_background_lru_log_replay_interval_ms));

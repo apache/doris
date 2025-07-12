@@ -376,10 +376,10 @@ void BlockFileCache::use_cell(const FileBlockCell& cell, FileBlocks* result, boo
     /// Move to the end of the queue. The iterator remains valid.
     if (cell.queue_iterator && move_iter_flag) {
         queue.move_to_end(*cell.queue_iterator, cache_lock);
+        _lru_recorder->record_queue_event(cell.file_block->cache_type(),
+                                          CacheLRULogType::MOVETOBACK, cell.file_block->_key.hash,
+                                          cell.file_block->_key.offset, cell.size());
     }
-    _lru_recorder->record_queue_event(cell.file_block->cache_type(), CacheLRULogType::MOVETOBACK,
-                                      cell.file_block->_key.hash, cell.file_block->_key.offset,
-                                      cell.size());
 
     cell.update_atime();
 }
@@ -1546,7 +1546,11 @@ bool LRUQueue::contains(const UInt128Wrapper& hash, size_t offset,
 
 LRUQueue::Iterator LRUQueue::get(const UInt128Wrapper& hash, size_t offset,
                                  std::lock_guard<std::mutex>& /* cache_lock */) const {
-    return map.find(std::make_pair(hash, offset))->second;
+    auto itr = map.find(std::make_pair(hash, offset));
+    if (itr != map.end()) {
+        return itr->second;
+    }
+    return std::list<FileKeyAndOffset>::iterator();
 }
 
 std::string LRUQueue::to_string(std::lock_guard<std::mutex>& /* cache_lock */) const {
