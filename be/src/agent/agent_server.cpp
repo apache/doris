@@ -43,6 +43,7 @@
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "util/work_thread_pool.hpp"
 
 using std::string;
 using std::vector;
@@ -169,8 +170,8 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     _workers[TTaskType::ALTER] = std::make_unique<TaskWorkerPool>(
             "ALTER_TABLE", config::alter_tablet_worker_count, [&engine](auto&& task) { return alter_tablet_callback(engine, task); });
 
-    _workers[TTaskType::CLONE] = std::make_unique<TaskWorkerPool>(
-            "CLONE", config::clone_worker_count, [&engine, &cluster_info = _cluster_info](auto&& task) { return clone_callback(engine, cluster_info, task); });
+    _workers[TTaskType::CLONE] = std::make_unique<PriorTaskWorkerPool>(
+            "CLONE", config::clone_worker_count,config::clone_worker_count, [&engine, &cluster_info = _cluster_info](auto&& task) { return clone_callback(engine, cluster_info, task); });
 
     _workers[TTaskType::STORAGE_MEDIUM_MIGRATE] = std::make_unique<TaskWorkerPool>(
             "STORAGE_MEDIUM_MIGRATE", config::storage_medium_migrate_count, [&engine](auto&& task) { return storage_medium_migrate_callback(engine, task); });
@@ -196,6 +197,8 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_OLAP_TABLET", _cluster_info, config::report_tablet_interval_seconds,[&engine, &cluster_info = _cluster_info] { report_tablet_callback(engine, cluster_info); }));
     // clang-format on
+
+    exec_env->storage_engine().to_local().workers = &_workers;
 }
 
 void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_env) {
