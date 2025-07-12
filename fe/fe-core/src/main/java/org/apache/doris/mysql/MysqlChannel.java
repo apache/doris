@@ -340,12 +340,20 @@ public class MysqlChannel implements BytesChannel {
             readLen = readAll(result, false);
             if (isSslMode && remainingBuffer.position() == 0 && result.hasRemaining()) {
                 byte[] header = result.array();
-                int packetId = header[3] & 0xFF;
-                if (packetId != sequenceId) {
-                    LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
-                    throw new IOException("Bad packet sequence.");
+                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0xFF) << 8) | ((header[2] & 0xFF) << 16);
+                if (result.position() >= 4 && mysqlPacketLength > 0 && mysqlPacketLength
+                        <= MAX_PHYSICAL_PACKET_LENGTH) {
+                    int packetId = header[3] & 0xFF;
+                    if (packetId != sequenceId) {
+                        LOG.warn("receive packet sequence id[" + packetId + "] want to get[" + sequenceId + "]");
+                        throw new IOException("Bad packet sequence.");
+                    }
+                } else {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("SSL mode: skipping sequence check, packet length: " + mysqlPacketLength
+                                + ", buffer position: " + result.position());
+                    }
                 }
-                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
                 // remove mysql packet header
                 result.position(4);
                 result.compact();
