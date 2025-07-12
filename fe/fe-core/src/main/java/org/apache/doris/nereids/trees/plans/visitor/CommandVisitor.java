@@ -109,6 +109,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenFilterCommand
 import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
@@ -1395,5 +1396,9 @@ public interface CommandVisitor<R, C> {
     default R visitShowIndexTokenFilterCommand(
             ShowIndexTokenFilterCommand showIndexTokenFilterCommand, C context) {
         return visitCommand(showIndexTokenFilterCommand, context);
+    }
+
+    default R visitDropMaterializedViewCommand(DropMaterializedViewCommand dropMaterializedViewCommand, C context) {
+        return visitCommand(dropMaterializedViewCommand, context);
     }
 }
