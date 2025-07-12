@@ -335,6 +335,12 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (invertedIndexFileStorageFormat != null) {
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
+            } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT) {
+                if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
+                } else {
+                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+                }
             } else {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
             }
