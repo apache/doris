@@ -15,14 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.datasets.tpch;
-
-public abstract class TPCHTestBase extends AnalyzeCheckTestBase {
-    @Override
-    protected void runBeforeAll() throws Exception {
-        createDatabase("tpch");
-        connectContext.setDatabase("tpch");
-        connectContext.getSessionVariable().feDebug = false;
-        TPCHUtils.createTables(this);
-    }
+suite('test_agg_nullable') {
+    sql 'DROP TABLE IF EXISTS test_agg_nullable_t1 FORCE'
+    sql "CREATE TABLE test_agg_nullable_t1(a int not null, b int not null, c int not null) distributed by hash(a) properties('replication_num' = '1')"
+    sql "SET detail_shape_nodes='PhysicalProject'"
+    order_qt_agg_nullable '''
+        select k > 10 and k < 5 from  (select sum(a) as k from test_agg_nullable_t1) s
+    '''
+    qt_agg_nullable_shape '''explain shape plan
+        select k > 10 and k < 5 from  (select sum(a) as k from test_agg_nullable_t1) s
+    '''
+    sql 'DROP TABLE IF EXISTS test_agg_nullable_t1 FORCE'
 }
+

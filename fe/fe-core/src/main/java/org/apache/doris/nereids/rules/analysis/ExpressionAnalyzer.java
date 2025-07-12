@@ -65,8 +65,10 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -513,6 +515,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
+    @Override
+    public Expression visitWindow(WindowExpression windowExpression, ExpressionRewriteContext context) {
+        windowExpression = (WindowExpression) super.visitWindow(windowExpression, context);
+        Expression function = windowExpression.getFunction();
+        if (function instanceof NullableAggregateFunction) {
+            return windowExpression.withFunction(((NullableAggregateFunction) function).withAlwaysNullable(true));
+        }
+        return windowExpression;
     }
 
     /**
