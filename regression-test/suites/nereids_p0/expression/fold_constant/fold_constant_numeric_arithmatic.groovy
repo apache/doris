@@ -564,6 +564,37 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT 0 ^ 1 AS xor_case_2") //0 XOR 1 = 1
     testFoldConst("SELECT 255 ^ 128 AS xor_case_3") //255 XOR 128
 
+//SignBit function cases
+    testFoldConst("SELECT signbit(2.5) AS signbit_case_1") //signbit(2.5) = false
+    testFoldConst("SELECT signbit(0.0) AS signbit_case_2") //signbit(0.0) = false
+    testFoldConst("SELECT signbit(2.5) AS signbit_case_3") //signbit(-2.5) = true
+    testFoldConst("SELECT signbit(NULL)"); // NULL handling
+    testFoldConst("SELECT signbit(-10), signbit(0), signbit(10), signbit(-3.14), signbit(3.14)")
+
+//Even function cases
+    testFoldConst("SELECT even(-2.5) AS even_case_1") //even(-2.5) = -4
+    testFoldConst("SELECT even(0.0) AS even_case_2") //even(0.0) = 0
+    testFoldConst("SELECT even(2.5) AS even_case_3") //even(2.5) = 4
+    testFoldConst("SELECT even(NULL)"); // NULL handling
+
+//Gcd function cases
+    testFoldConst("SELECT gcd(2, 4) AS gcd_case_1") //gcd(2, 4) = 2
+    testFoldConst("SELECT gcd(0, 2) AS gcd_case_2") //gcd(0, 2) = 2
+    testFoldConst("SELECT gcd(-2, 4) AS gcd_case_3") //gcd(-2, 4) = 2
+    testFoldConst("SELECT gcd(-2, -4)") //gcd(-2, -4) = 2
+    testFoldConst("SELECT gcd(9, 11)") //gcd(9, 11) = 1
+    testFoldConst("SELECT gcd(256, 256)") //gcd(256, 256) = 256
+    testFoldConst("SELECT gcd(NULL, 4)"); // NULL handling
+
+//Lcm function cases
+    testFoldConst("SELECT lcm(2, 4) AS lcm_case_1") //lcm(2, 4) = 4
+    testFoldConst("SELECT lcm(0, 2) AS lcm_case_2") //lcm(0, 2) = 0
+    testFoldConst("SELECT lcm(-2, 4) AS lcm_case_3") //lcm(-2, 4) = 4
+    testFoldConst("SELECT lcm(-2, -4)") //lcm(-2, -4) = 4
+    testFoldConst("SELECT lcm(11, 9)") //lcm(11, 9) = 99
+    testFoldConst("SELECT lcm(256, 256)") //lcm(256, 256) = 256
+    testFoldConst("SELECT lcm(NULL, 4)"); // NULL handling
+
     // ensure divide for decimal v3 could return correct type when divider is 0
     sql """ select if(random() > 0.5, cast(random() as decimal(38,10)), cast(0 as decimal(30, 10)) / cast(0 as decimal(30,10)))"""
 

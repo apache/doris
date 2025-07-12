@@ -193,6 +193,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsSmall
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
@@ -207,6 +208,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
@@ -287,6 +289,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
@@ -392,6 +395,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SignBit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sinh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -1232,6 +1236,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(esQuery, context);
     }
 
+    default R visitEven(Even even, C context) {
+        return visitScalarFunction(even, context);
+    }
+
     default R visitExp(Exp exp, C context) {
         return visitScalarFunction(exp, context);
     }
@@ -1298,6 +1306,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitG(G g, C context) {
         return visitScalarFunction(g, context);
+    }
+
+    default R visitGcd(Gcd gcd, C context) {
+        return visitScalarFunction(gcd, context);
     }
 
     default R visitGreatest(Greatest greatest, C context) {
@@ -1590,6 +1602,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLastDay(LastDay lastDay, C context) {
         return visitScalarFunction(lastDay, context);
+    }
+
+    default R visitLcm(Lcm lcm, C context) {
+        return visitScalarFunction(lcm, context);
     }
 
     default R visitLeast(Least least, C context) {
@@ -1958,6 +1974,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSign(Sign sign, C context) {
         return visitScalarFunction(sign, context);
+    }
+
+    default R visitSignBit(SignBit signbit, C context) {
+        return visitScalarFunction(signbit, context);
     }
 
     default R visitSin(Sin sin, C context) {
