@@ -479,13 +479,13 @@ public class PropertyAnalyzer {
 
     private static Short analyzeReplicationNum(Map<String, String> properties, String prefix, short oldReplicationNum)
             throws AnalysisException {
-        Short replicationNum = oldReplicationNum;
+        short replicationNum = oldReplicationNum;
         String propKey = Strings.isNullOrEmpty(prefix)
                 ? PROPERTIES_REPLICATION_NUM
                 : prefix + "." + PROPERTIES_REPLICATION_NUM;
         if (properties != null && properties.containsKey(propKey)) {
             try {
-                replicationNum = Short.valueOf(properties.get(propKey));
+                replicationNum = Short.parseShort(properties.get(propKey));
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }
@@ -1295,8 +1295,8 @@ public class PropertyAnalyzer {
         return Pair.of(storageVaultName, storageVaultId);
     }
 
-    // analyze property like : "type" = "xxx";
-    public static String analyzeType(Map<String, String> properties) throws AnalysisException {
+    /** analyze property like : "type" = "xxx"; */
+    public static String analyzeType(Map<String, String> properties) {
         String type = null;
         if (properties != null && properties.containsKey(PROPERTIES_TYPE)) {
             type = properties.get(PROPERTIES_TYPE);
@@ -1315,7 +1315,7 @@ public class PropertyAnalyzer {
         if (typeStr == null) {
             return null;
         }
-        if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
+        if (keysType != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
 
@@ -1376,7 +1376,7 @@ public class PropertyAnalyzer {
             if (keyParts.length != 2) {
                 continue;
             }
-            String val = entry.getValue().replaceAll(" ", "");
+            String val = entry.getValue().replace(" ", "");
             Tag tag = Tag.create(keyParts[1], val);
             tagMap.put(tag.type, tag.value);
             iter.remove();
@@ -1480,15 +1480,11 @@ public class PropertyAnalyzer {
         }
         String propNumKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_NUM
                 : prefix + "." + PROPERTIES_REPLICATION_NUM;
-        if (properties.containsKey(propNumKey)) {
-            properties.remove(propNumKey);
-        }
+        properties.remove(propNumKey);
         String propTagKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
                 : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
-        if (properties.containsKey(propTagKey)) {
-            properties.remove(propTagKey);
-        }
-        properties.put(propTagKey,  Config.force_olap_table_replication_allocation);
+        properties.remove(propTagKey);
+        properties.put(propTagKey, Config.force_olap_table_replication_allocation);
         return properties;
     }
 
@@ -1505,16 +1501,36 @@ public class PropertyAnalyzer {
         if (properties == null || properties.isEmpty()) {
             return ReplicaAllocation.NOT_SET;
         }
-        // if give "replication_num" property, return with default backend tag
-        Short replicaNum = analyzeReplicationNum(properties, prefix, (short) 0);
-        if (replicaNum > 0) {
-            return new ReplicaAllocation(replicaNum);
-        }
+        Short replicaNumVal = analyzeReplicationNum(properties, prefix, (short) 0);
+        ReplicaAllocation replicaAlloc = analyzeSpecifiedReplicaAllocation(properties, prefix, checkBackends);
 
+        // both "replication_num" and "replication_allocation" are given
+        if (replicaNumVal > 0 && !replicaAlloc.isEmpty()) {
+            // if allocation only uses the default tag and matches the number, allow it
+            if (replicaAlloc.getAllocMap().size() == 1
+                    && replicaNumVal.equals(replicaAlloc.getAllocMap().get(Tag.DEFAULT_BACKEND_TAG))) {
+                return new ReplicaAllocation(replicaNumVal);
+            }
+            // otherwise, it's a conflict
+            throw new AnalysisException("duplicate properties: ["
+                + PROPERTIES_REPLICATION_NUM + "] and ["
+                + PROPERTIES_REPLICATION_ALLOCATION + "]");
+        }
+        // if only "replication_num" property is given, return with default backend tag
+        if (replicaNumVal > 0) {
+            return new ReplicaAllocation(replicaNumVal);
+        }
+        // return specified replica allocation
+        return replicaAlloc;
+    }
+
+    private static ReplicaAllocation analyzeSpecifiedReplicaAllocation(Map<String, String> properties, String prefix,
+            boolean checkBackends)
+            throws AnalysisException {
         String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
                 : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
         // if not set, return default replication allocation
-        if (!properties.containsKey(propKey)) {
+        if (properties == null || !properties.containsKey(propKey)) {
             return ReplicaAllocation.NOT_SET;
         }
 
@@ -1522,7 +1538,7 @@ public class PropertyAnalyzer {
         // format is as: "tag.location.zone1: 2, tag.location.zone2: 1"
         ReplicaAllocation replicaAlloc = new ReplicaAllocation();
         String allocationVal = properties.remove(propKey);
-        allocationVal = allocationVal.replaceAll(" ", "");
+        allocationVal = allocationVal.replace(" ", "");
         String[] locations = allocationVal.split(",");
         int totalReplicaNum = 0;
         Map<Tag, Integer> nextIndexs = Maps.newHashMap();
@@ -1539,7 +1555,7 @@ public class PropertyAnalyzer {
                 throw new AnalysisException("Invalid replication allocation location tag property: " + location);
             }
 
-            Short replicationNum = Short.valueOf(parts[1]);
+            short replicationNum = Short.parseShort(parts[1]);
             replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), replicationNum);
             totalReplicaNum += replicationNum;
 
@@ -1560,10 +1576,6 @@ public class PropertyAnalyzer {
             throw new AnalysisException("Total replication num should between " + Config.min_replication_num_per_tablet
                     + " and " + Config.max_replication_num_per_tablet);
         }
-
-        if (replicaAlloc.isEmpty()) {
-            throw new AnalysisException("Not specified replica allocation property");
-        }
         return replicaAlloc;
     }
 
@@ -1576,7 +1588,7 @@ public class PropertyAnalyzer {
         if (properties.containsKey(DataSortInfo.DATA_SORT_TYPE)) {
             sortMethod = properties.remove(DataSortInfo.DATA_SORT_TYPE);
         }
-        TSortType sortType = TSortType.LEXICAL;
+        TSortType sortType;
         if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
             sortType = TSortType.LEXICAL;
         } else {
@@ -1586,13 +1598,12 @@ public class PropertyAnalyzer {
         int colNum = keyCount;
         if (properties.containsKey(DataSortInfo.DATA_SORT_COL_NUM)) {
             try {
-                colNum = Integer.valueOf(properties.remove(DataSortInfo.DATA_SORT_COL_NUM));
+                colNum = Integer.parseInt(properties.remove(DataSortInfo.DATA_SORT_COL_NUM));
             } catch (Exception e) {
                 throw new AnalysisException("param " + DataSortInfo.DATA_SORT_COL_NUM + " error");
             }
         }
-        DataSortInfo dataSortInfo = new DataSortInfo(sortType, colNum);
-        return dataSortInfo;
+        return new DataSortInfo(sortType, colNum);
     }
 
     public static boolean analyzeUniqueKeyMergeOnWrite(Map<String, String> properties) throws AnalysisException {
@@ -1634,11 +1645,11 @@ public class PropertyAnalyzer {
             boolean enableUniqueKeyMergeOnWrite)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
+            return enableUniqueKeyMergeOnWrite && Config.enable_mow_light_delete;
         }
         String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value == null) {
-            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
+            return enableUniqueKeyMergeOnWrite && Config.enable_mow_light_delete;
         }
         properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value.equals("true")) {
@@ -1656,11 +1667,6 @@ public class PropertyAnalyzer {
      * "group_commit_interval_ms"="1000"
      * Returns:
      * 1000
-     *
-     * @param properties
-     * @param defaultValue
-     * @return
-     * @throws AnalysisException
      */
     public static int analyzeGroupCommitIntervalMs(Map<String, String> properties) throws AnalysisException {
         int groupCommitIntervalMs = PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE;
