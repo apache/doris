@@ -394,6 +394,7 @@ struct TQueryOptions {
   163: optional bool inverted_index_compatible_read = false
   164: optional bool check_orc_init_sargs_success = false
   165: optional i32 exchange_multi_blocks_byte_size = 262144 
+  166: optional i64 runtime_filter_max_build_row_count = 67108864 //64M
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
