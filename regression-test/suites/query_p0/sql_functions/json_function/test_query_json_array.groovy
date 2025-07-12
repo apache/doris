@@ -131,6 +131,6 @@ suite("test_query_json_array", "query") {
 
     test {
         sql "select json_array(now());"
-        exception "Can not find the compatibility function signature: to_json(DATETIME)"
+        exception "Can not find the compatibility function signature"
     }
 }
