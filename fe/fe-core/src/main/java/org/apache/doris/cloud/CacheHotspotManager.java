@@ -364,29 +364,38 @@ public class CacheHotspotManager extends MasterDaemon {
         return totalFileCache;
     }
 
-    private Map<Long, List<List<Long>>> splitBatch(Map<Long, List<Tablet>> beToWarmUpTablets) {
+    // New return type: BE_ID → list of batches, each with (tablet ID list, total size)
+    public Map<Long, List<Pair<List<Long>, Long>>> splitBatch(Map<Long, List<Tablet>> beToWarmUpTablets) {
         final Long maxSizePerBatch = Config.cloud_warm_up_job_max_bytes_per_batch;
-        Map<Long, List<List<Long>>> beToTabletIdBatches = new HashMap<>();
+        Map<Long, List<Pair<List<Long>, Long>>> beToTabletIdBatchesWithSize = new HashMap<>();
+
         for (Map.Entry<Long, List<Tablet>> entry : beToWarmUpTablets.entrySet()) {
-            List<List<Long>> batches = new ArrayList<>();
-            List<Long> batch = new ArrayList<>();
-            Long curBatchSize = 0L;
+            long beId = entry.getKey();
+            List<Pair<List<Long>, Long>> batches = new ArrayList<>();
+            List<Long> currentBatch = new ArrayList<>();
+            long currentBatchSize = 0L;
+
             for (Tablet tablet : entry.getValue()) {
-                if (curBatchSize + tablet.getDataSize(true) > maxSizePerBatch) {
-                    batches.add(batch);
-                    batch = new ArrayList<>();
-                    curBatchSize = 0L;
+                long tabletSize = tablet.getDataSize(true);
+                if (currentBatchSize + tabletSize > maxSizePerBatch && !currentBatch.isEmpty()) {
+                    batches.add(Pair.of(new ArrayList<>(currentBatch), currentBatchSize));
+                    currentBatch.clear();
+                    currentBatchSize = 0L;
                 }
-                batch.add(tablet.getId());
-                curBatchSize += tablet.getDataSize(true);
+                currentBatch.add(tablet.getId());
+                currentBatchSize += tabletSize;
             }
-            if (!batch.isEmpty()) {
-                batches.add(batch);
+
+            if (!currentBatch.isEmpty()) {
+                batches.add(Pair.of(currentBatch, currentBatchSize));
             }
-            beToTabletIdBatches.put(entry.getKey(), batches);
+
+            beToTabletIdBatchesWithSize.put(beId, batches);
         }
-        return beToTabletIdBatches;
+
+        return beToTabletIdBatchesWithSize;
     }
+
 
     private Map<Long, List<Tablet>> warmUpNewClusterByCluster(String dstClusterName, String srcClusterName) {
         Long dstTotalFileCache = getFileCacheCapacity(dstClusterName);
@@ -630,10 +639,11 @@ public class CacheHotspotManager extends MasterDaemon {
             }
         }
 
-        Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
+        Map<Long, List<Pair<List<Long>, Long>>> beToTabletIdBatchesWithSize = splitBatch(beToWarmUpTablets);
 
         CloudWarmUpJob.JobType jobType = command.isWarmUpWithTable() ? JobType.TABLE : JobType.CLUSTER;
-        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, command.getDstCluster(), beToTabletIdBatches, jobType);
+        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, command.getDstCluster(),
+                        beToTabletIdBatchesWithSize, jobType);
         addCloudWarmUpJob(warmUpJob);
 
         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(warmUpJob);
