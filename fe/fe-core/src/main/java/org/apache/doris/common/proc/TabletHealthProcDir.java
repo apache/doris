@@ -262,7 +262,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                     inconsistentNum++;
                                     inconsistentTabletIds.add(tablet.getId());
                                 }
-                                if (tablet.getDataSize(true) > Config.min_bytes_indicate_replica_too_large) {
+                                if (tablet.getDataSize(true, false) > Config.min_bytes_indicate_replica_too_large) {
                                     oversizeNum++;
                                     oversizeTabletIds.add(tablet.getId());
                                 }
