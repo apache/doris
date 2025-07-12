@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -30,8 +29,6 @@ import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.AlterWorkloadGroupStmt;
-import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelJobTaskStmt;
@@ -222,8 +219,6 @@ public class DdlExecutor {
             env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().createWorkloadSchedPolicy((CreateWorkloadSchedPolicyStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterWorkloadSchedPolicyStmt) {
-            env.getWorkloadSchedPolicyMgr().alterWorkloadSchedPolicy((AlterWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().dropWorkloadSchedPolicy((DropWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
@@ -238,10 +233,6 @@ public class DdlExecutor {
             env.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshDbStmt) {
             env.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterColocateGroupStmt) {
-            env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
-            env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateIndexPolicyStmt) {
             env.getIndexPolicyMgr().createIndexPolicy((CreateIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropIndexPolicyStmt) {
