@@ -18,13 +18,21 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
+import org.apache.doris.plugin.audit.AuditStreamLoader;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import mockit.Mock;
+import mockit.MockUp;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -35,6 +43,7 @@ import java.io.IOException;
 import java.util.UUID;
 
 public class AuditEventProcessorTest {
+    private static final Logger LOG = LogManager.getLogger(AuditEventProcessorTest.class);
 
     private static String runningDir = "fe/mocked/AuditProcessorTest/" + UUID.randomUUID().toString() + "/";
 
@@ -120,5 +129,128 @@ public class AuditEventProcessorTest {
         }
         long total = System.currentTimeMillis() - start;
         System.out.println("total(ms): " + total + ", avg: " + total / 10000.0);
+    }
+
+    @Test
+    public void testLoadFailedAuditData() throws Exception {
+
+        new MockUp<AuditStreamLoader>() {
+            @Mock
+            public AuditStreamLoader.LoadResponse loadBatch(String data, String clusterToken) {
+                String resp = "{"
+                        + "'TxnId': 354958875,\n"
+                        + "'Label': 'audit_log_20250130_182105_891_127_0_0_1_8030',\n"
+                        + "'Comment': '',\n"
+                        + "'TwoPhaseCommit': 'false',\n"
+                        + "'Status': 'Fail',\n"
+                        + "'Message': '...',\n"
+                        + "'NumberTotalRows': 2949,\n"
+                        + "'NumberLoadedRows': 2949,\n"
+                        + "'NumberFilteredRows': 0,\n"
+                        + "'NumberUnselectedRows': 0,\n"
+                        + "'LoadBytes': 5496735,\n"
+                        + "'LoadTimeMs': 95,\n"
+                        + "'BeginTxnTimeMs': 0,\n"
+                        + "'StreamLoadPutTimeMs': 3,\n"
+                        + "'ReadDataTimeMs': 2,\n"
+                        + "'WriteDataTimeMs': 71,\n"
+                        + "'ReceiveDataTimeMs': 9,\n"
+                        + "'CommitAndPublishTimeMs': 20\n"
+                        + "}";
+                AuditStreamLoader.LoadResponse response =
+                        new AuditStreamLoader.LoadResponse(200, "success", resp);
+                if (response.status != 200 || "Fail".equals(response.respContentObj.status)) {
+                    throw new RuntimeException(response.respContent);
+                }
+                return response;
+            }
+        };
+
+        GlobalVariable.enableAuditLoader = true;
+        GlobalVariable.auditPluginMaxBatchInternalSec = 0;
+        AuditLoader auditLoader = new AuditLoader();
+        auditLoader.init(null, null);
+        auditLoader.close();
+
+        mockAuditLoad(auditLoader);
+
+        Assert.assertEquals(1, auditLoader.getFailedQueueSize());
+
+        mockAuditLoad(auditLoader);
+        mockAuditLoad(auditLoader);
+        mockAuditLoad(auditLoader);
+
+        Assert.assertEquals(4, auditLoader.getFailedQueueSize());
+
+        auditLoader.reLoadFailedAuditData();
+        auditLoader.reLoadFailedAuditData();
+
+        Assert.assertEquals(4, auditLoader.getFailedQueueSize());
+
+        GlobalVariable.auditPluginMaxBatchBytes = 160;
+
+        auditLoader.reLoadFailedAuditData();
+
+        Assert.assertEquals(3, auditLoader.getFailedQueueSize());
+
+        new MockUp<AuditStreamLoader>() {
+            @Mock
+            public AuditStreamLoader.LoadResponse loadBatch(String data, String clusterToken) {
+                String resp = "{"
+                        + "'TxnId': 354958875,\n"
+                        + "'Label': 'audit_log_20250130_182105_891_127_0_0_1_8030',\n"
+                        + "'Comment': '',\n"
+                        + "'TwoPhaseCommit': 'false',\n"
+                        + "'Status': 'Success',\n"
+                        + "'Message': '...',\n"
+                        + "'NumberTotalRows': 2949,\n"
+                        + "'NumberLoadedRows': 2949,\n"
+                        + "'NumberFilteredRows': 0,\n"
+                        + "'NumberUnselectedRows': 0,\n"
+                        + "'LoadBytes': 5496735,\n"
+                        + "'LoadTimeMs': 95,\n"
+                        + "'BeginTxnTimeMs': 0,\n"
+                        + "'StreamLoadPutTimeMs': 3,\n"
+                        + "'ReadDataTimeMs': 2,\n"
+                        + "'WriteDataTimeMs': 71,\n"
+                        + "'ReceiveDataTimeMs': 9,\n"
+                        + "'CommitAndPublishTimeMs': 20\n"
+                        + "}";
+                AuditStreamLoader.LoadResponse response =
+                        new AuditStreamLoader.LoadResponse(200, "success", resp);
+                if (response.status != 200 || "Fail".equals(response.respContentObj.status)) {
+                    throw new RuntimeException(response.respContent);
+                }
+                return response;
+            }
+        };
+
+        auditLoader.reLoadFailedAuditData();
+        auditLoader.reLoadFailedAuditData();
+        auditLoader.reLoadFailedAuditData();
+
+        Assert.assertEquals(0, auditLoader.getFailedQueueSize());
+    }
+
+    private AuditEvent mockAuditEvent() {
+        UUID uuid = UUID.randomUUID();
+        return new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
+            .setTimestamp(System.currentTimeMillis())
+            .setQueryId(DebugUtil.printId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits())))
+            .setClientIp("127.0.0.1")
+            .setUser("user")
+            .setDb("db")
+            .setState("EOF")
+            .setQueryTime(2000)
+            .setScanBytes(100000)
+            .setScanRows(200000)
+            .setReturnRows(0)
+            .setStmtId(0)
+            .setStmt("select * from table").build();
+    }
+
+    private void mockAuditLoad(AuditLoader auditLoader) throws Exception {
+        auditLoader.exec(mockAuditEvent());
+        auditLoader.processAuditEvents();
     }
 }
