@@ -68,12 +68,12 @@ bvar::LatencyRecorder g_stream_load_precommit_txn_latency("stream_load", "precom
 bvar::LatencyRecorder g_stream_load_commit_txn_latency("stream_load", "commit_txn");
 
 Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx,
-                                                 const TPipelineFragmentParams& parent) {
+                                                 const TPipelineFragmentParamsList& parent) {
     return execute_plan_fragment(ctx, parent, [](std::shared_ptr<StreamLoadContext> ctx) {});
 }
 
 Status StreamLoadExecutor::execute_plan_fragment(
-        std::shared_ptr<StreamLoadContext> ctx, const TPipelineFragmentParams& parent,
+        std::shared_ptr<StreamLoadContext> ctx, const TPipelineFragmentParamsList& parent,
         const std::function<void(std::shared_ptr<StreamLoadContext> ctx)>& cb) {
 // submit this params
 #ifndef BE_TEST
