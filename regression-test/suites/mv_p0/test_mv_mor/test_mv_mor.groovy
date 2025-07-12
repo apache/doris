@@ -47,5 +47,5 @@ suite ("test_mv_mor") {
 
     qt_select_mv "select * from `u_table` index `k123p` order by 1,2;"
     qt_select_mv "select mv_k1 from `u_table` index `k123p` order by 1;"
-    qt_select_mv "select `mv_(k2 + k3)` from `u_table` index `k123p` order by 1;"
+    qt_select_mv "select `mv_(CAST(k2 AS bigint) + k3)` from `u_table` index `k123p` order by 1;"
 }
