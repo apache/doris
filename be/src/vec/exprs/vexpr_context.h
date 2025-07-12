@@ -47,11 +47,13 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& storage_name_and_type_vec,
             std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
-                    common_expr_inverted_index_status)
+                    common_expr_inverted_index_status,
+            const std::vector<bool>& column_exists_iterators)
             : _col_ids(col_ids),
               _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
-              _expr_inverted_index_status(common_expr_inverted_index_status) {}
+              _expr_inverted_index_status(common_expr_inverted_index_status),
+              _column_exists_iterators(column_exists_iterators) {}
 
     segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
         if (column_index < 0 || column_index >= _col_ids.size()) {
@@ -77,6 +79,17 @@ public:
             return nullptr;
         }
         return &_storage_name_and_type[column_id];
+    }
+
+    bool get_column_exists_by_column_id(int column_index) const {
+        if (column_index < 0 || column_index >= _col_ids.size()) {
+            return false;
+        }
+        const auto& column_id = _col_ids[column_index];
+        if (column_id >= _storage_name_and_type.size()) {
+            return false;
+        }
+        return _column_exists_iterators[column_id];
     }
 
     bool has_inverted_index_result_for_expr(const vectorized::VExpr* expr) const {
@@ -143,6 +156,9 @@ private:
     // A reference to a map of common expressions to their inverted index evaluation status.
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
             _expr_inverted_index_status;
+
+    // A reference to a vector of flags indicating column existence in local storage.
+    const std::vector<bool>& _column_exists_iterators;
 };
 
 class VExprContext {

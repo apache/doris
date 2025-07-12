@@ -208,6 +208,11 @@ public:
         return Status::OK();
     }
 
+    virtual Status evaluate_inverted_index_without_variant(
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        return Status::OK();
+    }
+
     /// Do cleaning work when function is finished, i.e., release state variables in the
     /// `FunctionContext` which are registered in `prepare` phase.
     virtual Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
@@ -519,6 +524,11 @@ public:
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
                                                  bitmap_result);
+    }
+
+    Status evaluate_inverted_index_without_variant(
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        return function->evaluate_inverted_index_without_variant(bitmap_result);
     }
 
     bool is_use_default_implementation_for_constants() const override {

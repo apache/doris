@@ -101,6 +101,8 @@ public:
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
+    Status evaluate_inverted_index_without_variant(
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
 };
 
 class FunctionMatchAny : public FunctionMatchBase {

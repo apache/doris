@@ -604,6 +604,25 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
     return nullptr;
 }
 
+bool Segment::column_exists(const ColumnIdentifier& identifier) const {
+    if (identifier.path != nullptr && !identifier.path->empty()) {
+        auto relative_path = identifier.path->copy_pop_front();
+        int32_t unique_id =
+                identifier.unique_id > 0 ? identifier.unique_id : identifier.parent_unique_id;
+        const auto* node = _sub_column_tree.contains(unique_id)
+                                   ? _sub_column_tree.at(unique_id).find_leaf(relative_path)
+                                   : nullptr;
+        const auto* sparse_node =
+                _sparse_column_tree.contains(unique_id)
+                        ? _sparse_column_tree.at(unique_id).find_exact(relative_path)
+                        : nullptr;
+
+        return node || sparse_node;
+    }
+    // normal column type exists by default
+    return true;
+}
+
 Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     return _create_column_readers_once_call.call([&] {

@@ -651,6 +651,9 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                 const auto* storage_name_type =
                         context->get_inverted_index_context()
                                 ->get_storage_name_and_type_by_column_id(column_id);
+                bool column_exist =
+                        context->get_inverted_index_context()->get_column_exists_by_column_id(
+                                column_id);
                 auto storage_type = remove_nullable(storage_name_type->second);
                 auto target_type = remove_nullable(cast_expr->get_target_type());
                 auto origin_primitive_type = storage_type->get_primitive_type();
@@ -670,10 +673,12 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                         continue;
                     }
                 }
-                if (origin_primitive_type != TYPE_VARIANT &&
-                    (storage_type->equals(*target_type) ||
-                     (is_string_type(target_primitive_type) &&
-                      is_string_type(origin_primitive_type)))) {
+                if (origin_primitive_type == TYPE_VARIANT && !column_exist) {
+                    children_exprs.emplace_back(expr_without_cast(child));
+                } else if (origin_primitive_type != TYPE_VARIANT &&
+                           (storage_type->equals(*target_type) ||
+                            (is_string_type(target_primitive_type) &&
+                             is_string_type(origin_primitive_type)))) {
                     children_exprs.emplace_back(expr_without_cast(child));
                 }
             } else {
@@ -688,10 +693,18 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return Status::OK(); // Early exit if no children to process
     }
 
+    bool variant_column_exist = true;
     for (const auto& child : children_exprs) {
         if (child->is_slot_ref()) {
             auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
             auto column_id = column_slot_ref->column_id();
+            bool column_exist =
+                    context->get_inverted_index_context()->get_column_exists_by_column_id(
+                            column_id);
+            if (!column_exist) {
+                variant_column_exist = false;
+                break;
+            }
             auto* iter =
                     context->get_inverted_index_context()->get_inverted_index_iterator_by_column_id(
                             column_id);
@@ -722,23 +735,41 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         }
     }
 
+    auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
+    auto set_result = [&]() {
+        if (!result_bitmap.is_empty()) {
+            index_context->set_inverted_index_result_for_expr(this, result_bitmap);
+            for (int column_id : column_ids) {
+                index_context->set_true_for_inverted_index_status(this, column_id);
+            }
+        }
+    };
+
+    if (!variant_column_exist) {
+        auto res = function->evaluate_inverted_index_without_variant(result_bitmap);
+        if (!res.ok()) {
+            return res;
+        }
+
+        if (!result_bitmap.is_empty()) {
+            set_result();
+            return Status::OK();
+        }
+    }
+
     // is null or is not null has no arguments
     if (iterators.empty() || (arguments.empty() && !(function->get_name() == "is_not_null_pred" ||
                                                      function->get_name() == "is_null_pred"))) {
         return Status::OK(); // Nothing to evaluate or no literals to compare against
     }
 
-    auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
     auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
                                                  segment_num_rows, result_bitmap);
     if (!res.ok()) {
         return res;
     }
     if (!result_bitmap.is_empty()) {
-        index_context->set_inverted_index_result_for_expr(this, result_bitmap);
-        for (int column_id : column_ids) {
-            index_context->set_true_for_inverted_index_status(this, column_id);
-        }
+        set_result();
     }
     return Status::OK();
 }

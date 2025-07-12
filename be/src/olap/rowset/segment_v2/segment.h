@@ -188,6 +188,9 @@ public:
     // nullptr will returned if storage type does not contains such column
     std::shared_ptr<const vectorized::IDataType> get_data_type_of(
             const ColumnIdentifier& identifier, bool read_flat_leaves) const;
+
+    bool column_exists(const ColumnIdentifier& identifier) const;
+
     // Check is schema read type equals storage column type
     bool same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves) const;
 

@@ -87,6 +87,17 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     return Status::OK();
 }
+
+Status FunctionMatchBase::evaluate_inverted_index_without_variant(
+        segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+    segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+    bitmap_result = result;
+
+    return Status::OK();
+}
+
 Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, uint32_t result,
                                        size_t input_rows_count) const {
