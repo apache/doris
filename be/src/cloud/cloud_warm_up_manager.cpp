@@ -122,11 +122,6 @@ void CloudWarmUpManager::handle_jobs() {
             cur_job = _pending_job_metas.front();
         }
 
-        if (!cur_job) {
-            LOG_WARNING("Warm up job is null");
-            continue;
-        }
-
         std::shared_ptr<bthread::CountdownEvent> wait =
                 std::make_shared<bthread::CountdownEvent>(0);
 
@@ -212,8 +207,11 @@ void CloudWarmUpManager::handle_jobs() {
         }
         {
             std::unique_lock lock(_mtx);
-            _finish_job.push_back(cur_job);
-            _pending_job_metas.pop_front();
+            // If it is empty, it means the job has been cleared during the lock release period.
+            if (!_pending_job_metas.empty()) {
+                _finish_job.push_back(cur_job);
+                _pending_job_metas.pop_front();
+            }
         }
     }
 #endif
@@ -296,6 +294,9 @@ std::tuple<int64_t, int64_t, int64_t, int64_t> CloudWarmUpManager::get_current_j
 Status CloudWarmUpManager::clear_job(int64_t job_id) {
     std::lock_guard lock(_mtx);
     Status st = Status::OK();
+    if (_cur_job_id == 0) {
+        return st;
+    }
     if (job_id == _cur_job_id) {
         _cur_job_id = 0;
         _cur_batch_id = -1;
