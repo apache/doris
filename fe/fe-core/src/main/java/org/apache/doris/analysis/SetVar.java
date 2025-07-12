@@ -110,7 +110,7 @@ public class SetVar {
     }
 
     // Value can be null. When value is null, means to set variable to DEFAULT.
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze() throws AnalysisException, UserException {
 
     }
 

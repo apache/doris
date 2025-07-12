@@ -62,11 +62,11 @@ public class DropMaterializedViewStmt extends DdlStmt implements NotFallbackInPa
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (Strings.isNullOrEmpty(mvName)) {
             throw new AnalysisException("The materialized name could not be empty or null.");
         }
-        tableName.analyze(analyzer);
+        tableName.analyze();
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 

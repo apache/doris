@@ -58,8 +58,8 @@ public class RecoverTableStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        dbTblName.analyze(analyzer);
+    public void analyze() throws AnalysisException, UserException {
+        dbTblName.analyze();
         // disallow external catalog
         Util.prohibitExternalCatalog(dbTblName.getCtl(), this.getClass().getSimpleName());
 

@@ -140,7 +140,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
             isLocal = true;
             if (jobInfo == null) {
@@ -148,7 +148,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
                         "restore from the local repo via SQL call is not supported");
             }
         }
-        super.analyze(analyzer);
+        super.analyze();
     }
 
     @Override

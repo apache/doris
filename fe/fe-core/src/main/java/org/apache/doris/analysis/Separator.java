@@ -63,20 +63,12 @@ public class Separator implements ParseNode {
         return (byte) HEX_STRING.indexOf(c);
     }
 
-    public void analyze() throws AnalysisException {
-        analyze(null);
-    }
-
-    public void analyze(boolean isLine) throws AnalysisException {
-        analyze(null, isLine);
-    }
-
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         this.separator = convertSeparator(oriSeparator);
     }
 
-    public void analyze(Analyzer analyzer, boolean isLine) throws AnalysisException {
+    public void analyze(boolean isLine) throws AnalysisException {
         if (isLine) {
             this.separator = convertLineDelimiter(oriSeparator);
         } else {

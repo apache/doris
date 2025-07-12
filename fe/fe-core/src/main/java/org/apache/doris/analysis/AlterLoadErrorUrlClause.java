@@ -45,7 +45,7 @@ public class AlterLoadErrorUrlClause extends AlterClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         throw new AnalysisException("Load errors hub is not supported");
     }
 

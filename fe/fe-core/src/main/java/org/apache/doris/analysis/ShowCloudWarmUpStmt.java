@@ -59,8 +59,8 @@ public class ShowCloudWarmUpStmt extends ShowStmt implements NotFallbackInParser
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
+    public void analyze() throws AnalysisException, UserException {
+        super.analyze();
 
         if (whereClause == null) {
             showAllJobs = true;

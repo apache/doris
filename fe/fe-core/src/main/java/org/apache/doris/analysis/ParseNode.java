@@ -23,15 +23,12 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.UserException;
 
 public interface ParseNode {
-
     /**
      * Perform semantic analysis of node and all of its children.
      * Throws exception if any errors found.
      *
-     * @param analyzer
-     * @throws AnalysisException, InternalException
      */
-    void analyze(Analyzer analyzer) throws UserException;
+    void analyze() throws UserException;
 
     /**
      * @return SQL syntax corresponding to this node.

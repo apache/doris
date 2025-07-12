@@ -71,8 +71,8 @@ public class AdminSetConfigStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
+    public void analyze() throws AnalysisException, UserException {
+        super.analyze();
 
         if (configs.size() != 1) {
             throw new AnalysisException("config parameter size is not equal to 1");

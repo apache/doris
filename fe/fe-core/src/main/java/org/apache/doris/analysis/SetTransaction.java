@@ -23,6 +23,6 @@ public class SetTransaction extends SetVar {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) {
+    public void analyze() {
     }
 }

@@ -83,8 +83,8 @@ public class BuildIndexClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        tableName.analyze(analyzer);
+    public void analyze() throws AnalysisException {
+        tableName.analyze();
         DatabaseIf<Table> db = Env.getCurrentEnv().getCatalogMgr().getInternalCatalog()
                 .getDb(tableName.getDb()).orElse(null);
         if (db == null) {

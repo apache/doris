@@ -40,7 +40,7 @@ public class AnalyzeDBStmt extends AnalyzeStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze() throws AnalysisException, UserException {
         if (ctlName == null) {
             ctlIf = Env.getCurrentEnv().getCurrentCatalog();
         } else {

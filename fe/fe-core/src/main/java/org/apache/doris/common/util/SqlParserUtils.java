@@ -17,19 +17,14 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.EmptyStmt;
 import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.qe.ConnectContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.StringReader;
 import java.util.List;
 
 // Utils about SQL parser
@@ -85,30 +80,5 @@ public class SqlParserUtils {
             stmts.remove(stmts.size() - 1);
         }
         return stmts;
-    }
-
-    public static StatementBase parseAndAnalyzeStmt(String originStmt, ConnectContext ctx) throws UserException {
-        LOG.info("begin to parse stmt: " + originStmt);
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-        StatementBase statementBase;
-        try {
-            statementBase = SqlParserUtils.getFirstStmt(parser);
-        } catch (AnalysisException e) {
-            String errorMessage = parser.getErrorMsg(originStmt);
-            LOG.error("parse failed: " + errorMessage);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        } catch (Exception e) {
-            String errorMsg = String.format("get exception when parse stmt. Origin stmt is %s . Error msg is %s.",
-                    originStmt, e.getMessage());
-            throw new AnalysisException(errorMsg);
-        }
-        statementBase.analyze(analyzer);
-        return statementBase;
     }
 }

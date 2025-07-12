@@ -60,8 +60,8 @@ public class CreateRoleStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
 
         if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
             throw new AnalysisException("Create role is prohibited when Ranger is enabled.");
