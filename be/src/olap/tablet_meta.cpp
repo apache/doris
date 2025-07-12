@@ -1285,7 +1285,6 @@ const roaring::Roaring* DeleteBitmap::get(const BitmapKey& bmk) const {
 
 void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
                           DeleteBitmap* subset_rowset_map) const {
-    roaring::Roaring roaring;
     DCHECK(start < end);
     std::shared_lock l(lock);
     for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
@@ -1294,6 +1293,33 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
             break;
         }
         subset_rowset_map->set(k, bm);
+    }
+}
+
+// TODO rowset in table version graph, skip stale and unused rowsets
+void DeleteBitmap::subset(std::vector<RowsetId>& rowset_ids, int64_t start_version,
+                          int64_t end_version, DeleteBitmap* subset_delete_map) const {
+    DCHECK(start_version <= end_version);
+    for (auto& rowset_id : rowset_ids) {
+        BitmapKey start {rowset_id, 0, 0};
+        BitmapKey end {rowset_id, UINT32_MAX, end_version + 1};
+        std::shared_lock l(lock);
+        for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+            auto& [k, bm] = *it;
+            if (k >= end) {
+                break;
+            }
+            // subset_rowset_map->set(k, bm);
+            auto version = std::get<2>(k);
+            if (version >= start_version && version <= end_version) {
+                subset_delete_map->merge(k, bm);
+                VLOG_DEBUG << "subset delete bitmap, tablet=" << _tablet_id << ", version=["
+                           << start_version << ", " << end_version
+                           << "]. rowset=" << std::get<0>(k).to_string()
+                           << ", segment=" << std::get<1>(k) << ", version=" << version
+                           << ", cardinality=" << bm.cardinality();
+            }
+        }
     }
 }
 

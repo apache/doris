@@ -356,8 +356,22 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
                                                                       delete_bitmap));
         }
     }
-    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*cloud_tablet(), -1, initiator,
-                                                            delete_bitmap.get()));
+    auto delete_bitmap_size = delete_bitmap->delete_bitmap.size();
+    if (config::delete_bitmap_store_version == 2) {
+        std::vector<RowsetId> other_rowset_ids;
+        for (const auto& [rowset_version, rowset_ptr] : cloud_tablet()->rowset_map()) {
+            if (rowset_version.second < _output_rowset->start_version() ||
+                rowset_version.first > _output_rowset->end_version()) {
+                other_rowset_ids.emplace_back(rowset_ptr->rowset_id());
+            }
+        }
+        _tablet->tablet_meta()->delete_bitmap().subset(
+                other_rowset_ids, _input_rowsets.front()->start_version(),
+                _input_rowsets.back()->end_version(), delete_bitmap.get());
+    }
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
+            *cloud_tablet(), -1, initiator, delete_bitmap.get(),
+            _output_rowset->rowset_id().to_string()));
     LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
              _tablet->tablet_id(), _input_rowsets.front()->start_version(),
              _input_rowsets.back()->end_version())
@@ -367,7 +381,10 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
             .tag("input_rowsets_total_size", _input_rowsets_total_size)
-            .tag("update_bitmap_size", delete_bitmap->delete_bitmap.size());
+            .tag("calculate_bitmap_size", delete_bitmap_size)
+            .tag("update_bitmap_size", delete_bitmap->delete_bitmap.size())
+            .tag("store_version", config::delete_bitmap_store_version);
+    // TODO is it needed?
     _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
     return Status::OK();
 }

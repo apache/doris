@@ -518,6 +518,16 @@ public:
                 DeleteBitmap* subset_delete_map) const;
 
     /**
+     * Gets subset of delete_bitmap with given version range [start, end]
+     *
+     * @parma start_version
+     * @parma end_version
+     * @parma subset_delete_map output param
+     */
+    void subset(std::vector<RowsetId>& rowset_ids, int64_t start_version, int64_t end_version,
+                DeleteBitmap* subset_delete_map) const;
+
+    /**
      * Gets count of delete_bitmap with given range [start, end)
      *
      * @parma start start
