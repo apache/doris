@@ -31,7 +31,7 @@ namespace segment_v2 {
 static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
 
 template <FieldType Type>
-class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type> > {
+class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type>> {
 public:
     using Self = PlainPageBuilder<Type>;
     friend class PageBuilderHelper<Self>;
@@ -51,6 +51,11 @@ public:
             return Status::OK();
         }
         size_t old_size = _buffer.size();
+        size_t remain_size = _options.data_page_size - old_size;
+        auto to_add = std::max<size_t>(1, remain_size / SIZE_OF_TYPE);
+        if (to_add < *count) {
+            *count = to_add;
+        }
         // This may need a large memory, should return error if could not allocated
         // successfully, to avoid BE OOM.
         RETURN_IF_CATCH_EXCEPTION(_buffer.resize(old_size + *count * SIZE_OF_TYPE));
@@ -143,6 +148,34 @@ public:
         return Status::OK();
     }
 
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed) << "Must call init() firstly(plan page) in read_by_rowids";
+        if (*n == 0) [[unlikely]] {
+            *n = 0;
+            return Status::OK();
+        }
+
+        auto total = *n;
+        auto read_count = 0;
+        _buffer.resize(total);
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (UNLIKELY(ord >= _num_elems)) {
+                break;
+            }
+
+            _buffer[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
+        }
+
+        if (LIKELY(read_count > 0)) {
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+        }
+
+        *n = read_count;
+        return Status::OK();
+    }
+
     Status seek_to_position_in_page(size_t pos) override {
         CHECK(_parsed) << "Must call init()";
         if (_num_elems == 0) [[unlikely]] {
@@ -196,8 +229,22 @@ public:
         return Status::OK();
     }
 
+    char* get_data(size_t index) const {
+        return &_data.data[PLAIN_PAGE_HEADER_SIZE + index * SIZE_OF_TYPE];
+    }
+
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("plain page not implement vec op now");
+        DCHECK(_parsed) << "Must call init() firstly(plan page)";
+        if (*n == 0 || _cur_idx >= _num_elems) [[unlikely]] {
+            *n = 0;
+            return Status::OK();
+        }
+        const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
+        dst->insert_many_fix_len_data(get_data(_cur_idx), max_fetch);
+        *n = max_fetch;
+        _cur_idx += max_fetch;
+
+        return Status::OK();
     }
 
     size_t count() const override {
@@ -218,6 +265,7 @@ private:
     uint32_t _cur_idx;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 };
 
 } // namespace segment_v2
