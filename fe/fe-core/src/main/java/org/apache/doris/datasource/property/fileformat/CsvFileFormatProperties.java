@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.fileformat;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -122,9 +123,17 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                     PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
             compressionType = Util.getFileCompressType(compressTypeStr);
 
-            String validateUtf8 = getOrDefault(formatProperties, PROP_ENABLE_TEXT_VALIDATE_UTF8, "true",
+            // get ENABLE_TEXT_VALIDATE_UTF8 from properties map first,
+            // if not exist, try getting from session variable,
+            // if connection context is null, use "true" as default value.
+            String validateUtf8 = getOrDefault(formatProperties, PROP_ENABLE_TEXT_VALIDATE_UTF8, "",
                     isRemoveOriginProperty);
-            enableTextValidateUTF8 = Boolean.parseBoolean(validateUtf8);
+            if (Strings.isNullOrEmpty(validateUtf8)) {
+                enableTextValidateUTF8 = ConnectContext.get() == null ? true
+                        : ConnectContext.get().getSessionVariable().enableTextValidateUtf8;
+            } else {
+                enableTextValidateUTF8 = Boolean.parseBoolean(validateUtf8);
+            }
 
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage());
@@ -182,3 +191,4 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         return escape;
     }
 }
+

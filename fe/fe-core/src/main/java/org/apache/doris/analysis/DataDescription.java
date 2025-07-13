@@ -1011,10 +1011,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         analyzeSequenceCol(fullDbName);
 
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
-        if (ConnectContext.get() != null) {
-            analysisMap.putIfAbsent(CsvFileFormatProperties.PROP_ENABLE_TEXT_VALIDATE_UTF8,
-                    String.valueOf(ConnectContext.get().getSessionVariable().enableTextValidateUtf8));
-        }
         fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
