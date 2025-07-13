@@ -5595,7 +5595,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowColumnStats(ShowColumnStatsContext ctx) {
         List<String> tableNameParts = visitMultipartIdentifier(ctx.tableName);
-        List<String> colNames = ctx.columnList == null ? ImmutableList.of() : visitIdentifierList(ctx.columnList);
+        List<String> colNames = ctx.columnList == null ? null : visitIdentifierList(ctx.columnList);
         PartitionNamesInfo partitionNames = null;
         if (ctx.partitionSpec() != null) {
             Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
