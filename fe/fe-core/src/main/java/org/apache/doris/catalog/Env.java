@@ -6104,6 +6104,9 @@ public class Env {
             getInternalCatalog().replayTruncateTable(info);
             Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(info.getUpdateRecords(),
                     info.getDbId(), info.getTblId(), 0);
+            if (info.isEntireTable()) {
+                Env.getCurrentEnv().getAnalysisManager().removeTableStats(info.getTblId());
+            }
         } else {
             ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
             if (ctl != null) {
