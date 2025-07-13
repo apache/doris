@@ -1306,10 +1306,6 @@ public abstract class ExternalCatalog
         }
     }
 
-    public ThreadPoolExecutor getThreadPoolExecutor() {
-        return threadPoolWithPreAuth;
-    }
-
     public CatalogProperty getCatalogProperty() {
         return catalogProperty;
     }
