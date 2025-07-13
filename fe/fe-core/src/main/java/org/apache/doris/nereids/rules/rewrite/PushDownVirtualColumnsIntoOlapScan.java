@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -24,6 +25,11 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsBigInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsLargeInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsSmallInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -80,19 +86,26 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalProject(logicalFilter(logicalOlapScan()
-                        .when(s -> s.getVirtualColumns().isEmpty())))
+                        .when(s -> {
+                            boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
+                                    || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
+                            return dupTblOrMOW && s.getVirtualColumns().isEmpty();
+                        })))
                         .then(project -> {
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
                             return pushDown(filter, scan, Optional.of(project));
                         }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN),
                 logicalFilter(logicalOlapScan()
-                        .when(s -> s.getVirtualColumns().isEmpty()))
+                        .when(s -> {
+                            boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
+                                    || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
+                            return dupTblOrMOW && s.getVirtualColumns().isEmpty();
+                        }))
                         .then(filter -> {
                             LogicalOlapScan scan = filter.child();
                             return pushDown(filter, scan, Optional.empty());
                         }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN)
-
         );
     }
 
@@ -286,6 +299,12 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
         // Skip CAST expressions - they are not beneficial for optimization
         if (expr instanceof Cast) {
+            return false;
+        }
+
+        // Skip expressions with decode_as_varchar or encode_as_bigint as root
+        if (expr instanceof DecodeAsVarchar || expr instanceof EncodeAsBigInt || expr instanceof EncodeAsInt
+                || expr instanceof EncodeAsLargeInt || expr instanceof EncodeAsSmallInt) {
             return false;
         }
 

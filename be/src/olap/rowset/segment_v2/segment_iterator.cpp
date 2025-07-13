@@ -1759,7 +1759,7 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
             bool return_column_is_nothing =
                     vectorized::check_and_get_column<const vectorized::ColumnNothing>(
                             _current_return_columns[cid].get());
-            LOG_INFO(
+            VLOG_DEBUG << fmt::format(
                     "Cid {} loc {}, column_in_block_is_nothing {}, column_is_normal {}, "
                     "return_column_is_nothing {}",
                     cid, loc, column_in_block_is_nothing, column_is_normal,
@@ -1813,11 +1813,11 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         auto& column = _current_return_columns[cid];
         if (!_virtual_column_exprs.contains(cid)) {
             if (_no_need_read_key_data(cid, column, nrows_read)) {
-                LOG_INFO("Column {} no need to read.", cid);
+                VLOG_DEBUG << fmt::format("Column {} no need to read.", cid);
                 continue;
             }
             if (_prune_column(cid, column, true, nrows_read)) {
-                LOG_INFO("Column {} is pruned. No need to read data.", cid);
+                VLOG_DEBUG << fmt::format("Column {} is pruned. No need to read data.", cid);
                 continue;
             }
             DBUG_EXECUTE_IF("segment_iterator._read_columns_by_index", {
@@ -2811,8 +2811,8 @@ Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* bl
 
         if (vectorized::check_and_get_column<const vectorized::ColumnNothing>(
                     block->get_by_position(idx_in_block).column.get())) {
-            LOG_INFO("Virtual column is doing materialization, cid {}, col idx {}", cid,
-                     idx_in_block);
+            VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",
+                                      cid, idx_in_block);
             int result_cid = -1;
             RETURN_IF_ERROR(column_expr->execute(block, &result_cid));
 

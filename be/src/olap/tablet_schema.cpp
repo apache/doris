@@ -916,6 +916,7 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
     }
     _num_columns++;
+    _num_virtual_columns = _vir_col_idx_to_unique_id.size();
 }
 
 void TabletColumn::append_sparse_column(TabletColumn column) {

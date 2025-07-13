@@ -160,7 +160,8 @@ Status OlapScanner::init() {
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
-            tablet->tablet_schema()->num_variant_columns() == 0) {
+            tablet->tablet_schema()->num_variant_columns() == 0 &&
+            tablet->tablet_schema()->num_virtual_columns() == 0) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
                                                 olap_scan_node.schema_version);
