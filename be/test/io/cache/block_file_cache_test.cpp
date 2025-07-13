@@ -25,14 +25,6 @@ fs::path caches_dir = fs::current_path() / "lru_cache_test";
 std::string cache_base_path = caches_dir / "cache1" / "";
 std::string tmp_file = caches_dir / "tmp_file";
 
-constexpr unsigned long long operator""_mb(unsigned long long m) {
-    return m * 1024 * 1024;
-}
-
-constexpr unsigned long long operator""_kb(unsigned long long m) {
-    return m * 1024;
-}
-
 void assert_range([[maybe_unused]] size_t assert_n, io::FileBlockSPtr file_block,
                   const io::FileBlock::Range& expected_range, io::FileBlock::State expected_state) {
     auto range = file_block->range();
