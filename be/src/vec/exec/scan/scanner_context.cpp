@@ -115,11 +115,14 @@ Status ScannerContext::init() {
     } else {
         _scanner_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
     }
-    std::shared_ptr<TaskExecutor> task_executor = _scanner_scheduler->task_executor();
-    vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
-    _task_handle = DORIS_TRY(task_executor->create_task(
-            task_id, []() { return 0.0; }, config::task_executor_initial_split_concurrency,
-            std::chrono::milliseconds(100), std::nullopt));
+    if (auto* task_executor_scheduler =
+                dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
+        std::shared_ptr<TaskExecutor> task_executor = task_executor_scheduler->task_executor();
+        vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
+        _task_handle = DORIS_TRY(task_executor->create_task(
+                task_id, []() { return 0.0; }, config::task_executor_initial_split_concurrency,
+                std::chrono::milliseconds(100), std::nullopt));
+    }
 #endif
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.
     // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
@@ -216,7 +219,10 @@ ScannerContext::~ScannerContext() {
     block.reset();
     DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     if (_task_handle) {
-        static_cast<void>(_scanner_scheduler->task_executor()->remove_task(_task_handle));
+        if (auto* task_executor_scheduler =
+                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
+            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        }
         _task_handle = nullptr;
     }
 }
@@ -409,7 +415,10 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
     }
     _tasks_queue.clear();
     if (_task_handle) {
-        static_cast<void>(_scanner_scheduler->task_executor()->remove_task(_task_handle));
+        if (auto* task_executor_scheduler =
+                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
+            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        }
         _task_handle = nullptr;
     }
     // TODO yiguolei, call mark close to scanners
@@ -513,9 +522,9 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
 // This function must be called with:
 // 1. _transfer_lock held.
 // 2. SimplifiedScanScheduler::_lock held.
-Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
-                                           std::unique_lock<std::mutex>& transfer_lock,
-                                           std::unique_lock<std::shared_mutex>& scheduler_lock) {
+Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
+                                          std::unique_lock<std::mutex>& transfer_lock,
+                                          std::unique_lock<std::shared_mutex>& scheduler_lock) {
     if (current_scan_task &&
         (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos())) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");

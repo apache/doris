@@ -311,6 +311,8 @@ DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) ->
     }
     return true;
 });
+DEFINE_Bool(enable_task_executor_in_internal_table, "false");
+DEFINE_Bool(enable_task_executor_in_external_table, "true");
 
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool

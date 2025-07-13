@@ -192,6 +192,10 @@ public:
         return _num_scheduled_scanners;
     }
 
+    Status schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
+                              std::unique_lock<std::mutex>& transfer_lock,
+                              std::unique_lock<std::shared_mutex>& scheduler_lock);
+
 protected:
     /// Four criteria to determine whether to increase the parallelism of the scanners
     /// 1. It ran for at least `SCALE_UP_DURATION` ms after last scale up
@@ -250,10 +254,6 @@ protected:
     int32_t _min_scan_concurrency_of_scan_scheduler = 0;
     int32_t _min_scan_concurrency = 1;
     int32_t _max_scan_concurrency = 0;
-
-    Status _schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
-                               std::unique_lock<std::mutex>& transfer_lock,
-                               std::unique_lock<std::shared_mutex>& scheduler_lock);
 
     std::shared_ptr<ScanTask> _pull_next_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                                    int32_t current_concurrency);

@@ -92,10 +92,6 @@ std::vector<std::shared_ptr<PrioritizedSplitRunner>> TimeSharingTaskHandle::clos
     result.reserve(_running_intermediate_splits.size() + _running_leaf_splits.size() +
                    _queued_leaf_splits.size());
 
-    //result.insert(result.end(), _running_intermediate_splits.begin(),
-    //              _running_intermediate_splits.end());
-    //result.insert(result.end(), _running_leaf_splits.begin(), _running_leaf_splits.end());
-
     for (auto& kv : _running_intermediate_splits) {
         result.push_back(kv.second);
     }
@@ -129,7 +125,6 @@ bool TimeSharingTaskHandle::record_intermediate_split(
     if (_closed) {
         return false;
     }
-    //_running_intermediate_splits.emplace_back(std::move(split));
     _running_intermediate_splits[split->split_runner()] = split;
     return true;
 }
@@ -161,7 +156,6 @@ std::shared_ptr<PrioritizedSplitRunner> TimeSharingTaskHandle::poll_next_split()
 
     auto split = _queued_leaf_splits.front();
     _queued_leaf_splits.pop();
-    //_running_leaf_splits.push_back(split);
     _running_leaf_splits[split->split_runner()] = split;
     return split;
 }
@@ -170,17 +164,6 @@ void TimeSharingTaskHandle::split_finished(std::shared_ptr<PrioritizedSplitRunne
     std::lock_guard<std::mutex> lock(_mutex);
     _concurrency_controller.split_finished(split->scheduled_nanos(), _utilization_supplier(),
                                            _running_leaf_splits.size());
-
-    /*auto it = std::find(_running_intermediate_splits.begin(), _running_intermediate_splits.end(),
-                        split);
-    if (it != _running_intermediate_splits.end()) {
-        _running_intermediate_splits.erase(it);
-    }
-
-    it = std::find(_running_leaf_splits.begin(), _running_leaf_splits.end(), split);
-    if (it != _running_leaf_splits.end()) {
-        _running_leaf_splits.erase(it);
-    }*/
 
     _running_intermediate_splits.erase(split->split_runner());
     _running_leaf_splits.erase(split->split_runner());

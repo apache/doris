@@ -533,9 +533,15 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     }
 
     if (_scan_task_sched == nullptr) {
-        std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler =
-                std::make_unique<vectorized::SimplifiedScanScheduler>("ls_" + wg_name,
-                                                                      cg_cpu_ctl_ptr, wg_name);
+        std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler;
+        if (config::enable_task_executor_in_internal_table) {
+            scan_scheduler = std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
+                    "ls_" + wg_name, cg_cpu_ctl_ptr, wg_name);
+        } else {
+            scan_scheduler = std::make_unique<vectorized::ThreadPoolSimplifiedScanScheduler>(
+                    "ls_" + wg_name, cg_cpu_ctl_ptr, wg_name);
+        }
+
         Status ret = scan_scheduler->start(scan_thread_num, scan_thread_num,
                                            config::doris_scanner_thread_pool_queue_size);
         if (ret.ok()) {
@@ -549,9 +555,15 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     if (_remote_scan_task_sched == nullptr) {
         int remote_scan_thread_queue_size =
                 vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
-        std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler =
-                std::make_unique<vectorized::SimplifiedScanScheduler>("rs_" + wg_name,
-                                                                      cg_cpu_ctl_ptr, wg_name);
+        std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler;
+        if (config::enable_task_executor_in_external_table) {
+            remote_scan_scheduler =
+                    std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
+                            "rs_" + wg_name, cg_cpu_ctl_ptr, wg_name);
+        } else {
+            remote_scan_scheduler = std::make_unique<vectorized::ThreadPoolSimplifiedScanScheduler>(
+                    "rs_" + wg_name, cg_cpu_ctl_ptr, wg_name);
+        }
         Status ret =
                 remote_scan_scheduler->start(max_remote_scan_thread_num, min_remote_scan_thread_num,
                                              remote_scan_thread_queue_size);

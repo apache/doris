@@ -127,28 +127,176 @@ private:
     SharedListenableFuture<Void> _completion_future;
 };
 
+// Abstract interface for scan scheduler
 class SimplifiedScanScheduler {
 public:
-    SimplifiedScanScheduler(std::string sched_name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl,
-                            std::string workload_group = "system")
+    virtual ~SimplifiedScanScheduler() {}
+
+    virtual Status start(int max_thread_num, int min_thread_num, int queue_size) = 0;
+    virtual void stop() = 0;
+    virtual Status submit_scan_task(SimplifiedScanTask scan_task) = 0;
+    virtual Status submit_scan_task(SimplifiedScanTask scan_task,
+                                    const std::string& task_id_string) = 0;
+
+    virtual void reset_thread_num(int new_max_thread_num, int new_min_thread_num) = 0;
+    virtual void reset_max_thread_num(int thread_num) = 0;
+    virtual void reset_min_thread_num(int thread_num) = 0;
+    virtual int get_max_threads() = 0;
+
+    virtual int get_queue_size() = 0;
+    virtual int get_active_threads() = 0;
+    virtual std::vector<int> thread_debug_info() = 0;
+
+    virtual Status schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
+                                      std::shared_ptr<ScanTask> current_scan_task,
+                                      std::unique_lock<std::mutex>& transfer_lock) = 0;
+};
+
+class ThreadPoolSimplifiedScanScheduler : public SimplifiedScanScheduler {
+public:
+    ThreadPoolSimplifiedScanScheduler(std::string sched_name,
+                                      std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl,
+                                      std::string workload_group = "system")
             : _is_stop(false),
               _cgroup_cpu_ctl(cgroup_cpu_ctl),
               _sched_name(sched_name),
               _workload_group(workload_group) {}
 
-    MOCK_FUNCTION ~SimplifiedScanScheduler() {
+    virtual ~ThreadPoolSimplifiedScanScheduler() override {
 #ifndef BE_TEST
         stop();
 #endif
         LOG(INFO) << "Scanner sche " << _sched_name << " shutdown";
     }
 
-    void stop() {
+    virtual void stop() override {
+        _is_stop.store(true);
+        _scan_thread_pool->shutdown();
+        _scan_thread_pool->wait();
+    }
+
+    virtual Status start(int max_thread_num, int min_thread_num, int queue_size) override {
+        RETURN_IF_ERROR(ThreadPoolBuilder(_sched_name, _workload_group)
+                                .set_min_threads(min_thread_num)
+                                .set_max_threads(max_thread_num)
+                                .set_max_queue_size(queue_size)
+                                .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
+                                .build(&_scan_thread_pool));
+        return Status::OK();
+    }
+
+    virtual Status submit_scan_task(SimplifiedScanTask scan_task) override {
+        if (!_is_stop) {
+            return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
+        } else {
+            return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
+        }
+    }
+
+    virtual Status submit_scan_task(SimplifiedScanTask scan_task,
+                                    const std::string& task_id_string) override {
+        return submit_scan_task(scan_task);
+    }
+
+    virtual void reset_thread_num(int new_max_thread_num, int new_min_thread_num) override {
+        int cur_max_thread_num = _scan_thread_pool->max_threads();
+        int cur_min_thread_num = _scan_thread_pool->min_threads();
+        if (cur_max_thread_num == new_max_thread_num && cur_min_thread_num == new_min_thread_num) {
+            return;
+        }
+        if (new_max_thread_num >= cur_max_thread_num) {
+            Status st_max = _scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for scan thread pool: "
+                             << st_max.to_string();
+            }
+            Status st_min = _scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for scan thread pool: "
+                             << st_min.to_string();
+            }
+        } else {
+            Status st_min = _scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for scan thread pool: "
+                             << st_min.to_string();
+            }
+            Status st_max = _scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for scan thread pool: "
+                             << st_max.to_string();
+            }
+        }
+    }
+
+    virtual void reset_max_thread_num(int thread_num) override {
+        int max_thread_num = _scan_thread_pool->max_threads();
+
+        if (max_thread_num != thread_num) {
+            Status st = _scan_thread_pool->set_max_threads(thread_num);
+            if (!st.ok()) {
+                LOG(INFO) << "reset max thread num failed, sche name=" << _sched_name;
+            }
+        }
+    }
+
+    virtual void reset_min_thread_num(int thread_num) override {
+        int min_thread_num = _scan_thread_pool->min_threads();
+
+        if (min_thread_num != thread_num) {
+            Status st = _scan_thread_pool->set_min_threads(thread_num);
+            if (!st.ok()) {
+                LOG(INFO) << "reset min thread num failed, sche name=" << _sched_name;
+            }
+        }
+    }
+
+    virtual int get_queue_size() override { return _scan_thread_pool->get_queue_size(); }
+
+    virtual int get_active_threads() override { return _scan_thread_pool->num_active_threads(); }
+
+    virtual int get_max_threads() override { return _scan_thread_pool->max_threads(); }
+
+    virtual std::vector<int> thread_debug_info() override {
+        return _scan_thread_pool->debug_info();
+    }
+
+    virtual Status schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
+                                      std::shared_ptr<ScanTask> current_scan_task,
+                                      std::unique_lock<std::mutex>& transfer_lock) override;
+
+private:
+    std::unique_ptr<ThreadPool> _scan_thread_pool;
+    std::atomic<bool> _is_stop;
+    std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
+    std::string _sched_name;
+    std::string _workload_group;
+    std::shared_mutex _lock;
+};
+
+class TaskExecutorSimplifiedScanScheduler : public SimplifiedScanScheduler {
+public:
+    TaskExecutorSimplifiedScanScheduler(std::string sched_name,
+                                        std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl,
+                                        std::string workload_group = "system")
+            : _is_stop(false),
+              _cgroup_cpu_ctl(cgroup_cpu_ctl),
+              _sched_name(sched_name),
+              _workload_group(workload_group) {}
+
+    virtual ~TaskExecutorSimplifiedScanScheduler() override {
+#ifndef BE_TEST
+        stop();
+#endif
+        LOG(INFO) << "Scanner sche " << _sched_name << " shutdown";
+    }
+
+    virtual void stop() override {
         _is_stop.store(true);
         _task_executor->stop();
     }
 
-    Status start(int max_thread_num, int min_thread_num, int queue_size) {
+    virtual Status start(int max_thread_num, int min_thread_num, int queue_size) override {
         TimeSharingTaskExecutor::ThreadConfig thread_config;
         thread_config.thread_name = _sched_name;
         thread_config.workload_group = _workload_group;
@@ -165,7 +313,7 @@ public:
         return Status::OK();
     }
 
-    Status submit_scan_task(SimplifiedScanTask scan_task) {
+    virtual Status submit_scan_task(SimplifiedScanTask scan_task) override {
         if (!_is_stop) {
             std::shared_ptr<SplitRunner> split_runner;
             if (scan_task.scan_task->is_first_schedule) {
@@ -197,7 +345,8 @@ public:
     // A task has only one split. When the split is created, the task is created according to the task_id,
     // and the task is automatically removed when the split ends.
     // Now it is only for PInternalService::multiget_data_v2 used by TopN materialization.
-    Status submit_scan_task(SimplifiedScanTask scan_task, const std::string& task_id_string) {
+    virtual Status submit_scan_task(SimplifiedScanTask scan_task,
+                                    const std::string& task_id_string) override {
         if (!_is_stop) {
             vectorized::TaskId task_id(task_id_string);
             std::shared_ptr<TaskHandle> task_handle = DORIS_TRY(_task_executor->create_task(
@@ -227,7 +376,7 @@ public:
         }
     }
 
-    void reset_thread_num(int new_max_thread_num, int new_min_thread_num) {
+    virtual void reset_thread_num(int new_max_thread_num, int new_min_thread_num) override {
         auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
                 _task_executor);
         int cur_max_thread_num = task_executor->max_threads();
@@ -260,7 +409,7 @@ public:
         }
     }
 
-    void reset_max_thread_num(int thread_num) {
+    virtual void reset_max_thread_num(int thread_num) override {
         auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
                 _task_executor);
         int max_thread_num = task_executor->max_threads();
@@ -273,7 +422,7 @@ public:
         }
     }
 
-    void reset_min_thread_num(int thread_num) {
+    virtual void reset_min_thread_num(int thread_num) override {
         auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
                 _task_executor);
         int min_thread_num = task_executor->min_threads();
@@ -286,25 +435,25 @@ public:
         }
     }
 
-    MOCK_FUNCTION int get_queue_size() {
+    virtual int get_queue_size() override {
         auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
                 _task_executor);
         return task_executor->get_queue_size();
     }
 
-    MOCK_FUNCTION int get_active_threads() {
+    virtual int get_active_threads() override {
         auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
                 _task_executor);
         return task_executor->num_active_threads();
     }
 
-    int get_max_threads() {
+    virtual int get_max_threads() override {
         auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
                 _task_executor);
         return task_executor->max_threads();
     }
 
-    std::vector<int> thread_debug_info() {
+    virtual std::vector<int> thread_debug_info() override {
         auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
                 _task_executor);
         return task_executor->debug_info();
@@ -312,9 +461,9 @@ public:
 
     std::shared_ptr<TaskExecutor> task_executor() const { return _task_executor; }
 
-    MOCK_FUNCTION Status schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
-                                            std::shared_ptr<ScanTask> current_scan_task,
-                                            std::unique_lock<std::mutex>& transfer_lock);
+    virtual Status schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
+                                      std::shared_ptr<ScanTask> current_scan_task,
+                                      std::unique_lock<std::mutex>& transfer_lock) override;
 
 private:
     std::atomic<bool> _is_stop;

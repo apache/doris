@@ -347,6 +347,10 @@ DECLARE_mInt32(task_executor_initial_split_concurrency);
 DECLARE_mInt32(task_executor_min_concurrency_per_task);
 // task executor max concurrency per task
 DECLARE_mInt32(task_executor_max_concurrency_per_task);
+// Enable task executor in internal table scan.
+DECLARE_Bool(enable_task_executor_in_internal_table);
+// Enable task executor in external table scan.
+DECLARE_Bool(enable_task_executor_in_external_table);
 
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
