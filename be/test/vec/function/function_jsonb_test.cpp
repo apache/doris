@@ -18,18 +18,27 @@
 #include <stdint.h>
 
 #include <iomanip>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "function_test_util.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "testutil/any_type.h"
+#include "testutil/column_helper.h"
+#include "udf/udf.h"
+#include "util/jsonb_writer.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -2184,6 +2193,135 @@ TEST(FunctionJsonbTEST, JsonArray) {
     };
 
     static_cast<void>(check_function<DataTypeJsonb>(func_name, input_types, data_set));
+}
+
+TEST(FunctionJsonbTEST, JsonLength) {
+    std::string func_name = "json_length";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {
+                {{STRING(R"({"k1":"v1", "k2": 2})"), Null()}, Null()},
+                {{STRING(R"([1, 2, 3])"), STRING("$")}, INT(3)},
+                {{STRING(R"("string")"), STRING("$")}, INT(1)},
+                {{STRING("null"), STRING("$")}, INT(1)},
+        };
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+
+    auto json_data_type = std::make_shared<DataTypeJsonb>();
+    auto json_column = json_data_type->create_column();
+
+    JsonbWriter writer;
+    writer.writeStartArray();
+    writer.writeString("hello");
+    writer.writeString("world");
+    writer.writeEndArray();
+
+    json_column->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(json_column), json_data_type, "json_col"));
+
+    auto path_column_ = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+    path_column_->insert_default();
+    auto path_column = ColumnConst::create(std::move(path_column_), 1);
+    block.insert(ColumnWithTypeAndName(
+            std::move(path_column),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()), "path_col"));
+
+    auto return_type = make_nullable(std::make_shared<DataTypeInt32>());
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            func_name, block.get_columns_with_type_and_name(), return_type);
+    ASSERT_TRUE(func != nullptr);
+
+    std::vector<DataTypePtr> arg_types;
+    arg_types.emplace_back(json_data_type);
+    arg_types.emplace_back(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()));
+
+    FunctionUtils fn_utils(return_type, arg_types, 0);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    //     fn_ctx->set_constant_cols(constant_cols);
+    auto st = func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+    st = func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    block.insert({nullptr, return_type, "result"});
+
+    auto result = block.columns() - 1;
+    st = func->execute(fn_ctx, block, {0, 1}, result, 1);
+    ASSERT_TRUE(st.ok()) << "execute failed: " << st.to_string();
+}
+
+TEST(FunctionJsonbTEST, JsonContains) {
+    std::string func_name = "json_contains";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_JSONB,
+                                    PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {
+                {{STRING(R"({"k1":"v1", "k2": 2})"), Null(), Null()}, Null()},
+                {{STRING(R"([1, 2, 3])"), STRING("1"), STRING("$")}, BOOLEAN(true)},
+                {{STRING(R"("string")"), STRING("string"), STRING("$")}, Null()},
+                {{STRING(R"("string")"), STRING(R"("string")"), STRING("$")}, BOOLEAN(true)},
+        };
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+
+    auto json_data_type = std::make_shared<DataTypeJsonb>();
+    auto json_column = json_data_type->create_column();
+
+    JsonbWriter writer;
+    writer.writeStartArray();
+    writer.writeString("hello");
+    writer.writeString("world");
+    writer.writeEndArray();
+
+    json_column->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+
+    auto json_column2 = json_data_type->create_column();
+    writer.reset();
+    writer.writeStartString();
+    writer.writeString("hello");
+    writer.writeEndString();
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(json_column), json_data_type, "json_col"));
+    block.insert(ColumnWithTypeAndName(std::move(json_column2), json_data_type, "json_col2"));
+
+    auto path_column_ = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+    path_column_->insert_default();
+    auto path_column = ColumnConst::create(std::move(path_column_), 1);
+    block.insert(ColumnWithTypeAndName(
+            std::move(path_column),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()), "path_col"));
+
+    auto return_type = make_nullable(std::make_shared<DataTypeBool>());
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            func_name, block.get_columns_with_type_and_name(), return_type);
+    ASSERT_TRUE(func != nullptr);
+
+    std::vector<DataTypePtr> arg_types;
+    arg_types.emplace_back(json_data_type);
+    arg_types.emplace_back(json_data_type);
+    arg_types.emplace_back(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()));
+
+    FunctionUtils fn_utils(return_type, arg_types, 0);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    //     fn_ctx->set_constant_cols(constant_cols);
+    auto st = func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+    st = func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    block.insert({nullptr, return_type, "result"});
+
+    auto result = block.columns() - 1;
+    st = func->execute(fn_ctx, block, {0, 1, 2}, result, 1);
+    ASSERT_TRUE(st.ok()) << "execute failed: " << st.to_string();
 }
 
 } // namespace doris::vectorized

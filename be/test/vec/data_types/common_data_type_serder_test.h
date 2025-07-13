@@ -284,7 +284,7 @@ public:
             // serialize to jsonb
             for (size_t i = 0; i < load_cols.size(); ++i) {
                 auto& col = load_cols[i];
-                serders[i]->write_one_cell_to_jsonb(*col, jw, &pool, i, r);
+                serders[i]->write_one_cell_to_jsonb(*col, jw, pool, i, r);
             }
             jw.writeEndObject();
             jsonb_column->insert_data(jw.getOutput()->getBuffer(), jw.getOutput()->getSize());

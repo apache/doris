@@ -28,6 +28,7 @@
 #include <ranges>
 #include <string>
 
+#include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-store/txn_kv_error.h"
 #include "txn_kv.h"
@@ -158,17 +159,16 @@ TxnErrorCode MemTxnKv::get_kv(const std::string& begin, const std::string& end, 
         do {
             --end_iter; // end always excludes the last key
 
-            // Find the appropriate version (use reverse iterator for versions)
-            for (auto iter = end_iter->second.rbegin(); iter != end_iter->second.rend(); ++iter) {
-                if (iter->commit_version > version) {
+            for (auto&& entry : end_iter->second) {
+                if (entry.commit_version > version) {
                     continue;
                 }
 
-                if (!iter->value.has_value()) {
+                if (!entry.value.has_value()) {
                     break;
                 }
 
-                temp_results.emplace_back(end_iter->first, *iter->value);
+                temp_results.emplace_back(end_iter->first, *entry.value);
                 break;
             }
 

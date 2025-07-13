@@ -42,6 +42,10 @@ suite("posexplode") {
     qt_sql """ select * from table_test order by id; """
     order_qt_explode_sql """ select id,name,score, k,v from table_test lateral view posexplode(score) tmp as k,v order by id;"""
     order_qt_explode_outer_sql """ select id,name,score, k,v from table_test lateral view posexplode_outer(score) tmp as k,v order by id; """
+    order_qt_explode_sql2 """ select id,name,score, k,v from table_test lateral view posexplode(non_nullable(score)) tmp as k,v lateral view posexplode_outer(score) tmp as k1,v1 where score is not null order by id;"""
+    order_qt_explode_outer_sql2 """ select id,name,score, k,v from table_test lateral view posexplode(score) tmp as k1,v1 lateral view posexplode(non_nullable(score)) tmp as k,v where score is not null order by id; """
+    order_qt_explode_sql3 """ select id,name,score, k,v from table_test lateral view posexplode_outer(non_nullable(score)) tmp as k,v lateral view posexplode_outer(score) tmp as k1,v1 where score is not null order by id;"""
+    order_qt_explode_sql4 """ select id,name,score, k,v from table_test lateral view posexplode(score) tmp as k,v lateral view posexplode_outer(non_nullable(score)) tmp as k1,v1 where score is not null order by id;"""
 
     // multi lateral view
     order_qt_explode_sql_multi """ select id,name,score, k,v,k1,v1 from table_test lateral view posexplode_outer(score) tmp as k,v lateral view posexplode(score) tmp2 as k1,v1 order by id;"""
