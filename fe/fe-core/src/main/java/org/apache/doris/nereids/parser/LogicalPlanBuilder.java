@@ -5596,12 +5596,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowColumnStats(ShowColumnStatsContext ctx) {
         List<String> tableNameParts = visitMultipartIdentifier(ctx.tableName);
         List<String> colNames = ctx.columnList == null ? ImmutableList.of() : visitIdentifierList(ctx.columnList);
-        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
-        PartitionNamesInfo partitionNames;
-        if (partitionSpec.second == null) {
-            partitionNames = null;
-        } else {
-            partitionNames = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        PartitionNamesInfo partitionNames = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            if (partitionSpec.second == null) {
+                partitionNames = new PartitionNamesInfo(true); // asterisk (*) case
+            } else {
+                partitionNames = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+            }
         }
         boolean isCached = ctx.CACHED() != null;
 

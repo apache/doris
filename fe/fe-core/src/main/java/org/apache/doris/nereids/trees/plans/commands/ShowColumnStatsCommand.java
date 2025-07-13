@@ -120,7 +120,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
 
     private void validate(ConnectContext ctx) throws Exception {
         tableName.analyze(ctx);
-        if (partitionNames != null && partitionNames.getPartitionNames() != null) {
+        if (partitionNames != null) {
             partitionNames.validate();
         }
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
@@ -385,7 +385,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
         PartitionNamesInfo partitionNames = getPartitionNames();
         boolean showCache = isCached;
         boolean isAllColumns = isAllColumns();
-        if (partitionNames != null && partitionNames.getPartitionNames() != null) {
+        if (partitionNames != null) {
             List<String> partNames = partitionNames.getPartitionNames() == null
                     ? new ArrayList<>(tableIf.getPartitionNames())
                     : partitionNames.getPartitionNames();
