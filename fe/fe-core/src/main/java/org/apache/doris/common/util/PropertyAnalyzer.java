@@ -776,10 +776,21 @@ public class PropertyAnalyzer {
     }
 
     public static Boolean analyzeVariantFlattenNested(Map<String, String> properties) throws AnalysisException {
-        // throw exception to forbid this property
-        // TODO(amorynan): Support varaint subcolumn with this property
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
         throw new AnalysisException(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
-                + " is not supported so far.");
+                + " must be `true` or `false`");
     }
 
     public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
