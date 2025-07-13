@@ -5599,7 +5599,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
         PartitionNamesInfo partitionNames;
         if (partitionSpec.second == null) {
-            partitionNames = new PartitionNamesInfo(true); //isStar = true
+            partitionNames = null;
         } else {
             partitionNames = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
         }
