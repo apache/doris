@@ -155,7 +155,14 @@ public:
     }
 
     size_t size_of_data() const override {
-        return prefix_size + null_count_size + nested_function->size_of_data();
+        size_t raw_size = prefix_size + null_count_size + nested_function->size_of_data();
+        size_t alignment = align_of_data();
+
+        if (raw_size % alignment == 0) {
+            return raw_size;
+        }
+        // If not aligned, we need to pad it.
+        return raw_size + (alignment - (raw_size % alignment));
     }
 
     size_t align_of_data() const override {
