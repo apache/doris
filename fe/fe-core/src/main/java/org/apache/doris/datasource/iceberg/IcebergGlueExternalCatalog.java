@@ -21,6 +21,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
+import org.apache.doris.datasource.property.metastore.IcebergGlueMetaStoreProperties;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.CatalogProperties;
@@ -33,6 +34,8 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
     // As a default placeholder. The path just use for 'create table', query stmt will not use it.
     private static final String CHECKED_WAREHOUSE = "s3://doris";
+    
+    private IcebergGlueMetaStoreProperties glueProperties;
 
     public IcebergGlueExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
@@ -44,7 +47,10 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
     @Override
     protected void initCatalog() {
         icebergCatalogType = ICEBERG_GLUE;
-        GlueCatalog glueCatalog = new GlueCatalog();
+        IcebergGlueMetaStoreProperties properties = new IcebergGlueMetaStoreProperties(IcebergGlueMetaStoreProperties.Type.GLUE, getCatalogProperty().getProperties());
+        properties.initNormalizeAndCheckProps();
+        properties.initialize();
+        /*GlueCatalog glueCatalog = new GlueCatalog();
         Configuration conf = getConfiguration();
         initS3Param(conf);
         glueCatalog.setConf(conf);
@@ -57,7 +63,8 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
                 catalogProperties.get(S3Properties.Env.ENDPOINT));
         catalogProperties.putIfAbsent(S3FileIOProperties.ENDPOINT, endpoint);
 
-        glueCatalog.initialize(getName(), catalogProperties);
-        catalog = glueCatalog;
+        glueCatalog.initialize(getName(), catalogProperties);*/
+        
+        catalog = properties.getCatalog();
     }
 }

@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
@@ -98,7 +100,7 @@ public class ConnectorPropertiesUtils {
         }
 
         for (String name : annotation.names()) {
-            if (props.containsKey(name)) {
+            if (props.containsKey(name)&& StringUtils.isNotBlank(props.get( name))) {
                 return name;
             }
         }
