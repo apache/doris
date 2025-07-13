@@ -95,7 +95,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             transactionManager.commit(txnId);
             summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
-            Env.getCurrentEnv().getRefreshManager().refreshTable(
+            Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
                     catalogName,
                     table.getDatabase().getFullName(),
                     table.getName(),
