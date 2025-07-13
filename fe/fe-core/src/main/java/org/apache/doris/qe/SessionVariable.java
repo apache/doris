@@ -699,7 +699,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
-    // disable variant flatten nested as session variable, default is true, which means disable variant flatten nested when create table
+    // disable variant flatten nested as session variable, default is true,
+    // which means disable variant flatten nested when create table
     public static final String DISABLE_VARIANT_FLATTEN_NESTED = "disable_variant_flatten_nested";
 
     // CLOUD_VARIABLES_BEGIN

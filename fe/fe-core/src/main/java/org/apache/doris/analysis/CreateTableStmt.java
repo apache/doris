@@ -541,8 +541,10 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 }
             }
 
-            if (columnDef.getType().isVariantType() && ConnectContext.get().getSessionVariable().getDisableVariantFlattenNested()) {
-                throw new AnalysisException(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED + " is disabled.");
+            if (columnDef.getType().isVariantType()
+                    && ConnectContext.get().getSessionVariable().getDisableVariantFlattenNested()) {
+                throw new AnalysisException(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
+                        + " is disabled, please set session variable: disable_variant_flatten_nested = false");
             }
 
             if (columnDef.getType().isTime() || columnDef.getType().isTimeV2()) {

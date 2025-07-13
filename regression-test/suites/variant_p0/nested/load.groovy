@@ -25,18 +25,24 @@ suite("variant_nested_type_load", "p0"){
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """set describe_extend_variant_column = true"""
 
+        // set disable_variant_flatten_nested = true to disable variant flatten nested which is default behavior
+        sql """ set disable_variant_flatten_nested = true """
+        test {
+            sql """
+                    CREATE TABLE IF NOT EXISTS ${table_name} (
+                        k bigint,
+                        v variant
+                    )
+                    DUPLICATE KEY(`k`)
+                    DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
+                    properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
+                """
+            exception "Disable to create table with `VARIANT` type column enable flatten nested"
+        }
+        
+
         // set disable_variant_flatten_nested = false to enable variant flatten nested
         sql """ set disable_variant_flatten_nested = false """
-        sql """
-                CREATE TABLE IF NOT EXISTS ${table_name} (
-                    k bigint,
-                    v variant
-                )
-                DUPLICATE KEY(`k`)
-                DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-                properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
-            """
-        
         
         def desc_table = { tn ->
             sql """ set describe_extend_variant_column = true """
@@ -78,7 +84,6 @@ suite("variant_nested_type_load", "p0"){
         def table_name_1 = "var_nested_load_no_conflict"
         sql "DROP TABLE IF EXISTS ${table_name_1}"
         sql """set describe_extend_variant_column = true"""
-        sql """ set disable_variant_flatten_nested = true """
         sql """
                 CREATE TABLE IF NOT EXISTS ${table_name_1} (
                     k bigint,
