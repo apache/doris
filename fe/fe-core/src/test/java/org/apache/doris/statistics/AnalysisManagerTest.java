@@ -516,7 +516,7 @@ public class AnalysisManagerTest {
         AnalysisManager analysisManager = new AnalysisManager();
         for (int i = 0; i < 20; i++) {
             System.out.println("Submit " + i);
-            analysisManager.submitAsyncDropStatsTask(null, 0, 0, 0, null, null, false);
+            analysisManager.submitAsyncDropStatsTask(0, 0, 0, null, false);
         }
         Thread.sleep(10000);
         System.out.println(count.get());
