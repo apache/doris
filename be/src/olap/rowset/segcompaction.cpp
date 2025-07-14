@@ -427,6 +427,7 @@ void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_dele
         _converted_delete_bitmap->set({rowset_id, dest_seg_id, DeleteBitmap::TEMP_VERSION_COMMON},
                                       *seg_map);
     }
+    DBUG_EXECUTE_IF("SegcompactionWorker::convert_segment_delete_bitmap.after", DBUG_BLOCK);
 }
 
 void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap,
@@ -455,6 +456,7 @@ void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_dele
                     {rowset_id, dst_seg_id, DeleteBitmap::TEMP_VERSION_COMMON}, dst_row_id);
         }
     }
+    DBUG_EXECUTE_IF("SegcompactionWorker::convert_segment_delete_bitmap.after", DBUG_BLOCK);
 }
 
 bool SegcompactionWorker::cancel() {

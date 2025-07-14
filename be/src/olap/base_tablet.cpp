@@ -605,6 +605,13 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         }
     }
 
+    DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.block", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == tablet_id()) {
+            DBUG_BLOCK
+        }
+    });
+
     if (rowset_schema->num_variant_columns() > 0) {
         // During partial updates, the extracted columns of a variant should not be included in the rowset schema.
         // This is because the partial update for a variant needs to ignore the extracted columns.
