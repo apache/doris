@@ -277,7 +277,7 @@ public class Dictionary extends Table {
             long tableVersionNow = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Dictionary " + getName() + " src's now version is " + tableVersionNow + ", old is "
-                        + srcVersion);
+                        + srcVersion + ", status is " + status.get().name());
             }
             if (tableVersionNow < srcVersion) {
                 // maybe drop and recreate. but if so, this dictionary should be dropped as well.
@@ -297,6 +297,9 @@ public class Dictionary extends Table {
 
     // when refresh success, update srcVersion.
     public void updateSrcVersion(long value) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Dictionary " + getName() + ": update srcVersion from " + srcVersion + " to " + value);
+        }
         srcVersion = value;
     }
 

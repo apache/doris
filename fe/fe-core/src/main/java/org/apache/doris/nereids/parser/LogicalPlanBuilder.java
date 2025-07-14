@@ -188,7 +188,7 @@ import org.apache.doris.nereids.DorisParser.DropIndexClauseContext;
 import org.apache.doris.nereids.DorisParser.DropIndexContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenizerContext;
-import org.apache.doris.nereids.DorisParser.DropMTMVContext;
+import org.apache.doris.nereids.DorisParser.DropMVContext;
 import org.apache.doris.nereids.DorisParser.DropPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.DropRepositoryContext;
@@ -672,6 +672,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenFilterCommand
 import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
@@ -1523,14 +1524,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions, ctx.COMPLETE() != null));
     }
 
-    @Override
-    public Command visitDropMTMV(DropMTMVContext ctx) {
-        if (ctx.tableName != null) {
-            // TODO support drop sync mv
-            return new UnsupportedCommand();
-        }
+    private DropMTMVCommand visitDropMTMV(DropMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         return new DropMTMVCommand(new DropMTMVInfo(new TableNameInfo(nameParts), ctx.EXISTS() != null));
+    }
+
+    private DropMaterializedViewCommand visitDropSyncMv(DropMVContext ctx) {
+        List<String> tableNameParts = visitMultipartIdentifier(ctx.tableName);
+        List<String> mvNameParts = visitMultipartIdentifier(ctx.mvName);
+        if (mvNameParts == null || mvNameParts.size() != 1) {
+            throw new AnalysisException("The mvName name must be a single identifier");
+        }
+        return new DropMaterializedViewCommand(new TableNameInfo(tableNameParts), ctx.EXISTS() != null,
+                mvNameParts.get(0));
+    }
+
+    @Override
+    public Command visitDropMV(DropMVContext ctx) {
+        if (ctx.tableName != null) {
+            return visitDropSyncMv(ctx);
+        } else {
+            return visitDropMTMV(ctx);
+        }
     }
 
     @Override
