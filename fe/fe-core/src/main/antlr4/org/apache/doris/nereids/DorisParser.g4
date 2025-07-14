@@ -94,7 +94,7 @@ materializedViewStatement
         | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
-        (ON tableName=multipartIdentifier)?                                                     #dropMTMV
+        (ON tableName=multipartIdentifier)?                                                     #dropMV
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                 #pauseMTMV
     | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                #resumeMTMV
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
