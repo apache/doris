@@ -362,13 +362,12 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                            std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> nested_field_types = {
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL,
-                                  {"[0, 1,-1,1]", "[true, false]", "[1,true,t]",
-                                   "[1, false], [,], [1,true,t]", "[,]"},
-                                  {"[0, 1, null, 1]", "[1, 0]", "[1, 1, 1]",
-                                   "[1, null, null, 1, 1]", "[]"},
-                                  {"[0, 1, null, 1]", "[1, 0]", "[1, 1, 1]",
-                                   "[1, null, null, 1, 1]", "[]"}),
+                FieldType_RandStr(
+                        FieldType::OLAP_FIELD_TYPE_BOOL,
+                        {"[0, 1,-1,1]", "[true, false]", "[1,true,t]",
+                         "[1, false], [,], [1,true,t]", "[,]"},
+                        {"[0, 1, null, 1]", "[1, 0]", "[1, 1, 1]", "[1, null, null, 1, 1]", "[]"},
+                        {"[0, 1, null, 1]", "[1, 0]", "[1, 1, 1]", "[1, null, null, 1, 1]", "[]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_TINYINT,
                         {"[1111, 12, ]", "[ed, 2,]", "[],[]", "[[]]", "[,1 , 3]"},

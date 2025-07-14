@@ -86,7 +86,8 @@ private:
     friend class COWHelper<IColumn, Self>;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
+    using value_type =
+            typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
     using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
     using Container = DecimalPaddedPODArray<value_type>;
 

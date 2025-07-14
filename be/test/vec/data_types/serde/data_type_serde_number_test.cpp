@@ -128,7 +128,7 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
                 st = serde.deserialize_one_cell_from_json(*deser_column, slice, option);
                 EXPECT_TRUE(st.ok()) << "Failed to deserialize column at row " << j << ": " << st;
                 if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
-                    std::is_same_v<ColumnType, ColumnFloat64>) {
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
                     // for float and double, we need to check the value with a tolerance
                     auto expected_value = source_column->get_element(j);
                     auto actual_value = deser_col_with_type->get_element(j);
@@ -177,7 +177,7 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             EXPECT_EQ(num_deserialized, row_count);
             for (size_t j = 0; j != row_count; ++j) {
                 if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
-                    std::is_same_v<ColumnType, ColumnFloat64>) {
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
                     // for float and double, we need to check the value with a tolerance
                     auto expected_value = source_column->get_element(j);
                     auto actual_value = deser_col_with_type->get_element(j);
@@ -206,7 +206,7 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             EXPECT_TRUE(st.ok()) << "Failed to read column from pb: " << st;
             for (size_t j = 0; j != row_count; ++j) {
                 if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
-                    std::is_same_v<ColumnType, ColumnFloat64>) {
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
                     // for float and double, we need to check the value with a tolerance
                     auto expected_value = source_column->get_element(j);
                     auto actual_value = deser_col_with_type->get_element(j);
@@ -248,7 +248,7 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             }
             for (size_t j = 0; j != row_count; ++j) {
                 if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
-                    std::is_same_v<ColumnType, ColumnFloat64>) {
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
                     // for float and double, we need to check the value with a tolerance
                     auto expected_value = source_column->get_element(j);
                     auto actual_value = deser_col_with_type->get_element(j);
