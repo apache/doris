@@ -41,7 +41,7 @@ suite("test_bloom_filter_hit") {
                 numValue = Long.parseLong(value1)
             }
             log.info("Extracted RowsBloomFilterFiltered value: ${numValue}")
-            assertTrue("RowsBloomFilterFiltered should be greater than 0, but was ${numValue}", numValue > 0)
+            assertTrue(numValue > 0)
             return true
         } else {
             fail("Could not find RowsBloomFilterFiltered in profile output")
