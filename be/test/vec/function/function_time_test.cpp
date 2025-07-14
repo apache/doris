@@ -1892,4 +1892,77 @@ TEST(VTimestampFunctionsTest, next_day_test) {
                                                                             data_set));
     }
 }
+
+TEST(VTimestampFunctionsTest, from_iso8601_date) {
+    std::string func_name = "from_iso8601_date";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {
+            {{std::string("2020-01-01")}, std::string("2020-01-01")},
+            {{std::string("2020-01-01")}, std::string("2020-01-01")},
+            {{std::string("-1")}, Null()},
+            {{std::string("2025-07-11")}, std::string("2025-07-11")},
+            {{std::string("2024-02-29")}, std::string("2024-02-29")},
+            {{std::string("2025-02-29")}, Null()},
+            {{std::string("2025-13-01")}, Null()},
+            {{std::string("2020-W10")}, std::string("2020-03-02")},
+            {{std::string("2025-W28")}, std::string("2025-07-07")},
+            {{std::string("2025-W53")}, std::string("2025-12-29")},
+            {{std::string("2025-W00")}, Null()},
+            {{std::string("2020-123")}, std::string("2020-05-02")},
+            {{std::string("2025-192")}, std::string("2025-07-11")},
+            {{std::string("2024-366")}, std::string("2024-12-31")},
+            {{std::string("2025-366")}, Null()},
+            {{std::string("2025-000")}, std::string("2024-12-31")},
+            {{std::string("2025/07/11")}, Null()},
+            {{std::string("25-07-11")}, Null()},
+            {{std::string("2025-7-11")}, Null()},
+            {{std::string("invalid-date")}, Null()},
+            {{std::string("2025-07-11T12:34:56")}, Null()},
+            {{std::string("-1")}, Null()},
+            {{std::string("9999-12-31")}, std::string("9999-12-31")},
+            {{std::string("10000-01-01")}, Null()},
+            {{std::string("0001-01-01")}, std::string("0001-01-01")},
+            {{std::string("0000-12-31")}, std::string("0000-12-31")},
+            {{std::string("-0001-01-01")}, Null()},
+            {{std::string("2025-01-01")}, std::string("2025-01-01")},
+            {{std::string("2025-12-31")}, std::string("2025-12-31")},
+            {{std::string("2025-00-01")}, Null()},
+            {{std::string("2025-13-01")}, Null()},
+            {{std::string("2025--01-01")}, Null()},
+            {{std::string("2025-01-31")}, std::string("2025-01-31")},
+            {{std::string("2025-04-30")}, std::string("2025-04-30")},
+            {{std::string("2025-02-28")}, std::string("2025-02-28")},
+            {{std::string("2024-02-29")}, std::string("2024-02-29")},
+            {{std::string("2025-01-32")}, Null()},
+            {{std::string("2025-04-31")}, Null()},
+            {{std::string("2025-02-29")}, Null()},
+            {{std::string("2025-02-30")}, Null()},
+            {{std::string("2025-01-00")}, Null()},
+            {{std::string("2025-01--01")}, Null()},
+            {{std::string("2000-02-29")}, std::string("2000-02-29")},
+            {{std::string("2024-02-29")}, std::string("2024-02-29")},
+            {{std::string("1900-02-29")}, Null()},
+            {{std::string("2100-02-29")}, Null()},
+            {{std::string("2025-02-29")}, Null()},
+            {{std::string("-2025-01-01")}, Null()},
+            {{std::string("2025--07-01")}, Null()},
+            {{std::string("2025-07--01")}, Null()},
+            {{std::string("")}, Null()},
+            {{std::string("2025")}, std::string("2025-01-01")},
+            {{std::string("2025-07")}, std::string("2025-07-01")},
+            {{std::string("99999-01-01")}, Null()},
+            {{std::string("2025-123-01")}, Null()},
+            {{std::string("2025-01-123")}, Null()},
+            {{std::string("2025/01/01")}, Null()},
+            {{std::string("2025.01.01")}, Null()},
+            {{std::string("2025-01-01X")}, Null()},
+            {{std::string("2025--01--01")}, Null()},
+            {{std::string("abcd-01-01")}, Null()},
+            {{std::string("2025-ab-01")}, Null()},
+            {{std::string("2025-01-ab")}, Null()},
+    };
+
+    static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
+}
 } // namespace doris::vectorized
