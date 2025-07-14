@@ -91,5 +91,7 @@ DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
+DEFINE_mBool(enable_delayed_rowset_visibility_after_warmup, "false");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
