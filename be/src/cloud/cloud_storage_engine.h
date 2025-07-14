@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 
 //#include "cloud/cloud_cumulative_compaction.h"
 //#include "cloud/cloud_base_compaction.h"
@@ -51,7 +52,7 @@ class CloudCompactionStopToken;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
-    CloudStorageEngine(const UniqueId& backend_uid);
+    CloudStorageEngine(const EngineOptions& options);
 
     ~CloudStorageEngine() override;
 
@@ -64,10 +65,7 @@ public:
 
     Status start_bg_threads() override;
 
-    Status set_cluster_id(int32_t cluster_id) override {
-        _effective_cluster_id = cluster_id;
-        return Status::OK();
-    }
+    Status set_cluster_id(int32_t cluster_id) override;
 
     cloud::CloudMetaMgr& meta_mgr() const { return *_meta_mgr; }
 
@@ -169,6 +167,7 @@ private:
     Status _request_tablet_global_compaction_lock(ReaderType compaction_type,
                                                   const CloudTabletSPtr& tablet,
                                                   std::shared_ptr<CloudCompactionMixin> compaction);
+    Status _check_all_root_path_cluster_id();
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
 
@@ -221,6 +220,9 @@ private:
     CumuPolices _cumulative_compaction_policies;
 
     std::atomic_bool first_sync_storage_vault {true};
+
+    EngineOptions _options;
+    std::mutex _store_lock;
 };
 
 } // namespace doris
