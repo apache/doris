@@ -117,6 +117,9 @@ Result<const StorageResource*> RowsetMeta::remote_storage_resource() {
             _storage_resource = std::move(storage_resource->first);
         } else {
             if (config::is_cloud_mode()) {
+                // When creating a new cluster or creating a storage resource, BE may not sync storage resource,
+                // at the moment a query is coming, the BetaRowsetReader call loadSegment and use this method
+                // to get the storage resource, so we need to sync storage resource here.
                 ExecEnv::GetInstance()->storage_engine().to_cloud().sync_storage_vault();
                 if (auto retry_resource = get_storage_resource(resource_id())) {
                     _storage_resource = std::move(retry_resource->first);
