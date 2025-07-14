@@ -3370,8 +3370,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int audit_event_log_queue_size = 250000;
 
-    @ConfField(description = {"存算分离模式下streamload导入使用的转发策略, 可选值为public-private或者空",
-            "streamload route policy in cloud mode, availale options are public-private and empty string"})
+    @ConfField(mutable = true, description = {
+            "streamload导入使用的转发策略, 可选值为public-private/public/private/direct/random-be/空",
+            "streamload route policy, available options are "
+            + "public-private/public/private/direct/random-be and empty string" })
     public static String streamload_redirect_policy = "";
 
     @ConfField(description = {"存算分离模式下建表是否检查残留recycler key, 默认true",
