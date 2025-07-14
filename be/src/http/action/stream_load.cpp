@@ -29,10 +29,10 @@
 #include <sys/time.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
-#include <algorithm>
 #include <functional>
 #include <future>
 #include <sstream>
