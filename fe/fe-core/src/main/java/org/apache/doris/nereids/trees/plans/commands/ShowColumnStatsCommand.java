@@ -67,7 +67,7 @@ import java.util.stream.Collectors;
 public class ShowColumnStatsCommand extends ShowCommand {
     private static final Logger LOG = LogManager.getLogger(ShowColumnStatsCommand.class);
     private static final ImmutableList<String> TABLE_COLUMN_TITLE_NAMES =
-    new ImmutableList.Builder<String>()
+            new ImmutableList.Builder<String>()
                     .add("column_name")
                     .add("index_name")
                     .add("count")
