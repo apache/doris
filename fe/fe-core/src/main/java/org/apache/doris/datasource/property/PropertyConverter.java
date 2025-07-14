@@ -428,14 +428,12 @@ public class PropertyConverter {
         // read properties from hive-site.xml.
         HiveConf hiveConf = new HiveConf();
         String metastoreType = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
-        if (!HMSProperties.DLF_TYPE.equalsIgnoreCase(metastoreType)) {
-            return;
-        }
-        String uid = props.get(DataLakeConfig.CATALOG_USER_ID);
+        return;
+       /* String uid = props.get(DataLakeConfig.CATALOG_USER_ID);
         if (Strings.isNullOrEmpty(uid)) {
             throw new IllegalArgumentException("Required dlf property: " + DataLakeConfig.CATALOG_USER_ID);
         }
-        getOSSPropertiesFromDLFConf(props, hiveConf);
+        getOSSPropertiesFromDLFConf(props, hiveConf);*/
     }
 
     private static void getOSSPropertiesFromDLFConf(Map<String, String> props, HiveConf hiveConf) {
@@ -466,7 +464,7 @@ public class PropertyConverter {
     private static void getPropertiesFromDLFProps(Map<String, String> props,
                                                   CloudCredential credential) {
         String metastoreType = props.get(HMSProperties.HIVE_METASTORE_TYPE);
-        if (!HMSProperties.DLF_TYPE.equalsIgnoreCase(metastoreType)) {
+        if (HMSProperties.DLF_TYPE.equalsIgnoreCase(metastoreType)) {
             return;
         }
         // convert to dlf client properties. not convert if origin key found.
