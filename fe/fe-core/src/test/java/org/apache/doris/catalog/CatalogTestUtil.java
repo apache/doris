@@ -367,7 +367,7 @@ public class CatalogTestUtil {
             if (tablet == null) {
                 return -1L;
             }
-            return tablet.getDataSize(true);
+            return tablet.getDataSize(true, false);
         } finally {
             olapTable.readUnlock();
         }
