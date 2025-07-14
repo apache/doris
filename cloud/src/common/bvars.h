@@ -22,6 +22,7 @@
 #include <bvar/latency_recorder.h>
 #include <bvar/multi_dimension.h>
 #include <bvar/reducer.h>
+#include <bvar/status.h>
 
 #include <cstdint>
 #include <initializer_list>
@@ -139,8 +140,7 @@ public:
     void put(const std::initializer_list<std::string>& dim_values, ValType value) {
         BvarType* stats = counter_.get_stats(std::list<std::string>(dim_values));
         if (stats) {
-            if constexpr (std::is_same_v<BvarType, bvar::Status<double>> ||
-                          std::is_same_v<BvarType, bvar::Status<long>>) {
+            if constexpr (is_bvar_status<BvarType>::value) {
                 stats->set_value(value);
             } else {
                 *stats << value;
@@ -170,6 +170,10 @@ private:
     struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
     template <>
     struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
+    template <typename T>
+    struct is_bvar_status : std::false_type {};
+    template <typename T>
+    struct is_bvar_status<bvar::Status<T>> : std::true_type {};
 
     bvar::MultiDimension<BvarType> counter_;
 };
@@ -262,10 +266,10 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earl
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
 extern bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
 extern bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_recycle_duration;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_st_ts;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_ed_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
 
 extern mBvarIntAdder g_bvar_recycler_vault_recycle_status;
@@ -475,3 +479,6 @@ extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter;
+
+// meta ranges
+extern mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count;
