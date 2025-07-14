@@ -68,7 +68,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Int64) {
 
     // Test Int64 field using Field::dispatch pattern
     Int64 test_value = 12345;
-    Field int_field = Field::create_field<TYPE_BIGINT>(test_value);
+    Field int_field = test_value;
     Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                     int_field);
 
@@ -85,7 +85,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Int64) {
 
     // Verify it's an integer value
     ASSERT_TRUE(doc->getValue()->isInt64());
-    ASSERT_EQ(doc->getValue()->int_val(), test_value);
+    ASSERT_EQ(((const JsonbIntVal*)doc->getValue())->val(), test_value);
 }
 
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt64) {
@@ -93,7 +93,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt64) {
 
     // Test UInt64 field using Field::dispatch pattern
     UInt64 test_value = 12345;
-    Field uint_field = Field::create_field<TYPE_BIGINT>(test_value);
+    Field uint_field = test_value;
     Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                     uint_field);
 
@@ -110,7 +110,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt64) {
 
     // Verify it's an integer value
     ASSERT_TRUE(doc->getValue()->isInt64());
-    ASSERT_EQ(doc->getValue()->int_val(), static_cast<Int64>(test_value));
+    ASSERT_EQ(((const JsonbIntVal*)doc->getValue())->val(), static_cast<Int64>(test_value));
 }
 
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Float64) {
@@ -118,7 +118,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Float64) {
 
     // Test Float64 field using Field::dispatch pattern
     Float64 test_value = 123.456;
-    Field double_field = Field::create_field<TYPE_DOUBLE>(test_value);
+    Field double_field = test_value;
     Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                     double_field);
 
@@ -135,15 +135,14 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Float64) {
 
     // Verify it's a double value
     ASSERT_TRUE(doc->getValue()->isDouble());
-    ASSERT_DOUBLE_EQ(doc->getValue()->unpack<JsonbDoubleVal>()->val(), test_value);
+    ASSERT_DOUBLE_EQ(((const JsonbDoubleVal*)doc->getValue())->val(), test_value);
 }
 
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_String) {
     JsonbWriter writer;
 
     // Test String field using Field::dispatch pattern
-    String test_value = "hello world";
-    Field string_field = Field::create_field<TYPE_STRING>(test_value);
+    Field string_field = "hello world";
     Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                     string_field);
 
@@ -160,18 +159,17 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_String) {
 
     // Verify it's a string value
     ASSERT_TRUE(doc->getValue()->isString());
-    const auto* string_val = doc->getValue()->unpack<JsonbStringVal>();
+    const auto* string_val = static_cast<const JsonbBlobVal*>(doc->getValue());
     std::string real_string(string_val->getBlob(), string_val->getBlobLen());
-    ASSERT_EQ(real_string, test_value);
+    ASSERT_EQ(real_string, string_field.get<String>());
 }
 
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_JsonbField) {
     JsonbWriter writer;
     JsonBinaryValue jsonb_value;
     std::string test_data = R"({"a": ["1", "2"]})";
-    THROW_IF_ERROR(jsonb_value.from_json_string(test_data));
-    Field jsonb_field_obj =
-            Field::create_field<TYPE_JSONB>(JsonbField(jsonb_value.value(), jsonb_value.size()));
+    THROW_IF_ERROR(jsonb_value.from_json_string(test_data.data(), test_data.size()));
+    Field jsonb_field_obj = JsonbField(jsonb_value.value(), jsonb_value.size());
 
     // Test JsonbField using Field::dispatch pattern
     Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
@@ -197,11 +195,11 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Array) {
 
     // Create an array with mixed types
     Array array_field;
-    array_field.push_back(Field::create_field<TYPE_BIGINT>(123));
-    array_field.push_back(Field::create_field<TYPE_STRING>("hello"));
-    array_field.push_back(Field::create_field<TYPE_DOUBLE>(456.789));
+    array_field.push_back(123);
+    array_field.push_back("hello");
+    array_field.push_back(456.789);
 
-    Field array_obj = Field::create_field<TYPE_ARRAY>(array_field);
+    Field array_obj = array_field;
 
     // Test Array using Field::dispatch pattern
     Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
@@ -220,7 +218,8 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Array) {
 
     // Verify it's an array value
     ASSERT_TRUE(doc->getValue()->isArray());
-    ASSERT_EQ(doc->getValue()->numElements(), 3);
+    const ArrayVal& array = static_cast<const ArrayVal&>(*doc->getValue());
+    ASSERT_EQ(array.numElem(), 3);
 }
 
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_NestedArray) {
@@ -228,14 +227,14 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_NestedArray) {
 
     // Create a nested array
     Array inner_array;
-    inner_array.push_back(Field::create_field<TYPE_BIGINT>(1));
-    inner_array.push_back(Field::create_field<TYPE_BIGINT>(2));
+    inner_array.push_back(1);
+    inner_array.push_back(2);
 
     Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(inner_array));
-    outer_array.push_back(Field::create_field<TYPE_STRING>("nested"));
+    outer_array.push_back(inner_array);
+    outer_array.push_back("nested");
 
-    Field nested_array_obj = Field::create_field<TYPE_ARRAY>(outer_array);
+    Field nested_array_obj = outer_array;
 
     // Test nested Array using Field::dispatch pattern
     Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
@@ -254,7 +253,8 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_NestedArray) {
 
     // Verify it's an array value
     ASSERT_TRUE(doc->getValue()->isArray());
-    ASSERT_EQ(doc->getValue()->numElements(), 2);
+    const ArrayVal& array = static_cast<const ArrayVal&>(*doc->getValue());
+    ASSERT_EQ(array.numElem(), 2);
 }
 
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_LargeInt) {
@@ -262,7 +262,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_LargeInt) {
 
     // Test Int128 field using Field::dispatch pattern
     Int128 test_value = 1234567890123456789;
-    Field largeint_field = Field::create_field<TYPE_LARGEINT>(test_value);
+    Field largeint_field = test_value;
     Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                     largeint_field);
 
@@ -279,7 +279,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_LargeInt) {
 
     // Verify it's an int128 value
     ASSERT_TRUE(doc->getValue()->isInt128());
-    ASSERT_EQ(doc->getValue()->int_val(), test_value);
+    ASSERT_EQ(((const JsonbIntVal*)doc->getValue())->val(), test_value);
 }
 
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt128) {
@@ -287,7 +287,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt128) {
 
     // Test UInt128 field using Field::dispatch pattern
     UInt128 test_value = 1234567890123456789;
-    Field uint128_field = Field::create_field<TYPE_LARGEINT>(test_value);
+    Field uint128_field = test_value;
     Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                     uint128_field);
 
@@ -304,7 +304,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt128) {
 
     // Verify it's an int128 value
     ASSERT_TRUE(doc->getValue()->isInt128());
-    ASSERT_EQ(doc->getValue()->int_val(), static_cast<Int128>(test_value));
+    ASSERT_EQ(((const JsonbIntVal*)doc->getValue())->val(), static_cast<Int128>(test_value));
 }
 
 // Test convert_field_to_type function with JSONB type (similar to convert_field_to_typeImpl)
@@ -314,12 +314,12 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
     // Test converting Int64 to JSONB
     {
         Int64 test_value = 12345;
-        Field int_field = Field::create_field<TYPE_BIGINT>(test_value);
+        Field int_field = test_value;
         Field result;
 
         convert_field_to_type(int_field, jsonb_type, &result);
 
-        ASSERT_EQ(result.get_type(), TYPE_JSONB);
+        ASSERT_EQ(result.get_type(), Field::Types::JSONB);
         ASSERT_FALSE(result.is_null());
 
         const JsonbField& jsonb_result = result.get<JsonbField>();
@@ -333,18 +333,17 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
         ASSERT_NE(doc, nullptr);
         ASSERT_TRUE(doc->getValue()->isInt64());
-        ASSERT_EQ(doc->getValue()->int_val(), test_value);
+        ASSERT_EQ(((const JsonbIntVal*)doc->getValue())->val(), test_value);
     }
 
     // Test converting String to JSONB
     {
-        String test_value = "hello world";
-        Field string_field = Field::create_field<TYPE_STRING>(test_value);
+        Field string_field = "hello world";
         Field result;
 
         convert_field_to_type(string_field, jsonb_type, &result);
 
-        ASSERT_EQ(result.get_type(), TYPE_JSONB);
+        ASSERT_EQ(result.get_type(), Field::Types::JSONB);
         ASSERT_FALSE(result.is_null());
 
         const JsonbField& jsonb_result = result.get<JsonbField>();
@@ -358,24 +357,24 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
         ASSERT_NE(doc, nullptr);
         ASSERT_TRUE(doc->getValue()->isString());
-        const auto* string_val = doc->getValue()->unpack<JsonbStringVal>();
+        const auto* string_val = static_cast<const JsonbBlobVal*>(doc->getValue());
         std::string real_string(string_val->getBlob(), string_val->getBlobLen());
-        ASSERT_EQ(real_string, test_value);
+        ASSERT_EQ(real_string, string_field.get<String>());
     }
 
     // Test converting Array to JSONB
     {
         Array array_field;
-        array_field.push_back(Field::create_field<TYPE_BIGINT>(1));
-        array_field.push_back(Field::create_field<TYPE_STRING>("test"));
-        array_field.push_back(Field::create_field<TYPE_DOUBLE>(3.14));
+        array_field.push_back(1);
+        array_field.push_back("test");
+        array_field.push_back(3.14);
 
-        Field array_obj = Field::create_field<TYPE_ARRAY>(array_field);
+        Field array_obj = array_field;
         Field result;
 
         convert_field_to_type(array_obj, jsonb_type, &result);
 
-        ASSERT_EQ(result.get_type(), TYPE_JSONB);
+        ASSERT_EQ(result.get_type(), Field::Types::JSONB);
         ASSERT_FALSE(result.is_null());
 
         const JsonbField& jsonb_result = result.get<JsonbField>();
@@ -389,7 +388,8 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
         ASSERT_NE(doc, nullptr);
         ASSERT_TRUE(doc->getValue()->isArray());
-        ASSERT_EQ(doc->getValue()->numElements(), 3);
+        const ArrayVal& array = static_cast<const ArrayVal&>(*doc->getValue());
+        ASSERT_EQ(array.numElem(), 3);
     }
 
     // Test converting JSONB to JSONB (should be no-op)
@@ -402,12 +402,12 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
 
         auto* test_output = test_writer.getOutput();
         JsonbField original_jsonb(test_output->getBuffer(), test_output->getSize());
-        Field jsonb_field = Field::create_field<TYPE_JSONB>(original_jsonb);
+        Field jsonb_field = original_jsonb;
         Field result;
 
         convert_field_to_type(jsonb_field, jsonb_type, &result);
 
-        ASSERT_EQ(result.get_type(), TYPE_JSONB);
+        ASSERT_EQ(result.get_type(), Field::Types::JSONB);
         ASSERT_FALSE(result.is_null());
 
         const JsonbField& jsonb_result = result.get<JsonbField>();
@@ -436,13 +436,12 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToNullableJsonb) {
 
     // Test converting non-null field
     {
-        String test_value = "test string";
-        Field string_field = Field::create_field<TYPE_STRING>(test_value);
+        Field string_field = "test string";
         Field result;
 
         convert_field_to_type(string_field, *nullable_jsonb_type, &result);
 
-        ASSERT_EQ(result.get_type(), TYPE_JSONB);
+        ASSERT_EQ(result.get_type(), Field::Types::JSONB);
         ASSERT_FALSE(result.is_null());
 
         const JsonbField& jsonb_result = result.get<JsonbField>();
@@ -456,9 +455,9 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToNullableJsonb) {
         ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
         ASSERT_NE(doc, nullptr);
         ASSERT_TRUE(doc->getValue()->isString());
-        const auto* string_val = doc->getValue()->unpack<JsonbStringVal>();
+        const auto* string_val = static_cast<const JsonbBlobVal*>(doc->getValue());
         std::string real_string(string_val->getBlob(), string_val->getBlobLen());
-        ASSERT_EQ(real_string, test_value);
+        ASSERT_EQ(real_string, string_field.get<String>());
     }
 }
 
@@ -468,16 +467,16 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ArrayToJsonb) {
 
     // Create an array with mixed types that will be converted to JSONB
     Array array_field;
-    array_field.push_back(Field::create_field<TYPE_BIGINT>(123));
-    array_field.push_back(Field::create_field<TYPE_STRING>("hello"));
-    array_field.push_back(Field::create_field<TYPE_DOUBLE>(456.789));
+    array_field.push_back(123);
+    array_field.push_back("hello");
+    array_field.push_back(456.789);
 
-    Field array_obj = Field::create_field<TYPE_ARRAY>(array_field);
+    Field array_obj = array_field;
     Field result;
 
     convert_field_to_type(array_obj, *array_jsonb_type, &result);
 
-    ASSERT_EQ(result.get_type(), TYPE_ARRAY);
+    ASSERT_EQ(result.get_type(), Field::Types::Array);
     ASSERT_FALSE(result.is_null());
 
     const Array& result_array = result.get<Array>();
@@ -485,7 +484,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ArrayToJsonb) {
 
     // Verify each element is converted to JSONB
     for (size_t i = 0; i < result_array.size(); ++i) {
-        ASSERT_EQ(result_array[i].get_type(), TYPE_JSONB);
+        ASSERT_EQ(result_array[i].get_type(), Field::Types::JSONB);
         ASSERT_FALSE(result_array[i].is_null());
 
         const auto& jsonb_element = result_array[i].get<JsonbField>();
@@ -508,7 +507,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ErrorCases) {
 
     // Test with unsupported types (should throw exception)
     {
-        Field tuple_field = Field::create_field<TYPE_STRUCT>(Tuple());
+        Field tuple_field = Tuple();
 
         EXPECT_THROW(
                 {

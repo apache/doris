@@ -24,19 +24,19 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_variant.h"
+#include "vec/columns/column_object.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_variant.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 static doris::vectorized::Field construct_variant_map(
         const std::vector<std::pair<std::string, doris::vectorized::Field>>& key_and_values) {
-    doris::vectorized::Field res = Field::create_field<TYPE_VARIANT>(VariantMap {});
+    doris::vectorized::Field res = VariantMap();
     auto& object = res.get<VariantMap&>();
     for (const auto& [k, v] : key_and_values) {
         PathInData path(k);
@@ -47,16 +47,16 @@ static doris::vectorized::Field construct_variant_map(
 
 static auto construct_basic_varint_column() {
     // 1. create an empty variant column
-    auto variant = ColumnVariant::create(5);
+    auto variant = ColumnObject::create(5);
 
     std::vector<std::pair<std::string, doris::vectorized::Field>> data;
 
     // 2. subcolumn path
-    data.emplace_back("v.a", Field::create_field<TYPE_INT>(20));
-    data.emplace_back("v.b", Field::create_field<TYPE_STRING>("20"));
-    data.emplace_back("v.c", Field::create_field<TYPE_INT>(20));
-    data.emplace_back("v.f", Field::create_field<TYPE_INT>(20));
-    data.emplace_back("v.e", Field::create_field<TYPE_STRING>("50"));
+    data.emplace_back("v.a", 20);
+    data.emplace_back("v.b", "20");
+    data.emplace_back("v.c", 20);
+    data.emplace_back("v.f", 20);
+    data.emplace_back("v.e", "50");
     for (int i = 0; i < 5; ++i) {
         auto field = construct_variant_map(data);
         variant->try_insert(field);
@@ -70,11 +70,11 @@ TEST(FunctionVariantCast, CastToVariant) {
     {
         // Test Int32 to variant
         auto int32_type = std::make_shared<DataTypeInt32>();
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
         auto int32_col = ColumnInt32::create();
-        int32_col->insert(Field::create_field<TYPE_INT>(42));
-        int32_col->insert(Field::create_field<TYPE_INT>(100));
-        int32_col->insert(Field::create_field<TYPE_INT>(-1));
+        int32_col->insert(42);
+        int32_col->insert(100);
+        int32_col->insert(-1);
 
         ColumnsWithTypeAndName arguments {{int32_col->get_ptr(), int32_type, "int32_col"},
                                           {nullptr, variant_type, "variant_type"}};
@@ -93,14 +93,14 @@ TEST(FunctionVariantCast, CastToVariant) {
 
         auto result_col = block.get_by_position(result_column).column;
         ASSERT_NE(result_col.get(), nullptr);
-        const auto* variant_col = assert_cast<const ColumnVariant*>(result_col.get());
+        const auto* variant_col = assert_cast<const ColumnObject*>(result_col.get());
         ASSERT_EQ(variant_col->size(), 3);
     }
 
     // Test casting from string to variant
     {
         auto string_type = std::make_shared<DataTypeString>();
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
         auto string_col = ColumnString::create();
         string_col->insert_data("hello", 5);
         string_col->insert_data("world", 5);
@@ -123,22 +123,22 @@ TEST(FunctionVariantCast, CastToVariant) {
         auto result_col = block.get_by_position(result_column).column;
         ASSERT_NE(result_col.get(), nullptr);
         const auto* variant_col =
-                assert_cast<const ColumnVariant*>(remove_nullable(result_col).get());
+                assert_cast<const ColumnObject*>(remove_nullable(result_col).get());
         ASSERT_EQ(variant_col->size(), 2);
     }
 
     // Test casting from array to variant
     {
         auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
         auto array_col =
                 ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
         auto& data = assert_cast<ColumnInt32&>(array_col->get_data());
         auto& offsets = array_col->get_offsets();
 
-        data.insert(Field::create_field<TYPE_INT>(1));
-        data.insert(Field::create_field<TYPE_INT>(2));
-        data.insert(Field::create_field<TYPE_INT>(3));
+        data.insert(1);
+        data.insert(2);
+        data.insert(3);
         offsets.push_back(3);
 
         ColumnsWithTypeAndName arguments {{array_col->get_ptr(), array_type, "array_col"},
@@ -159,7 +159,7 @@ TEST(FunctionVariantCast, CastToVariant) {
         auto result_col = block.get_by_position(result_column).column;
         ASSERT_NE(result_col.get(), nullptr);
         const auto* variant_col =
-                assert_cast<const ColumnVariant*>(remove_nullable(result_col).get());
+                assert_cast<const ColumnObject*>(remove_nullable(result_col).get());
         ASSERT_EQ(variant_col->size(), 1);
     }
 }
@@ -167,16 +167,16 @@ TEST(FunctionVariantCast, CastToVariant) {
 TEST(FunctionVariantCast, CastFromVariant) {
     // Test casting from variant to basic types
     {
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
         auto int32_type = std::make_shared<DataTypeInt32>();
-        auto variant_col = ColumnVariant::create(true);
+        auto variant_col = ColumnObject::create(true);
 
         // Create a variant column with integer values
         variant_col->create_root(int32_type, ColumnInt32::create());
         MutableColumnPtr data = variant_col->get_root();
-        data->insert(Field::create_field<TYPE_INT>(42));
-        data->insert(Field::create_field<TYPE_INT>(100));
-        data->insert(Field::create_field<TYPE_INT>(-1));
+        data->insert(42);
+        data->insert(100);
+        data->insert(-1);
 
         ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
                                           {nullptr, int32_type, "int32_type"}};
@@ -206,9 +206,9 @@ TEST(FunctionVariantCast, CastFromVariant) {
 
     // Test casting from variant to string
     {
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
         auto string_type = std::make_shared<DataTypeString>();
-        auto variant_col = ColumnVariant::create(true);
+        auto variant_col = ColumnObject::create(true);
 
         // Create a variant column with string values
         variant_col->create_root(string_type, ColumnString::create());
@@ -242,9 +242,9 @@ TEST(FunctionVariantCast, CastFromVariant) {
 
     // Test casting from variant to array
     {
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
         auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
-        auto variant_col = ColumnVariant::create(true);
+        auto variant_col = ColumnObject::create(true);
 
         // Create a variant column with array values
         variant_col->create_root(
@@ -252,9 +252,7 @@ TEST(FunctionVariantCast, CastFromVariant) {
                 ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create()));
         MutableColumnPtr data = variant_col->get_root();
 
-        Field a = Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_INT>(1),
-                                                         Field::create_field<TYPE_INT>(2),
-                                                         Field::create_field<TYPE_INT>(3)});
+        Field a = Array {1, 2, 3};
 
         data->insert(a);
 
@@ -287,19 +285,19 @@ TEST(FunctionVariantCast, CastFromVariant) {
 }
 
 TEST(FunctionVariantCast, CastVariantWithNull) {
-    auto variant_type = std::make_shared<DataTypeVariant>();
+    auto variant_type = std::make_shared<DataTypeObject>();
     auto int32_type = std::make_shared<DataTypeInt32>();
     auto nullable_int32_type = std::make_shared<DataTypeNullable>(int32_type);
 
     // Create a variant column with nullable integer values
-    auto variant_col = ColumnVariant::create(true);
+    auto variant_col = ColumnObject::create(true);
     variant_col->create_root(nullable_int32_type,
                              ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create()));
     MutableColumnPtr data = variant_col->get_root();
 
-    data->insert(Field::create_field<TYPE_INT>(42));
-    data->insert(Field::create_field<TYPE_NULL>(Null()));
-    data->insert(Field::create_field<TYPE_INT>(100));
+    data->insert(42);
+    data->insert(Null());
+    data->insert(100);
 
     ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
                                       {nullptr, nullable_int32_type, "nullable_int32_type"}};
@@ -334,15 +332,15 @@ TEST(FunctionVariantCast, CastVariantWithNull) {
 TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
     // Test case 1: variant.empty() branch
     {
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
         auto int32_type = std::make_shared<DataTypeInt32>();
         MutableColumnPtr root = ColumnInt32::create();
-        root->insert(Field::create_field<TYPE_INT>(42));
-        vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
+        root->insert(42);
+        vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
         dynamic_subcolumns.add(
-                vectorized::PathInData(ColumnVariant::COLUMN_NAME_DUMMY),
-                vectorized::ColumnVariant::Subcolumn {root->get_ptr(), int32_type, true, true});
-        auto variant_col = ColumnVariant::create(std::move(dynamic_subcolumns), true);
+                vectorized::PathInData(ColumnObject::COLUMN_NAME_DUMMY),
+                vectorized::ColumnObject::Subcolumn {root->get_ptr(), int32_type, true, true});
+        auto variant_col = ColumnObject::create(std::move(dynamic_subcolumns), true);
 
         variant_col->finalize();
         ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
@@ -375,7 +373,7 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         // object has sparse column
         auto int32_type = std::make_shared<DataTypeInt32>();
         auto variant_col = construct_basic_varint_column();
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
 
         ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
                                           {nullptr, int32_type, "int32_type"}};
@@ -406,7 +404,7 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         auto variant_col = construct_basic_varint_column();
 
         auto string_type = std::make_shared<DataTypeString>();
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
 
         ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
                                           {nullptr, string_type, "string_type"}};
@@ -439,7 +437,7 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         auto nullable_variant_col = make_nullable(variant_col->get_ptr());
 
         auto nullable_string_type = make_nullable(std::make_shared<DataTypeString>());
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeObject>();
         auto nullable_variant_type = make_nullable(variant_type);
 
         ColumnsWithTypeAndName arguments {
