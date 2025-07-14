@@ -67,7 +67,7 @@ import java.util.stream.Collectors;
 public class ShowColumnStatsCommand extends ShowCommand {
     private static final Logger LOG = LogManager.getLogger(ShowColumnStatsCommand.class);
     private static final ImmutableList<String> TABLE_COLUMN_TITLE_NAMES =
-            new ImmutableList.Builder<String>()
+    new ImmutableList.Builder<String>()
                     .add("column_name")
                     .add("index_name")
                     .add("count")
@@ -85,6 +85,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
                     .add("update_rows")
                     .add("last_analyze_row_count")
                     .add("last_analyze_version")
+                    .add("hot_values")
                     .build();
 
     private static final ImmutableList<String> PARTITION_COLUMN_TITLE_NAMES =
@@ -286,6 +287,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.updatedRows));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.rowCount));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.tableVersion));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.hotValues));
             result.add(row);
         });
         return new ShowResultSet(getMetaData(), result);
