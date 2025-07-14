@@ -807,8 +807,26 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 //   after doing EMPTY_CUMULATIVE compaction, MS cp is 13, get_rowset will return [2-11][12-12].
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
-                tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
-                                    options.warmup_delta_data);
+                if (config::enable_delayed_rowset_visibility_after_warmup &&
+                    !tablet->enable_unique_key_merge_on_write()) {
+                    std::vector<RowsetSharedPtr> new_rowsets;
+                    std::vector<RowsetSharedPtr> overlapping_rowsets;
+                    if (tablet->split_rowsets_by_version_overlap(rowsets, &new_rowsets,
+                                                                 &overlapping_rowsets)) {
+                        // add all rowsets directly, warmup async
+                        tablet->add_rowsets(std::move(new_rowsets), version_overlap, wlock, true);
+                        for (auto rs : overlapping_rowsets) {
+                            // the rowset will be added to tablet meta in the callback method after warm up
+                            tablet->warm_up_rowset_unlocked(rs, true, true);
+                        }
+                    } else {
+                        // add all rowsets directly, warmup async
+                        tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, true);
+                    }
+                } else {
+                    tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
+                                        version_overlap || options.warmup_delta_data);
+                }
                 if (options.merge_schema) {
                     RETURN_IF_ERROR(tablet->merge_rowsets_schema());
                 }

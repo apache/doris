@@ -286,11 +286,20 @@ public:
 
     static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
+    // return false if the `input_rowsets` can't be divided into 2 sets by max_version() simply.
+    bool split_rowsets_by_version_overlap(const std::vector<RowsetSharedPtr>& input_rowsets,
+                                          std::vector<RowsetSharedPtr>* new_rowsets,
+                                          std::vector<RowsetSharedPtr>* overlapping_rowsets);
+    void warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_overlap,
+                                 bool delay_add_rowset = false);
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
+
+    void warm_up_done_cb(RowsetSharedPtr rowset, Status status, bool delay_add_rowset = false);
 
     CloudStorageEngine& _engine;
 
@@ -350,6 +359,15 @@ private:
     std::mutex _gc_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
     std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
+
+    // structures for warm up data
+    enum WarmUpState {
+        NONE,
+        STARTED,
+        DONE,
+    };
+
+    std::unordered_map<RowsetId, WarmUpState> _rowset_warm_up_states;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
