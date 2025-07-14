@@ -29,7 +29,7 @@ struct MinusDecimalImpl {
     static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
                   (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
 
-    static constexpr std::string name = "subtract";
+    static constexpr auto name = "subtract";
     static constexpr PrimitiveType PTypeA = TypeA;
     static constexpr PrimitiveType PTypeB = TypeA;
     using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
@@ -59,7 +59,7 @@ struct MinusDecimalImpl {
 
 template <PrimitiveType Type>
 struct MinusImpl {
-    static constexpr std::string name = "subtract";
+    static constexpr auto name = "subtract";
     static constexpr PrimitiveType PType = Type;
     using Arg = typename PrimitiveTypeTraits<Type>::ColumnItemType;
     static inline Arg apply(Arg a, Arg b) { return a - b; }

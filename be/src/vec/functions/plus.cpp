@@ -25,7 +25,7 @@ namespace doris::vectorized {
 
 template <PrimitiveType Type>
 struct PlusImpl {
-    static constexpr std::string name = "add";
+    static constexpr auto name = "add";
     static constexpr PrimitiveType PType = Type;
     using Arg = typename PrimitiveTypeTraits<Type>::ColumnItemType;
     static inline Arg apply(Arg a, Arg b) { return a + b; }
@@ -37,7 +37,7 @@ struct PlusDecimalImpl {
     static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
                   (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
 
-    static constexpr std::string name = "add";
+    static constexpr auto name = "add";
     static constexpr PrimitiveType PTypeA = TypeA;
     static constexpr PrimitiveType PTypeB = TypeA;
     using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;

@@ -38,7 +38,7 @@ template <typename Impl>
 struct PlusMinusIntegralImpl {
     static constexpr PrimitiveType Type = Impl::PType;
     static constexpr bool result_is_decimal = false;
-    static constexpr std::string name = Impl::name;
+    static constexpr auto name = Impl::name;
     using Arg = typename Impl::Arg;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
     using ArgA = Arg;
@@ -105,7 +105,7 @@ struct PlusMinusIntegralImpl {
 template <typename Impl>
 struct PlusMinusDecimalImpl {
     static constexpr bool result_is_decimal = true;
-    static constexpr std::string name = Impl::name;
+    static constexpr auto name = Impl::name;
     static constexpr PrimitiveType TypeA = Impl::PTypeA;
     static constexpr PrimitiveType TypeB = Impl::PTypeB;
     using ArgA = typename PrimitiveTypeTraits<TypeA>::ColumnItemType;
