@@ -41,12 +41,19 @@ struct SyncRowsetStats {
     int64_t tablet_meta_cache_miss {0};
 };
 
+<<<<<<< HEAD
 struct SyncOptions {
     bool warmup_delta_data = false;
     bool sync_delete_bitmap = true;
     bool full_sync = false;
     bool merge_schema = false;
     int64_t query_version = -1;
+=======
+struct RecycledRowsets {
+    RowsetId rowset_id;
+    int64_t num_segments;
+    std::vector<std::string> index_file_names;
+>>>>>>> 0345f71f2d ([fix](warmup) avoid calling recycle_cache after rebalance (#4169))
 };
 
 class CloudTablet final : public BaseTablet {
@@ -286,6 +293,12 @@ public:
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
 
+<<<<<<< HEAD
+=======
+    static std::vector<RecycledRowsets> recycle_cached_data(
+            const std::vector<RowsetSharedPtr>& rowsets);
+
+>>>>>>> 0345f71f2d ([fix](warmup) avoid calling recycle_cache after rebalance (#4169))
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
