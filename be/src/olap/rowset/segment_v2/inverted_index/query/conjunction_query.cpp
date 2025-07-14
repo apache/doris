@@ -82,15 +82,6 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 }
 
-void ConjunctionQuery::pre_search(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.term_infos.empty()) {
-        return;
-    }
-
-    QueryHelper::query_statistics(_context, _searcher, query_info.field_name,
-                                  query_info.term_infos);
-}
-
 void ConjunctionQuery::search(roaring::Roaring& roaring) {
     if (_lead1 == nullptr) {
         return;

@@ -281,24 +281,6 @@ Status InvertedIndexReader::create_index_searcher(IndexSearcherBuilder* index_se
     return Status::OK();
 };
 
-Status InvertedIndexReader::pre_match_index_search(const IndexQueryContextPtr& context,
-                                                   InvertedIndexQueryType query_type,
-                                                   const InvertedIndexQueryInfo& query_info,
-                                                   const FulltextIndexSearcherPtr& index_searcher) {
-    try {
-        auto query = QueryFactory::create(query_type, index_searcher, context);
-        if (!query) {
-            return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
-                    "query type " + query_type_to_string(query_type) + ", query is nullptr");
-        }
-        query->pre_search(query_info);
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
-                                                                      e.what());
-    }
-    return Status::OK();
-}
-
 Status InvertedIndexReader::match_index_search(
         const IndexQueryContextPtr& context, InvertedIndexQueryType query_type,
         const InvertedIndexQueryInfo& query_info, const FulltextIndexSearcherPtr& index_searcher,
@@ -335,46 +317,6 @@ Status InvertedIndexReader::match_index_search(
 
 Status FullTextIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     *iterator = InvertedIndexIterator::create_unique(shared_from_this());
-    return Status::OK();
-}
-
-Status FullTextIndexReader::pre_query(const IndexQueryContextPtr& context,
-                                      const std::string& column_name, const void* query_value,
-                                      InvertedIndexQueryType query_type) {
-    std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
-    VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
-               << search_str << "]";
-
-    try {
-        InvertedIndexQueryInfo query_info;
-        query_info.field_name = StringUtil::string_to_wstring(column_name);
-
-        // terms
-        if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
-            query_info.term_infos.emplace_back(search_str, 0);
-        } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-            PhraseQuery::parser_info(search_str, _index_meta.properties(), query_info);
-        } else {
-            query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    search_str, _index_meta.properties());
-        }
-        if (query_info.term_infos.empty()) {
-            return Status::OK();
-        }
-
-        InvertedIndexCacheHandle inverted_index_cache_handle;
-        RETURN_IF_ERROR(handle_searcher_cache(context, &inverted_index_cache_handle));
-        auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
-        auto* searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
-        if (searcher_ptr == nullptr) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>("searcher is nullptr");
-        }
-        RETURN_IF_ERROR(pre_match_index_search(context, query_type, query_info, *searcher_ptr));
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "CLuceneError occured, error msg: {}", e.what());
-    }
-
     return Status::OK();
 }
 
@@ -465,14 +407,6 @@ InvertedIndexReaderType FullTextIndexReader::type() {
 Status StringTypeInvertedIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     *iterator = InvertedIndexIterator::create_unique(shared_from_this());
     return Status::OK();
-}
-
-Status StringTypeInvertedIndexReader::pre_query(const IndexQueryContextPtr& context,
-                                                const std::string& column_name,
-                                                const void* query_value,
-                                                InvertedIndexQueryType query_type) {
-    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                    "StringTypeInvertedIndexReader::pre_query Not implemented yet.");
 }
 
 Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
@@ -765,13 +699,6 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
 
     VLOG_DEBUG << "BKD index try search column: " << column_name << " result: " << *count;
     return Status::OK();
-}
-
-Status BkdIndexReader::pre_query(const IndexQueryContextPtr& context,
-                                 const std::string& column_name, const void* query_value,
-                                 InvertedIndexQueryType query_type) {
-    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                    "BkdIndexReader::pre_query Not implemented yet.");
 }
 
 Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::string& column_name,

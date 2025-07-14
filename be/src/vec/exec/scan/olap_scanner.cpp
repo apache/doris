@@ -241,7 +241,12 @@ Status OlapScanner::init() {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
-    _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+    if (_tablet_reader_params.score_runtime) {
+        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                _tablet_reader_params.common_expr_ctxs_push_down));
+    }
 
     return Status::OK();
 }

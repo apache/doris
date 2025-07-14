@@ -963,7 +963,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
 
 Status SegmentIterator::_apply_index_expr() {
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-        if (Status st = expr_ctx->evaluate_inverted_index(num_rows(), false); !st.ok()) {
+        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1306,43 +1306,25 @@ Status SegmentIterator::_init_index_iterators() {
     if (_score_runtime) {
         _index_query_context->collection_statistics = _opts.collection_statistics;
 
-        SegmentStats segment_stats;
-        segment_stats.row_cnt = _segment->num_rows();
-        _index_query_context->collection_statistics->collect(segment_stats);
-
-        auto full_segment_id =
-                std::make_shared<FullSegmentId>(_segment->rowset_id(), _segment->id());
-        _index_query_context->full_segment_id = full_segment_id;
-
-        auto collection_similarity = std::make_shared<CollectionSimilarity>();
-        _index_query_context->collection_similarity = collection_similarity;
+        _index_query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     }
 
-    {
-        // Inverted index iterators
-        for (auto cid : _schema->column_ids()) {
-            // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
-            if (_index_iterators[cid] == nullptr) {
-                // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
-                // This is because the sub-column is created in create_materialized_variant_column.
-                // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
-                const auto& column = _opts.tablet_schema->column(cid);
-                int32_t col_unique_id = column.is_extracted_column() ? column.parent_unique_id()
-                                                                     : column.unique_id();
-                RETURN_IF_ERROR(
-                        _segment->new_index_iterator(column,
-                                                     _segment->_tablet_schema->inverted_index(
-                                                             col_unique_id, column.suffix_path()),
-                                                     _opts, &_index_iterators[cid]));
-                if (_index_iterators[cid] != nullptr) {
-                    _index_iterators[cid]->set_context(_index_query_context);
-                }
-            }
-        }
-
-        if (_index_query_context->collection_similarity) {
-            for (auto expr_ctx : _common_expr_ctxs_push_down) {
-                RETURN_IF_ERROR(expr_ctx->evaluate_inverted_index(num_rows(), true));
+    // Inverted index iterators
+    for (auto cid : _schema->column_ids()) {
+        // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
+        if (_index_iterators[cid] == nullptr) {
+            // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
+            // This is because the sub-column is created in create_materialized_variant_column.
+            // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
+            const auto& column = _opts.tablet_schema->column(cid);
+            int32_t col_unique_id =
+                    column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
+            RETURN_IF_ERROR(_segment->new_index_iterator(
+                    column,
+                    _segment->_tablet_schema->inverted_index(col_unique_id, column.suffix_path()),
+                    _opts, &_index_iterators[cid]));
+            if (_index_iterators[cid] != nullptr) {
+                _index_iterators[cid]->set_context(_index_query_context);
             }
         }
     }

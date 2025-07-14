@@ -80,20 +80,6 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
     return Status::OK();
 }
 
-Status InvertedIndexIterator::pre_read_from_index(const IndexParam& param) {
-    auto* i_param = std::get<InvertedIndexParam*>(param);
-    if (i_param == nullptr) {
-        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("i_param is null");
-    }
-    if (_reader == nullptr) {
-        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("_reader is null");
-    }
-
-    RETURN_IF_ERROR(_reader->pre_query(_context, i_param->column_name, i_param->query_value,
-                                       i_param->query_type));
-    return Status::OK();
-}
-
 Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) {
     return _reader->read_null_bitmap(_context, cache_handle, nullptr);
 }

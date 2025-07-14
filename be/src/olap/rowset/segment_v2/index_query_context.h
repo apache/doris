@@ -27,7 +27,6 @@ struct IndexQueryContext {
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
 
-    FullSegmentIdPtr full_segment_id;
     CollectionStatisticsPtr collection_statistics;
     CollectionSimilarityPtr collection_similarity;
 };

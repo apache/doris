@@ -16,100 +16,41 @@
 // under the License.
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+
 #include "olap/olap_common.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
-using TermDocFreqs = std::unordered_map<std::wstring, uint64_t>;
-using TotalTermCnt = uint64_t;
+struct RowSetSplits;
 
-class FullSegmentId {
-public:
-    FullSegmentId(const RowsetId& rowset_id, const uint32_t segment_id)
-            : rowset_id(rowset_id), segment_id(segment_id) {}
-
-    bool operator==(const FullSegmentId& other) const {
-        return rowset_id == other.rowset_id && segment_id == other.segment_id;
-    }
-
-    bool operator!=(const FullSegmentId& other) const {
-        return rowset_id != other.rowset_id || segment_id != other.segment_id;
-    }
-
-    bool operator<(const FullSegmentId& other) const {
-        if (rowset_id != other.rowset_id) {
-            return rowset_id < other.rowset_id;
-        }
-        return segment_id < other.segment_id;
-    }
-
-    std::string to_string() const {
-        return fmt::format("{}_{}", rowset_id.to_string(), segment_id);
-    }
-
-    const RowsetId rowset_id;
-    const uint32_t segment_id;
-};
-using FullSegmentIdPtr = std::shared_ptr<FullSegmentId>;
-
-class SegmentStats {
-public:
-    uint64_t row_cnt = 0;
-};
-
-class SegmentColIndexStats {
-public:
-    FullSegmentIdPtr full_segment_id;
-    const std::wstring* lucene_col_name = nullptr;
-    TermDocFreqs term_doc_freqs;
-    TotalTermCnt total_term_cnt = 0;
-};
+class TabletSchema;
+using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
 class CollectionStatistics {
 public:
-    void collect(const SegmentStats& segment_stats);
-    void collect(const SegmentColIndexStats& segment_column_stats);
+    Status collect(const std::vector<RowSetSplits>& rs_splits,
+                   const TabletSchemaSPtr& tablet_schema,
+                   const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down);
 
-    uint64_t get_term_doc_freq_by_col(const std::wstring& lucene_col_name,
-                                      const std::wstring& term) const;
-    uint64_t get_total_term_cnt_by_col(const std::wstring& lucene_col_name) const;
-    uint64_t get_doc_num() const;
     float get_or_calculate_idf(const std::wstring& lucene_col_name, const std::wstring& term);
     float get_or_calculate_avg_dl(const std::wstring& lucene_col_name);
 
 private:
-    class SegmentCol {
-    public:
-        SegmentCol(FullSegmentIdPtr full_segment_id, const std::wstring* lucene_col_name)
-                : _full_segment_id(std::move(full_segment_id)), _lucene_col_name(lucene_col_name) {}
+    uint64_t get_term_doc_freq_by_col(const std::wstring& lucene_col_name,
+                                      const std::wstring& term);
+    uint64_t get_total_term_cnt_by_col(const std::wstring& lucene_col_name);
+    uint64_t get_doc_num() const;
 
-        bool operator<(const SegmentCol& other) const {
-            if (*_full_segment_id != *other._full_segment_id) {
-                return *_full_segment_id < *other._full_segment_id;
-            }
-            return *_lucene_col_name < *other._lucene_col_name;
-        }
+    uint64_t _total_num_docs = 0;
+    std::unordered_map<std::wstring, uint64_t> _total_num_tokens;
+    std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> _term_doc_freqs;
 
-        FullSegmentIdPtr _full_segment_id;
-        const std::wstring* _lucene_col_name;
-    };
-
-    class CollectedStats {
-    public:
-        bool is_new_term(const std::wstring& term) { return _collected_terms.insert(term).second; }
-
-    private:
-        std::unordered_set<std::wstring> _collected_terms;
-    };
-
-    std::unordered_map<std::wstring, TermDocFreqs> _term_doc_freqs_by_col;
-    std::unordered_map<std::wstring, TotalTermCnt> _total_term_cnt_by_col;
-    std::unordered_map<std::wstring, float> _idf_by_col_term;
     std::unordered_map<std::wstring, float> _avg_dl_by_col;
-
-    std::map<SegmentCol, CollectedStats> _seg_col_collected_stats;
-
-    int64_t _doc_num = -1;
+    std::unordered_map<std::wstring, std::unordered_map<std::wstring, float>> _idf_by_col_term;
 };
 using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
 

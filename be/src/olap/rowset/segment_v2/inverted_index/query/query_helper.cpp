@@ -48,25 +48,4 @@ void QueryHelper::collect_range(const IndexQueryContextPtr& context,
     }
 }
 
-void QueryHelper::query_statistics(const IndexQueryContextPtr& context, const SearcherPtr& searcher,
-                                   const std::wstring& field_name,
-                                   const std::span<const TermInfo>& term_infos) {
-    if (!context->collection_statistics) {
-        throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "collection_statistics is null");
-    }
-
-    SegmentColIndexStats stats;
-    stats.full_segment_id = context->full_segment_id;
-    stats.lucene_col_name = &field_name;
-    stats.total_term_cnt += searcher->sumTotalTermFreq(field_name.c_str()).value_or(0);
-
-    for (const auto& term_info : term_infos) {
-        auto iter = TermIterator::create(context->io_ctx, searcher->getReader(), field_name,
-                                         term_info.get_single_term());
-        stats.term_doc_freqs[iter->term()] += iter->doc_freq();
-    }
-
-    context->collection_statistics->collect(stats);
-}
-
 } // namespace doris::segment_v2

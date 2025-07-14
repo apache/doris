@@ -27,10 +27,6 @@ AnnIndexIterator::AnnIndexIterator(const IndexReaderPtr& reader) {
     _ann_reader = std::dynamic_pointer_cast<AnnIndexReader>(reader);
 }
 
-Status AnnIndexIterator::pre_read_from_index(const IndexParam& param) {
-    return Status::OK();
-}
-
 Status AnnIndexIterator::read_from_index(const IndexParam& param) {
     auto* a_param = std::get<vectorized::AnnIndexParam*>(param);
     if (a_param == nullptr) {

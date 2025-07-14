@@ -184,8 +184,6 @@ public:
 
     IndexType index_type() override { return IndexType::INVERTED; }
 
-    virtual Status pre_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                             const void* query_value, InvertedIndexQueryType query_type) = 0;
     virtual Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                          const void* query_value, InvertedIndexQueryType query_type,
                          std::shared_ptr<roaring::Roaring>& bit_map) = 0;
@@ -249,8 +247,6 @@ public:
     ~FullTextIndexReader() override = default;
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
-    Status pre_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const void* query_value, InvertedIndexQueryType query_type) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map) override;
@@ -275,8 +271,6 @@ public:
     ~StringTypeInvertedIndexReader() override = default;
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
-    Status pre_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const void* query_value, InvertedIndexQueryType query_type) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map) override;
@@ -336,8 +330,6 @@ public:
     ~BkdIndexReader() override = default;
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
-    Status pre_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const void* query_value, InvertedIndexQueryType query_type) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map) override;

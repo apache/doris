@@ -132,13 +132,12 @@ public:
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
-    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows,
-                                           bool is_pre_evaluate) {
+    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
         return Status::OK();
     }
 
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
-                                    uint32_t segment_num_rows, bool is_pre_evaluate);
+                                    uint32_t segment_num_rows);
 
     virtual size_t estimate_memory(const size_t rows);
 

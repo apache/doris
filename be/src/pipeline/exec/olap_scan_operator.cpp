@@ -374,7 +374,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     RETURN_IF_ERROR(hold_tablets());
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE &&
-        (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
+        (_storage_no_merge() || p._olap_scan_node.is_preaggregation) && !_score_runtime) {
         std::vector<OlapScanRange*> key_ranges;
         for (auto& range : _cond_ranges) {
             if (range->begin_scan_range.size() == 1 &&
@@ -623,6 +623,18 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 vectorized::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
     }
 
+    if (!_parent->projections().empty()) {
+        for (auto& projection : _parent->projections()) {
+            auto vir_slot_ref =
+                    std::dynamic_pointer_cast<vectorized::VirtualSlotRef>(projection->root());
+            if (vir_slot_ref == nullptr || !vir_slot_ref->is_score_expr()) {
+                continue;
+            }
+            _score_runtime = vectorized::ScoreRuntime::create_shared(projection);
+            break;
+        }
+    }
+
     return ScanLocalState<OlapScanLocalState>::init(state, info);
 }
 
@@ -656,20 +668,11 @@ Status OlapScanLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.intermediate_row_desc()));
     }
 
-    RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
-
-    if (!projections().empty()) {
-        for (auto& projection : projections()) {
-            auto vir_slot_ref =
-                    std::dynamic_pointer_cast<vectorized::VirtualSlotRef>(projection->root());
-            if (vir_slot_ref == nullptr || !vir_slot_ref->is_score_expr()) {
-                continue;
-            }
-            _score_runtime = vectorized::ScoreRuntime::create_shared(projection);
-            RETURN_IF_ERROR(_score_runtime->prepare(state));
-            break;
-        }
+    if (_score_runtime) {
+        RETURN_IF_ERROR(_score_runtime->prepare(state));
     }
+
+    RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
 
     return Status::OK();
 }

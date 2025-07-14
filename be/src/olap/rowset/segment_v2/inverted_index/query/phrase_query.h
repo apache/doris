@@ -39,10 +39,10 @@ using Matcher = std::variant<ExactPhraseMatcher, SloppyPhraseMatcher, OrderedSlo
 class PhraseQuery : public Query {
 public:
     PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context);
+    PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context, bool is_similarity);
     ~PhraseQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
-    void pre_search(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:

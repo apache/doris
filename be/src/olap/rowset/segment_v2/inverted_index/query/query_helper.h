@@ -31,10 +31,6 @@ public:
     static void collect_range(const IndexQueryContextPtr& context, const SimilarityPtr& similarity,
                               const DocRange& doc_range, const roaring::Roaring& roaring,
                               bool first);
-
-    static void query_statistics(const IndexQueryContextPtr& context, const SearcherPtr& searcher,
-                                 const std::wstring& field_name,
-                                 const std::span<const TermInfo>& term_infos);
 };
 
 } // namespace doris::segment_v2

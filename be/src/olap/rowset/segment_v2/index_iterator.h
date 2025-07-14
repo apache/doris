@@ -46,7 +46,6 @@ public:
 
     virtual IndexReaderPtr get_reader() = 0;
 
-    virtual Status pre_read_from_index(const IndexParam& param) = 0;
     virtual Status read_from_index(const IndexParam& param) = 0;
 
     virtual Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) = 0;

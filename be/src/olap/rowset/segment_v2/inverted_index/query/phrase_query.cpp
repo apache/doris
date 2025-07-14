@@ -33,6 +33,11 @@ PhraseQuery::PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context)
           _context(std::move(context)),
           _disjunction_query(_searcher, _context) {}
 
+PhraseQuery::PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context, bool is_similarity)
+        : PhraseQuery(std::move(searcher), std::move(context)) {
+    _is_similarity = is_similarity;
+}
+
 void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
@@ -153,15 +158,6 @@ void PhraseQuery::init_similarities(const std::wstring& field_name) {
             }
         }
     }
-}
-
-void PhraseQuery::pre_search(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.term_infos.empty()) {
-        return;
-    }
-
-    QueryHelper::query_statistics(_context, _searcher, query_info.field_name,
-                                  query_info.term_infos);
 }
 
 void PhraseQuery::search(roaring::Roaring& roaring) {

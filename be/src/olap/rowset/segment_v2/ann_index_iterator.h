@@ -41,7 +41,6 @@ public:
         return std::static_pointer_cast<IndexReader>(_ann_reader);
     }
 
-    Status pre_read_from_index(const IndexParam& param) override;
     MOCK_FUNCTION Status read_from_index(const IndexParam& param) override;
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override {

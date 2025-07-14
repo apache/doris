@@ -17,106 +17,181 @@
 
 #include "collection_statistics.h"
 
+#include <string_view>
+
 #include "common/exception.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 
 using namespace segment_v2::inverted_index;
+using namespace segment_v2;
 
-void CollectionStatistics::collect(const SegmentStats& segment_stats) {
-    if (_doc_num < 0) {
-        _doc_num = 0;
-    }
-    _doc_num += segment_stats.row_cnt;
-}
+Status CollectionStatistics::collect(
+        const std::vector<RowSetSplits>& rs_splits, const TabletSchemaSPtr& tablet_schema,
+        const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down) {
+    class CollectInfo {
+    public:
+        std::vector<TermInfo> term_infos;
+        const TabletIndex* index_meta = nullptr;
+    };
 
-void CollectionStatistics::collect(const SegmentColIndexStats& segment_col_index_stats) {
-    if (!segment_col_index_stats.full_segment_id) {
-        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR, "full_segment_id is null");
-    }
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
 
-    if (!segment_col_index_stats.lucene_col_name) {
-        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR, "lucene_col_name is null");
-    }
+    for (const auto& root_expr_ctx : common_expr_ctxs_push_down) {
+        const auto& root_expr = root_expr_ctx->root();
+        if (root_expr == nullptr) {
+            continue;
+        }
 
-    SegmentCol seg_col {segment_col_index_stats.full_segment_id,
-                        segment_col_index_stats.lucene_col_name};
+        std::stack<vectorized::VExprSPtr> stack;
+        stack.emplace(root_expr);
 
-    if (auto iter = _seg_col_collected_stats.find(seg_col);
-        iter == _seg_col_collected_stats.end()) {
-        // This is the first time the column is encountered for the segment.
-        _total_term_cnt_by_col[*segment_col_index_stats.lucene_col_name] +=
-                segment_col_index_stats.total_term_cnt;
-        _seg_col_collected_stats.emplace(seg_col, CollectedStats {});
-    }
+        while (!stack.empty()) {
+            const auto& expr = stack.top();
+            stack.pop();
 
-    auto& collected_stats = _seg_col_collected_stats.find(seg_col)->second;
-    TermDocFreqs& term_doc_freqs = _term_doc_freqs_by_col[*segment_col_index_stats.lucene_col_name];
+            if (expr->node_type() == TExprNodeType::MATCH_PRED) {
+                auto* left_slot_ref = static_cast<vectorized::VSlotRef*>(expr->children()[0].get());
+                auto* right_slot_ref =
+                        static_cast<vectorized::VLiteral*>(expr->children()[1].get());
+                auto column_idx = tablet_schema->field_index(left_slot_ref->column_name());
+                auto column = tablet_schema->column(column_idx);
+                const auto* index_meta = tablet_schema->inverted_index(column);
 
-    for (const auto& [term, doc_freq] : segment_col_index_stats.term_doc_freqs) {
-        if (collected_stats.is_new_term(term)) {
-            term_doc_freqs[term] += doc_freq;
+                std::string field_name = std::to_string(column.unique_id());
+                std::wstring ws_field_name = StringHelper::to_wstring(field_name);
+                auto iter = collect_infos.find(ws_field_name);
+                if (iter == collect_infos.end()) {
+                    CollectInfo collect_info;
+                    collect_info.term_infos = InvertedIndexAnalyzer::get_analyse_result(
+                            right_slot_ref->value(), index_meta->properties());
+                    collect_info.index_meta = index_meta;
+                    collect_infos[ws_field_name] = std::move(collect_info);
+                } else {
+                    auto term_infos = InvertedIndexAnalyzer::get_analyse_result(
+                            right_slot_ref->value(), index_meta->properties());
+                    iter->second.term_infos.insert(iter->second.term_infos.end(),
+                                                   std::make_move_iterator(term_infos.begin()),
+                                                   std::make_move_iterator(term_infos.end()));
+                }
+            }
+
+            const auto& children = expr->children();
+            for (int32_t i = children.size() - 1; i >= 0; --i) {
+                if (!children[i]->children().empty()) {
+                    stack.emplace(children[i]);
+                }
+            }
         }
     }
+
+    for (const auto& rs_split : rs_splits) {
+        const auto& rs_reader = rs_split.rs_reader;
+        auto rowset = rs_reader->rowset();
+        auto rowset_meta = rowset->rowset_meta();
+
+        auto num_segments = rowset->num_segments();
+        for (int32_t seg_id = 0; seg_id < num_segments; ++seg_id) {
+            auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
+            auto idx_file_reader = std::make_unique<IndexFileReader>(
+                    rowset_meta->fs(),
+                    std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
+                    tablet_schema->get_inverted_index_storage_format());
+            RETURN_IF_ERROR(idx_file_reader->init());
+            for (const auto& [ws_field_name, collect_info] : collect_infos) {
+                auto compound_reader =
+                        DORIS_TRY(idx_file_reader->open(collect_info.index_meta, nullptr));
+                auto* dir = compound_reader.release();
+                lucene::index::IndexReader* reader = nullptr;
+                ErrorContext error_context;
+                try {
+                    reader = lucene::index::IndexReader::open(dir);
+
+                    _total_num_docs += reader->maxDoc();
+                    _total_num_tokens[ws_field_name] +=
+                            reader->sumTotalTermFreq(ws_field_name.c_str()).value_or(0);
+
+                    for (const auto& term_info : collect_info.term_infos) {
+                        auto iter = TermIterator::create(nullptr, reader, ws_field_name,
+                                                         term_info.get_single_term());
+                        _term_doc_freqs[ws_field_name][iter->term()] += iter->doc_freq();
+                    }
+
+                } catch (const CLuceneError& e) {
+                    error_context.eptr = std::current_exception();
+                    error_context.err_msg.append("clucene reader open error: ");
+                    error_context.err_msg.append(e.what());
+                    LOG(ERROR) << error_context.err_msg;
+                }
+                FINALLY({
+                    FINALLY_CLOSE(reader);
+                    _CLLDELETE(reader);
+                    _CLDECDELETE(dir)
+                })
+            }
+        }
+    }
+
+    LOG(ERROR) << "term_num_docs: " << _total_num_docs;
+    for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
+        LOG(ERROR) << "field_name: " << StringHelper::to_string(ws_field_name)
+                   << ", num_tokens: " << num_tokens;
+        for (const auto& [term, doc_freq] : _term_doc_freqs[ws_field_name]) {
+            LOG(ERROR) << "term: " << StringHelper::to_string(term) << ", doc_freq: " << doc_freq;
+        }
+    }
+    LOG(ERROR) << "--------------------------------";
+
+    return Status::OK();
 }
 
 uint64_t CollectionStatistics::get_term_doc_freq_by_col(const std::wstring& lucene_col_name,
-                                                        const std::wstring& term) const {
-    auto term_doc_freqs_iter = _term_doc_freqs_by_col.find(lucene_col_name);
-    if (UNLIKELY(term_doc_freqs_iter == _term_doc_freqs_by_col.end())) {
-        throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "Not such column {}",
+                                                        const std::wstring& term) {
+    if (!_term_doc_freqs.contains(lucene_col_name)) {
+        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR, "Not such column {}",
                         StringHelper::to_string(lucene_col_name));
     }
 
-    auto doc_freq_iter = term_doc_freqs_iter->second.find(term);
-    if (UNLIKELY(doc_freq_iter == term_doc_freqs_iter->second.end())) {
-        throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "Not such term {}",
+    if (!_term_doc_freqs[lucene_col_name].contains(term)) {
+        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR, "Not such term {}",
                         StringHelper::to_string(term));
     }
 
-    return doc_freq_iter->second;
+    return _term_doc_freqs[lucene_col_name][term];
 }
 
-uint64_t CollectionStatistics::get_total_term_cnt_by_col(
-        const std::wstring& lucene_col_name) const {
-    auto total_term_cnt_iter = _total_term_cnt_by_col.find(lucene_col_name);
-    if (UNLIKELY(total_term_cnt_iter == _total_term_cnt_by_col.end())) {
-        throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "Not such column {}",
+uint64_t CollectionStatistics::get_total_term_cnt_by_col(const std::wstring& lucene_col_name) {
+    if (!_total_num_tokens.contains(lucene_col_name)) {
+        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR, "Not such column {}",
                         StringHelper::to_string(lucene_col_name));
     }
 
-    return total_term_cnt_iter->second;
+    return _total_num_tokens[lucene_col_name];
 }
 
 uint64_t CollectionStatistics::get_doc_num() const {
-    if (UNLIKELY(_doc_num < 0)) {
-        throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS,
+    if (_total_num_docs == 0) {
+        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
                         "No data available for SimilarityCollector");
     }
-    return _doc_num;
-}
 
-float CollectionStatistics::get_or_calculate_idf(const std::wstring& lucene_col_name,
-                                                 const std::wstring& term) {
-    static const std::wstring _separator = L"/__datamind_internal_separator__/";
-
-    std::wstring key = lucene_col_name + _separator + term;
-    auto it = _idf_by_col_term.find(key);
-    if (LIKELY(it != _idf_by_col_term.end())) {
-        return it->second;
-    }
-    const uint64_t doc_num = get_doc_num();
-    const uint64_t doc_freq = get_term_doc_freq_by_col(lucene_col_name, term);
-    float idf = std::log(1 + (doc_num - doc_freq + (double)0.5) / (doc_freq + (double)0.5));
-    _idf_by_col_term[key] = idf;
-    return idf;
+    return _total_num_docs;
 }
 
 float CollectionStatistics::get_or_calculate_avg_dl(const std::wstring& lucene_col_name) {
-    auto it = _avg_dl_by_col.find(lucene_col_name);
-    if (LIKELY(it != _avg_dl_by_col.end())) {
-        return it->second;
+    auto iter = _avg_dl_by_col.find(lucene_col_name);
+    if (iter != _avg_dl_by_col.end()) {
+        return iter->second;
     }
 
     const uint64_t total_term_cnt = get_total_term_cnt_by_col(lucene_col_name);
@@ -124,6 +199,23 @@ float CollectionStatistics::get_or_calculate_avg_dl(const std::wstring& lucene_c
     float avg_dl = total_doc_cnt > 0 ? (1.0 * total_term_cnt / total_doc_cnt) : 0;
     _avg_dl_by_col[lucene_col_name] = avg_dl;
     return avg_dl;
+}
+
+float CollectionStatistics::get_or_calculate_idf(const std::wstring& lucene_col_name,
+                                                 const std::wstring& term) {
+    auto iter = _idf_by_col_term.find(lucene_col_name);
+    if (iter != _idf_by_col_term.end()) {
+        auto term_iter = iter->second.find(term);
+        if (term_iter != iter->second.end()) {
+            return term_iter->second;
+        }
+    }
+
+    const uint64_t doc_num = get_doc_num();
+    const uint64_t doc_freq = get_term_doc_freq_by_col(lucene_col_name, term);
+    float idf = std::log(1 + (doc_num - doc_freq + (double)0.5) / (doc_freq + (double)0.5));
+    _idf_by_col_term[lucene_col_name][term] = idf;
+    return idf;
 }
 
 } // namespace doris

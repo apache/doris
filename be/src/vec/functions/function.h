@@ -198,7 +198,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            segment_v2::InvertedIndexResultBitmap& bitmap_result, bool is_pre_evaluate) const {
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return Status::OK();
     }
 
@@ -456,9 +456,9 @@ protected:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            segment_v2::InvertedIndexResultBitmap& bitmap_result, bool is_pre_evaluate) const {
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
         return function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
-                                                 num_rows, bitmap_result, is_pre_evaluate);
+                                                 num_rows, bitmap_result);
     }
 
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
@@ -524,10 +524,9 @@ public:
             const ColumnsWithTypeAndName& args,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            segment_v2::InvertedIndexResultBitmap& bitmap_result,
-            bool is_pre_evaluate) const override {
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
-                                                 bitmap_result, is_pre_evaluate);
+                                                 bitmap_result);
     }
 
     bool is_use_default_implementation_for_constants() const override {

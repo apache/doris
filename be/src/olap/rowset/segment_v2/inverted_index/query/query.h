@@ -53,8 +53,6 @@ public:
     // @param terms a vector of tokenized strings that represent the search terms.
     virtual void add(const InvertedIndexQueryInfo& query_info) = 0;
 
-    virtual void pre_search(const InvertedIndexQueryInfo& query_info) {}
-
     // a unified query interface for retrieving the ids obtained from the search.
     // @param roaring a Roaring bitmap to be populated with the search results,
     virtual void search(roaring::Roaring& roaring) = 0;

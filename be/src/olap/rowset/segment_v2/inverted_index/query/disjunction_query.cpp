@@ -65,15 +65,6 @@ void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 }
 
-void DisjunctionQuery::pre_search(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.term_infos.empty()) {
-        return;
-    }
-
-    QueryHelper::query_statistics(_context, _searcher, query_info.field_name,
-                                  query_info.term_infos);
-}
-
 void DisjunctionQuery::search(roaring::Roaring& roaring) {
     auto func = [this, &roaring](size_t i, const TermIterPtr& iter, bool first) {
         DocRange doc_range;

@@ -30,7 +30,6 @@ public:
     ~PhrasePrefixQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
-    void pre_search(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:

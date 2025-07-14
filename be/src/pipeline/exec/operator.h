@@ -900,6 +900,7 @@ public:
     [[nodiscard]] OperatorPtr get_child() { return _child; }
 
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
+    [[nodiscard]] vectorized::VExprContextSPtrs& projections() { return _projections; }
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }

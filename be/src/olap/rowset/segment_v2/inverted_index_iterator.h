@@ -38,7 +38,6 @@ public:
 
     IndexReaderPtr get_reader() override { return std::static_pointer_cast<IndexReader>(_reader); }
 
-    Status pre_read_from_index(const IndexParam& param) override;
     Status read_from_index(const IndexParam& param) override;
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override;

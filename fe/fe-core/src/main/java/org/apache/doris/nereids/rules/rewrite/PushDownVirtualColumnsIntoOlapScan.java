@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
@@ -112,7 +113,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         extractDistanceFunctions(filter, replaceMap, virtualColumnsBuilder);
 
         // Step 2: Extract score functions
-        extractScoreFunctions(optionalProject, replaceMap, virtualColumnsBuilder);
+        extractScoreFunctions(filter, optionalProject, replaceMap, virtualColumnsBuilder);
 
         // Step 3: Extract repeated sub-expressions
         extractRepeatedSubExpressions(filter, optionalProject, replaceMap, virtualColumnsBuilder);
@@ -168,9 +169,15 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
      * Extract score functions from project expressions.
      * Score function should be pushed down only when it's in project list and there is a filter.
      */
-    private void extractScoreFunctions(Optional<LogicalProject<?>> optionalProject,
+    private void extractScoreFunctions(LogicalFilter<LogicalOlapScan> filter,
+            Optional<LogicalProject<?>> optionalProject,
             Map<Expression, Expression> replaceMap,
             ImmutableList.Builder<NamedExpression> virtualColumnsBuilder) {
+        boolean hasMatchPredicate = filter.getConjuncts().stream()
+                .anyMatch(conjunct -> !conjunct.collect(e -> e instanceof Match).isEmpty());
+        if (!hasMatchPredicate) {
+            return;
+        }
         if (optionalProject.isPresent()) {
             LogicalProject<?> project = optionalProject.get();
             for (NamedExpression namedExpr : project.getProjects()) {
