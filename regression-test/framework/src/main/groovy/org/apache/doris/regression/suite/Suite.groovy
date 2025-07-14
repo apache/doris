@@ -330,6 +330,7 @@ class Suite implements GroovyInterceptable {
 
     private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
         logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
+        def originConnection = connect.threadLocalConn.get()
         try {
             cluster.destroy(true)
             cluster.init(options, isCloud)
@@ -360,15 +361,14 @@ class Suite implements GroovyInterceptable {
                     "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
             cluster.jdbcUrl = jdbcUrl
-            def conn = DriverManager.getConnection(jdbcUrl, user, password)
-            def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
-            logger.info("try create database if not exists {}", context.dbName)
-            conn.withCloseable { c -> JdbcUtils.executeToList(c, sql) }
-
-            def dbUrl = Config.buildUrlWithDb(jdbcUrl, context.dbName)
-            logger.info("connect to docker cluster: suite={}, url={}", name, dbUrl)
-            connect(user, password, dbUrl, actionSupplier)
+            connext.threadLocalConn.remove()
+            actionSupplier.call()
         } finally {
+            if (originConnection == null) {
+                context.threadLocalConn.remove()
+            } else {
+                context.threadLocalConn.set(originConnection)
+            }
             if (!context.config.dockerEndNoKill) {
                 cluster.destroy(context.config.dockerEndDeleteFiles)
             }
