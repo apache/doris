@@ -737,20 +737,6 @@ enum TSortType {
 }
 
 enum TMetadataType {
-<<<<<<< HEAD
-  ICEBERG,
-  BACKENDS,
-  FRONTENDS,
-  CATALOGS,
-  FRONTENDS_DISKS,
-  MATERIALIZED_VIEWS,
-  JOBS,
-  TASKS,
-  WORKLOAD_SCHED_POLICY,
-  PARTITIONS,
-  PARTITION_VALUES,
-  HUDI,
-=======
   ICEBERG = 0,
   BACKENDS = 1,
   FRONTENDS = 2,
@@ -764,7 +750,6 @@ enum TMetadataType {
   PARTITION_VALUES = 10,
   HUDI = 11,
   PAIMON = 12,
->>>>>>> 7713596e6b5 ([feat][paimon] support paimon system table  (#52598))
 }
 
 enum THudiQueryType {
