@@ -173,6 +173,8 @@ public:
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override {}
 
+    size_t serialize_size_at(size_t row) const override { return 0; }
+
 protected:
     size_t s;
 };
