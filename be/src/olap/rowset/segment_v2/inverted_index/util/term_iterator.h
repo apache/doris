@@ -83,7 +83,7 @@ public:
     static TermIterPtr create(const io::IOContext* io_ctx, lucene::index::IndexReader* reader,
                               const std::wstring& field_name, const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termDocs(t, io_ctx);
+        auto* term_pos = reader->termDocs(t, false, io_ctx);
         _CLDECDELETE(t);
         return std::make_shared<TermIterator>(TermDocsPtr(term_pos, CLuceneDeleter {}));
     }
