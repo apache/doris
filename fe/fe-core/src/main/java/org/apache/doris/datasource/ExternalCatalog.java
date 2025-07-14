@@ -60,12 +60,18 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchI
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.persist.AddColumnLog;
+import org.apache.doris.persist.AddColumnsLog;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.DropColumnLog;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
+import org.apache.doris.persist.RenameColumnLog;
+import org.apache.doris.persist.ReorderColumnsLog;
 import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TruncateTableInfo;
+import org.apache.doris.persist.UpdateColumnLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
@@ -1499,8 +1505,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.addColumn(externalTable, column, position);
-            // Env.getCurrentEnv().getEditLog().logAddColumn(externalTable.getDbName(),
-            // externalTable.getName(), column, position);
+            AddColumnLog log = new AddColumnLog(getName(), externalTable.getDbName(),
+                    externalTable.getName(), column, position);
+            Env.getCurrentEnv().getEditLog().logAlterExternalTableSchema(log);
         } catch (Exception e) {
             LOG.warn("Failed to add column {} to table {}.{} in catalog {}",
                     column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1518,8 +1525,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.addColumns(externalTable, columns);
-            // Env.getCurrentEnv().getEditLog().logAddColumns(externalTable.getDbName(),
-            // externalTable.getName(), columns);
+            AddColumnsLog log = new AddColumnsLog(getName(), externalTable.getDbName(),
+                    externalTable.getName(), columns);
+            Env.getCurrentEnv().getEditLog().logAlterExternalTableSchema(log);
         } catch (Exception e) {
             LOG.warn("Failed to add columns to table {}.{} in catalog {}",
                     externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1537,8 +1545,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.dropColumn(externalTable, columnName);
-            // Env.getCurrentEnv().getEditLog().logDropColumn(externalTable.getDbName(),
-            // externalTable.getName(), columnName);
+            DropColumnLog log = new DropColumnLog(getName(), externalTable.getDbName(),
+                    externalTable.getName(), columnName);
+            Env.getCurrentEnv().getEditLog().logAlterExternalTableSchema(log);
         } catch (Exception e) {
             LOG.warn("Failed to drop column {} from table {}.{} in catalog {}",
                     columnName, externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1556,8 +1565,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.renameColumn(externalTable, oldName, newName);
-            // Env.getCurrentEnv().getEditLog().logRenameColumn(externalTable.getDbName(),
-            // externalTable.getName(), oldName, newName);
+            RenameColumnLog log = new RenameColumnLog(getName(), externalTable.getDbName(),
+                    externalTable.getName(), oldName, newName);
+            Env.getCurrentEnv().getEditLog().logAlterExternalTableSchema(log);
         } catch (Exception e) {
             LOG.warn("Failed to rename column {} to {} in table {}.{} in catalog {}",
                     oldName, newName, externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1575,8 +1585,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.updateColumn(externalTable, column, columnPosition);
-            // Env.getCurrentEnv().getEditLog().logUpdateColumn(externalTable.getDbName(),
-            // externalTable.getName(), column, columnPosition);
+            UpdateColumnLog log = new UpdateColumnLog(getName(), externalTable.getDbName(),
+                    externalTable.getName(), column, columnPosition);
+            Env.getCurrentEnv().getEditLog().logAlterExternalTableSchema(log);
         } catch (Exception e) {
             LOG.warn("Failed to update column {} in table {}.{} in catalog {}",
                     column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1594,8 +1605,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.reorderColumns(externalTable, newOrder);
-            // Env.getCurrentEnv().getEditLog().logReorderColumns(externalTable.getDbName(),
-            // externalTable.getName(), newOrder);
+            ReorderColumnsLog log = new ReorderColumnsLog(getName(), externalTable.getDbName(),
+                    externalTable.getName(), newOrder);
+            Env.getCurrentEnv().getEditLog().logAlterExternalTableSchema(log);
         } catch (Exception e) {
             LOG.warn("Failed to reorder columns in table {}.{} in catalog {}",
                     externalTable.getDbName(), externalTable.getName(), getName(), e);

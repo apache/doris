@@ -376,7 +376,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void afterRenameTable(String dbName) {
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db != null) {
-            db.setUnInitialized(true);
+            db.setUnInitialized();
         }
     }
 
@@ -559,8 +559,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             Optional<?> tbl = db.get().getTableForReplay(dorisTable.getRemoteName());
             if (tbl.isPresent()) {
                 Env.getCurrentEnv().getRefreshManager()
-                        .refreshTableInternal(dorisCatalog, db.get(), (TableIf) tbl.get(),
-                                System.currentTimeMillis());
+                        .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), System.currentTimeMillis());
             }
         }
     }
