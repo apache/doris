@@ -244,9 +244,3 @@ public class LdapClient {
         return userFilter.replaceAll("\\{login}", userName);
     }
 }
-
-
-
-
-
-
