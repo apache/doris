@@ -67,6 +67,8 @@ add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
 
 add_executable(versionstamp_test versionstamp_test.cpp)
 
+add_executable(versioned_value_test versioned_value_test.cpp)
+
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
 
@@ -142,11 +144,15 @@ target_link_libraries(fdb_injection_test
     ${FDB_LINKER_FLAGS}
     ${TEST_LINK_LIBS})
 
+target_link_libraries(versioned_value_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS})
+
 install(FILES
     ${BASE_DIR}/script/run_all_tests.sh
     ${BASE_DIR}/conf/fdb.cluster
     ${BASE_DIR}/conf/doris_cloud.conf
-    ${BASE_DIR}/conf/lsan_suppression.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
     ${BASE_DIR}/test/fdb_metric_example.json
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE

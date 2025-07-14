@@ -24,18 +24,6 @@ suite("variant_nested_type_conflict", "p0"){
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """set describe_extend_variant_column = true"""
 
-        test {
-            sql """
-                    CREATE TABLE IF NOT EXISTS var_nested_type_conflict (
-                        k bigint,
-                        v variant
-                    )
-                    DUPLICATE KEY(`k`)
-                    DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-                    properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
-                """
-            exception "variant_enable_flatten_nested is not supported so far"
-        }
 
         sql """
                 CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -44,9 +32,8 @@ suite("variant_nested_type_conflict", "p0"){
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-                properties("replication_num" = "1", "disable_auto_compaction" = "false");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
             """
-        
         def sql_select_batch = {
             qt_sql_0 """select * from ${table_name} order by k"""
 

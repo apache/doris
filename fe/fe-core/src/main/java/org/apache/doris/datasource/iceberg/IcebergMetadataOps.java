@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -311,8 +310,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void afterCreateTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().setUnInitialized(true);
+            db.get().setUnInitialized();
         }
+        LOG.info("after create table {}.{}.{}, is db exists: {}",
+                dorisCatalog.getName(), dbName, tblName, db.isPresent());
     }
 
     @Override
@@ -337,8 +338,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void afterDropTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().setUnInitialized(true);
+            Optional table = db.get().getTableForReplay(tblName);
+            if (table.isPresent()) {
+                Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db.get(), (ExternalTable) table.get(), 0);
+            }
+            db.get().setUnInitialized();
         }
+        LOG.info("after drop table {}.{}.{}. is db exists: {}",
+                dorisCatalog.getName(), dbName, tblName, db.isPresent());
     }
 
     private void performDropTable(String remoteDbName, String remoteTblName, boolean ifExists) throws DdlException {
@@ -421,7 +428,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             Optional tbl = db.get().getTableForReplay(tblName);
             if (tbl.isPresent()) {
                 Env.getCurrentEnv().getRefreshManager()
-                        .refreshTableInternal(dorisCatalog, db.get(), (TableIf) tbl.get(),
+                        .refreshTableInternal(db.get(), (ExternalTable) tbl.get(),
                                 System.currentTimeMillis());
             }
         }
