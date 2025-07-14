@@ -180,7 +180,7 @@ public:
                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
                                      DeleteBitmapPtr delete_bitmap, int64_t version,
-                                     CalcDeleteBitmapToken* token,
+                                     CalcDeleteBitmapToken* token, bool is_flush_phase,
                                      RowsetWriter* rowset_writer = nullptr,
                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 

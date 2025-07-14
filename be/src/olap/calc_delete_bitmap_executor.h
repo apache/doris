@@ -53,7 +53,7 @@ public:
     Status submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
                   const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
-                  DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
+                  bool is_flush_phase, DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                   DeleteBitmapPtr tablet_delete_bitmap);
 
     // calculate delete bitmap between `segments`

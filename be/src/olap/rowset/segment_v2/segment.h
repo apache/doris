@@ -44,6 +44,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
+#include "util/countdown_latch.h"
 #include "util/once.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -220,6 +221,20 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
+    void set_calc_dbm_st(Status st) {
+        std::unique_lock l(_calc_dbm_task_st_lock);
+        _calc_dbm_task_st = std::move(st);
+    }
+
+    Status get_calc_dbm_task_st() {
+        std::unique_lock l(_calc_dbm_task_st_lock);
+        return _calc_dbm_task_st;
+    }
+
+    void finish_calc_dbm_task() { _calc_dbm_task_latch.count_down(1); }
+
+    void wait_for_calc_dbm_task() { _calc_dbm_task_latch.wait(); }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -314,6 +329,10 @@ private:
     InvertedIndexFileInfo _idx_file_info;
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
+
+    std::mutex _calc_dbm_task_st_lock;
+    Status _calc_dbm_task_st {Status::OK()};
+    CountDownLatch _calc_dbm_task_latch {1};
 };
 
 } // namespace segment_v2

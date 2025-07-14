@@ -385,7 +385,7 @@ Status CloudFullCompaction::_cloud_full_compaction_calc_delete_bitmap(
     auto token = _engine.calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
             _tablet, published_rowset, segments, specified_rowsets, tmp_delete_bitmap, cur_version,
-            token.get(), _output_rs_writer.get()));
+            token.get(), false, _output_rs_writer.get()));
     RETURN_IF_ERROR(token->wait());
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,

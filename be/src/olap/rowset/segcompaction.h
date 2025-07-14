@@ -63,9 +63,11 @@ public:
 
     bool need_convert_delete_bitmap();
 
-    Status convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap, uint32_t src_seg_id,
+    Status convert_segment_delete_bitmap(segment_v2::SegmentSharedPtr segment,
+                                         DeleteBitmapPtr src_delete_bitmap, uint32_t src_seg_id,
                                          uint32_t dest_seg_id);
-    Status convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap, uint32_t src_begin,
+    Status convert_segment_delete_bitmap(SegCompactionCandidatesSharedPtr segments,
+                                         DeleteBitmapPtr src_delete_bitmap, uint32_t src_begin,
                                          uint32_t src_end, uint32_t dest_seg_id);
     DeleteBitmapPtr get_converted_delete_bitmap() { return _converted_delete_bitmap; }
 
@@ -93,7 +95,7 @@ private:
     Status _check_correctness(OlapReaderStatistics& reader_stat, Merger::Statistics& merger_stat,
                               uint32_t begin, uint32_t end, bool is_mow_with_cluster_keys);
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
-    Status _wait_calc_delete_bitmap();
+    Status _wait_calc_delete_bitmap(const SegCompactionCandidates& segments);
 
 private:
     //TODO(zhengyu): current impl depends heavily on the access to feilds of BetaRowsetWriter
