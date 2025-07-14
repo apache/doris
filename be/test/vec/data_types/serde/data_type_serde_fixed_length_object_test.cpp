@@ -62,7 +62,7 @@ TEST(FixedLengthObjectSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    fixed_length_serde->write_one_cell_to_jsonb(*column_fixed_length, jsonb_writer, &pool, 0, 0);
+    fixed_length_serde->write_one_cell_to_jsonb(*column_fixed_length, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
