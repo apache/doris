@@ -30,6 +30,7 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateOrReplaceBranchClause;
 import org.apache.doris.analysis.CreateOrReplaceTagClause;
 import org.apache.doris.analysis.DropBranchClause;
+import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTagClause;
