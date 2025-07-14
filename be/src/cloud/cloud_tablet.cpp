@@ -229,27 +229,46 @@ TabletSchemaSPtr CloudTablet::merged_tablet_schema() const {
     return _merged_tablet_schema;
 }
 
-void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
-                              std::unique_lock<std::shared_mutex>& meta_lock,
-                              bool warmup_delta_data) {
-    if (to_add.empty()) {
+bool CloudTablet::split_rowsets_by_version_overlap(
+        const std::vector<RowsetSharedPtr>& input_rowsets,
+        std::vector<RowsetSharedPtr>* new_rowsets,
+        std::vector<RowsetSharedPtr>* overlapping_rowsets) {
+    auto max_version = max_version_unlocked();
+    for (auto rs : input_rowsets) {
+        if (rs->version().first > max_version) {
+            new_rowsets->push_back(rs);
+        } else if (rs->version().second <= max_version) {
+            overlapping_rowsets->push_back(rs);
+        } else {
+            new_rowsets->clear();
+            overlapping_rowsets->clear();
+            return false;
+        }
+    }
+    return true;
+}
+
+void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_overlap,
+                                          bool delay_add_rowset) {
+    if (_rowset_warm_up_states.find(rowset->rowset_id()) != _rowset_warm_up_states.end()) {
         return;
     }
+    // warmup rowset data in background
+    for (int seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+        const auto& rowset_meta = rowset->rowset_meta();
+        constexpr int64_t interval = 600; // 10 mins
+        // When BE restart and receive the `load_sync` rpc, it will sync all historical rowsets first time.
+        // So we need to filter out the old rowsets avoid to download the whole table.
+        if (!version_overlap &&
+            ::time(nullptr) - rowset_meta->newest_write_timestamp() >= interval) {
+            continue;
+        }
 
-    auto add_rowsets_directly = [=, this](std::vector<RowsetSharedPtr>& rowsets) {
-        for (auto& rs : rowsets) {
-            if (version_overlap || warmup_delta_data) {
-#ifndef BE_TEST
-                // Warmup rowset data in background
-                for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
-                    const auto& rowset_meta = rs->rowset_meta();
-                    constexpr int64_t interval = 600; // 10 mins
-                    // When BE restart and receive the `load_sync` rpc, it will sync all historical rowsets first time.
-                    // So we need to filter out the old rowsets avoid to download the whole table.
-                    if (warmup_delta_data &&
-                        ::time(nullptr) - rowset_meta->newest_write_timestamp() >= interval) {
-                        continue;
-                    }
+        auto storage_resource = rowset_meta->remote_storage_resource();
+        if (!storage_resource) {
+            LOG(WARNING) << storage_resource.error();
+            continue;
+        }
 
                     auto storage_resource = rowset_meta->remote_storage_resource();
                     if (!storage_resource) {
@@ -279,7 +298,8 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             .is_dryrun = config::
                                                     enable_reader_dryrun_when_download_file_cache,
                                     },
-                            .download_done {[](Status st) {
+                            .download_done {[this, rowset, delay_add_rowset](Status st) {
+                                warm_up_done_cb(rowset, st, delay_add_rowset);
                                 if (!st) {
                                     LOG_WARNING("add rowset warm up error ").error(st);
                                 }
@@ -343,6 +363,33 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                         }
                     }
                 }
+    _rowset_warm_up_states[rowset->rowset_id()] = WarmUpState::STARTED;
+}
+
+void CloudTablet::warm_up_done_cb(RowsetSharedPtr rowset, Status status, bool delay_add_rowset) {
+    std::unique_lock<std::shared_mutex> meta_lock;
+    if (status.ok()) {
+        _rowset_warm_up_states[rowset->rowset_id()] = WarmUpState::DONE;
+    } else {
+        _rowset_warm_up_states.erase(rowset->rowset_id());
+    }
+    if (config::enable_delayed_rowset_visibility_after_warmup && delay_add_rowset) {
+        add_rowsets({rowset}, /*version_overlap*/ true, meta_lock, /*warmup_delta_data*/ false);
+    }
+}
+
+void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
+                              std::unique_lock<std::shared_mutex>& meta_lock,
+                              bool warmup_delta_data) {
+    if (to_add.empty()) {
+        return;
+    }
+
+    auto add_rowsets_directly = [=, this](std::vector<RowsetSharedPtr>& rowsets) {
+        for (auto& rs : rowsets) {
+            if (warmup_delta_data) {
+#ifndef BE_TEST
+                warm_up_rowset_unlocked(rs, version_overlap, false);
 #endif
             }
             _rs_version_map.emplace(rs->version(), rs);

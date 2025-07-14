@@ -441,7 +441,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // during double write phase by `CloudMetaMgr::sync_tablet_rowsets` in another thread
         std::unique_lock lock {_new_tablet->get_sync_meta_lock()};
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
+        _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock, true);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                              stats.num_rows(), stats.data_size());
@@ -465,7 +465,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             std::make_shared<CloudTablet>(_cloud_storage_engine, tmp_meta);
     {
         std::unique_lock wlock(tmp_tablet->get_header_lock());
-        tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
+        tmp_tablet->add_rowsets(_output_rowsets, true, wlock, true);
     }
 
     // step 1, process incremental rowset without delete bitmap update lock
@@ -481,7 +481,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
                         DBUG_BLOCK);
         {
             std::unique_lock wlock(tmp_tablet->get_header_lock());
-            tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
+            tmp_tablet->add_rowsets(_output_rowsets, true, wlock, true);
         }
         for (auto rowset : ret.rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
@@ -504,7 +504,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
                 {max_version + 1, new_max_version}, CaptureRowsetOps {}));
         {
             std::unique_lock wlock(tmp_tablet->get_header_lock());
-            tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
+            tmp_tablet->add_rowsets(_output_rowsets, true, wlock, true);
         }
         for (auto rowset : ret.rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));

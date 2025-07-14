@@ -98,5 +98,7 @@ DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 
+DEFINE_mBool(enable_delayed_rowset_visibility_after_warmup, "false");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
