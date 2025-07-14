@@ -24,6 +24,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -93,8 +94,8 @@ public class CloudWarmUpJob implements Writable {
     @SerializedName(value = "lastBatchId")
     protected long lastBatchId = -1;
 
-    @SerializedName(value = "beToTabletIdBatches")
-    protected Map<Long, List<List<Long>>> beToTabletIdBatches;
+    @SerializedName("beToTabletIdBatchesWithSize")
+    protected Map<Long, List<Pair<List<Long>, Long>>> beToTabletIdBatchesWithSize;
 
     @SerializedName(value = "beToThriftAddress")
     protected Map<Long, String> beToThriftAddress = new HashMap<>();
@@ -107,6 +108,15 @@ public class CloudWarmUpJob implements Writable {
 
     @SerializedName(value = "force")
     protected boolean force = false;
+
+    @SerializedName("beToDataSizeFinished")
+    protected Map<Long, Long> beToDataSizeFinished = new HashMap<>();
+
+    @SerializedName(value = "beToLastFinishedBatchId")
+    private Map<Long, Long> beToLastFinishedBatchId = new HashMap<>();
+
+    @SerializedName(value = "beIsRunning")
+    private Map<Long, Boolean> beIsRunning = new HashMap<>();
 
     private Map<Long, Client> beToClient;
 
@@ -121,26 +131,35 @@ public class CloudWarmUpJob implements Writable {
     private boolean setJobDone = false;
 
     public CloudWarmUpJob(long jobId, String cloudClusterName,
-                                Map<Long, List<List<Long>>> beToTabletIdBatches, JobType jobType) {
+                      Map<Long, List<Pair<List<Long>, Long>>> beToTabletIdBatchesWithSize,
+                      JobType jobType) {
         this.jobId = jobId;
         this.jobState = JobState.PENDING;
         this.cloudClusterName = cloudClusterName;
-        this.beToTabletIdBatches = beToTabletIdBatches;
+        this.beToTabletIdBatchesWithSize = beToTabletIdBatchesWithSize;
         this.createTimeMs = System.currentTimeMillis();
         this.jobType = jobType;
+
         if (!FeConstants.runningUnitTest) {
             List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                            .getBackendsByClusterName(cloudClusterName);
+                                        .getBackendsByClusterName(cloudClusterName);
             for (Backend backend : backends) {
                 beToThriftAddress.put(backend.getId(), backend.getHost() + ":" + backend.getBePort());
             }
         }
+
+        for (Long beId : beToTabletIdBatchesWithSize.keySet()) {
+            beToLastFinishedBatchId.put(beId, -1L);
+            beToDataSizeFinished.put(beId, 0L);
+            beIsRunning.put(beId, false);
+        }
     }
 
     public CloudWarmUpJob(long jobId, String cloudClusterName,
-                          Map<Long, List<List<Long>>> beToTabletIdBatches, JobType jobType,
+                          Map<Long, List<Pair<List<Long>, Long>>> beToTabletIdBatchesWithSize,
+                          JobType jobType,
                           List<Triple<String, String, String>> tables, boolean force) {
-        this(jobId, cloudClusterName, beToTabletIdBatches, jobType);
+        this(jobId, cloudClusterName, beToTabletIdBatchesWithSize, jobType);
         this.tables = tables;
         this.force = force;
     }
@@ -169,8 +188,8 @@ public class CloudWarmUpJob implements Writable {
         return lastBatchId;
     }
 
-    public Map<Long, List<List<Long>>> getBeToTabletIdBatches() {
-        return beToTabletIdBatches;
+    public Map<Long, List<Pair<List<Long>, Long>>> getBeToTabletIdBatchesWithSize() {
+        return beToTabletIdBatchesWithSize;
     }
 
     public Map<Long, String> getBeToThriftAddress() {
@@ -188,16 +207,41 @@ public class CloudWarmUpJob implements Writable {
         info.add(jobState.name());
         info.add(jobType.name());
         info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
-        info.add(Long.toString(lastBatchId + 1));
-        long maxBatchSize = 0;
-        for (List<List<Long>> list : beToTabletIdBatches.values()) {
-            long size = list.size();
-            if (size > maxBatchSize) {
-                maxBatchSize = size;
+
+        // Determine maximum batch ID completed across all BEs
+        long maxFinishedBatchId = beToLastFinishedBatchId.values().stream()
+                .mapToLong(Long::longValue)
+                .max()
+                .orElse(-1);
+        info.add(Long.toString(maxFinishedBatchId + 1));
+
+        // Determine maximum total batches across all BEs
+        long maxBatchCount = beToTabletIdBatchesWithSize.values().stream()
+                .mapToLong(List::size).max().orElse(0);
+        info.add(Long.toString(maxBatchCount));
+
+        info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
+
+        // Compute progress in human-readable data size
+        long totalSizeBytes = 0;
+        long finishedSizeBytes = 0;
+
+        for (Map.Entry<Long, List<Pair<List<Long>, Long>>> entry : beToTabletIdBatchesWithSize.entrySet()) {
+            long beId = entry.getKey();
+            List<Pair<List<Long>, Long>> batches = entry.getValue();
+            totalSizeBytes += batches.stream().mapToLong(p -> p.second).sum();
+
+            long finishedIdx = beToLastFinishedBatchId.getOrDefault(beId, -1L);
+            for (int i = 0; i <= finishedIdx && i < batches.size(); i++) {
+                finishedSizeBytes += batches.get(i).second;
             }
         }
-        info.add(Long.toString(maxBatchSize));
-        info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
+
+        String progress = String.format("Finished %.2f GB / Total %.2f GB",
+                finishedSizeBytes / (1024.0 * 1024 * 1024),
+                totalSizeBytes / (1024.0 * 1024 * 1024));
+        info.add(progress);
+
         info.add(errMsg);
         info.add(tables.stream()
                 .map(t -> StringUtils.isEmpty(t.getRight())
@@ -231,8 +275,8 @@ public class CloudWarmUpJob implements Writable {
         this.lastBatchId = id;
     }
 
-    public void setBeToTabletIdBatches(Map<Long, List<List<Long>>> m) {
-        this.beToTabletIdBatches = m;
+    public void setBeToTabletIdBatchesWithSize(Map<Long, List<Pair<List<Long>, Long>>> beToTabletIdBatchesWithSize) {
+        this.beToTabletIdBatchesWithSize = beToTabletIdBatchesWithSize;
     }
 
     public void setBeToThriftAddress(Map<Long, String> m) {
@@ -371,21 +415,24 @@ public class CloudWarmUpJob implements Writable {
         LOG.info("transfer cloud warm up job {} state to {}", jobId, this.jobState);
     }
 
-    private List<TJobMeta> buildJobMetas(long beId, long batchId) {
+    private List<TJobMeta> buildJobMetasFromPair(long beId, long batchId) {
         List<TJobMeta> jobMetas = new ArrayList<>();
-        List<List<Long>> tabletIdBatches = beToTabletIdBatches.get(beId);
-        if (batchId < tabletIdBatches.size()) {
-            List<Long> tabletIds = tabletIdBatches.get((int) batchId);
+        List<Pair<List<Long>, Long>> tabletBatches = beToTabletIdBatchesWithSize.get(beId);
+
+        if (batchId < tabletBatches.size()) {
+            List<Long> tabletIds = tabletBatches.get((int) batchId).first;
             TJobMeta jobMeta = new TJobMeta();
             jobMeta.setDownloadType(TDownloadType.S3);
             jobMeta.setTabletIds(tabletIds);
             jobMetas.add(jobMeta);
         }
+
         return jobMetas;
     }
 
     private void runRunningJob() throws Exception {
         Preconditions.checkState(jobState == JobState.RUNNING, jobState);
+
         if (FeConstants.runningUnitTest) {
             Thread.sleep(1000);
             this.jobState = JobState.FINISHED;
@@ -394,127 +441,106 @@ public class CloudWarmUpJob implements Writable {
             Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
             return;
         }
-        boolean changeToCancelState = false;
+
         try {
             initClients();
-            // If there is first batch, send SET_JOB RPC
-            if (lastBatchId == -1 && !setJobDone) {
-                setJobDone = true;
-                for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
-                    TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
-                    request.setType(TWarmUpTabletsRequestType.SET_JOB);
-                    request.setJobId(jobId);
-                    request.setBatchId(lastBatchId + 1);
-                    request.setJobMetas(buildJobMetas(entry.getKey(), request.batch_id));
-                    LOG.info("send warm up request. job_id={}, batch_id={}, job_sizes={}, request_type=SET_JOB",
-                                        jobId, request.batch_id, request.job_metas.size());
-                    TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
-                    if (response.getStatus().getStatusCode() != TStatusCode.OK) {
-                        if (!response.getStatus().getErrorMsgs().isEmpty()) {
-                            errMsg = response.getStatus().getErrorMsgs().get(0);
-                        }
-                        changeToCancelState = true;
+
+            for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
+                long beId = entry.getKey();
+                Client client = entry.getValue();
+
+                // Step 1: Poll BE status if currently running
+                if (beIsRunning.getOrDefault(beId, false)) {
+                    TWarmUpTabletsRequest stateReq = new TWarmUpTabletsRequest();
+                    stateReq.setType(TWarmUpTabletsRequestType.GET_CURRENT_JOB_STATE_AND_LEASE);
+                    TWarmUpTabletsResponse stateResp = client.warmUpTablets(stateReq);
+
+                    if (stateResp.getStatus().getStatusCode() != TStatusCode.OK) {
+                        throw new RuntimeException(stateResp.getStatus().getErrorMsgs().toString());
                     }
-                }
-            } else {
-                // Check the batches of all BEs done
-                boolean allLastBatchDone = true;
-                for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
-                    TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
-                    request.setType(TWarmUpTabletsRequestType.GET_CURRENT_JOB_STATE_AND_LEASE);
-                    LOG.info("send warm up request. request_type=GET_CURRENT_JOB_STATE_AND_LEASE");
-                    TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
-                    if (response.getStatus().getStatusCode() != TStatusCode.OK) {
-                        if (!response.getStatus().getErrorMsgs().isEmpty()) {
-                            errMsg = response.getStatus().getErrorMsgs().get(0);
-                        }
-                        changeToCancelState = true;
-                    }
-                    if (!changeToCancelState && response.pending_job_size != 0) {
-                        allLastBatchDone = false;
-                        break;
-                    }
-                }
-                if (!changeToCancelState && allLastBatchDone) {
-                    if (retry) {
-                        // RPC failed, retry
-                        retry = false;
-                    } else {
-                        // last batch is done, log and do next batch
-                        lastBatchId++;
+
+                    if (stateResp.pending_job_size == 0) {
+                        // BE finished its current batch
+                        long finishedBatchId = beToLastFinishedBatchId.getOrDefault(beId, -1L) + 1;
+                        beToLastFinishedBatchId.put(beId, finishedBatchId);
+                        beIsRunning.put(beId, false);
+
+                        // Update finished data size
+                        long size = beToTabletIdBatchesWithSize.get(beId).get((int) finishedBatchId).second;
+                        beToDataSizeFinished.merge(beId, size, Long::sum);
+                        LOG.info("BE {} finished batch {}", beId, finishedBatchId);
+
                         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
                     }
-                    boolean allBatchesDone = true;
-                    for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
-                        TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
-                        request.setType(TWarmUpTabletsRequestType.SET_BATCH);
-                        request.setJobId(jobId);
-                        request.setBatchId(lastBatchId + 1);
-                        request.setJobMetas(buildJobMetas(entry.getKey(), request.batch_id));
-                        if (!request.job_metas.isEmpty()) {
-                            // check all batches is done or not
-                            allBatchesDone = false;
-                            LOG.info("send warm up request. job_id={}, batch_id={}"
-                                    + "job_sizes={}, request_type=SET_BATCH",
-                                    jobId, request.batch_id, request.job_metas.size());
-                            TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
-                            if (response.getStatus().getStatusCode() != TStatusCode.OK) {
-                                if (!response.getStatus().getErrorMsgs().isEmpty()) {
-                                    errMsg = response.getStatus().getErrorMsgs().get(0);
-                                }
-                                changeToCancelState = true;
-                            }
+                }
+
+                // Step 2: If BE is idle, dispatch next batch if available
+                if (!beIsRunning.getOrDefault(beId, false)) {
+                    List<Pair<List<Long>, Long>> batches = beToTabletIdBatchesWithSize.get(beId);
+                    long nextBatchId = beToLastFinishedBatchId.getOrDefault(beId, -1L) + 1;
+
+                    if (batches != null && nextBatchId < batches.size()) {
+                        TWarmUpTabletsRequest setBatchReq = new TWarmUpTabletsRequest();
+                        setBatchReq.setType(TWarmUpTabletsRequestType.SET_BATCH);
+                        setBatchReq.setJobId(jobId);
+                        setBatchReq.setBatchId(nextBatchId);
+                        setBatchReq.setJobMetas(buildJobMetasFromPair(beId, nextBatchId));
+
+                        LOG.info("Dispatching batch {} to BE {}", nextBatchId, beId);
+                        TWarmUpTabletsResponse resp = client.warmUpTablets(setBatchReq);
+
+                        if (resp.getStatus().getStatusCode() != TStatusCode.OK) {
+                            throw new RuntimeException(resp.getStatus().getErrorMsgs().toString());
                         }
-                    }
-                    if (allBatchesDone) {
-                        // release job
-                        this.jobState = JobState.FINISHED;
-                        for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
-                            TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
-                            request.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
-                            request.setJobId(jobId);
-                            LOG.info("send warm up request. request_type=CLEAR_JOB");
-                            entry.getValue().warmUpTablets(request);
-                        }
-                        this.finishedTimeMs = System.currentTimeMillis();
-                        releaseClients();
-                        ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr()
-                                .getRunnableClusterSet().remove(this.cloudClusterName);
-                        Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
+
+                        beIsRunning.put(beId, true);
                     }
                 }
             }
-            if (changeToCancelState) {
-                // release job
-                this.jobState = JobState.CANCELLED;
-                for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
-                    TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
-                    request.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
-                    request.setJobId(jobId);
-                    LOG.info("send warm up request. request_type=CLEAR_JOB");
-                    entry.getValue().warmUpTablets(request);
+
+            // Step 3: Check if all batches on all BEs are finished
+            boolean allFinished = true;
+            for (Map.Entry<Long, List<Pair<List<Long>, Long>>> entry : beToTabletIdBatchesWithSize.entrySet()) {
+                long beId = entry.getKey();
+                int totalBatches = entry.getValue().size();
+                long finishedBatches = beToLastFinishedBatchId.getOrDefault(beId, -1L) + 1;
+
+                if (finishedBatches < totalBatches) {
+                    allFinished = false;
+                    break;
                 }
+            }
+
+            if (allFinished) {
+                LOG.info("All batches completed for job {}", jobId);
+                for (Client client : beToClient.values()) {
+                    TWarmUpTabletsRequest clearReq = new TWarmUpTabletsRequest();
+                    clearReq.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
+                    clearReq.setJobId(jobId);
+                    client.warmUpTablets(clearReq);
+                }
+
+                this.jobState = JobState.FINISHED;
                 this.finishedTimeMs = System.currentTimeMillis();
-                releaseClients();
-                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr()
-                        .getRunnableClusterSet().remove(this.cloudClusterName);
                 Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
+                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getRunnableClusterSet().remove(cloudClusterName);
+                releaseClients();
             }
+
         } catch (Exception e) {
             retryTime++;
             retry = true;
+
             if (retryTime < maxRetryTime) {
-                LOG.warn("warm up job {} exception: {}", jobId, e.getMessage());
+                LOG.warn("Warm-up job {}: exception during run: {}", jobId, e.getMessage());
             } else {
-                // retry three times and release job
                 this.jobState = JobState.CANCELLED;
                 this.finishedTimeMs = System.currentTimeMillis();
-                this.errMsg = "retry the warm up job until max retry time " + String.valueOf(maxRetryTime);
-                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr()
-                        .getRunnableClusterSet().remove(this.cloudClusterName);
+                this.errMsg = "Exceeded max retry attempts";
                 Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
+                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getRunnableClusterSet().remove(cloudClusterName);
+                releaseClients();
             }
-            releaseClients();
         }
     }
 
