@@ -18,6 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_warm_up_partition") {
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false
+    ]
+    setBeConfigTemporary(custoBeConfig) {
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
@@ -190,4 +194,5 @@ suite("test_warm_up_partition") {
         assertTrue(true)
     }
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
+    }
 }

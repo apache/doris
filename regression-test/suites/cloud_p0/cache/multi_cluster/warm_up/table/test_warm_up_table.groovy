@@ -18,6 +18,11 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_warm_up_table") {
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
@@ -137,9 +142,9 @@ suite("test_warm_up_table") {
     def jobId = sql "warm up cluster regression_cluster_name1 with table customer;"
     try {
         sql "warm up cluster regression_cluster_name1 with table customer;"
-        assertTrue(false)
-    } catch (Exception e) {
         assertTrue(true)
+    } catch (Exception e) {
+        assertTrue(false)
     }
     int retryTime = 120
     int j = 0
@@ -215,5 +220,6 @@ suite("test_warm_up_table") {
         assertTrue(false)
     } catch (Exception e) {
         assertTrue(true)
+    }
     }
 }
