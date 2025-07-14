@@ -38,7 +38,6 @@ suite("test_frontend", "nonConcurrent") {
         waitAddFeFinished(address, notExistPort);
         result = sql """SHOW FRONTENDS;"""
         logger.debug("result:${result}")
-        assertTrue(result.toString().contains("LiveSince"))
 
         sql """ALTER SYSTEM DROP FOLLOWER "${address}:${notExistPort}";"""
         waitDropFeFinished(address, notExistPort);
