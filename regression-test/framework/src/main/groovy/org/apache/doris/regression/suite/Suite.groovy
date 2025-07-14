@@ -283,13 +283,19 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, connInfo.conn.getMetaData().getURL(), actionSupplier)
     }
 
+    // Deprecated, should call 'Awaitility.await()...' directly
+    @Deprecated
     public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
-        def connInfo = context.threadLocalConn.get()
-        Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
-            {
-                connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-            }
-        )
+        // def connInfo = context.threadLocalConn.get()
+        // Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+        //     {
+        //         connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+        //     }
+        // )
+        Awaitility.await()
+            .atMost(atMostSeconds, SECONDS)
+            .pollInterval(intervalSecond, SECONDS)
+            .until(actionSupplier.call())
     }
 
     // more explaination can see example file: demo_p0/docker_action.groovy
@@ -353,12 +359,7 @@ class Suite implements GroovyInterceptable {
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
-            def conn = DriverManager.getConnection(url, user, password)
-            def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
-            logger.info("try create database if not exists {}", context.dbName)
-            JdbcUtils.executeToList(conn, sql)
-
-            url = Config.buildUrlWithDb(url, context.dbName)
+            cluster.jdbcUrl = url
             logger.info("connect to docker cluster: suite={}, url={}", name, url)
             connect(user, password, url, actionSupplier)
         } finally {
