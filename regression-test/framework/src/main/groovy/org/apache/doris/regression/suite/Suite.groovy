@@ -330,7 +330,7 @@ class Suite implements GroovyInterceptable {
 
     private void dockerImpl(ClusterOptions options, boolean isCloud, Closure actionSupplier) throws Exception {
         logger.info("=== start run suite {} in {} mode. ===", name, (isCloud ? "cloud" : "not_cloud"))
-        def originConnection = connect.threadLocalConn.get()
+        def originConnection = context.threadLocalConn.get()
         try {
             cluster.destroy(true)
             cluster.init(options, isCloud)
