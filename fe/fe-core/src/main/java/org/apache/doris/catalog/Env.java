@@ -188,6 +188,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
@@ -3806,6 +3807,12 @@ public class Env {
             sb.append(olapTable.storagePageSize()).append("\"");
         }
 
+        // storage dict page size
+        if (olapTable.storageDictPageSize() != PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.storageDictPageSize()).append("\"");
+        }
+
         // skip inverted index on load
         if (olapTable.skipWriteIndexOnLoad()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
@@ -6227,6 +6234,18 @@ public class Env {
                         fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
                 }
             }
+        }
+    }
+
+    public void setPartitionVersion(AdminSetPartitionVersionCommand command) throws Exception {
+        String database = command.getDatabase();
+        String table = command.getTable();
+        long partitionId = command.getPartitionId();
+        long visibleVersion = command.getVisibleVersion();
+        int setSuccess = setPartitionVersionInternal(database, table, partitionId, visibleVersion, false);
+        if (setSuccess == -1) {
+            throw new DdlException("Failed to set partition visible version to " + visibleVersion + ". " + "Partition "
+                    + partitionId + " not exists. Database " + database + ", Table " + table + ".");
         }
     }
 

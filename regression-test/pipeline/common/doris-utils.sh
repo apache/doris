@@ -219,7 +219,7 @@ function stop_doris() {
 function stop_doris_grace() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local ret=0
-    local keywords="detected memory leak|undefined-behavior"
+    local keywords="detected memory leak|undefined-behavior|AddressSanitizer: CHECK failed"
     sudo mkdir -p /tmp/be/bin && cp -rf "${DORIS_HOME}"/be/bin/be.pid /tmp/be/bin/be.pid
     if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
         echo "INFO: doris be stopped gracefully."

@@ -126,7 +126,7 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         detail::OneAdder<T, Data>::add(this->data(place), *columns[0], row_num);
     }
 
@@ -153,7 +153,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena*, bool /*agg_many*/) const override {
+                   const IColumn** columns, Arena&, bool /*agg_many*/) const override {
         std::vector<KeyType> keys_container;
         const KeyType* keys = get_keys(keys_container, *columns[0], batch_size);
 
@@ -174,7 +174,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         auto& rhs_set = this->data(rhs).set;
         if (rhs_set.size() == 0) return;
 
@@ -187,7 +187,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena&) const override {
         std::vector<KeyType> keys_container;
         const KeyType* keys = get_keys(keys_container, *columns[0], batch_size);
         auto& set = this->data(place).set;
@@ -209,7 +209,7 @@ public:
     }
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
-                               BufferReadable& buf, Arena*) const override {
+                               BufferReadable& buf, Arena&) const override {
         auto& set = this->data(place).set;
         UInt64 size;
         buf.read_var_uint(size);
@@ -224,7 +224,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         auto& set = this->data(place).set;
         UInt64 size;
         buf.read_var_uint(size);

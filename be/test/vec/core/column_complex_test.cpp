@@ -718,4 +718,22 @@ TEST_F(ColumnQuantileStateTest, OperatorValidate) {
     check_field_type(column);
 }
 
+TEST(ColumnComplexTest, TestErase) {
+    using ColumnTest = ColumnComplexType<TYPE_BITMAP>;
+
+    auto column_test = ColumnTest::create();
+
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+
+    column_test->erase(1, 0);
+
+    column_test->erase(3, 1);
+
+    EXPECT_EQ(column_test->size(), 4);
+}
+
 } // namespace doris::vectorized

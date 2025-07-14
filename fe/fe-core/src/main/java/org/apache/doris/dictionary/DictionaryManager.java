@@ -184,10 +184,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             // 3. Log the creation operation
             Env.getCurrentEnv().getEditLog().logCreateDictionary(dictionary);
 
-            if (!dictionary.hasNewerSourceVersion()) {
-                // shouldn't be. the data version in dictionary should be zero now.
-                LOG.warn("Dictionary {} is too new when creating", dictionary.getName());
-            }
             submitDataLoad(dictionary, false);
             return dictionary;
         } finally {
@@ -357,6 +353,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                             || dictionary.hasNewerSourceVersion() && dictionary.getNextRefreshTime() < now) {
                         // should schedule refresh. ONLY trigger when it's NORMAL because if not,
                         // it's already going to refresh or drop.
+                        // ATTN: maybe when reach here, last load finished and data completed. the status is NORMAL too.
+                        // so we should check dataCompleted() again before start loading.
                         if (dictionary.trySetStatusIf(DictionaryStatus.NORMAL, DictionaryStatus.OUT_OF_DATE)) {
                             submitDataLoad(dictionary, true);
                         }
@@ -372,7 +370,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
      * @param adaptiveLoad if only load to outdated BE, true. if must load to all BE, false.
      */
     private void submitDataLoad(Dictionary dictionary, boolean adaptiveLoad) {
-        LOG.info("Submit dictionary {} refresh task", dictionary.getName());
+        LOG.info("Submit dictionary {} refresh task, it's {} now", dictionary.getName(), dictionary.getStatus());
         executor.execute(() -> {
             try {
                 dataLoad(null, dictionary, adaptiveLoad);
@@ -394,6 +392,15 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             LOG.info("skip auto-triggered dataLoad of dictionary " + dictionary.getName());
             return;
         }
+        if (adaptiveLoad && dictionary.dataCompleted() && !dictionary.hasNewerSourceVersion()) {
+            // if adaptive load, double check the data completancy.
+            if (!dictionary.trySetStatusIf(DictionaryStatus.OUT_OF_DATE, DictionaryStatus.NORMAL)) {
+                throw new AnalysisException("Dictionary " + dictionary.getName() + "'s status changed to "
+                        + oldStatus.name() + " before adaptive load");
+            }
+            LOG.info("skip adaptive dataLoad of dictionary " + dictionary.getName() + ". maybe last load finished.");
+            return;
+        }
         // use atomic status as a lock.
         if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.LOADING)) {
             throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
@@ -412,7 +419,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 .parseSingle("insert into " + dictionary.getDbName() + "." + dictionary.getName() + " select * from "
                         + dictionary.getSourceCtlName() + "." + dictionary.getSourceDbName() + "."
                         + dictionary.getSourceTableName());
-        LOG.info("Loading to dictionary {} with query {}", dictionary.getName(), ctx.queryId());
+        LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
+                adaptiveLoad);
         if (!baseCommand.getLabelName().isPresent()) {
             baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
         }
@@ -484,8 +492,10 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
         // commit and check the result. not modify metadata so dont need lock.
         if (!commitNowVersion(ctx, dictionary)) {
-            dictionary.decreaseVersion();
-            Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
+            if (!ctx.getStatementContext().isPartialLoadDictionary()) {
+                dictionary.decreaseVersion();
+                Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
+            }
             dictionary.trySetStatus(oldStatus);
             abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
             throw new RuntimeException("Dictionary " + dictionary.getName() + " commit version "
@@ -493,7 +503,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
 
         // commit succeed. update metadata.
-        dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL);
+        if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL)) {
+            LOG.warn("Dictionary {} status changed to {} after commit", dictionary.getName(),
+                    dictionary.getStatus().name());
+            return;
+        }
         dictionary.updateLastUpdateTime();
         dictionary.updateSrcVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
         if (ctx.getStatementContext().isPartialLoadDictionary()) {
@@ -756,7 +770,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 LOG.warn("Dictionary {} not found when collecting status", dictId);
             }
         }
-        LOG.info("Collect all dictionaries status succeed");
+        LOG.info("Collect {} dictionaries status succeed", newDataDistributions.size());
         return unknownDictionaries;
     }
 

@@ -74,7 +74,6 @@ statementBase
 
 unsupportedStatement
     : unsupportedStatsStatement
-    | unsupportedAdminStatement
     | unsupportedLoadStatement
     ;
 
@@ -588,6 +587,8 @@ supportedAdminStatement
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
     | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
+    | ADMIN SET TABLE name=multipartIdentifier
+        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 supportedRecoverStatement
@@ -596,11 +597,6 @@ supportedRecoverStatement
         id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
     | RECOVER PARTITION name=identifier id=INTEGER_VALUE? (AS alias=identifier)?
         FROM tableName=multipartIdentifier                                          #recoverPartition
-    ;
-
-unsupportedAdminStatement
-    : ADMIN SET TABLE name=multipartIdentifier
-        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 baseTableRef
@@ -1244,6 +1240,10 @@ relationHint
     | HINT_START identifier (COMMA identifier)* HINT_END              #commentRelationHint
     ;
 
+expressionWithOrder
+    :  expression ordering = (ASC | DESC)?
+    ;
+
 aggClause
     : GROUP BY groupingElement
     ;
@@ -1252,7 +1252,7 @@ groupingElement
     : ROLLUP LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | CUBE LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | GROUPING SETS LEFT_PAREN groupingSet (COMMA groupingSet)* RIGHT_PAREN
-    | expression (COMMA expression)* (WITH ROLLUP)?
+    | expressionWithOrder (COMMA expressionWithOrder)* (WITH ROLLUP)?
     ;
 
 groupingSet

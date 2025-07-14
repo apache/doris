@@ -101,6 +101,12 @@ static void BM_BitPackOptimized(benchmark::State& state) {
     state.SetBytesProcessed(int64_t(state.iterations()) * size);
 }
 
+<<<<<<< HEAD:be/benchmark/benchmark_bit_pack.cpp
 BENCHMARK(BM_BitPack)->DenseRange(1, 127)->Unit(benchmark::kNanosecond);
 BENCHMARK(BM_BitPackOptimized)->DenseRange(1, 127)->Unit(benchmark::kNanosecond);
 } // namespace doris
+=======
+BENCHMARK(BM_BitPack)->DenseRange(1, 127, 16)->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_BitPackOptimized)->DenseRange(1, 127, 16)->Unit(benchmark::kNanosecond);
+} // namespace doris
+>>>>>>> f66b967dd3fc1854c230e52aa35d26447b1a36f4:be/benchmark/benchmark_bit_pack.hpp

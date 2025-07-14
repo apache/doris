@@ -179,7 +179,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         if constexpr (has_input_param) {
             Int32 input_max_num_buckets =
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
@@ -208,7 +208,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -217,7 +217,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

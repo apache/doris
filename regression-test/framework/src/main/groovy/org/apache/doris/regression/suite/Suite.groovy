@@ -84,6 +84,9 @@ import java.sql.PreparedStatement
 import java.sql.ResultSetMetaData
 import org.junit.Assert
 
+import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
+
 @Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
@@ -2971,4 +2974,51 @@ class Suite implements GroovyInterceptable {
         beHostToHashFile
     }
 
+    /**
+     * Wait until the specified time constraint is satisfied before executing the test.
+     * 
+     * This function solves the problem where tests cannot span hour or day boundaries.
+     * For example: Some tests may fail when crossing hour or day boundaries. Using this function
+     * ensures that tests are executed within a safe time window to avoid crossing specified time boundaries.
+     * 
+     * @param caseSpanConstraint:
+     *           - "NOT_CROSS_HOUR_BOUNDARY": Test cannot cross hour boundary
+     *           - "NOT_CROSS_DAY_BOUNDARY": Test cannot cross day boundary
+     * @param caseElapseSeconds Expected total execution time of the test in seconds
+     */
+    void waitUntilSafeExecutionTime(String caseSpanConstraint, int caseElapseSeconds) {
+        if (caseElapseSeconds <= 0) {
+            throw new IllegalArgumentException("invalid caseElapseSeconds, ${caseElapseSeconds}")
+        }
+
+        long sleepSeconds = 0
+        LocalDateTime now = LocalDateTime.now();
+        
+        switch (caseSpanConstraint) {
+            case "NOT_CROSS_HOUR_BOUNDARY":
+                LocalDateTime nextHour = now.withMinute(0).withSecond(0).withNano(0).plusHours(1);
+                long secondsToNextHour = ChronoUnit.SECONDS.between(now, nextHour)
+                
+                if (secondsToNextHour < caseElapseSeconds) {
+                    sleepSeconds = secondsToNextHour
+                }
+                break
+                
+            case "NOT_CROSS_DAY_BOUNDARY":
+                LocalDateTime startOfNextDay = now.toLocalDate().plusDays(1).atStartOfDay();
+                long secondsToNextDay = ChronoUnit.SECONDS.between(now, startOfNextDay)
+                
+                if (secondsToNextDay < caseElapseSeconds) {
+                    sleepSeconds = secondsToNextDay
+                }
+                break
+            default:
+                throw new IllegalArgumentException("invalid caseSpanConstraint:${caseSpanConstraint}")
+        }
+        
+        if (sleepSeconds > 0) {
+            logger.info("test sleeps ${sleepSeconds} to satisfy ${caseSpanConstraint}")
+            Thread.sleep(sleepSeconds * 1000)
+        }
+    }
 }
