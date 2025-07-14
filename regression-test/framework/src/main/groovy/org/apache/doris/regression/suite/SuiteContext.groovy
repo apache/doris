@@ -160,8 +160,8 @@ class SuiteContext implements Closeable {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
             log.info("Try to create db, sql: ${sql}".toString())
             if (!config.dryRun) {
-                conn.withCloseable { conn ->
-                    JdbcUtils.executeToList(conn, sql)
+                conn.withCloseable { c ->
+                    JdbcUtils.executeToList(c, sql)
                 }
             }
         } catch (Throwable t) {
