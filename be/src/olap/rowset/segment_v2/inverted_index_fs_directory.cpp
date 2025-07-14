@@ -693,10 +693,11 @@ lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
     return ret;
 }
 
-lucene::store::IndexOutput* DorisFSDirectory::createOutputV2(io::FileWriter* file_writer) {
-    auto* ret = _CLNEW FSIndexOutputV2();
+std::unique_ptr<lucene::store::IndexOutput> DorisFSDirectory::createOutputV2(
+        io::FileWriter* file_writer) {
+    auto ret = std::make_unique<FSIndexOutputV2>();
     ret->init(file_writer);
-    return ret;
+    return std::move(ret);
 }
 
 std::string DorisFSDirectory::toString() const {
