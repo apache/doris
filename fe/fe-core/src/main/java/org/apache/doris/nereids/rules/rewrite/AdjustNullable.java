@@ -150,40 +150,38 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Map<ExprId, Slot> replaceMap) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, replaceMap);
-        if (isAnalyzedPhase) {
-            // at analyzed phase, join had no hash conditions, need skip update its expressions.
-            for (Slot slot : join.getOutput()) {
-                replaceMap.put(slot.getExprId(), slot);
-            }
-            return join;
-        }
-
         Optional<List<Expression>> hashConjuncts = updateExpressions(join.getHashJoinConjuncts(), replaceMap, true);
         Optional<List<Expression>> markConjuncts = Optional.empty();
-        boolean needCheckHashConjuncts = false;
-        if (!hashConjuncts.isPresent() || hashConjuncts.get().isEmpty()) {
+
+        boolean hadUpdatedMarkConjuncts = false;
+        if (isAnalyzedPhase || join.getHashJoinConjuncts().isEmpty()) {
             // if hashConjuncts is empty, mark join conjuncts may used to build hash table
             // so need call updateExpressions for mark join conjuncts before adjust nullable by output slot
             markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap, true);
-        } else {
-            needCheckHashConjuncts = true;
+            hadUpdatedMarkConjuncts = true;
+        }
+        // in fact, otherConjuncts shouldn't use join output nullable attribute,
+        // it should use left and right tables' origin nullable attribute.
+        // but for history reason, BE use join output nullable attribute for evaluating the other conditions.
+        // so here, we make a difference:
+        // 1) when at analyzed phase, still update other conjuncts without using join output nullables.
+        //    then later at rewrite phase, the join conditions may push down, and the push down condition with proper
+        //    nullable attribute.
+        // 2) when at the end of rewrite phase, update other conjuncts with join output nullables.
+        //    Just change it to be consistent with BE.
+        Optional<List<Expression>> otherConjuncts = Optional.empty();
+        if (isAnalyzedPhase) {
+            otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap, true);
         }
         for (Slot slot : join.getOutput()) {
             replaceMap.put(slot.getExprId(), slot);
         }
-        if (needCheckHashConjuncts) {
-            // hashConjuncts is not empty, mark join conjuncts are processed like other join conjuncts
-            Preconditions.checkState(
-                    !hashConjuncts.orElse(join.getHashJoinConjuncts()).isEmpty(),
-                    "hash conjuncts should not be empty"
-            );
+        if (!hadUpdatedMarkConjuncts) {
             markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap, false);
         }
-        // in fact, otherConjuncts shouldn't use join output nullable attribute,
-        // it should use left and right tables' origin nullable attribute.
-        // but for history reason, be use join output nullable attribute for evaluating the other conditions.
-        // so adjust join other condition nullable to join output nullable is just for be.
-        Optional<List<Expression>> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap, false);
+        if (!isAnalyzedPhase) {
+            otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap, false);
+        }
         if (!hashConjuncts.isPresent() && !markConjuncts.isPresent() && !otherConjuncts.isPresent()) {
             return join;
         }
