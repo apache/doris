@@ -420,8 +420,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
                 auto dst_seg_id = _num_segcompacted.load();
                 RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
                 if (_segcompaction_worker->need_convert_delete_bitmap()) {
-                    _segcompaction_worker->convert_segment_delete_bitmap(
-                            _context.mow_context->delete_bitmap, segid, dst_seg_id);
+                    RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
+                            _context.mow_context->delete_bitmap, segid, dst_seg_id));
                 }
                 continue;
             } else {
@@ -451,8 +451,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         auto dst_seg_id = _num_segcompacted.load();
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            _segcompaction_worker->convert_segment_delete_bitmap(
-                    _context.mow_context->delete_bitmap, src_seg_id, dst_seg_id);
+            RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
+                    _context.mow_context->delete_bitmap, src_seg_id, dst_seg_id));
         }
         segments->clear();
         return Status::OK();
@@ -652,8 +652,8 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
         auto dst_segid = _num_segcompacted.load();
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            _segcompaction_worker->convert_segment_delete_bitmap(
-                    _context.mow_context->delete_bitmap, segid, dst_segid);
+            RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
+                    _context.mow_context->delete_bitmap, segid, dst_segid));
         }
     }
     return Status::OK();

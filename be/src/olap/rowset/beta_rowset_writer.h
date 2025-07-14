@@ -194,6 +194,8 @@ public:
         return this->_idx_files.get_file_writers();
     }
 
+    CalcDeleteBitmapToken* calc_delete_bitmap_token() { return _calc_delete_bitmap_token.get(); }
+
 private:
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
