@@ -10,4 +10,4 @@ select cast(v['nested']['c'] as array<int>), size(cast(v['nested']['c'] as array
 
 select cast(v['nested']['a'] as array<string>), size(cast(v['nested']['a'] as array<string>)) from var_nested_load_conflict order by k;
 select cast(v['nested']['b'] as array<string>), size(cast(v['nested']['b'] as array<string>)) from var_nested_load_conflict order by k;
-select cast(v['nested']['c'] as array<string>), size(cast(v['nested']['c'] as array<string>)) from var_nested_load_conflict order by k;
+select cast(v['nested']['c'] as array<string>), size(cast(v['nested']['c'] as array<string>)) from var_nested_load_conflict order by k; 
