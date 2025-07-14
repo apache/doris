@@ -17,8 +17,6 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -31,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
@@ -85,10 +84,9 @@ public class PolicyTest extends TestWithFeService {
         Env.getCurrentEnv().getAuth().grantTablePrivilegeCommand(command);
         //create role
         String role = "role1";
-        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
-        CreateRoleStmt createRoleStmt = new CreateRoleStmt(role);
-        createRoleStmt.analyze(analyzer);
-        Env.getCurrentEnv().getAuth().createRole(createRoleStmt);
+        CreateRoleCommand createRoleCommand = new CreateRoleCommand(false, role, "");
+        createRoleCommand.run(connectContext, null);
+
         // grant role to user
         GrantRoleCommand grantRoleCommand = new GrantRoleCommand(user, Lists.newArrayList(role));
         grantRoleCommand.validate();
