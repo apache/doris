@@ -135,7 +135,6 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.ByteString;
-import org.apache.commons.collections.map.MultiValueMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
@@ -2293,8 +2292,7 @@ public class Coordinator implements CoordInterface {
                         } else {
                             return true;
                         }
-                    })
-                            .collect(Collectors.toList());
+                    }).collect(Collectors.toList());
                 }
             }
             if (retLocations.isEmpty()) {
@@ -2313,7 +2311,6 @@ public class Coordinator implements CoordInterface {
                     }
                     sb.append("]");
                 }
-
                 throw new UserException(sb.toString());
             }
         }
