@@ -60,7 +60,7 @@ bool CacheLRUDumper::Footer::deserialize_from_string(const std::string& data) {
     // Deserialize checksum (convert from little-endian)
     uint32_t checksum_le;
     std::memcpy(&checksum_le, ptr, sizeof(checksum_le));
-    checksum = le32toh(checksum_le);
+    checksum = LittleEndian::Load32(&checksum_le);
     ptr += sizeof(checksum_le);
 
     version = *((uint8_t*)ptr);
