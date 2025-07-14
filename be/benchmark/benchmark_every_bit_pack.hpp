@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/core/wide_integer.h"
 #include <vector>
+
+#include "vec/core/wide_integer.h"
 
 namespace doris {
 template <typename T>
@@ -29,8 +30,8 @@ inline void bit_pack_32(const T* input, uint8_t in_num, int bit_width, uint8_t* 
 
     for (int i = 0; i < full_batch_size; i += 32) {
         s |= static_cast<wide::UInt256>(input[i + 35]);
-        s |= static_cast<wide::UInt256>(input[i + 34]) << (1 *  bit_width);
-        s |= static_cast<wide::UInt256>(input[i + 33]) << (2 *  bit_width);
+        s |= static_cast<wide::UInt256>(input[i + 34]) << (1 * bit_width);
+        s |= static_cast<wide::UInt256>(input[i + 33]) << (2 * bit_width);
         s |= static_cast<wide::UInt256>(input[i + 32]) << (3 * bit_width);
         s |= static_cast<wide::UInt256>(input[i + 31]) << (4 * bit_width);
         s |= static_cast<wide::UInt256>(input[i + 30]) << (5 * bit_width);
@@ -77,7 +78,8 @@ inline void bit_pack_32(const T* input, uint8_t in_num, int bit_width, uint8_t* 
     int bytes = (byte + 7) >> 3;
 
     for (int i = 0; i < tail_count; i++) {
-        s |= (static_cast<__int128_t>(input[i + full_batch_size])) << ((tail_count - i - 1) * bit_width);
+        s |= (static_cast<__int128_t>(input[i + full_batch_size]))
+             << ((tail_count - i - 1) * bit_width);
     }
 
     s <<= (bytes << 3) - byte;
@@ -125,7 +127,8 @@ inline void bit_pack_16(const T* input, uint8_t in_num, int bit_width, uint8_t* 
     int bytes = (byte + 7) >> 3;
 
     for (int i = 0; i < tail_count; i++) {
-        s |= (static_cast<__int128_t>(input[i + full_batch_size])) << ((tail_count - i - 1) * bit_width);
+        s |= (static_cast<__int128_t>(input[i + full_batch_size]))
+             << ((tail_count - i - 1) * bit_width);
     }
 
     s <<= (bytes << 3) - byte;
@@ -134,7 +137,6 @@ inline void bit_pack_16(const T* input, uint8_t in_num, int bit_width, uint8_t* 
         output[i] = (s >> ((bytes - i - 1) << 3)) & output_mask;
     }
 }
-
 
 template <typename T, typename U>
 inline void bit_pack_8(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
@@ -182,8 +184,9 @@ inline void bit_pack_4(const T* input, uint8_t in_num, int bit_width, uint8_t* o
     int tail_count = in_num & 3;
     int full_batch_size = (in_num >> 2) << 2;
     int output_size = 0; // How many outputs can be processed at a time
-    int bit_width_remainder = (bit_width << 2) & 7; // How many bits will be left after processing 4 numbers at a time
-    int extra_bit = 0; // Extra bits after each process
+    int bit_width_remainder =
+            (bit_width << 2) & 7; // How many bits will be left after processing 4 numbers at a time
+    int extra_bit = 0;            // Extra bits after each process
 
     for (int i = 0; i < full_batch_size; i += 4) {
         s <<= bit_width;
@@ -194,7 +197,7 @@ inline void bit_pack_4(const T* input, uint8_t in_num, int bit_width, uint8_t* o
         s |= (static_cast<U>(input[i + 2]));
         s <<= bit_width;
         s |= (static_cast<U>(input[i + 3]));
-        
+
         output_size = (bit_width * 4 + extra_bit) >> 3;
         extra_bit = (extra_bit + bit_width_remainder) & 7;
         for (int j = 0; j < output_size; j++) {
@@ -228,15 +231,16 @@ inline void bit_pack_2(const T* input, uint8_t in_num, int bit_width, uint8_t* o
     int tail_count = in_num & 1;
     int full_batch_size = (in_num >> 1) << 1;
     int output_size = 0; // How many outputs can be processed at a time
-    int bit_width_remainder = (bit_width << 1) & 7; // How many bits will be left after processing 4 numbers at a time
-    int extra_bit = 0; // Extra bits after each process
+    int bit_width_remainder =
+            (bit_width << 1) & 7; // How many bits will be left after processing 4 numbers at a time
+    int extra_bit = 0;            // Extra bits after each process
 
     for (int i = 0; i < full_batch_size; i += 2) {
         s <<= bit_width;
         s |= (static_cast<U>(input[i]));
         s <<= bit_width;
         s |= (static_cast<U>(input[i + 1]));
-        
+
         output_size = (bit_width + bit_width + extra_bit) >> 3;
         extra_bit = (extra_bit + bit_width_remainder) & 7;
         for (int j = 0; j < output_size; j++) {
@@ -292,7 +296,7 @@ void bit_pack_1(const T* input, uint8_t in_num, int bit_width, uint8_t* output) 
     }
 }
 
-void get_testdata(__int128_t *test_data, int n, int w) {
+void get_testdata(__int128_t* test_data, int n, int w) {
     __int128_t in_mask = ((__int128_t(1)) << w) - 1;
     for (int i = 0; i < n; i++) {
         test_data[i] = (i & in_mask);
