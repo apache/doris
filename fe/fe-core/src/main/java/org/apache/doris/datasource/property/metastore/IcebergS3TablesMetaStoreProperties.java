@@ -4,8 +4,8 @@ import org.apache.iceberg.catalog.Catalog;
 
 import java.util.Map;
 
-public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties{
-    public IcebergHMSMetaStoreProperties(Map<String, String> props) {
+public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergProperties{
+    protected IcebergS3TablesMetaStoreProperties(Map<String, String> props) {
         super(props);
     }
 

@@ -16,8 +16,9 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     public AWSGlueMetaStoreBaseProperties glueProperties;
     
     public S3Properties s3Properties;
-    public IcebergGlueMetaStoreProperties(Type type, Map<String, String> props) {
-        super(type, props);
+
+    public IcebergGlueMetaStoreProperties(Map<String, String> props) {
+        super(props);
     }
 
     @Override
@@ -58,7 +59,6 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         initS3Param(props);
         initGlueParam(props);
         catalog.initialize("glue", props);
-        
         return catalog;
     }
 }

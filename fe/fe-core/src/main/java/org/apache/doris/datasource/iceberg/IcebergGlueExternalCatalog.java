@@ -47,7 +47,7 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
     @Override
     protected void initCatalog() {
         icebergCatalogType = ICEBERG_GLUE;
-        IcebergGlueMetaStoreProperties properties = new IcebergGlueMetaStoreProperties(IcebergGlueMetaStoreProperties.Type.GLUE, getCatalogProperty().getProperties());
+        IcebergGlueMetaStoreProperties properties = new IcebergGlueMetaStoreProperties(getCatalogProperty().getProperties());
         properties.initNormalizeAndCheckProps();
         properties.initialize();
         /*GlueCatalog glueCatalog = new GlueCatalog();
