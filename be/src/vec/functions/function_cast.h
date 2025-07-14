@@ -900,7 +900,7 @@ struct ConvertImplFromJsonb {
 
                 // if value is string, convert by parse, otherwise the result is null if ToDataType is not string
                 if (value->isString()) {
-                    const auto* blob = value->unpack<JsonbBinaryVal>();
+                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
                     const auto& data = blob->getBlob();
                     size_t len = blob->getBlobLen();
                     ReadBuffer rb((char*)(data), len);
@@ -909,7 +909,7 @@ struct ConvertImplFromJsonb {
                     continue;
                 }
 
-                if constexpr (type == TypeIndex::UInt8) {
+                if constexpr (type_index == TypeIndex::UInt8) {
                     // cast from json value to boolean type
                     if (value->isTrue()) {
                         res[i] = 1;

@@ -942,8 +942,8 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
     if (is_finalized()) {
         // TODO(hangyu) : we should use data type to get the field value
         // here is a special case for Array<JsonbField>
-        if (least_common_type.get_type_id() == PrimitiveType::TYPE_ARRAY &&
-            least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
+        if (least_common_type.get_type_id() == TypeIndex::Array &&
+            least_common_type.get_base_type_id() == TypeIndex::JSONB) {
             // Array of JsonbField is special case
             get_finalized_column().get(n, res);
             // here we will get a Array<String> Field or NULL, if it is Array<String>, we need to convert it to Array<JsonbField>
@@ -952,8 +952,8 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
         }
 
         // here is a special case for JsonbField
-        if (least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
-            res = Field::create_field<TYPE_JSONB>(JsonbField());
+        if (least_common_type.get_base_type_id() == TypeIndex::JSONB) {
+            res = JsonbField();
             get_finalized_column().get(n, res);
             return;
         }
@@ -2064,20 +2064,18 @@ bool ColumnObject::try_insert_default_from_nested(const Subcolumns::NodePtr& ent
     return true;
 }
 
-void ColumnVariant::Subcolumn::convert_array_string_to_array_jsonb(Field& array_field) {
+void ColumnObject::Subcolumn::convert_array_string_to_array_jsonb(Field& array_field) {
     if (array_field.is_null()) {
         return;
     }
-    if (array_field.get_type() != PrimitiveType::TYPE_ARRAY) {
+    if (array_field.get_type() != Field::Types::Array) {
         return;
     }
-    Field converted_res = Field::create_field<TYPE_ARRAY>(Array());
+    Field converted_res = Array();
     for (auto& item : array_field.get<Array&>()) {
-        Field jsonb_item;
-        DCHECK(item.get_type() == PrimitiveType::TYPE_STRING);
+        DCHECK(item.get_type() == Field::Types::String);
         auto& string_item = item.get<String&>();
-        jsonb_item = Field::create_field<TYPE_JSONB>(
-                JsonbField(string_item.c_str(), string_item.size()));
+        Field jsonb_item = JsonbField(string_item.c_str(), string_item.size());
         converted_res.get<Array&>().emplace_back(std::move(jsonb_item));
     }
     array_field = std::move(converted_res);
