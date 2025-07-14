@@ -75,7 +75,7 @@ suite("create_nestedtypes_with_schemachange", "p0") {
                      col3 array<int> $null_define,
                      col4 map<int, int> $null_define,
                      col5 struct<f1: int> $null_define,
-                     col6 variant $null_define
+                     col6 variant<properties("variant_max_subcolumns_count" = "0", "variant_enable_typed_paths_to_sparse" = "false")> $null_define
                 )
                 /* mow */
                 UNIQUE KEY(col0) DISTRIBUTED BY HASH(col0) BUCKETS 4 PROPERTIES (
