@@ -3876,6 +3876,10 @@ public class SessionVariable implements Serializable, Writable {
         this.disableNereidsRules = disableNereidsRules;
     }
 
+    public void setEnableParallelResultSink(boolean enableParallelResultSink) {
+        this.enableParallelResultSink = enableParallelResultSink;
+    }
+
     public void setDisableNereidsExpressionRules(String disableNereidsExpressionRules) {
         BitSet bitSet = new BitSet();
         for (String ruleName : disableNereidsExpressionRules.split(",")) {
