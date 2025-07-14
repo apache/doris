@@ -26,7 +26,6 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -6174,35 +6173,6 @@ public class Env {
                 LOG.info("set config " + key + " to " + value);
             } catch (IllegalAccessException e) {
                 LOG.warn("set config " + key + " failed: " + e.getMessage());
-            }
-        }
-    }
-
-    public void setConfig(AdminSetConfigStmt stmt) throws Exception {
-        Map<String, String> configs = stmt.getConfigs();
-        Preconditions.checkState(configs.size() == 1);
-
-        for (Map.Entry<String, String> entry : configs.entrySet()) {
-            try {
-                setMutableConfigWithCallback(entry.getKey(), entry.getValue());
-            } catch (ConfigException e) {
-                throw new DdlException(e.getMessage());
-            }
-        }
-
-        if (stmt.isApplyToAll()) {
-            for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
-                if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
-                    continue;
-                }
-
-                TNetworkAddress feAddr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
-                FEOpExecutor executor = new FEOpExecutor(feAddr, stmt.getLocalSetStmt(), ConnectContext.get(), false);
-                executor.execute();
-                if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
-                    throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
-                            fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
-                }
             }
         }
     }
