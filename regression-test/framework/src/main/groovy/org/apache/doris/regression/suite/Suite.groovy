@@ -2225,8 +2225,7 @@ class Suite implements GroovyInterceptable {
 
     // mv not part in rewrite process
     void mv_not_part_in(query_sql, mv_name, expected_pre_rewrite_strategys = []) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name + ", " +
-                ", sync_cbo_rewrite = " + sync_cbo_rewrite)
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name)
         if (!mvShouldContinueCheck(expected_pre_rewrite_strategys)) {
             return;
         }
@@ -2245,7 +2244,7 @@ class Suite implements GroovyInterceptable {
 
     // multi mv all not part in rewrite process
     void mv_all_not_part_in(query_sql, mv_names, expected_pre_rewrite_strategys = []) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
         if (!mvShouldContinueCheck(expected_pre_rewrite_strategys)) {
             return;
         }
@@ -2269,7 +2268,7 @@ class Suite implements GroovyInterceptable {
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
     void mv_rewrite_success(query_sql, mv_name, is_partition_statistics_ready = true, expected_pre_rewrite_strategys = []) {
-        logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+        logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!mvShouldContinueCheck(expected_pre_rewrite_strategys)) {
             return;
@@ -2290,7 +2289,7 @@ class Suite implements GroovyInterceptable {
     // if true, check if chosen by cbo or doesn't check
     void mv_rewrite_all_success( query_sql, mv_names, is_partition_statistics_ready = true,
                                  expected_pre_rewrite_strategys = []) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!mvShouldContinueCheck(expected_pre_rewrite_strategys)) {
             return;
@@ -2320,7 +2319,7 @@ class Suite implements GroovyInterceptable {
     // if true, check if chosen by cbo or doesn't check
     void mv_rewrite_any_success(query_sql, mv_names, is_partition_statistics_ready = true,
                                 expected_pre_rewrite_strategys = []) {
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!mvShouldContinueCheck(expected_pre_rewrite_strategys)) {
             return;
