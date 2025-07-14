@@ -416,22 +416,23 @@ public class Alter {
                         table.getDbName(), table.getName(), tableRename.getNewTableName());
             } else if (alterClause instanceof AddColumnClause) {
                 AddColumnClause addColumn = (AddColumnClause) alterClause;
-                table.addColumn(addColumn.getColumn(), addColumn.getColPos());
+                table.getCatalog().addColumn(table, addColumn.getColumn(), addColumn.getColPos());
             } else if (alterClause instanceof AddColumnsClause) {
                 AddColumnsClause addColumns = (AddColumnsClause) alterClause;
-                table.addColumns(addColumns.getColumns());
+                table.getCatalog().addColumns(table, addColumns.getColumns());
             } else if (alterClause instanceof DropColumnClause) {
                 DropColumnClause dropColumn = (DropColumnClause) alterClause;
-                table.deleteColumn(dropColumn.getColName());
+                table.getCatalog().dropColumn(table, dropColumn.getColName());
             } else if (alterClause instanceof ColumnRenameClause) {
                 ColumnRenameClause columnRename = (ColumnRenameClause) alterClause;
-                table.renameColumn(columnRename.getColName(), columnRename.getNewColName());
+                table.getCatalog().renameColumn(
+                        table, columnRename.getColName(), columnRename.getNewColName());
             } else if (alterClause instanceof ModifyColumnClause) {
                 ModifyColumnClause modifyColumn = (ModifyColumnClause) alterClause;
-                table.updateColumn(modifyColumn.getColumn(), modifyColumn.getColPos());
+                table.getCatalog().updateColumn(table, modifyColumn.getColumn(), modifyColumn.getColPos());
             } else if (alterClause instanceof ReorderColumnsClause) {
                 ReorderColumnsClause reorderColumns = (ReorderColumnsClause) alterClause;
-                table.reorderColumn(reorderColumns.getColumnsByPos());
+                table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
             }

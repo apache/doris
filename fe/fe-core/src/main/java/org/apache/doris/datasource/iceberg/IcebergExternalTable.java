@@ -17,11 +17,9 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
@@ -55,8 +53,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.UpdateSchema;
-import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewVersion;
@@ -102,148 +98,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         boolean isView = isView();
         return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
-    }
-
-    // refresh table after altered
-    private void refreshTable() throws DdlException {
-        Env.getCurrentEnv().getRefreshManager().refreshTable(getCatalog().getName(),
-                getDbName(), getName(), false);
-    }
-
-    private void addOneColumn(UpdateSchema updateSchema, Column column)
-            throws DdlException {
-        if (!column.isAllowNull()) {
-            throw new DdlException("can't add a non-nullable column to an Iceberg table");
-        }
-        org.apache.iceberg.types.Type dorisType = IcebergUtils.dorisTypeToIcebergType(column.getType());
-        Literal<?> defaultValue = IcebergUtils.parseIcebergLiteral(column.getDefaultValue(), dorisType);
-        updateSchema.addColumn(column.getName(), dorisType, column.getComment(), defaultValue);
-    }
-
-    private void applyPosition(UpdateSchema updateSchema, ColumnPosition columnPosition, String columnName) {
-        if (columnPosition.isFirst()) {
-            updateSchema.moveFirst(columnName);
-        } else {
-            updateSchema.moveAfter(columnName, columnPosition.getLastCol());
-        }
-    }
-
-    @Override
-    public void addColumn(Column column, ColumnPosition columnPosition) throws DdlException {
-        UpdateSchema updateSchema = table.updateSchema();
-        addOneColumn(updateSchema, column);
-        if (columnPosition != null) {
-            applyPosition(updateSchema, columnPosition, column.getName());
-        }
-        try {
-            catalog.getPreExecutionAuthenticator().execute(() -> {
-                updateSchema.commit();
-                return null;
-            });
-        } catch (Exception e) {
-            throw new DdlException("Failed to add column: " + column.getName() + " to table: " + getName()
-                    + ", error message is: " + e.getMessage(), e);
-        }
-        refreshTable();
-    }
-
-    @Override
-    public void addColumns(List<Column> columns) throws DdlException {
-        UpdateSchema updateSchema = table.updateSchema();
-        for (Column column : columns) {
-            addOneColumn(updateSchema, column);
-        }
-        try {
-            catalog.getPreExecutionAuthenticator().execute(() -> {
-                updateSchema.commit();
-                return null;
-            });
-        } catch (Exception e) {
-            throw new DdlException("Failed to add columns to table: " + getName()
-                    + ", error message is: " + e.getMessage(), e);
-        }
-        refreshTable();
-    }
-
-    @Override
-    public void deleteColumn(String name) throws DdlException {
-        UpdateSchema updateSchema = table.updateSchema().deleteColumn(name);
-        try {
-            catalog.getPreExecutionAuthenticator().execute(() -> {
-                updateSchema.commit();
-                return null;
-            });
-        } catch (Exception e) {
-            throw new DdlException("Failed to drop column: " + name + " from table: " + getName()
-                    + ", error message is: " + e.getMessage(), e);
-        }
-        refreshTable();
-    }
-
-    @Override
-    public void renameColumn(String oldName, String newName) throws DdlException {
-        UpdateSchema updateSchema = table.updateSchema().renameColumn(oldName, newName);
-        try {
-            catalog.getPreExecutionAuthenticator().execute(() -> {
-                updateSchema.commit();
-                return null;
-            });
-        } catch (Exception e) {
-            throw new DdlException("Failed to rename column: " + oldName + " to: " + newName
-                    + " in table: " + getName() + ", error message is: " + e.getMessage(), e);
-        }
-        refreshTable();
-    }
-
-    @Override
-    public void updateColumn(Column column, ColumnPosition columnPosition) throws DdlException {
-        org.apache.iceberg.types.Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
-        if (!icebergType.isPrimitiveType()) {
-            throw new DdlException("Update column type to non-primitive type is not supported: " + column.getType());
-        }
-        UpdateSchema updateSchema = table.updateSchema().updateColumn(column.getName(), icebergType.asPrimitiveType(),
-                column.getComment());
-        if (column.isAllowNull()) {
-            // we can change a required column to optional, but not the other way around
-            // because we don't know whether there is existing data with null values.
-            updateSchema.makeColumnOptional(column.getName());
-        }
-        if (columnPosition != null) {
-            applyPosition(updateSchema, columnPosition, column.getName());
-        }
-        try {
-            catalog.getPreExecutionAuthenticator().execute(() -> {
-                updateSchema.commit();
-                return null;
-            });
-        } catch (Exception e) {
-            throw new DdlException("Failed to update column: " + column.getName() + " to type: " + icebergType
-                    + " in table: " + getName() + ", error message is: " + e.getMessage(), e);
-        }
-        refreshTable();
-    }
-
-    @Override
-    public void reorderColumn(List<String> newOrder) throws DdlException {
-        if (newOrder == null || newOrder.isEmpty()) {
-            throw new DdlException("New order for columns cannot be null or empty.");
-        }
-        // TODO: improve this to support reordering columns
-        UpdateSchema updateSchema = table.updateSchema();
-        updateSchema.moveFirst(newOrder.get(0));
-        for (int i = 1; i < newOrder.size(); i++) {
-            updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
-        }
-        try {
-            catalog.getPreExecutionAuthenticator().execute(() -> {
-                updateSchema.commit();
-                return null;
-            });
-        } catch (Exception e) {
-            throw new DdlException("Failed to reorder columns in table: " + getName()
-                    + ", error message is: " + e.getMessage(), e);
-        }
-        refreshTable();
     }
 
     @Override

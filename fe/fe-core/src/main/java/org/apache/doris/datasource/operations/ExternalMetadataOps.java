@@ -17,7 +17,9 @@
 
 package org.apache.doris.datasource.operations;
 
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
@@ -213,6 +215,81 @@ public interface ExternalMetadataOps {
     }
 
     void dropBranchImpl(ExternalTable dorisTable, DropBranchInfo branchInfo) throws UserException;
+
+    /**
+     * add column for external table
+     *
+     * @param dorisTable
+     * @param column
+     * @param position
+     * @throws UserException
+     */
+    default void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+            throws UserException {
+        throw new UnsupportedOperationException("Add column operation is not supported for this table type.");
+    }
+
+    /**
+     * add columns for external table
+     *
+     * @param dorisTable
+     * @param columns
+     * @throws UserException
+     */
+    default void addColumns(ExternalTable dorisTable, List<Column> columns)
+            throws UserException {
+        throw new UnsupportedOperationException("Add columns operation is not supported for this table type.");
+    }
+
+    /**
+     * drop column for external table
+     *
+     * @param dorisTable
+     * @param columnName
+     * @throws UserException
+     */
+    default void dropColumn(ExternalTable dorisTable, String columnName)
+            throws UserException {
+        throw new UnsupportedOperationException("Drop column operation is not supported for this table type.");
+    }
+
+    /**
+     * rename column for external table
+     *
+     * @param dorisTable
+     * @param oldName
+     * @param newName
+     * @throws UserException
+     */
+    default void renameColumn(ExternalTable dorisTable, String oldName, String newName)
+            throws UserException {
+        throw new UnsupportedOperationException("Rename column operation is not supported for this table type.");
+    }
+
+    /**
+     * update column for external table
+     *
+     * @param dorisTable
+     * @param column
+     * @param position
+     * @throws UserException
+     */
+    default void updateColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+            throws UserException {
+        throw new UnsupportedOperationException("Update column operation is not supported for this table type.");
+    }
+
+    /**
+     * reorder columns for external table
+     *
+     * @param dorisTable
+     * @param newOrder
+     * @throws UserException
+     */
+    default void reorderColumns(ExternalTable dorisTable, List<String> newOrder)
+            throws UserException {
+        throw new UnsupportedOperationException("Reorder columns operation is not supported for this table type.");
+    }
 
     /**
      *
